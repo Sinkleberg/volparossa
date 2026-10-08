@@ -1062,6 +1062,49 @@ COOPERATIVE_CODE_PROPOSAL_NAMES |= {
     "content-provider-custody-executor-discovery-control.json",
 } | {f"content-custody-executor-discovery-privacy-{role}.json" for role in ("client", "relay0", "relay1", "relay2", "exit")}
 
+BROWSER_FILTER_NAMES = {f"browser-filter-delivery-{suffix}.json" for suffix in (
+    "original-report", "original-outer-cleanup", "original-diagnostic", "evidence", "prepared", "cache-before", "cache-after",
+    "launch", "tree-before", "tree-after", "input-cleanup", "retained", "artifacts")}
+BROWSER_FILTER_HELPERS = ("browser-filter-delivery.py", "browser-filter-bundle.py",
+    "content-provider-filter-smoke.py", "content-provider-site-smoke.py",
+    "content-network-smoke.py", "content-provider-https-smoke.py")
+
+
+def browser_filter_helper(work):
+    """Trust only the topology's immutable root-staged validation closure."""
+    try:
+        directory = work / "bin"
+        if directory.resolve(strict=True) != directory:
+            return None
+        for parent in (directory, *directory.parents):
+            info = parent.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+                return None
+        for name in BROWSER_FILTER_HELPERS:
+            path = directory / name
+            info = path.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1
+                    or info.st_mode & 0o022 or not 0 < info.st_size <= 262144):
+                return None
+        return directory / "browser-filter-delivery.py"
+    except OSError:
+        return None
+
+
+def browser_filter_candidates(root, label, helper, target):
+    # Reuse the closed recursive JSON validator, never import the worker's
+    # Browser tree or copy its logs. A failed/missing validator yields no files.
+    validated = Path(tempfile.mkdtemp(prefix="browser-filter-validated.", dir=target))
+    try:
+        subprocess.run(["/usr/bin/python3", "-I", "-B", str(helper), "copy-artifacts", str(root),
+                        str(validated), str(os.getuid()), str(os.getgid())],
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       cwd="/", env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}, timeout=3, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [(validated / name, f"{label}/{name}") for name in sorted(BROWSER_FILTER_NAMES)
+            if (validated / name).is_file() and not (validated / name).is_symlink()]
+
 
 def read_tail(path, limit=FILE_LIMIT):
     try:
@@ -1163,6 +1206,16 @@ def collect(home, opt, revision, scenario, guest_status,
             roots.append((path, f"work-{len(roots)}"))
             if len(roots) == 5:
                 break
+    if scenario == "content-provider":
+        # Prioritize already validated exact Browser receipts before generic
+        # diagnostics consume the existing file-count/byte limits. This is
+        # recovery evidence only, even when an inner receipt says passed=true.
+        helper = next((found for root, _ in roots[1:]
+                       if (found := browser_filter_helper(root)) is not None), None)
+        if helper is not None:
+            for root, label in roots:
+                if root.is_dir() and not root.is_symlink():
+                    candidates.extend(browser_filter_candidates(root, label, helper, target))
     for root, label in roots:
         if root.is_symlink() or not root.is_dir():
             continue
@@ -1329,6 +1382,8 @@ def collect(home, opt, revision, scenario, guest_status,
         if observed is None:
             continue
         data, original_size = observed
+        if path.name in BROWSER_FILTER_NAMES and original_size > len(data):
+            continue  # Preserve complete validated original bytes, never a JSON tail.
         if scenario == "browser-network" and path.name in browser_names and original_size > len(data):
             # A truncated JSON tail is not reconstructible structured evidence.
             continue

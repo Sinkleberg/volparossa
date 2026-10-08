@@ -117,8 +117,8 @@ revocation and sticky opt-out. Only an explicitly supplied, hash-verified bundle
 can enable it. The browser and broker run as the disposable worker in nested
 namespaces; neither receives permission to read the agent cache directly.
 
-The Browser fixture passes 84 focused JavaScript checks and 24 Python checks;
-12 core transfer checks, nine runner argument/resource checks and 15 joined-proof
+The Browser fixture passes 84 focused JavaScript checks and 34 Python checks;
+12 core transfer checks, thirteen runner argument/resource checks and 17 joined-proof
 and receipt-export checks also pass. These are preparatory component checks,
 **not a passed combined runtime trial**. The hook
 must still prove real control access after namespace mapping, end-to-end browser
@@ -139,8 +139,36 @@ evidence, rejects a tmpfs/ramfs parent and requires available host memory for th
 unchanged 4-GiB guest plus a 2-GiB reserve before launch. This is a preflight
 snapshot, not a memory reservation. A fixed JSON-only export retains original
 receipts and their hashes, including failures, without exporting private logs,
-profiles or authority inputs. The corrected combined runtime trial remains
-pending.
+profiles or authority inputs.
+
+The second local attempt on `2e4f4527d669b104ed56d87184bb11ab73ccabe6`,
+using the same Browser input manifest, completed the guest build and reached the
+capability-free Client-namespace launcher, but failed with
+`BROWSER_FILTER_NATIVE_FAILED`. The original launch, source-inventory and input
+cleanup receipts were retained; neither the Browser report nor its outer-cleanup
+report was produced. Those missing reports do not establish whether failure
+occurred during preflight, execution or cleanup. This is a failed combined trial,
+not proof of a working Firefox-to-broker path. Evidence remains in the local
+`browser-filter-delivery-02.yaD4ng` collection. The VM and owned overlay were
+removed. A15 verifies unchanged disposable-guest root networking outside the
+owned namespaces, with matching before/after hash
+`13e338046f6a7e418c119f377258cc98664eb005cf89d8a5b6ff8aa8d44f6824`.
+
+Failure diagnosis now retains only a closed phase code and cleanup-failure flag,
+including failures before Browser output preparation. The emergency collector
+uses the same root-staged JSON validator and preserves incomplete status; it
+never exports raw Browser errors, logs or temporary authority. These additions
+improve the next trial's evidence, not the outcome of the failed second attempt.
+
+The guest recipe also had a namespace-parent permission defect: `ip netns add`
+could create `/run/netns` under `umask 077`, preventing the capability-free
+Browser worker from checking its own namespace identity. The opt-in fixture now
+creates a missing parent explicitly as root-owned `0755` and preserves an already
+safe parent; unsafe existing paths are rejected rather than changed. Six inert
+tests pass. This fixes the fresh-guest recipe, but the missing diagnostic from
+attempt two cannot prove it was that attempt's first failure. Browser namespace
+validation and private agent-cache permissions remain unchanged. A successful
+combined runtime trial is still required.
 
 ### Bank and Transaction layer implementation
 

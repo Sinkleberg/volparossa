@@ -3064,6 +3064,29 @@ mpquic_binary=$WORK/bin/volparossa-mpquic
 [ "$scenario" != agent-artifact ] || agent_artifact_prepare
 [ "$scenario" != agent-jobs ] || agent_jobs_prepare
 
+# BEGIN browser-filter namespace-parent preflight
+if [ -n "$browser_filter_bundle" ]; then
+    PHASE=browser-filter-netns-parent
+    printf '%s\n' 'Browser fixture: create /run/netns root:root mode 0755 only if absent; preserve a safe existing parent; never change private cache permissions.'
+    # This is after the root/Debian/systemd/KVM gates, inside the disposable
+    # guest only. ip netns add otherwise inherits umask 077 when making its
+    # runtime parent, preventing the capless worker from statting its namespace.
+    # An explicit mkdir mode applies only to our new directory. The runtime
+    # parent, like iproute2's own parent mount, lasts until this VM is discarded.
+    [ ! -L /run/netns ] || fail BROWSER_FILTER_NETNS_PARENT_UNSAFE
+    if [ ! -e /run/netns ]; then
+        mkdir -m 0755 -- /run/netns || fail BROWSER_FILTER_NETNS_PARENT_UNAVAILABLE
+    fi
+    if [ ! -d /run/netns ] || [ "$(readlink -e -- /run/netns)" != /run/netns ]; then
+        fail BROWSER_FILTER_NETNS_PARENT_UNSAFE
+    fi
+    case $(stat -Lc '%u:%g:%a' /run/netns) in
+        0:0:755|0:0:711) ;;
+        *) fail BROWSER_FILTER_NETNS_PARENT_UNSAFE ;;
+    esac
+fi
+# END browser-filter namespace-parent preflight
+
 PHASE=network-topology
 for namespace in "$CLIENT" "$B1" "$B2" "$R0" "$R1" "$R2" "$R3" "$R4" "$R5" \
     "$EXIT_NODE" "$EXIT2_NODE" "$DEST"; do

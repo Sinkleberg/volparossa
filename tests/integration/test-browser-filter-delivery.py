@@ -151,6 +151,36 @@ class JoinedFilterProof(unittest.TestCase):
             path.write_bytes(b"a" * 65537)
             with self.assertRaises(ValueError): CHECK["raw_file"](path)
 
+    def test_early_diagnostic_retained_without_driver_report_exported_and_cleaned(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary).resolve(); root = work / "client-fixtures/browser-filter-delivery"
+            root.mkdir(parents=True, mode=0o700)
+            raw = b'{"schema":1,"success":false,"phase":"topology_namespace","cleanup_failed":false}'
+            CHECK["write_new"](root / "diagnostic.json", raw)
+            result = CHECK["retain"](work)
+            self.assertEqual(result["originals_sha256"], {"diagnostic": hashlib.sha256(raw).hexdigest()})
+            self.assertFalse(result["successful_native_execution_claimed"])
+            self.assertEqual(CHECK["retain"](work), result)
+            output = work / "output"; output.mkdir()
+            exported = CHECK["copy_artifacts"](work, output, os.getuid(), os.getgid())
+            self.assertIn("original-report", exported["missing"])
+            self.assertEqual((output / "browser-filter-delivery-original-diagnostic.json").read_bytes(), raw)
+            CHECK["cleanup"](root)
+            self.assertFalse(root.exists())
+
+    def test_diagnostic_schema_is_closed_and_never_a_success_receipt(self):
+        good = dict(schema=1, success=False, phase="binary", cleanup_failed=True)
+        for phase in CHECK["DIAGNOSTIC_PHASES"]:
+            CHECK["validate_diagnostic"](dict(good, phase=phase))
+        for change in (dict(schema=True), dict(success=True), dict(cleanup_failed=1), dict(phase="PRIVATE"),
+                       dict(phase=["binary"]), dict(error="PRIVATE")):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary) / "browser-filter-delivery"; root.mkdir(mode=0o700)
+                CHECK["write_new"](root / "selection.json", b"keep")
+                CHECK["write_new"](root / "diagnostic.json", json.dumps(dict(good, **change)).encode())
+                with self.assertRaises(ValueError): CHECK["cleanup"](root)
+                self.assertTrue((root / "selection.json").exists())
+
     def test_artifact_export_preserves_bytes_hash_and_omits_private_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             work, output = Path(temporary) / "work", Path(temporary) / "output"

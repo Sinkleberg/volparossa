@@ -27,6 +27,13 @@ SCOPE = dict(real_core_broker=True, real_gecko_unix_ipc=True, positive_verified_
     cold_cache_proven=False, native_admission_registered=False, production_default_enrollment=False,
     startup_resume_stale_filter_barrier=False, real_os_expiry=False)
 MAX_REPORT = 65536
+DIAGNOSTIC_PHASES = {
+    "arguments", "stage", "packages", "sources", "expected", "binary", "control",
+    "topology_guest", "topology_init", "topology_root", "topology_unit", "topology_namespace", "topology_peer",
+    "output_path", "output_prepare", "binary_copy", "wrapper_inputs", "home", "wrapper",
+    "cleanup_profile", "cleanup_binary", "cleanup_receipt",
+}
+DIAGNOSTIC_KEYS = {"schema", "success", "phase", "cleanup_failed"}
 REPORT_KEYS = {"schema", "passed", "scope", "operation", "receipts", "probes", "module_sha256", "driver_sha256",
     "broker_sha256", "expected", "runtime_version", "runtime_source_stamp", "runtime_sha256", "extension_packages",
     "failure", "host_read_only", "interfaces", "browser_exit_status", "broker_cleanup", "broker_socket_removed",
@@ -34,6 +41,7 @@ REPORT_KEYS = {"schema", "passed", "scope", "operation", "receipts", "probes", "
 EXPORT_KEYS = {
     "original-report": REPORT_KEYS,
     "original-outer-cleanup": {"schema", "temporary_profiles_removed", "broker_copy_removed", "logs"},
+    "original-diagnostic": DIAGNOSTIC_KEYS,
     "evidence": {"version", "kind", "success", "bundle_manifest_sha256", "core_broker_sha256", "originals_sha256",
                  "publication", "protected_cold", "browser", "scope", "cleanup"},
     "prepared": {"version", "expected", "created_unix_seconds", "maximum_authority_seconds"},
@@ -50,7 +58,7 @@ EXPORT_FIELDS = set().union(*EXPORT_KEYS.values(), SCOPE, OPERATIONS, CASES, {
     "preserved", "freshReload", "reloadEvents", "delivery", "asset", "broker_revoked", "bytes", "sha256", "rules",
     "manifest_id", "publisher_key", "name", "authority_expires_unix_seconds", "accepted", "completed", "denied",
     "ok", "phase", "ads", "tracker", "neutral", "started", "reaped", "graceful", "broker", "id", "size",
-    "unpacked_bytes", "zip_entries", "report", "outer-cleanup", "content_type", "peer_bytes", "providers_used",
+    "unpacked_bytes", "zip_entries", "report", "outer-cleanup", "diagnostic", "content_type", "peer_bytes", "providers_used",
     "privacy_captures_validated", "exit_status", "same_publication_joined", "broker_reuse_requested", "broker_cache_only_proven",
     "new_broker_peer_transfer_proven", "two_subflow_bulk_aggregation", "browser_profile_removed", "broker_reaped",
     "fixture_authority_removed", "separate_owner_input_removed", "agent_cache_identity_preserved", "agent_cache_private",
@@ -65,7 +73,8 @@ EXPORT_WORDS = {"complete", "prepare", "browser_start", "browser_quit", "broker_
     "fixture_other", "invalid_request", "duplicate_request", "handshake_required", "busy", "unavailable", "revoked",
     "clock_error", "expired", "invalid_snapshot", "invalid_response", "not_configured", "owner_config", "owner_context",
     "owner_clock", "owner_busy", "owner_closed", "owner_failed", "owner_cleanup", "asset_config", "asset_package",
-    "asset_context", "asset_authority", "asset_expired", "asset_clock", "asset_busy", "asset_closed", "asset_failed", "asset_cleanup"}
+    "asset_context", "asset_authority", "asset_expired", "asset_clock", "asset_busy", "asset_closed", "asset_failed", "asset_cleanup",
+    *DIAGNOSTIC_PHASES}
 
 
 def require(condition):
@@ -109,6 +118,13 @@ def write_new(path, raw):
         stream.write(raw); stream.flush(); os.fsync(stream.fileno())
 
 
+def validate_diagnostic(value):
+    require(type(value) is dict and set(value) == DIAGNOSTIC_KEYS
+            and type(value["schema"]) is int and value["schema"] == 1
+            and value["success"] is False and type(value["cleanup_failed"]) is bool
+            and type(value["phase"]) is str and value["phase"] in DIAGNOSTIC_PHASES)
+
+
 def private_root(root):
     require(root.name == "browser-filter-delivery" and root.resolve(strict=True) == root)
     info = root.lstat()
@@ -141,7 +157,7 @@ def cleanup(root):
     require(root.name == "browser-filter-delivery" and not root.is_symlink())
     if not root.exists(): return dict(directory_removed=True, files_removed=True)
     private_root(root)
-    require({path.name for path in root.iterdir()} <= {"selection.json", "expected.json", "home"})
+    require({path.name for path in root.iterdir()} <= {"selection.json", "expected.json", "diagnostic.json", "home"})
     files = []
     for path in root.iterdir():
         info = path.lstat()
@@ -151,6 +167,7 @@ def cleanup(root):
         else:
             require(stat.S_ISREG(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o400
                     and info.st_nlink == 1 and info.st_size <= 1024)
+            if path.name == "diagnostic.json": validate_diagnostic(read(path))
             files.append(path)
     for path in files: path.unlink()
     if (root / "home").exists(): (root / "home").rmdir()
@@ -183,7 +200,8 @@ def launch(arguments):
     os.execv(sys.executable, [sys.executable, "-B", str(source / "scripts/smoke_filter_delivery.py"),
         "--execute", "--stage", str(source / "build/firefox-filter-runtime"),
         "--output", str(source / "build/filter-delivery"), "--broker", binary, "--broker-sha256", binary_sha,
-        "--control-socket", control_socket, "--agent-cache", cache, "--expected", str(root / "expected.json")])
+        "--control-socket", control_socket, "--agent-cache", cache, "--expected", str(root / "expected.json"),
+        "--diagnostic-output", str(root / "diagnostic.json")])
 
 
 def cache_state(path, uid, gid):
@@ -258,12 +276,14 @@ def retain(work):
     """Preserve original closed receipts on failure too; absence is not success."""
     output = work / "client-fixtures/browser-filter-source/build/filter-delivery"
     retained = {}
-    for name, keys in (("report", REPORT_KEYS), ("outer-cleanup", {"schema", "temporary_profiles_removed", "broker_copy_removed", "logs"})):
-        path = output / (name + ".json")
+    for name, keys in (("report", REPORT_KEYS), ("outer-cleanup", {"schema", "temporary_profiles_removed", "broker_copy_removed", "logs"}),
+                       ("diagnostic", DIAGNOSTIC_KEYS)):
+        path = (work / "client-fixtures/browser-filter-delivery" if name == "diagnostic" else output) / (name + ".json")
         if not path.exists() and not path.is_symlink(): continue
         raw = raw_file(path)
         value = json.loads(raw, object_pairs_hook=BUNDLE["unique_pairs"])
         require(type(value) is dict and set(value) <= keys and type(value.get("schema")) is int and value["schema"] == 1)
+        if name == "diagnostic": validate_diagnostic(value)
         target = work / ("browser-filter-delivery-original-" + name + ".json")
         if target.exists(): require(raw_file(target) == raw)
         else: write_new(target, raw)
@@ -307,6 +327,7 @@ def copy_artifacts(work, output, uid, gid):
             require({"schema", "passed", "failure"} <= set(value)
                     and type(value["schema"]) is int and value["schema"] == 1 and type(value["passed"]) is bool)
         else: require(set(value) == keys)
+        if suffix == "original-diagnostic": validate_diagnostic(value)
         export_value(value)
         pending[name] = raw
     result = dict(version=1, originals={name: dict(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
@@ -322,6 +343,8 @@ def copy_artifacts(work, output, uid, gid):
 
 
 def evidence(work, manifest_sha, binary_sha, uid, original_gid, control_gid):
+    diagnostic = work / "browser-filter-delivery-original-diagnostic.json"
+    require(not diagnostic.exists() and not diagnostic.is_symlink())
     source = work / "client-fixtures/browser-filter-source"
     output = source / "build/filter-delivery"
     manifest_raw = raw_file(source / "INPUTS.json")
