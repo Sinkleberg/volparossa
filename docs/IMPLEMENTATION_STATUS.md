@@ -170,6 +170,19 @@ attempt two cannot prove it was that attempt's first failure. Browser namespace
 validation and private agent-cache permissions remain unchanged. A successful
 combined runtime trial is still required.
 
+The third local attempt on `e75f9231227b5400836a2693b4a20aefab67f24a`,
+with Browser input manifest
+`26f0716f2b5e75cf3cec0ba145b8d6e9a0b4b6583051aee374c22e1d87d5b8d2`,
+passed guest build and namespace-parent preparation but stopped earlier in the
+provider scenario at `CONTENT_PROVIDER_MPTCP_SELECTION_UNAVAILABLE`. No content
+transfer or Browser hook ran, so this attempt cannot verify the Browser fix or
+its new failure diagnostics. The retained `browser-filter-delivery-03.gqbzoq`
+collection records zero remaining owned objects and unchanged guest-root
+networking, with matching hash
+`abc03c0e46ecc703847d916133d7288ff6efdd22ee8dc88d62afcec308040f0e`.
+The VM and disposable overlay were removed. Provider route selection must be
+diagnosed before another joined run; the Browser integration remains incomplete.
+
 ### Citizen procedure simulation
 
 Citizen [PR1](https://github.com/VOLPAROSSA/volparossa-citizen/pull/1) is merged
