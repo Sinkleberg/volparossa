@@ -21,6 +21,8 @@ expected_commit=
 scenario=alpha
 code_bundle=
 code_manifest_sha256=
+browser_filter_bundle=
+browser_filter_manifest_sha256=
 
 guest_memory_for_scenario() {
     # These fixtures co-locate two 360M providers in one guest. Production
@@ -42,7 +44,8 @@ usage() {
         '       --package is required only for alpha; --mpquic is unnecessary for standalone Wi-Fi/model/private-browser/transaction-TEST proofs.' \
         '       agent-cooperative-code also requires --code-bundle DIRECTORY --code-manifest-sha256 SHA256.' \
         '       --native-runtime PATH is required for agent-native-coding or agent-native-editor (exact verified bundle).' \
-        '       Native-editor and cooperative-code optionally accept --host-tools-directory PATH (verified workspace-only QEMU).'
+        '       content-provider optionally accepts --browser-filter-bundle ARCHIVE --browser-filter-manifest-sha256 SHA256.' \
+        '       Native-editor, cooperative-code and content-provider accept --host-tools-directory PATH (verified workspace-only QEMU).'
 }
 
 print_plan() {
@@ -506,6 +509,16 @@ while [ "$#" -gt 0 ]; do
             code_bundle=$2
             shift
             ;;
+        --browser-filter-bundle)
+            if [ "$#" -lt 2 ] || [ -n "$browser_filter_bundle" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            browser_filter_bundle=$2
+            shift
+            ;;
+        --browser-filter-manifest-sha256)
+            if [ "$#" -lt 2 ] || [ -n "$browser_filter_manifest_sha256" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            browser_filter_manifest_sha256=$2
+            shift
+            ;;
         --code-manifest-sha256)
             if [ "$#" -lt 2 ] || [ -n "$code_manifest_sha256" ]; then usage >&2; exit 64; fi
             code_manifest_sha256=$2
@@ -560,7 +573,7 @@ done
 
 if [ "$mode" = preview ]; then
     if [ "$approval" != no ] \
-        || [ -n "$image_path$mpquic_path$package_path$native_runtime_path$host_tools_directory$output_directory$expected_commit$code_bundle$code_manifest_sha256" ]; then
+        || [ -n "$image_path$mpquic_path$package_path$native_runtime_path$host_tools_directory$output_directory$expected_commit$code_bundle$code_manifest_sha256$browser_filter_bundle$browser_filter_manifest_sha256" ]; then
         usage >&2
         exit 64
     fi
@@ -589,12 +602,18 @@ if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative
 elif [ -n "$code_bundle$code_manifest_sha256" ]; then
     exit 64
 fi
+if [ -n "$browser_filter_bundle$browser_filter_manifest_sha256" ]; then
+    [ "$scenario" = content-provider ] || exit 64
+    case $browser_filter_bundle in /*) ;; *) exit 64 ;; esac
+    case $browser_filter_manifest_sha256 in ''|*[!0-9a-f]*) exit 64 ;; esac
+    [ "${#browser_filter_manifest_sha256}" -eq 64 ] || exit 64
+fi
 case $expected_commit in ''|*[!0-9a-f]*) exit 64 ;; esac
 case ${#expected_commit} in 40|64) ;; *) exit 64 ;; esac
 [ "$(id -u)" -ne 0 ] || { printf '%s\n' 'VM runner must remain unprivileged' >&2; exit 77; }
 
 if [ -n "$host_tools_directory" ]; then
-    case $scenario in agent-native-editor|agent-cooperative-code|agent-cooperative-code-proposal) ;; *) exit 64 ;; esac
+    case $scenario in agent-native-editor|agent-cooperative-code|agent-cooperative-code-proposal|content-provider) ;; *) exit 64 ;; esac
     case $host_tools_directory in /*) ;; *) exit 64 ;; esac
     python3 -B "$(dirname -- "$0")/browser-native-tools.py" --verify --output "$host_tools_directory"
     PATH=$host_tools_directory/bin:$PATH
@@ -752,6 +771,17 @@ git -C "$REPOSITORY" archive --format=tar --prefix=source/ "$expected_commit" \
 [ "$(stat -Lc '%s' "$SOURCE_ARCHIVE")" -gt 0 ] || exit 69
 [ "$(stat -Lc '%s' "$SOURCE_ARCHIVE")" -le 536870912 ] || exit 69
 SOURCE_SHA256=$(sha256sum "$SOURCE_ARCHIVE" | awk '{ print $1 }')
+BROWSER_FILTER_ARCHIVE=$RUN_DIRECTORY/browser-filter.tar
+BROWSER_FILTER_ARCHIVE_SHA256=none
+BROWSER_FILTER_MANIFEST_SHA256=none
+if [ -n "$browser_filter_bundle" ]; then
+    python3 -B "$HERE/browser-filter-bundle.py" verify "$browser_filter_bundle" "$browser_filter_manifest_sha256"
+    install -m 0600 "$browser_filter_bundle" "$BROWSER_FILTER_ARCHIVE"
+    python3 -B "$HERE/browser-filter-bundle.py" verify "$BROWSER_FILTER_ARCHIVE" "$browser_filter_manifest_sha256"
+    BROWSER_FILTER_ARCHIVE_SHA256=$(sha256sum "$BROWSER_FILTER_ARCHIVE" | awk '{ print $1 }')
+    BROWSER_FILTER_MANIFEST_SHA256=$browser_filter_manifest_sha256
+    printf '%s\n' 'Additional proof: exact Browser/ESR/signed-addons bundle, real core filter broker, uBO engine probes and revocation.'
+fi
 CODE_ARCHIVE=$RUN_DIRECTORY/cooperative-code.tar
 CODE_ARCHIVE_SHA256=none
 CODE_MANIFEST_SHA256=none
@@ -1356,6 +1386,8 @@ scenario=$5
 native_runtime_sha256=none
 code_archive_sha256=none
 code_manifest_sha256=none
+browser_filter_archive_sha256=none
+browser_filter_manifest_sha256=none
 # Native and cooperative bundles share positions only in disjoint scenarios.
 case $scenario in
     agent-native-coding|agent-native-editor)
@@ -1366,6 +1398,16 @@ case $scenario in
         [ "$#" -eq 7 ] || exit 64
         code_archive_sha256=${6:-none}
         code_manifest_sha256=${7:-none}
+        ;;
+    content-provider)
+        if [ "$#" -eq 7 ]; then
+            browser_filter_archive_sha256=$6
+            browser_filter_manifest_sha256=$7
+            case $browser_filter_archive_sha256:$browser_filter_manifest_sha256 in *[!0-9a-f:]*) exit 64 ;; esac
+            [ "${#browser_filter_archive_sha256}" -eq 64 ] && [ "${#browser_filter_manifest_sha256}" -eq 64 ] || exit 64
+        else
+            [ "$#" -eq 5 ] || exit 64
+        fi
         ;;
     *) [ "$#" -eq 5 ] || exit 64 ;;
 esac
@@ -1494,7 +1536,7 @@ fi
 if [ "$scenario" = image-snapshot ] || [ "$scenario" = cloud-private-file ] || [ "$scenario" = cloud-private-upload ]; then
     sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends gpg gpg-agent gpgconf tar
 fi
-if [ "$scenario" = agent-cooperative-browser ] || [ "$scenario" = agent-cooperative-browser-discovered ] || [ "$scenario" = browser-network ] || [ "$scenario" = cloud-private-file ] || [ "$scenario" = cloud-private-upload ]; then
+if [ "$scenario" = agent-cooperative-browser ] || [ "$scenario" = agent-cooperative-browser-discovered ] || [ "$scenario" = browser-network ] || [ "$scenario" = cloud-private-file ] || [ "$scenario" = cloud-private-upload ] || [ "$browser_filter_manifest_sha256" != none ]; then
     # Exact pinned ESR is extracted separately, not installed; these are its
     # ordinary Debian dependencies plus the isolated browser/HTTPS fixture tools.
     sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
@@ -1523,6 +1565,11 @@ fi
 tar -xzf source.tar.gz
 cd source
 test -x tests/integration/kvm-alpha-topology.sh
+if [ "$browser_filter_manifest_sha256" != none ]; then
+    guest_phase browser-filter-inputs
+    printf '%s  /home/vpci/browser-filter.tar\n' "$browser_filter_archive_sha256" | sha256sum --check --strict -
+    python3 -B tests/integration/browser-filter-bundle.py verify /home/vpci/browser-filter.tar "$browser_filter_manifest_sha256"
+fi
 if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative-code-proposal ]; then
     guest_phase code-inputs
     case $code_archive_sha256:$code_manifest_sha256 in *[!0-9a-f:]*) exit 64 ;; esac
@@ -1660,6 +1707,9 @@ set +e
 if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative-code-proposal ]; then
     set -- ./tests/integration/kvm-alpha-topology.sh --code-bundle /home/vpci/cooperative-code-inputs \
         --code-manifest-sha256 "$code_manifest_sha256"
+elif [ "$browser_filter_manifest_sha256" != none ]; then
+    set -- ./tests/integration/kvm-alpha-topology.sh --browser-filter-bundle /home/vpci/browser-filter.tar \
+        --browser-filter-manifest-sha256 "$browser_filter_manifest_sha256"
 else
     set -- env "$@" ./tests/integration/kvm-alpha-topology.sh
 fi
@@ -1877,6 +1927,7 @@ done
 [ "$ssh_attempt" -lt 240 ] || { tail -c 131072 "$CONSOLE" >&2; exit 1; }
 ssh_base sudo -n cloud-init status --wait >/dev/null
 scp_to "$SOURCE_ARCHIVE" /home/vpci/source.tar.gz
+if [ -n "$browser_filter_bundle" ]; then scp_to "$BROWSER_FILTER_ARCHIVE" /home/vpci/browser-filter.tar; fi
 if [ -n "$native_runtime_path" ]; then scp_to "$native_runtime_path" /home/vpci/native-runtime.tar.gz; fi
 if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative-code-proposal ]; then scp_to "$CODE_ARCHIVE" /home/vpci/cooperative-code.tar; fi
 if [ -n "$mpquic_path" ]; then scp_to "$mpquic_path" /home/vpci/volparossa-mpquic; fi
@@ -1920,6 +1971,15 @@ driver_time_bound=2400s
 [ "$scenario" != signal-backup ] || driver_time_bound=7200s
 [ "$scenario" != signal-backup-fragments ] || driver_time_bound=7200s
 case $scenario in
+    content-provider)
+        if [ -n "$browser_filter_bundle" ]; then
+            ssh_bounded "$driver_time_bound" /home/vpci/guest-driver.sh "$expected_commit" "$SOURCE_SHA256" \
+                "$MPQUIC_SHA256" "$PACKAGE_SHA256" "$scenario" "$BROWSER_FILTER_ARCHIVE_SHA256" "$BROWSER_FILTER_MANIFEST_SHA256"
+        else
+            ssh_bounded "$driver_time_bound" /home/vpci/guest-driver.sh "$expected_commit" "$SOURCE_SHA256" \
+                "$MPQUIC_SHA256" "$PACKAGE_SHA256" "$scenario"
+        fi
+        ;;
     agent-native-coding|agent-native-editor)
         ssh_bounded "$driver_time_bound" /home/vpci/guest-driver.sh "$expected_commit" "$SOURCE_SHA256" \
             "$MPQUIC_SHA256" "$PACKAGE_SHA256" "$scenario" "$NATIVE_RUNTIME_SHA256"

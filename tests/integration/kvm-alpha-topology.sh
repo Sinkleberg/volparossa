@@ -58,6 +58,9 @@ output_directory=
 expected_commit=
 code_bundle=
 code_manifest_sha256=
+browser_filter_bundle=
+browser_filter_manifest_sha256=
+browser_filter_directory=
 # Only explicit scenario arguments may authorize the staged Code inputs.
 COOPERATIVE_CODE_BUNDLE=
 COOPERATIVE_CODE_MANIFEST_SHA256=
@@ -70,6 +73,7 @@ usage() {
         '         --source DIRECTORY --bin DIRECTORY --output DIRECTORY' \
         '         --scenario signal-backup also runs the exact pinned native Signal backup test' \
         '         --scenario agent-cooperative-code requires --code-bundle DIRECTORY --code-manifest-sha256 HEX' \
+        '         --scenario content-provider accepts --browser-filter-bundle ARCHIVE --browser-filter-manifest-sha256 HEX' \
         '         --mpquic PATH --expected-commit SHA [--scenario alpha|reciprocity|reciprocity-private-dns|local-link|mixed-link|mpquic-growth|mptcp-growth|mptcp-refill|sharing|download-sharing|wifi-link|uplink-link|crash-recovery|content|content-message|content-https|content-provider|content-replication|content-repair|content-mailbox|content-custody|private-storage-peer|private-storage-replicas|signal-backup|private-storage-handoff|private-storage-fragments|agent-artifact|agent-train-cycle|agent-train-loop|agent-artifact-quarantine|agent-jobs|agent-jobs-loss|agent-jobs-follow|agent-jobs-peer-recovery|agent-jobs-ready-queue|agent-jobs-package-queue|agent-public-task|agent-public-document|agent-public-collection|agent-public-network-sources|agent-task-graph|agent-ready-dag|agent-model-planning|agent-model-task-graph|agent-successor-serving|agent-active-recovery|agent-adapter-aggregation|agent-autonomous-aggregation|agent-policy-assessment|dns-cache]'
 }
 
@@ -865,6 +869,16 @@ while [ "$#" -gt 0 ]; do
             [ -n "$code_bundle" ] || { usage >&2; exit 64; }
             shift
             ;;
+        --browser-filter-bundle)
+            if [ "$#" -lt 2 ] || [ -n "$browser_filter_bundle" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            browser_filter_bundle=$2
+            shift
+            ;;
+        --browser-filter-manifest-sha256)
+            if [ "$#" -lt 2 ] || [ -n "$browser_filter_manifest_sha256" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            browser_filter_manifest_sha256=$2
+            shift
+            ;;
         --code-manifest-sha256)
             if [ "$#" -lt 2 ] || [ -n "$code_manifest_sha256" ]; then usage >&2; exit 64; fi
             code_manifest_sha256=$2
@@ -885,7 +899,7 @@ done
 
 if [ "$mode" = preview ]; then
     if [ "$approval" != no ] \
-        || [ -n "$source_directory$binary_directory$mpquic_binary$output_directory$expected_commit$code_bundle$code_manifest_sha256" ]; then
+        || [ -n "$source_directory$binary_directory$mpquic_binary$output_directory$expected_commit$code_bundle$code_manifest_sha256$browser_filter_bundle$browser_filter_manifest_sha256" ]; then
         usage >&2
         exit 64
     fi
@@ -922,6 +936,13 @@ elif [ -n "$code_bundle$code_manifest_sha256" ]; then
     exit 64
 fi
 
+if [ -n "$browser_filter_bundle$browser_filter_manifest_sha256" ]; then
+    [ "$scenario" = content-provider ] || exit 64
+    case $browser_filter_bundle in /*) ;; *) exit 64 ;; esac
+    case $browser_filter_bundle in /|*/|*//*|*/../*|*/./*|*/..|*/.|*[[:cntrl:]]*) exit 64 ;; esac
+    case $browser_filter_manifest_sha256 in ''|*[!0-9a-f]*) exit 64 ;; esac
+    [ "${#browser_filter_manifest_sha256}" -eq 64 ] || exit 64
+fi
 [ "$(id -u)" -eq 0 ] || { printf '%s\n' 'execution requires root inside KVM' >&2; exit 77; }
 [ "$(sed -n '1{s/\..*$//;p;}' /etc/debian_version)" = 13 ] \
     || { printf '%s\n' 'execution requires Debian 13' >&2; exit 77; }
@@ -939,6 +960,21 @@ for command_name in awk busctl cat chmod chown cut date find getent grep install
     command -v "$command_name" >/dev/null 2>&1 \
         || { printf 'required guest tool unavailable: %s\n' "$command_name" >&2; exit 69; }
 done
+if [ -n "$browser_filter_bundle" ]; then
+    [ -f "$browser_filter_bundle" ] && [ ! -L "$browser_filter_bundle" ] \
+        && [ "$(readlink -e -- "$browser_filter_bundle")" = "$browser_filter_bundle" ] \
+        && [ "$(stat -Lc '%a' "$browser_filter_bundle")" = 600 ] || exit 69
+    browser_filter_input_uid=$(stat -Lc '%u' "$browser_filter_bundle")
+    if [ "$browser_filter_input_uid" -eq 0 ]; then
+        python3 -B "$source_directory/tests/integration/browser-filter-bundle.py" verify \
+            "$browser_filter_bundle" "$browser_filter_manifest_sha256" || exit 69
+    elif [ "$browser_filter_input_uid" -eq "$(id -u vpci)" ]; then
+        runuser -u vpci -- python3 -B "$source_directory/tests/integration/browser-filter-bundle.py" verify \
+            "$browser_filter_bundle" "$browser_filter_manifest_sha256" || exit 69
+    else
+        exit 69
+    fi
+fi
 if [ "$agent_cooperative_code" = yes ]; then
     if [ -d "$code_bundle" ] && [ ! -L "$code_bundle" ] \
         && [ "$(readlink -e -- "$code_bundle")" = "$code_bundle" ] \

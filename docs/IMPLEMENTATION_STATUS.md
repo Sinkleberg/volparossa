@@ -11,7 +11,7 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-07
+Last updated: 2026-10-08
 
 ## Current integration and active work
 
@@ -30,6 +30,10 @@ Browser [PR10](https://github.com/VOLPAROSSA/volparossa-browser/pull/10) adds an
 actual-upstream-source regression for Consent-O-Matic's navigation-status reset:
 the original source fails and a one-character in-memory correction passes. The
 signed extension is unchanged; no upstream contribution has yet been submitted.
+The revised contribution approach uses the original extension's voluntary site
+reporting, not a maintained fork or automatic submission of browsing data.
+Such reports can reveal the reported site's URL; they are not described as
+guaranteed anonymous. Bundling, settings and cooperation tests stay in Browser.
 
 The new `content filter-snapshot` command reuses the existing protected public-text
 fetch path with an independently selected publisher, name and exact manifest hash.
@@ -104,6 +108,21 @@ They are not an additional protected-peer or combined browser test. The
 same-account trust, source binding and expiry responsibilities; it does not claim
 extension identity, cross-restart trusted time, publication governance or the
 unfinished Firefox startup/resume filtering barrier.
+
+The optional combined Browser trial now has a fixed-inventory input transfer
+and an explicit hook in the protected-provider fixture. It reuses the real
+agent's private cache after the cold peer fetch, then requires actual Gecko
+broker retrieval, original signed-uBO asset loading, engine request probes,
+revocation and sticky opt-out. Only an explicitly supplied, hash-verified bundle
+can enable it. The browser and broker run as the disposable worker in nested
+namespaces; neither receives permission to read the agent cache directly.
+
+The Browser fixture passes 84 focused JavaScript checks and 24 Python checks;
+12 core transfer checks and five runner argument checks also pass. These are
+preparatory component checks, **not a passed combined runtime trial**. The hook
+must still prove real control access after namespace mapping, end-to-end browser
+behavior and full cleanup. Automatic startup enrollment, native admission
+registration and expiry handling for already loaded rules remain open.
 
 ### Bank and Transaction layer implementation
 
