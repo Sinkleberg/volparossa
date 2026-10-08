@@ -118,11 +118,29 @@ can enable it. The browser and broker run as the disposable worker in nested
 namespaces; neither receives permission to read the agent cache directly.
 
 The Browser fixture passes 84 focused JavaScript checks and 24 Python checks;
-12 core transfer checks and five runner argument checks also pass. These are
-preparatory component checks, **not a passed combined runtime trial**. The hook
+12 core transfer checks, nine runner argument/resource checks and 15 joined-proof
+and receipt-export checks also pass. These are preparatory component checks,
+**not a passed combined runtime trial**. The hook
 must still prove real control access after namespace mapping, end-to-end browser
 behavior and full cleanup. Automatic startup enrollment, native admission
 registration and expiry handling for already loaded rules remain open.
+
+The first local combined attempt used core source
+`82450eb84f96c66818c069c1b287f0633c2f46d5` and Browser bundle manifest
+`ea6dd5425ffec9c73e226eecee6aa71076c78cc40f537e59501cc1a8698e6c9b`.
+It was stopped during the guest Rust build: the disposable overlay under
+RAM-backed `/tmp` competed with the 4-GiB guest for development-host memory.
+No Browser runtime or combined acceptance was reached, and no Browser receipts
+were collected. The VM and its owned temporary overlay were removed; source
+trees, the base image and frozen inputs were preserved. This is an aborted
+preparation attempt, not evidence that the joined data path passed or failed.
+The corrected opt-in runner places this trial's scratch beside the workspace
+evidence, rejects a tmpfs/ramfs parent and requires available host memory for the
+unchanged 4-GiB guest plus a 2-GiB reserve before launch. This is a preflight
+snapshot, not a memory reservation. A fixed JSON-only export retains original
+receipts and their hashes, including failures, without exporting private logs,
+profiles or authority inputs. The corrected combined runtime trial remains
+pending.
 
 ### Bank and Transaction layer implementation
 

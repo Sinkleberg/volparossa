@@ -151,6 +151,62 @@ class JoinedFilterProof(unittest.TestCase):
             path.write_bytes(b"a" * 65537)
             with self.assertRaises(ValueError): CHECK["raw_file"](path)
 
+    def test_artifact_export_preserves_bytes_hash_and_omits_private_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work, output = Path(temporary) / "work", Path(temporary) / "output"
+            work.mkdir(); output.mkdir()
+            report = fixture()[0]
+            report["extension_packages"][0]["id"] = "uBlock0@raymondhill.net"
+            raw = json.dumps(report, indent=2).encode()  # Deliberately no trailing newline.
+            name = "browser-filter-delivery-original-report.json"
+            CHECK["write_new"](work / name, raw)
+            CHECK["write_new"](work / "browser-filter-delivery.err", b"PRIVATE")
+            CHECK["write_new"](work / "browser-filter-inputs.tar", b"PRIVATE")
+            result = CHECK["copy_artifacts"](work, output, os.getuid(), os.getgid())
+            self.assertEqual((output / name).read_bytes(), raw)
+            self.assertEqual(result["originals"][name], dict(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest()))
+            self.assertFalse(result["successful_native_execution_claimed"])
+            self.assertIn("evidence", result["missing"])
+            self.assertEqual({path.name for path in output.iterdir()}, {name, "browser-filter-delivery-artifacts.json"})
+            self.assertEqual(CHECK["copy_artifacts"](work, output, os.getuid(), os.getgid()), result)
+
+    def test_empty_failure_receipts_are_missing_not_success_and_original_false_is_preserved(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work, output = Path(temporary) / "work", Path(temporary) / "output"
+            work.mkdir(); output.mkdir()
+            CHECK["write_new"](work / "browser-filter-delivery-evidence.json", b"")
+            raw = b'{"schema":1,"passed":false,"failure":"fixture_failed"}'
+            CHECK["write_new"](work / "browser-filter-delivery-original-report.json", raw)
+            result = CHECK["copy_artifacts"](work, output, os.getuid(), os.getgid())
+            self.assertIn("evidence", result["missing"])
+            self.assertFalse(result["successful_native_execution_claimed"])
+            self.assertEqual((output / "browser-filter-delivery-original-report.json").read_bytes(), raw)
+
+    def test_artifact_export_refuses_private_nested_value_before_any_copy(self):
+        for mutation in (lambda value: value.update(raw="PRIVATE"),
+                         lambda value: value.update(failure="PRIVATE /home/user"),
+                         lambda value: value.update(failure="192.168.1.23"),
+                         lambda value: value.update(logs={"browser": {"raw": "PRIVATE"}})):
+            with tempfile.TemporaryDirectory() as temporary:
+                work, output = Path(temporary) / "work", Path(temporary) / "output"
+                work.mkdir(); output.mkdir()
+                value = dict(schema=1, passed=False, failure="fixture_failed"); mutation(value)
+                CHECK["write_new"](work / "browser-filter-delivery-original-report.json", json.dumps(value).encode())
+                with self.assertRaises(ValueError): CHECK["copy_artifacts"](work, output, os.getuid(), os.getgid())
+                self.assertEqual(list(output.iterdir()), [])
+
+    def test_artifact_export_refuses_destination_overwrite_and_source_symlink(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work, output = Path(temporary) / "work", Path(temporary) / "output"
+            work.mkdir(); output.mkdir()
+            name = "browser-filter-delivery-input-cleanup.json"
+            CHECK["write_new"](work / name, b'{"directory_removed":true,"files_removed":true}')
+            CHECK["write_new"](output / name, b"keep-original")
+            with self.assertRaises(ValueError): CHECK["copy_artifacts"](work, output, os.getuid(), os.getgid())
+            self.assertEqual((output / name).read_bytes(), b"keep-original")
+            (work / name).unlink(); (work / name).symlink_to(output / name)
+            with self.assertRaises(ValueError): CHECK["copy_artifacts"](work, output, os.getuid(), os.getgid())
+
     def test_opt_in_call_is_additive_after_original_cold_before_original_warm_baseline(self):
         shell = (HERE / "content-provider-filter-smoke.sh").read_text()
         cold = shell.index("    content_provider_filter_consume cold\n")
@@ -166,6 +222,9 @@ class JoinedFilterProof(unittest.TestCase):
         self.assertLess(source.index(' retain "$WORK"'), source.index('"$browser_filter_status" -eq 0'))
         self.assertNotIn('chmod "$filter_cache"', source)
         self.assertNotIn('chown "$filter_cache"', source)
+        self.assertIn('browser_filter_delivery_copy_artifacts()', source)
+        self.assertIn('copy-artifacts "$WORK"', source)
+        self.assertNotIn('cp -r', source)
 
 
 if __name__ == "__main__": unittest.main()

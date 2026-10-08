@@ -1584,6 +1584,9 @@ capture_host_state() {
 }
 
 copy_artifacts() {
+    if [ -n "$browser_filter_bundle" ] && command -v browser_filter_delivery_copy_artifacts >/dev/null 2>&1; then
+        browser_filter_delivery_copy_artifacts || return 1
+    fi
     if [ "$scenario" = browser-network ]; then
         # The application proof has a closed JSON-only export; never copy grant/profile/log files.
         for artifact in host-state-before.json host-state-after.json a15-evidence.json; do
@@ -2234,6 +2237,9 @@ cleanup() {
     fi
     if [ "$scenario" = content-provider ] && command -v content_provider_filter_cleanup >/dev/null 2>&1; then
         content_provider_filter_cleanup || original_status=1
+    fi
+    if [ -n "$browser_filter_bundle" ] && command -v browser_filter_delivery_cleanup >/dev/null 2>&1; then
+        browser_filter_delivery_cleanup || original_status=1
     fi
     if [ "$scenario" = mpquic-growth ] && command -v mpquic_growth_cleanup >/dev/null 2>&1; then
         mpquic_growth_cleanup || original_status=1

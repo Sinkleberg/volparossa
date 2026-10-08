@@ -31,6 +31,41 @@ REPORT_KEYS = {"schema", "passed", "scope", "operation", "receipts", "probes", "
     "broker_sha256", "expected", "runtime_version", "runtime_source_stamp", "runtime_sha256", "extension_packages",
     "failure", "host_read_only", "interfaces", "browser_exit_status", "broker_cleanup", "broker_socket_removed",
     "temporary_profiles_removed", "logs", "failure_phase"}
+EXPORT_KEYS = {
+    "original-report": REPORT_KEYS,
+    "original-outer-cleanup": {"schema", "temporary_profiles_removed", "broker_copy_removed", "logs"},
+    "evidence": {"version", "kind", "success", "bundle_manifest_sha256", "core_broker_sha256", "originals_sha256",
+                 "publication", "protected_cold", "browser", "scope", "cleanup"},
+    "prepared": {"version", "expected", "created_unix_seconds", "maximum_authority_seconds"},
+    "cache-before": {"device", "inode", "mode", "user_uid", "group_gid"},
+    "cache-after": {"device", "inode", "mode", "user_uid", "group_gid"},
+    "launch": {"version", "boundary"},
+    "tree-before": {"version", "action", "transferred", "runtime_executed", "manifest_sha256", "files", "private_output_inspected"},
+    "tree-after": {"version", "action", "transferred", "runtime_executed", "manifest_sha256", "files", "private_output_inspected"},
+    "input-cleanup": {"directory_removed", "files_removed"},
+    "retained": {"version", "originals_sha256", "successful_native_execution_claimed"},
+}
+EXPORT_FIELDS = set().union(*EXPORT_KEYS.values(), SCOPE, OPERATIONS, CASES, {
+    "schema", "status", "choice", "state", "closed", "failed", "result", "attempted", "receipt", "selected", "imported",
+    "preserved", "freshReload", "reloadEvents", "delivery", "asset", "broker_revoked", "bytes", "sha256", "rules",
+    "manifest_id", "publisher_key", "name", "authority_expires_unix_seconds", "accepted", "completed", "denied",
+    "ok", "phase", "ads", "tracker", "neutral", "started", "reaped", "graceful", "broker", "id", "size",
+    "unpacked_bytes", "zip_entries", "report", "outer-cleanup", "content_type", "peer_bytes", "providers_used",
+    "privacy_captures_validated", "exit_status", "same_publication_joined", "broker_reuse_requested", "broker_cache_only_proven",
+    "new_broker_peer_transfer_proven", "two_subflow_bulk_aggregation", "browser_profile_removed", "broker_reaped",
+    "fixture_authority_removed", "separate_owner_input_removed", "agent_cache_identity_preserved", "agent_cache_private",
+    "staged_inputs_removed_by_enclosing_topology", "primary_control_gid", "supplementary_groups_empty", "client_namespace",
+    "outside_parent_namespace", "all_capabilities_dropped", "no_new_privileges",
+    *("integration/filters/" + name + ".sys.mjs" for name in BUNDLE["MODULES"]),
+    "tests/fixtures/filter_delivery.sys.mjs", "firefox-esr", "libxul.so", "omni.ja", "browser/omni.ja"})
+EXPORT_WORDS = {"complete", "prepare", "browser_start", "browser_quit", "broker_start", "command", "bootstrap", *OPERATIONS,
+    "eligible", "opted-out", "fresh", "pending", "active", "suspended", "lo", "0700", "verify-tree", NAME,
+    "text/plain", "volparossa-browser-filter-delivery", "uBlock0@raymondhill.net", "jid1-BoFifL9Vbdl2zQ@jetpack",
+    "ATBC@EasonWong", "gdpr@cavi.au.dk", "fixture_command", "fixture_failed", "fixture_cleanup", "fixture_clock",
+    "fixture_other", "invalid_request", "duplicate_request", "handshake_required", "busy", "unavailable", "revoked",
+    "clock_error", "expired", "invalid_snapshot", "invalid_response", "not_configured", "owner_config", "owner_context",
+    "owner_clock", "owner_busy", "owner_closed", "owner_failed", "owner_cleanup", "asset_config", "asset_package",
+    "asset_context", "asset_authority", "asset_expired", "asset_clock", "asset_busy", "asset_closed", "asset_failed", "asset_cleanup"}
 
 
 def require(condition):
@@ -236,6 +271,56 @@ def retain(work):
     return dict(version=1, originals_sha256=retained, successful_native_execution_claimed=False)
 
 
+def export_value(value, depth=0, field=None):
+    """Only the fixture's closed fields/scalars, never raw errors, paths or logs."""
+    require(depth <= 12)
+    if type(value) is dict:
+        require(len(value) <= 64 and set(value) <= EXPORT_FIELDS)
+        for key, child in value.items(): export_value(child, depth + 1, key)
+    elif type(value) is list:
+        require(len(value) <= 16)
+        for child in value: export_value(child, depth + 1, field)
+    elif type(value) is str:
+        require(value in EXPORT_WORDS or hex64(value) or re.fullmatch(r"[0-9a-f]{40}", value)
+                or (field in {"version", "runtime_version"}
+                    and re.fullmatch(r"[0-9]{1,3}(?:\.[0-9]{1,3}){1,3}", value)))
+    else:
+        require(value is None or type(value) is bool or (type(value) is int and 0 <= value < 2**64))
+
+
+def copy_artifacts(work, output, uid, gid):
+    require(work.resolve(strict=True) == work and output.resolve(strict=True) == output and work != output)
+    require(output.is_dir() and not output.lstat().st_mode & 0o002 and uid >= 0 and gid >= 0)
+    pending, missing = {}, []
+    # Validate the complete available set before copying anything. Empty files
+    # can result from a command which failed before emitting JSON; never turn
+    # that absence into a successful-native-execution claim.
+    for suffix, keys in EXPORT_KEYS.items():
+        name = "browser-filter-delivery-" + suffix + ".json"
+        source = work / name
+        if not source.exists() and not source.is_symlink(): missing.append(suffix); continue
+        raw = raw_file(source)
+        if not raw: missing.append(suffix); continue
+        value = json.loads(raw, object_pairs_hook=BUNDLE["unique_pairs"])
+        require(type(value) is dict and set(value) <= keys)
+        if suffix == "original-report":
+            require({"schema", "passed", "failure"} <= set(value)
+                    and type(value["schema"]) is int and value["schema"] == 1 and type(value["passed"]) is bool)
+        else: require(set(value) == keys)
+        export_value(value)
+        pending[name] = raw
+    result = dict(version=1, originals={name: dict(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+                 for name, raw in pending.items()}, missing=missing, successful_native_execution_claimed=False)
+    pending["browser-filter-delivery-artifacts.json"] = (json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    for name, raw in pending.items():
+        destination = output / name
+        if destination.exists() or destination.is_symlink(): require(raw_file(destination) == raw)
+        else: write_new(destination, raw)
+        os.chmod(destination, 0o600, follow_symlinks=False)
+        os.chown(destination, uid, gid, follow_symlinks=False)
+    return result
+
+
 def evidence(work, manifest_sha, binary_sha, uid, original_gid, control_gid):
     source = work / "client-fixtures/browser-filter-source"
     output = source / "build/filter-delivery"
@@ -308,6 +393,8 @@ def main():
     elif action == "cache-state" and len(args) == 3: result = cache_state(Path(args[0]), int(args[1]), int(args[2]))
     elif action == "launch" and len(args) == 10: return launch(args)
     elif action == "retain" and len(args) == 1: result = retain(Path(args[0]))
+    elif action == "copy-artifacts" and len(args) == 4:
+        result = copy_artifacts(Path(args[0]), Path(args[1]), int(args[2]), int(args[3]))
     elif action == "evidence" and len(args) == 6:
         result = evidence(Path(args[0]), args[1], args[2], *map(int, args[3:]))
     else: raise ValueError("browser_filter_delivery_rejected")

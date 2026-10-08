@@ -18,6 +18,14 @@ browser_filter_delivery_cleanup() {
     # owns final removal of the staged source/runtime/report tree under WORK.
 }
 
+browser_filter_delivery_copy_artifacts() {
+    # Exact bounded JSON only, including partial failure receipts. Never export
+    # the Browser log, archive, temporary authority, profile or source tree.
+    [ -f "$WORK/bin/browser-filter-delivery.py" ] || return 0
+    python3 -B "$WORK/bin/browser-filter-delivery.py" copy-artifacts "$WORK" \
+        "$output_directory" "$OUTPUT_UID" "$OUTPUT_GID" >/dev/null
+}
+
 browser_filter_delivery_run() {
     if [ -z "${browser_filter_bundle:-}" ] || [ -z "${browser_filter_manifest_sha256:-}" ]; then
         fail BROWSER_FILTER_INPUTS_MISSING
