@@ -170,6 +170,25 @@ attempt two cannot prove it was that attempt's first failure. Browser namespace
 validation and private agent-cache permissions remain unchanged. A successful
 combined runtime trial is still required.
 
+### Citizen procedure simulation
+
+Citizen [PR1](https://github.com/VOLPAROSSA/volparossa-citizen/pull/1) is merged
+in its own `main` at `43ef0ce916dd7ba0542710bc90705acdd4d2dd16`.
+The dependency-free executable uses synthetic identities and an immutable
+all-eligible electorate, distinct from registered accounts and turnout.
+One-third support starts voting; two-thirds yes adopts, two-thirds no rejects,
+and other results are indeterminate. An indeterminate result permits an explicit
+new procedure after three calendar years, with a fresh electorate snapshot and
+renewed support. UTC, closing-time and leap-day conventions are documented
+simulation assumptions, not new confirmed policy.
+
+Twenty-one independently rerun tests pass, including the actual deterministic
+CLI demo, rounding boundaries, duplicates, ineligible participation, time
+windows and repeat-state preservation. This is a single-process reference
+workflow, not real-person authentication, secret voting, cryptographic tally
+verification, distributed recovery, core integration or legal authority.
+Those remain incomplete. See the [application overview](applications/APPLICATIONS.md#citizen).
+
 ### Bank and Transaction layer implementation
 
 The 2026-10-04 user extension adds VOLPAROSSA Bank and a reusable Transaction-layer.
