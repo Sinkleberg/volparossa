@@ -212,6 +212,64 @@ class JoinedFilterProof(unittest.TestCase):
             self.assertFalse(result["successful_native_execution_claimed"])
             self.assertEqual((output / "browser-filter-delivery-original-report.json").read_bytes(), raw)
 
+    def test_browser_subphase_diagnostic_retained_and_exported_byte_exact_on_failure(self):
+        for phase in CHECK["BROWSER_PHASES"]:
+            for kind in CHECK["BROWSER_ERROR_KINDS"]:
+                value = dict(schema=1, passed=False, failure="fixture_failed", operation="browser_start",
+                    browser_diagnostic=dict(schema=1, phase=phase, error_kind=kind, cleanup_failed=False))
+                CHECK["validate_report_diagnostic"](value)
+                CHECK["export_value"](value)
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary).resolve()
+            original = work / "client-fixtures/browser-filter-source/build/filter-delivery"
+            original.mkdir(parents=True)
+            # browser_start includes baseline checks: preserve the actual subphase.
+            value = dict(schema=1, passed=False, failure="fixture_failed", operation="browser_start",
+                browser_diagnostic=dict(schema=1, phase="baseline_probe", error_kind="check_failed", cleanup_failed=True))
+            raw = json.dumps(value, indent=2).encode()
+            CHECK["write_new"](original / "report.json", raw)
+            retained = CHECK["retain"](work)
+            self.assertEqual(retained["originals_sha256"], {"report": hashlib.sha256(raw).hexdigest()})
+            self.assertFalse(retained["successful_native_execution_claimed"])
+            output = work / "export"; output.mkdir()
+            exported = CHECK["copy_artifacts"](work, output, os.getuid(), os.getgid())
+            self.assertEqual((output / "browser-filter-delivery-original-report.json").read_bytes(), raw)
+            self.assertFalse(exported["successful_native_execution_claimed"])
+
+    def test_browser_subphase_schema_rejects_raw_fields_wrong_types_and_unknown_enums_before_export(self):
+        diagnostic = dict(schema=1, phase="greeting", error_kind="timeout", cleanup_failed=False)
+        changes = [dict(schema=True), dict(schema=2), dict(phase="PRIVATE_SENTINEL"), dict(phase=["greeting"]),
+            dict(error_kind="none"), dict(error_kind=["timeout"]), dict(cleanup_failed=1), dict(raw="PRIVATE_SENTINEL")]
+        bad_values = [None, {}, {key: value for key, value in diagnostic.items() if key != "phase"},
+                      *(dict(diagnostic, **change) for change in changes)]
+        for bad in bad_values:
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary).resolve(); output = work / "export"; output.mkdir()
+                value = dict(schema=1, passed=False, failure="fixture_failed", browser_diagnostic=bad)
+                CHECK["write_new"](work / "browser-filter-delivery-original-report.json", json.dumps(value).encode())
+                with self.assertRaises(ValueError) as error:
+                    CHECK["copy_artifacts"](work, output, os.getuid(), os.getgid())
+                self.assertNotIn("PRIVATE_SENTINEL", str(error.exception))
+                self.assertEqual(list(output.iterdir()), [])
+                original = work / "client-fixtures/browser-filter-source/build/filter-delivery"
+                original.mkdir(parents=True)
+                CHECK["write_new"](original / "report.json", json.dumps(value).encode())
+                with self.assertRaises(ValueError): CHECK["retain"](work)
+
+    def test_browser_subphase_is_never_allowed_on_success_and_old_reports_remain_compatible(self):
+        args = list(fixture())
+        CHECK["validate_report_diagnostic"](args[0])
+        CHECK["validate_browser"](*args)
+        CHECK["validate_report_diagnostic"](dict(schema=1, passed=False, failure="fixture_failed"))
+        args[0]["browser_diagnostic"] = dict(schema=1, phase="cleanup", error_kind="io_error", cleanup_failed=True)
+        with self.assertRaises(ValueError): CHECK["validate_browser"](*args)
+        with self.assertRaises(ValueError): CHECK["validate_report_diagnostic"](args[0])
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary).resolve(); output = work / "export"; output.mkdir()
+            CHECK["write_new"](work / "browser-filter-delivery-original-report.json", json.dumps(args[0]).encode())
+            with self.assertRaises(ValueError): CHECK["copy_artifacts"](work, output, os.getuid(), os.getgid())
+            self.assertEqual(list(output.iterdir()), [])
+
     def test_artifact_export_refuses_private_nested_value_before_any_copy(self):
         for mutation in (lambda value: value.update(raw="PRIVATE"),
                          lambda value: value.update(failure="PRIVATE /home/user"),

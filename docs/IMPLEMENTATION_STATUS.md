@@ -200,15 +200,26 @@ identities after 210 inventory queries and reached the Browser hook. It failed
 at `BROWSER_FILTER_NATIVE_FAILED`. This time the original report and outer
 cleanup survived: the failure operation is `browser_start`, with no completed
 browser probes or delivery receipts. The closed outer diagnostic records
-`wrapper` and `cleanup_failed: false`. A started broker alone does not establish
+`wrapper` and `cleanup_failed: false`. The `browser_start` operation covers
+Firefox initialization and baseline extension/probe checks, so this report does
+not identify which of those failed. A started broker alone does not establish
 successful Firefox startup or filter delivery.
 
 The `browser-filter-delivery-04.G3DJR5` collection retains successful broker
 reaping, temporary-profile and input removal, zero remaining owned topology
 objects, and matching guest-root network-state hashes
 `558aace199b57512d8f96b624de8f70adab8c03a8712cec4070199c4810a4273`.
-The VM and its temporary disk were removed. Browser startup diagnosis and a
+The VM and its temporary disk were removed. Browser initialization/baseline diagnosis and a
 successful joined trial remain required; raw browser logs are not exported.
+
+The next-trial Browser driver records closed initialization/check subphases and
+error categories, while retaining the original failure through cleanup. The
+core validates those optional failure-only fields before exporting them; 20
+joined-proof/export tests and 13 runner tests pass. The driver also corrects its
+fresh-profile check to treat an absent uBO `importedLists` key as the upstream
+default empty list. Explicit malformed values and unexpected lists remain
+rejected. This is a verified fixture defect, not proof of VM4's precise cause;
+no signed extension package or product filtering rule was changed.
 
 ### Shared Weather application provider
 

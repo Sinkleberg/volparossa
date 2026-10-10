@@ -34,10 +34,17 @@ DIAGNOSTIC_PHASES = {
     "cleanup_profile", "cleanup_binary", "cleanup_receipt",
 }
 DIAGNOSTIC_KEYS = {"schema", "success", "phase", "cleanup_failed"}
+BROWSER_DIAGNOSTIC_KEYS = {"schema", "phase", "error_kind", "cleanup_failed"}
+BROWSER_PHASES = {
+    "log_open", "spawn", "log_drain", "connect", "greeting", "session", "context", "runtime_check",
+    "preference_check", "addon_check", "fixture_server", "baseline_selection", "baseline_probe", "exercise",
+    "selection", "probe", "final_addon_check", "final_preference_check", "quit", "join", "cleanup",
+}
+BROWSER_ERROR_KINDS = {"check_failed", "timeout", "io_error", "command_error", "interrupted", "other"}
 REPORT_KEYS = {"schema", "passed", "scope", "operation", "receipts", "probes", "module_sha256", "driver_sha256",
     "broker_sha256", "expected", "runtime_version", "runtime_source_stamp", "runtime_sha256", "extension_packages",
     "failure", "host_read_only", "interfaces", "browser_exit_status", "broker_cleanup", "broker_socket_removed",
-    "temporary_profiles_removed", "logs", "failure_phase"}
+    "temporary_profiles_removed", "logs", "failure_phase", "browser_diagnostic"}
 EXPORT_KEYS = {
     "original-report": REPORT_KEYS,
     "original-outer-cleanup": {"schema", "temporary_profiles_removed", "broker_copy_removed", "logs"},
@@ -57,7 +64,7 @@ EXPORT_FIELDS = set().union(*EXPORT_KEYS.values(), SCOPE, OPERATIONS, CASES, {
     "schema", "status", "choice", "state", "closed", "failed", "result", "attempted", "receipt", "selected", "imported",
     "preserved", "freshReload", "reloadEvents", "delivery", "asset", "broker_revoked", "bytes", "sha256", "rules",
     "manifest_id", "publisher_key", "name", "authority_expires_unix_seconds", "accepted", "completed", "denied",
-    "ok", "phase", "ads", "tracker", "neutral", "started", "reaped", "graceful", "broker", "id", "size",
+    "ok", "phase", "error_kind", "ads", "tracker", "neutral", "started", "reaped", "graceful", "broker", "id", "size",
     "unpacked_bytes", "zip_entries", "report", "outer-cleanup", "diagnostic", "content_type", "peer_bytes", "providers_used",
     "privacy_captures_validated", "exit_status", "same_publication_joined", "broker_reuse_requested", "broker_cache_only_proven",
     "new_broker_peer_transfer_proven", "two_subflow_bulk_aggregation", "browser_profile_removed", "broker_reaped",
@@ -74,7 +81,7 @@ EXPORT_WORDS = {"complete", "prepare", "browser_start", "browser_quit", "broker_
     "clock_error", "expired", "invalid_snapshot", "invalid_response", "not_configured", "owner_config", "owner_context",
     "owner_clock", "owner_busy", "owner_closed", "owner_failed", "owner_cleanup", "asset_config", "asset_package",
     "asset_context", "asset_authority", "asset_expired", "asset_clock", "asset_busy", "asset_closed", "asset_failed", "asset_cleanup",
-    *DIAGNOSTIC_PHASES}
+    *DIAGNOSTIC_PHASES, *BROWSER_PHASES, *BROWSER_ERROR_KINDS}
 
 
 def require(condition):
@@ -123,6 +130,19 @@ def validate_diagnostic(value):
             and type(value["schema"]) is int and value["schema"] == 1
             and value["success"] is False and type(value["cleanup_failed"]) is bool
             and type(value["phase"]) is str and value["phase"] in DIAGNOSTIC_PHASES)
+
+
+def validate_report_diagnostic(report):
+    # Older reports have no browser subphase. A new diagnostic is failure-only,
+    # and must never turn baseline checks into a claim that Firefox did not start.
+    if "browser_diagnostic" not in report:
+        return
+    value = report["browser_diagnostic"]
+    require(report.get("passed") is False and type(value) is dict and set(value) == BROWSER_DIAGNOSTIC_KEYS
+            and type(value["schema"]) is int and value["schema"] == 1
+            and type(value["phase"]) is str and value["phase"] in BROWSER_PHASES
+            and type(value["error_kind"]) is str and value["error_kind"] in BROWSER_ERROR_KINDS
+            and type(value["cleanup_failed"]) is bool)
 
 
 def private_root(root):
@@ -283,6 +303,7 @@ def retain(work):
         raw = raw_file(path)
         value = json.loads(raw, object_pairs_hook=BUNDLE["unique_pairs"])
         require(type(value) is dict and set(value) <= keys and type(value.get("schema")) is int and value["schema"] == 1)
+        if name == "report": validate_report_diagnostic(value)
         if name == "diagnostic": validate_diagnostic(value)
         target = work / ("browser-filter-delivery-original-" + name + ".json")
         if target.exists(): require(raw_file(target) == raw)
@@ -326,6 +347,7 @@ def copy_artifacts(work, output, uid, gid):
         if suffix == "original-report":
             require({"schema", "passed", "failure"} <= set(value)
                     and type(value["schema"]) is int and value["schema"] == 1 and type(value["passed"]) is bool)
+            validate_report_diagnostic(value)
         else: require(set(value) == keys)
         if suffix == "original-diagnostic": validate_diagnostic(value)
         export_value(value)
