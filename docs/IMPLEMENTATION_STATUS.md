@@ -221,20 +221,35 @@ default empty list. Explicit malformed values and unexpected lists remain
 rejected. This is a verified fixture defect, not proof of VM4's precise cause;
 no signed extension package or product filtering rule was changed.
 
-### Shared Weather application provider
+### Weather provider and Drizz.li web integration
 
-Weather [PR5](https://github.com/VOLPAROSSA/volparossa-weather/pull/5) is merged
-in its own `main` at `c14042a75b77608fcc968f9eabb93e015f87c0aa`.
-The executable provider contract exposes temperature and wind on the original
-model time axis, retaining source evidence and the earliest forecast or signed
-publication expiry. Its core-cache adapter reuses the existing authenticated
-fetch path without an implicit origin or Open-Meteo fallback. All 33 focused
-tests and the repository CI pass.
+The shared Weather provider from
+[PR5](https://github.com/VOLPAROSSA/volparossa-weather/pull/5) exposes temperature
+and wind on the original model time axis, retaining source evidence and the
+earliest forecast or signed publication expiry. Its core-cache adapter reuses
+the existing authenticated fetch path without an implicit origin or Open-Meteo
+fallback.
 
-This is the shared data interface, not yet rendering in Drizz.li or Overmorrow
-or a live Weather-overlay proof. Application transport and UI adapters remain
-required. Precipitation and air quality also remain required work; unsupported
-fields are explicitly unavailable, never substituted with zero values.
+Weather [PR6](https://github.com/VOLPAROSSA/volparossa-weather/pull/6) is merged
+in its own `main` at `ad9b788f2f284833e2ecdcaa1f4c60516c1bcef8`. It adds the
+pinned Drizz.li week-route integration and a fixed-area, loopback-only HTTP
+bridge to that adapter. The full app build and Svelte/TypeScript checks pass,
+alongside 46 Weather tests, 11 client/render tests and four browser-harness tests.
+An isolated real Firefox trial verifies initial display, refresh, missing/stale
+values, expiry, route guards and cleanup through the actual HTTP bridge with
+synthetic weather. Its
+[retained receipt](https://github.com/VOLPAROSSA/volparossa-weather/blob/537db8860d2d0567fb87c84782d23e50423620de/integrations/drizzli/browser-smoke.json)
+binds the final UI, bridge, fixture, build and runtime inputs. Static-file
+authorization uses the opened descriptor; the final browser trial includes that
+correction. The persistent bridge requires an explicitly initialized, owned cache
+with reuse enabled, rather than trying to create it again on every refresh.
+The final repository CI and CodeQL checks pass.
+
+A real core-cache publication reaching the browser remains unproven; the
+synthetic trial does not establish live overlay or weather-origin delivery.
+Overmorrow, additional location selection, precipitation and air quality remain
+required work. Unsupported fields are explicitly unavailable, never substituted
+with zero values.
 
 ### Citizen procedure simulation
 
