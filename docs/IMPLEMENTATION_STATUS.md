@@ -192,8 +192,23 @@ inventory. Fourteen synthetic tests cover partial and malformed inventories,
 role substitutions, deadline handling and the closed diagnostic receipt. The
 original route selector, capacity requirements and terminal `NO_ELIGIBLE_PATHS`
 handling are unchanged. Inventory convergence is not proof of route readiness;
-another real combined runtime trial is required. Browser integration remains
-incomplete.
+the combined runtime must still pass before Browser integration is complete.
+
+The fourth local attempt on `e2aa069052f8181fb74f54645507426248a632cb`,
+using the same frozen Browser input manifest, observed all four required
+identities after 210 inventory queries and reached the Browser hook. It failed
+at `BROWSER_FILTER_NATIVE_FAILED`. This time the original report and outer
+cleanup survived: the failure operation is `browser_start`, with no completed
+browser probes or delivery receipts. The closed outer diagnostic records
+`wrapper` and `cleanup_failed: false`. A started broker alone does not establish
+successful Firefox startup or filter delivery.
+
+The `browser-filter-delivery-04.G3DJR5` collection retains successful broker
+reaping, temporary-profile and input removal, zero remaining owned topology
+objects, and matching guest-root network-state hashes
+`558aace199b57512d8f96b624de8f70adab8c03a8712cec4070199c4810a4273`.
+The VM and its temporary disk were removed. Browser startup diagnosis and a
+successful joined trial remain required; raw browser logs are not exported.
 
 ### Shared Weather application provider
 
