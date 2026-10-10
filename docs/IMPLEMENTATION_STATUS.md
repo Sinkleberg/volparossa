@@ -180,8 +180,35 @@ its new failure diagnostics. The retained `browser-filter-delivery-03.gqbzoq`
 collection records zero remaining owned objects and unchanged guest-root
 networking, with matching hash
 `abc03c0e46ecc703847d916133d7288ff6efdd22ee8dc88d62afcec308040f0e`.
-The VM and disposable overlay were removed. Provider route selection must be
-diagnosed before another joined run; the Browser integration remains incomplete.
+The VM and disposable overlay were removed. The retained Client inventory had
+R0/R1/R2 and only Exit2, whose fixture capacity is intentionally below the required
+route capacity; the primary Exit advertisement was missing. This explains the
+terminal `NO_ELIGIBLE_PATHS` result, but does not yet distinguish delayed discovery
+from a discovery defect.
+
+The provider scenario now waits at most 60 seconds for the exact R0/R1/R2 and
+primary Exit identities and roles in the Client's read-only advertisement
+inventory. Fourteen synthetic tests cover partial and malformed inventories,
+role substitutions, deadline handling and the closed diagnostic receipt. The
+original route selector, capacity requirements and terminal `NO_ELIGIBLE_PATHS`
+handling are unchanged. Inventory convergence is not proof of route readiness;
+another real combined runtime trial is required. Browser integration remains
+incomplete.
+
+### Shared Weather application provider
+
+Weather [PR5](https://github.com/VOLPAROSSA/volparossa-weather/pull/5) is merged
+in its own `main` at `c14042a75b77608fcc968f9eabb93e015f87c0aa`.
+The executable provider contract exposes temperature and wind on the original
+model time axis, retaining source evidence and the earliest forecast or signed
+publication expiry. Its core-cache adapter reuses the existing authenticated
+fetch path without an implicit origin or Open-Meteo fallback. All 33 focused
+tests and the repository CI pass.
+
+This is the shared data interface, not yet rendering in Drizz.li or Overmorrow
+or a live Weather-overlay proof. Application transport and UI adapters remain
+required. Precipitation and air quality also remain required work; unsupported
+fields are explicitly unavailable, never substituted with zero values.
 
 ### Citizen procedure simulation
 

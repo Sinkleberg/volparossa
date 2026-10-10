@@ -1316,7 +1316,7 @@ if [ "$scenario" = content-mailbox ]; then
     done
 fi
 if [ "$scenario" = content-provider ]; then
-    for provider_fixture in content-provider-smoke.sh content-provider-smoke.py content-network-smoke.py \
+    for provider_fixture in content-provider-smoke.sh content-provider-smoke.py content-provider-readiness.py content-network-smoke.py \
         content-provider-https-smoke.sh content-provider-https-smoke.py content-publication-smoke.sh content-named-smoke.sh \
         content-provider-site-smoke.sh content-provider-site-smoke.py \
         content-provider-filter-smoke.sh content-provider-filter-smoke.py \
@@ -1617,7 +1617,7 @@ copy_artifacts() {
         agent-relay0.log agent-relay1.log agent-relay2.log agent-relay3.log \
         agent-relay4.log agent-relay5.log agent-exit.log agent-exit2.log \
         helper-bootstrap1.log helper-bootstrap2.log \
-        worker-network-diagnostics.txt content-replication-provider-network.txt \
+        worker-network-diagnostics.txt content-replication-provider-network.txt content-provider-readiness.json \
         status-bootstrap1.txt status-bootstrap2.txt \
         roles-bootstrap1.txt roles-bootstrap2.txt \
         a01-bootstrap1-blocked.json a01-bootstrap2-blocked.json \
@@ -2882,6 +2882,10 @@ if [ "$scenario" = content-https ] || [ "$scenario" = content-provider ]; then
     install -o root -g "$AGENT_GID" -m 0555 \
         "$binary_directory/examples/https-content-acceptance-fixture" \
         "$WORK/bin/examples/https-content-acceptance-fixture"
+fi
+if [ "$scenario" = content-provider ]; then
+    install -o root -g root -m 0555 "$source_directory/tests/integration/content-provider-readiness.py" \
+        "$WORK/bin/content-provider-readiness.py"
 fi
 if [ "$scenario" = content-custody ] || [ "$scenario" = agent-artifact ] || [ "$scenario" = agent-jobs ]; then
     for custody_script in content-custody-smoke.py content-retain-smoke.py content-provider-smoke.py content-provider-https-smoke.py content-network-smoke.py; do

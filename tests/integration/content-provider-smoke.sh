@@ -159,6 +159,11 @@ content_provider_cancellation_run() {
 }
 
 content_provider_run() {
+    PHASE=content-provider-inventory
+    # Service activation alone does not mean the primary Exit advertisement has
+    # arrived. Query only Client inventory; keep all route checks/retries intact.
+    python3 -I -B "$WORK/bin/content-provider-readiness.py" "$WORK" \
+        >"$WORK/content-provider-readiness.json" || fail CONTENT_PROVIDER_INVENTORY_UNAVAILABLE
     PHASE=content-provider-selection
     benchmark_select_route content-provider mptcp || fail CONTENT_PROVIDER_MPTCP_SELECTION_UNAVAILABLE
     benchmark_bind_slots "$WORK/content-provider-selection.json" || fail CONTENT_PROVIDER_SELECTION_INVALID
