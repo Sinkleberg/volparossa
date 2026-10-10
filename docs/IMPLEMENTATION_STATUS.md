@@ -212,7 +212,7 @@ objects, and matching guest-root network-state hashes
 The VM and its temporary disk were removed. Browser initialization/baseline diagnosis and a
 successful joined trial remain required; raw browser logs are not exported.
 
-The next-trial Browser driver records closed initialization/check subphases and
+The Browser driver records closed initialization/check subphases and
 error categories, while retaining the original failure through cleanup. The
 core validates those optional failure-only fields before exporting them; 20
 joined-proof/export tests and 13 runner tests pass. The driver also corrects its
@@ -220,6 +220,24 @@ fresh-profile check to treat an absent uBO `importedLists` key as the upstream
 default empty list. Explicit malformed values and unexpected lists remain
 rejected. This is a verified fixture defect, not proof of VM4's precise cause;
 no signed extension package or product filtering rule was changed.
+
+The fifth local attempt tested core `397b5b84aaaf6cdf7494829bdc0f8376ac404006`
+with frozen Browser manifest
+`8fd5239261e5a78501b9d8fb4a77e46e2fb5f275f20900cf7ffe954410e42329`.
+All four required identities converged after 203 inventory queries. The trial
+reached the Browser hook but failed at `BROWSER_FILTER_NATIVE_FAILED`; its new
+diagnostic narrows the failure to `session` / `command_error`, before extension
+baseline checks. The attempted `WebDriver:NewSession` command did not complete
+successfully. This does not establish its precise cause, and no browser probes
+or delivery receipts completed.
+
+The retained `browser-filter-delivery-05.KDUpgD` collection records broker reaping,
+profile/input removal, zero remaining owned topology objects and matching
+guest-root network hashes
+`f1146383d82ba978c0546b4e0f02f8268aaf25cb85b727c217387740579510fd`.
+The VM and temporary disk were removed. The next diagnostic step is an isolated
+session-start reproduction, not another full network trial without a diagnosed
+change. Joined filter delivery remains incomplete.
 
 ### Weather provider and Drizz.li web integration
 
