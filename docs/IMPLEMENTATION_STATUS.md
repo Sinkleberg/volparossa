@@ -274,9 +274,9 @@ The final repository CI and CodeQL checks pass.
 
 A real core-cache publication reaching the browser remains unproven; the
 synthetic trial does not establish live overlay or weather-origin delivery.
-The next local proof fixture is prepared: acquire fresh public ECMWF data,
-publish it to peers, require a cold protected core transfer, and display and
-refresh the same publication through the production bridge in Drizz.li. Origin
+The local proof fixture acquires fresh public ECMWF data,
+publishes it to peers, requires a cold protected core transfer, and attempts to
+display and refresh the same publication through the production bridge in Drizz.li. Origin
 HTTPS acquisition is distinct from the subsequent overlay transfer. Explicit
 bundle selection, immutable input checks, private disk scratch and the existing
 4 GiB guest plus 2 GiB host-memory preflight are wired into the disposable runner;
@@ -289,11 +289,32 @@ independently verified without executing a runtime; its manifest is
 `e77f3240ab93a836f3ef19393909e4d0809a2d1a75fd143613e6a476f858c905`
 and archive SHA-256 is
 `4843f20f8f47db5f82f5902217514c184dadc31d3e5fe7c19ca01238b65add68`.
-This is preparation, not a successful end-to-end Weather run.
+The first joined KVM trial ran core `c1418de71b0bb3d4d73600d84277d87df49189ac`
+with that bundle and failed at `weather-client-delivery-verify`
+(`WEATHER_CLIENT_BROWSER_FAILED`). Real origin acquisition passed for nine
+temperature/wind fields, producing a 7,149-byte forecast. The retained browser
+report stopped at its outer `inputs` phase, before bridge or browser execution;
+it does not prove a successful UI or independently recheckable cold transfer.
+A separate minimal namespace reproduction identifies an ownership-check defect:
+a root-owned executable becomes unmapped inside the unprivileged user namespace
+despite unchanged bytes and a read-only mount. A narrow verifier correction
+passes twelve focused tests, including the real minimal namespace case; it
+keeps strict outer ownership and checks the exact authorized executable through
+a read-only descriptor inside the namespace. No corrected joined run has passed yet.
 
-Overmorrow, additional location selection, precipitation and air quality remain
-required work. Unsupported fields are explicitly unavailable, never substituted
-with zero values.
+The failed trial cleaned up all owned objects. Guest-root and host network state
+checks were unchanged. Retained local evidence is under
+`.git/ci-evidence/weather-client-delivery-01.Dc1jXf/output`; the closed smoke
+report SHA-256 is `9fc045370aa8831a4151c0a3a54febf7d97fd7f8c38164c1e0a0f3b7a01b843f`.
+The earlier synthetic browser result remains valid only for its pinned scope.
+
+In a separate Weather candidate, native precipitation acquisition now passes for
+IFS and AIFS Single with the pinned decoder. The shared provider preserves source
+accumulation windows and missing values. Its updated Drizz.li component passes
+five actual render/compiler tests, the full type check and a networkless build;
+this does not prove precipitation browser hydration or overlay delivery.
+Overmorrow, additional location selection, air quality and complete application
+delivery remain required work. Absent fields are never substituted with zero.
 
 ### Citizen procedure simulation
 
