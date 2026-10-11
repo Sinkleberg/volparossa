@@ -222,6 +222,16 @@ weather_client_delivery_run() {
     content_provider_stop_control_observer || fail WEATHER_CLIENT_CONTROL_INCOMPLETE
     python3 -B "$WORK/bin/weather-client-delivery.py" cache-state "$weather_cache" "$AGENT_UID" "$AGENT_GID" \
         >"$WORK/weather-client-delivery-cache-before.json" || fail WEATHER_CLIENT_CACHE_INVALID
+    # Preserve the fully validated cold transport separately before any browser
+    # preparation or execution. Later UI failure must not erase this evidence,
+    # and this record explicitly makes no UI or end-to-end success claim.
+    PHASE=weather-client-delivery-cold-verify
+    python3 -B "$WORK/bin/weather-client-delivery.py" cold-evidence "$WORK" "$weather_client_manifest_sha256" \
+        "$weather_core_sha256" >"$WORK/weather-client-delivery-cold-evidence.json" \
+        || fail WEATHER_CLIENT_COLD_EVIDENCE_INVALID
+    python3 -B "$WORK/bin/weather-client-delivery.py" copy-cold-evidence "$WORK" \
+        "$output_directory" "$OUTPUT_UID" "$OUTPUT_GID" >/dev/null \
+        || fail WEATHER_CLIENT_COLD_RETENTION_FAILED
     weather_client_private prepare "$weather_client_directory" "$weather_viewer" \
         "$binary_directory/volparossa" "$WORK/runtime-client/control/agent.sock" "$weather_cache" \
         >"$WORK/weather-client-delivery-prepared.json" || fail WEATHER_CLIENT_EXPECTED_FAILED

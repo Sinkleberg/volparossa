@@ -280,7 +280,7 @@ display and refresh the same publication through the production bridge in Drizz.
 HTTPS acquisition is distinct from the subsequent overlay transfer. Explicit
 bundle selection, immutable input checks, private disk scratch and the existing
 4 GiB guest plus 2 GiB host-memory preflight are wired into the disposable runner;
-the nine runner and closed-export tests pass. The separate real-core browser
+the ten runner and closed-export tests pass. The separate real-core browser
 driver has four Node preparation tests and eight inert Python tests, including
 exact display/refresh bindings to the cold publication. Ten bundle tests, ten
 joined-evidence tests and eleven inert shell/cleanup tests pass. The immutable
@@ -308,11 +308,24 @@ checks were unchanged. Retained local evidence is under
 report SHA-256 is `9fc045370aa8831a4151c0a3a54febf7d97fd7f8c38164c1e0a0f3b7a01b843f`.
 The earlier synthetic browser result remains valid only for its pinned scope.
 
+The corrected fixture now validates and separately retains the protected cold
+transfer before starting the browser. Its closed receipt binds acquisition and
+publication bytes, core identity, provider traffic and privacy checks, and
+explicitly excludes UI or end-to-end success. Fourteen helper tests and twelve
+shell tests pass, including preservation across a later invalid UI receipt;
+this is fixture behavior, not a newly passed joined network trial.
+
 In a separate Weather candidate, native precipitation acquisition now passes for
 IFS and AIFS Single with the pinned decoder. The shared provider preserves source
 accumulation windows and missing values. Its updated Drizz.li component passes
-five actual render/compiler tests, the full type check and a networkless build;
-this does not prove precipitation browser hydration or overlay delivery.
+five actual render/compiler tests, the full type check and a networkless build.
+An isolated Firefox run now also passes with synthetic precipitation, preserving
+missing, zero and 0.01 mm values and native windows through initial display and
+refresh. Expiry, route guards and complete cleanup pass. The separate Weather
+receipt `integrations/drizzli/precipitation-browser-smoke.json` has SHA-256
+`cb972cbf4b3930c87df017865c68b1da88f1fa81ed48f23008dd623ba5051a58`;
+it explicitly makes no origin, core or overlay-delivery claim. A subsequent
+baseline temperature/wind run on the same new build also passes.
 Overmorrow, additional location selection, air quality and complete application
 delivery remain required work. Absent fields are never substituted with zero.
 

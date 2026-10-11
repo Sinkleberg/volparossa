@@ -139,10 +139,50 @@ if weather_client_delivery_cleanup; then exit 90; fi
         run = source.split("weather_client_delivery_run() {", 1)[1]
         self.assertLess(run.index('"$WORK/weather-client-delivery-manifest.json"'), run.index('chown -R'))
         self.assertLess(run.index('publisher-cleanup "$weather_publisher"'), run.index('PHASE=weather-client-delivery-cold'))
+        self.assertLess(run.index('content_provider_stop_control_observer'), run.index(' cold-evidence "$WORK"'))
+        self.assertLess(run.index('weather-client-delivery-cache-before.json'), run.index(' cold-evidence "$WORK"'))
+        self.assertLess(run.index(' cold-evidence "$WORK"'), run.index('weather_client_private prepare'))
+        self.assertLess(run.index(' copy-cold-evidence "$WORK"'), run.index('weather_client_private prepare'))
+        self.assertLess(run.index(' cold-evidence "$WORK"'), run.index('PHASE=weather-client-delivery-browser'))
         self.assertLess(run.index(' retain "$WORK"'), run.index('weather_client_delivery_cleanup'))
         self.assertLess(run.index('weather_client_delivery_cleanup'), run.index(' evidence "$WORK"'))
         self.assertIn('weather-client-delivery-tree-before.json', run)
         self.assertIn('weather-client-delivery-tree-after.json', run)
+
+    def test_cold_evidence_is_preserved_before_prepare_and_failure_prevents_browser_preparation(self):
+        run = SOURCE.read_text().split('weather_client_delivery_run() {', 1)[1]
+        segment = run[run.index('    PHASE=weather-client-delivery-cold-verify'):
+                      run.index('    PHASE=weather-client-delivery-browser')]
+        for status in (0, 1):
+            with self.subTest(cold_validation_status=status):
+                result = self.call('''
+weather_client_manifest_sha256=inert-manifest
+weather_core_sha256=inert-core
+weather_client_directory=$WORK/inert-source
+weather_viewer=$WORK/inert-viewer
+weather_cache=$WORK/inert-cache
+binary_directory=$WORK/inert-bin
+output_directory=$WORK/inert-output
+OUTPUT_UID=985
+OUTPUT_GID=987
+python3() {
+    case "$3" in cold-evidence|copy-cold-evidence) ;; *) exit 90 ;; esac
+    printf '%s\n' "$3" >> "$WORK/calls"
+    printf '{"inert_test_only":true}\n'
+    if [ "$3" = cold-evidence ]; then return "$TEST_COLD_STATUS"; fi
+}
+weather_client_private() {
+    [ "$1" = prepare ] || exit 91
+    [ -s "$WORK/weather-client-delivery-cold-evidence.json" ] || exit 92
+    printf 'prepare\n' >> "$WORK/calls"
+}
+fail() { printf '%s\n' "$1" >&2; exit 77; }
+''' + segment, TEST_COLD_STATUS=str(status))
+                self.assertEqual(result.returncode, 0 if status == 0 else 77, result.stderr)
+                self.assertEqual((self.root / 'calls').read_text().splitlines(),
+                                 ['cold-evidence', 'copy-cold-evidence', 'prepare'] if status == 0 else ['cold-evidence'])
+                if status: self.assertIn('WEATHER_CLIENT_COLD_EVIDENCE_INVALID', result.stderr)
+                (self.root / 'calls').unlink()
 
     def test_interrupt_retains_before_cleanup_and_keeps_attempting_on_error(self):
         (self.root / "bin").mkdir()

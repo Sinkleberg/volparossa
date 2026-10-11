@@ -148,18 +148,26 @@ class WeatherEmergencyExport(unittest.TestCase):
                                  index_sha256=SHA, field_sha256=SHA)
                             for step in (3, 9, 24) for parameter in ("2t", "10u", "10v")])
 
-    def collect(self, raw, limit=None):
+    def collect(self, raw, limit=None, published=None, late_invalid=False):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary).resolve()
             home, opt, proc, cgroups = (base / name for name in ("home", "opt", "proc", "cgroups"))
             for directory in (home, opt, proc, cgroups):
                 directory.mkdir()
             (home / "alpha-output").mkdir()
+            if published is not None:
+                early = home / "alpha-output/weather-client-delivery-cold-evidence.json"
+                early.write_bytes(published)
+                early.chmod(0o600)
             work = opt / ("va." + "a" * 32 + ".ABC123")
             work.mkdir()
             source = work / "weather-client-delivery-acquisition.json"
             source.write_bytes(raw)
             source.chmod(0o600)
+            if late_invalid:
+                invalid = work / "weather-client-delivery-evidence.json"
+                invalid.write_text('{"unknown":"PRIVATE CANARY"}')
+                invalid.chmod(0o600)
             for name in ("weather-client-delivery-cold-consumer.json", "weather-client-delivery-input.json",
                          "weather-client-delivery.err", "forecast.json", "config.json"):
                 (work / name).write_text("PRIVATE CANARY")
@@ -196,6 +204,32 @@ class WeatherEmergencyExport(unittest.TestCase):
     def test_verified_json_is_not_exported_as_an_unverifiable_tail(self):
         files = self.collect(json.dumps(self.acquisition()).encode(), limit=64)
         self.assertFalse(any("weather-client-delivery" in name for name in files))
+
+    def test_previously_published_cold_proof_survives_later_invalid_ui_without_success_claim(self):
+        cold = dict(schema=1, success=True, kind="volparossa-weather-protected-cold",
+            bundle_manifest_sha256=SHA, core_sha256=SHA, forecast_sha256=SHA,
+            forecast_bytes=6000, manifest_id=SHA, cold_receipt_sha256=SHA,
+            decoder_sha256="3a3b64581e6922db4287445f217f993f6967dea5fcc45ff66944b0bc883408f4",
+            acquired_fields=9,
+            protected_cold=dict(peer_bytes=6000, providers_used=2, origin_body_bytes=0,
+                origin_range_requests=0, privacy_captures_validated=True),
+            scope=dict(actual_acquisition=True, acquisition_outside_overlay=True,
+                same_publication_joined=True, protected_cold_transfer=True, actual_drizzli_ui=False,
+                actual_http_bridge=False, actual_ui_refresh=False, end_to_end_proven=False,
+                browser_triggered_cold_fetch=False, two_subflow_bulk_aggregation=False,
+                upstream_signature_attested=False, production_service_complete=False),
+            cleanup=dict(publisher_sources_removed_before_fetch=True))
+        raw = json.dumps(cold, indent=2).encode() + b"\n"
+        files = self.collect(json.dumps(self.acquisition()).encode(), published=raw, late_invalid=True)
+        self.assertEqual(files["published/weather-client-delivery-cold-evidence.json"], raw)
+        self.assertNotIn("work-1/weather-client-delivery-evidence.json", files)
+        self.assertNotIn("work-1/weather-client-delivery-acquisition.json", files)
+        self.assertFalse(json.loads(files["vm-incomplete.json"])["success"])
+        self.assertFalse(any(b"PRIVATE CANARY" in data for data in files.values()))
+        for invalid in (dict(cold, prompt="PRIVATE CANARY"),
+                        dict(cold, scope=dict(cold["scope"], end_to_end_proven=True))):
+            files = self.collect(b"invalid", published=json.dumps(invalid).encode(), late_invalid=True)
+            self.assertFalse(any("weather-client-delivery" in name for name in files))
 
 
 if __name__ == "__main__":

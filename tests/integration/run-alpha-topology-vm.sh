@@ -1101,7 +1101,7 @@ BROWSER_FILTER_HELPERS = ("browser-filter-delivery.py", "browser-filter-bundle.p
     "content-provider-filter-smoke.py", "content-provider-site-smoke.py",
     "content-network-smoke.py", "content-provider-https-smoke.py")
 WEATHER_CLIENT_NAMES = {f"weather-client-delivery-{suffix}.json" for suffix in (
-    "evidence", "acquisition", "original-report", "tree-before", "tree-after",
+    "cold-evidence", "evidence", "acquisition", "original-report", "tree-before", "tree-after",
     "cache-before", "cache-after", "input-cleanup")}
 WEATHER_CLIENT_HELPERS = ("weather-client-delivery.py", "weather-client-bundle.py",
     "browser-filter-bundle.py", "content-provider-https-smoke.py", "content-network-smoke.py")

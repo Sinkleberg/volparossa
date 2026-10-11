@@ -111,6 +111,8 @@ def joined_fixture(work):
     socket = work / "runtime-client/control/agent.sock"; socket.parent.mkdir(parents=True)
     A["write_new"](socket, b"inert stat-only fixture")
     for suffix, value in files.items(): save(work / f"weather-client-delivery-{suffix}.json", value)
+    with patch.dict(A["cold_evidence"].__globals__, cache_state=lambda *args: cache):
+        save(work / "weather-client-delivery-cold-evidence.json", A["cold_evidence"](work, manifest_sha, SHA))
     return manifest_sha, cache
 
 
@@ -127,6 +129,8 @@ class Receipts(unittest.TestCase):
             ("cold-consumer", ("boundary", "all_capabilities_dropped"), False),
             ("cold-consumer", ("receipt", "origin_body_bytes"), 1),
             ("publisher-cleanup", ("files_removed",), False),
+            ("cold-evidence", ("forecast_sha256",), "f"*64),
+            ("cold-evidence", ("scope", "end_to_end_proven"), True),
             ("tree-after", ("manifest_sha256",), "f"*64),
             ("privacy-client", ("direct_client_exit_packets",), 1),
             ("privacy-exit", ("packet_socket_drops",), 1),
@@ -152,6 +156,116 @@ class Receipts(unittest.TestCase):
                         self.assertFalse(proof["scope"]["browser_cache_only_proven"])
                         self.assertFalse(proof["scope"]["two_subflow_bulk_aggregation"])
                         A["validate_export"](proof)
+
+    def test_cold_evidence_survives_missing_or_failed_ui_without_claiming_end_to_end(self):
+        for browser_outcome in ("missing", "failed"):
+            with self.subTest(browser=browser_outcome), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary); digest, cache = joined_fixture(work)
+                for suffix in ("original-report", "tree-after", "cache-after", "prepared", "input-cleanup"):
+                    (work / f"weather-client-delivery-{suffix}.json").unlink()
+                if browser_outcome == "failed":
+                    failed = report(); failed.update(passed=False, phase="inputs", checks={}, cleanup={})
+                    failed["scope"].update(actual_drizzli_ui=False, actual_http_bridge=False, real_core_adapter=False)
+                    save(work / "weather-client-delivery-original-report.json", failed)
+                # The browser has not removed its private working inputs yet.
+                (work / "client-fixtures/weather-viewer").mkdir(parents=True)
+                original = (work / "weather-client-delivery-cold-evidence.json").read_bytes()
+                with patch.dict(A["cold_evidence"].__globals__, cache_state=lambda *args: cache):
+                    proof = A["cold_evidence"](work, digest, SHA)
+                    self.assertEqual(json.loads(original), proof)
+                    with self.assertRaises((OSError, ValueError)):
+                        A["evidence"](work, digest, SHA)
+                self.assertTrue(proof["scope"]["protected_cold_transfer"])
+                self.assertEqual(proof["forecast_sha256"], publication()["sha256"])
+                for key in ("actual_drizzli_ui", "actual_http_bridge", "actual_ui_refresh", "end_to_end_proven"):
+                    self.assertIs(proof["scope"][key], False)
+                output = work / "output"; output.mkdir()
+                A["copy_artifacts"](work, output, os.getuid(), os.getgid())
+                self.assertEqual((output / "weather-client-delivery-cold-evidence.json").read_bytes(), original)
+                self.assertFalse((output / "weather-client-delivery-evidence.json").exists())
+
+    def test_cold_evidence_requires_full_acquisition_publication_transport_and_privacy_join(self):
+        mutations = [
+            ("acquisition", ("forecast_sha256",), "f"*64),
+            ("acquisition", ("forecast_bytes",), 1),
+            ("acquisition", ("synthetic_weather",), True),
+            ("acquisition", ("fields",), []),
+            ("cold-consumer", ("core_sha256",), "f"*64),
+            ("cold-consumer", ("boundary", "all_capabilities_dropped"), False),
+            ("cold-consumer", ("receipt", "peer_bytes"), 0),
+            ("cold-consumer", ("receipt", "origin_body_bytes"), 1),
+            ("cold-consumer", ("receipt", "local_output"), "/private/unrelated"),
+            ("publish", ("manifest_id",), "f"*64),
+            ("publisher-cleanup", ("files_removed",), False),
+            ("tree-before", ("manifest_sha256",), "f"*64),
+            ("cache-before", ("user_uid",), 985),
+            ("privacy-client", ("direct_client_exit_packets",), 1),
+            ("privacy-exit", ("packet_socket_drops",), 1),
+            ("control", ("unexpected_provider_application_packets",), 1)]
+        for suffix, keys, value in mutations:
+            with self.subTest(file=suffix, field=keys), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary); digest, cache = joined_fixture(work)
+                (work / "weather-client-delivery-original-report.json").unlink()
+                path = work / f"weather-client-delivery-{suffix}.json"
+                data = json.loads(path.read_bytes()); target = data
+                for key in keys[:-1]: target = target[key]
+                target[keys[-1]] = value
+                path.unlink(); save(path, data)
+                with patch.dict(A["cold_evidence"].__globals__, cache_state=lambda *args: cache):
+                    with self.assertRaises(ValueError): A["cold_evidence"](work, digest, SHA)
+
+    def test_cold_evidence_rejects_publisher_residue_and_closed_export_violations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary); digest, cache = joined_fixture(work)
+            publisher = work / "client-fixtures/weather-publisher"; publisher.parent.mkdir()
+            for symlink in (False, True):
+                if symlink: publisher.symlink_to(work / "absent")
+                else: publisher.mkdir()
+                with patch.dict(A["cold_evidence"].__globals__, cache_state=lambda *args: cache):
+                    with self.assertRaises(ValueError): A["cold_evidence"](work, digest, SHA)
+                if symlink: publisher.unlink()
+                else: publisher.rmdir()
+            path = work / "weather-client-delivery-cold-evidence.json"; original = path.read_bytes()
+            for keys, value in [(('path',), '/private/forecast'), (('forecast_sha256',), 'coordinates'),
+                    (('forecast_bytes',), True), (('scope', 'end_to_end_proven'), True),
+                    (('scope', 'actual_drizzli_ui'), True), (('protected_cold', 'privacy_captures_validated'), False),
+                    (('protected_cold', 'peer_bytes'), 1), (('protected_cold', 'providers_used'), True)]:
+                bad = json.loads(original); target = bad
+                for key in keys[:-1]: target = target[key]
+                target[keys[-1]] = value
+                with self.subTest(field=keys), self.assertRaises(ValueError): A["validate_cold_export"](bad)
+            bad = json.loads(original); bad["private"] = "DO NOT EXPORT"
+            path.unlink(); save(path, bad)
+            output = work / "output"; output.mkdir()
+            with self.assertRaises(ValueError): A["copy_artifacts"](work, output, os.getuid(), os.getgid())
+            self.assertEqual(list(output.iterdir()), [])
+
+    def test_early_cold_export_survives_later_invalid_ui_evidence_without_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary); joined_fixture(work)
+            output = work / "output"; output.mkdir()
+            proof = work / "weather-client-delivery-cold-evidence.json"
+            wanted = proof.read_bytes()
+            result = A["copy_artifacts"](work, output, os.getuid(), os.getgid(), only_cold=True)
+            self.assertEqual(result, dict(files=1, raw_logs_exported=False))
+            target = output / proof.name; inode = target.stat().st_ino
+            # Even a malformed later UI/final receipt cannot erase the already
+            # exported cold proof or turn the final join into a success.
+            bad = work / "weather-client-delivery-evidence.json"
+            save(bad, dict(success=False, failure="inert_late_ui_failure"))
+            with self.assertRaises(ValueError): A["copy_artifacts"](work, output, os.getuid(), os.getgid())
+            self.assertEqual(list(output.iterdir()), [target])
+            self.assertEqual(target.read_bytes(), wanted)
+            self.assertEqual(target.stat().st_ino, inode)
+            self.assertEqual(A["copy_artifacts"](work, output, os.getuid(), os.getgid(), only_cold=True), result)
+            modified = json.loads(wanted); modified["core_sha256"] = "f"*64
+            proof.unlink(); save(proof, modified)
+            with self.assertRaises(ValueError):
+                A["copy_artifacts"](work, output, os.getuid(), os.getgid(), only_cold=True)
+            self.assertEqual(target.read_bytes(), wanted)
+            proof.unlink()
+            with self.assertRaises(ValueError):
+                A["copy_artifacts"](work, output, os.getuid(), os.getgid(), only_cold=True)
 
     def test_selection_has_no_authority_or_query_fallback(self):
         A["validate_selection"](selected())

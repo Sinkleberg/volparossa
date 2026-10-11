@@ -28,7 +28,7 @@ NAME = "disposable-public-community-weather"
 MAX_FORECAST = 131072
 MAX_REPORT = 65536
 VARIABLES = ["temperature_2m", "wind_speed_10m", "wind_direction_10m", "precipitation", "air_quality"]
-EXPORTS = ("evidence", "acquisition", "original-report", "tree-before", "tree-after", "cache-before", "cache-after", "input-cleanup")
+EXPORTS = ("cold-evidence", "evidence", "acquisition", "original-report", "tree-before", "tree-after", "cache-before", "cache-after", "input-cleanup")
 require, hex64 = B["require"], B["hex64"]
 
 
@@ -426,10 +426,18 @@ def validate_publications(work, publication, nodes):
             and served["replication_enabled"] is False)
 
 
-def evidence(work, manifest_sha, binary_sha):
+def validate_cold_phase(work, manifest_sha, binary_sha):
+    """Full cold-phase join, independent of whether a browser ever starts.
+
+    The final join calls the same validator again; retaining this earlier proof
+    must not turn a later browser failure into successful end-to-end evidence.
+    """
+    require(hex64(binary_sha))
     selected = validate_selection(read(work / "weather-client-delivery-input.json")); publication = selected["publication"]
     acquisition = read(work / "weather-client-delivery-acquisition.json")
     validate_acquisition(acquisition)
+    require(acquisition["forecast_sha256"] == publication["sha256"]
+        and acquisition["forecast_bytes"] == publication["bytes"])
     cold = read(work / "weather-client-delivery-cold-consumer.json")
     same(cold["publication"], publication)
     validate_cold_receipt(cold["receipt"], publication, work / "state-client/weather-cache", work / "client-fixtures/weather-viewer/forecast.json")
@@ -446,16 +454,77 @@ def evidence(work, manifest_sha, binary_sha):
         {role: read(work / f"weather-client-delivery-privacy-{role}.json") for role in HTTPS["ROLES"]},
         read(work / "weather-client-delivery-control.json"))
     same(read(work / "weather-client-delivery-publisher-cleanup.json"), dict(directory_removed=True, files_removed=True))
+    publisher = work / "client-fixtures/weather-publisher"
+    require(not publisher.exists() and not publisher.is_symlink())
+    before = read(work / "weather-client-delivery-cache-before.json")
+    same(before, cache_state(work / "state-client/weather-cache", before["user_uid"], before["group_gid"]))
+    require(before["user_uid"] != 985 and cold["boundary"]["primary_control_gid"] != before["group_gid"])
+    # Retained by root before UID985 receives the input tree. This binds the
+    # acquisition source/runtime pins without requiring a later UI report.
+    manifest = B["manifest"](raw_file(work / "weather-client-delivery-manifest.json", B["MAX_MANIFEST"], 0o400), manifest_sha)
+    same(read(work / "weather-client-delivery-tree-before.json"), dict(version=1, action="verify-tree",
+        manifest_sha256=manifest_sha, files=len(manifest["files"]), runtime_executed=False))
+    return publication, acquisition, cold, manifest, before
+
+
+def cold_summary(publication, acquisition, cold, manifest_sha, binary_sha):
+    result = dict(schema=1, success=True, kind="volparossa-weather-protected-cold",
+        bundle_manifest_sha256=manifest_sha, core_sha256=binary_sha,
+        forecast_sha256=publication["sha256"], forecast_bytes=publication["bytes"],
+        manifest_id=publication["manifest_id"], cold_receipt_sha256=cold["cold_receipt_sha256"],
+        decoder_sha256=acquisition["decoder_sha256"], acquired_fields=len(acquisition["fields"]),
+        protected_cold=dict(peer_bytes=cold["receipt"]["peer_bytes"], providers_used=cold["receipt"]["providers_used"],
+            origin_body_bytes=0, origin_range_requests=0, privacy_captures_validated=True),
+        scope=dict(actual_acquisition=True, acquisition_outside_overlay=True, same_publication_joined=True,
+            protected_cold_transfer=True, actual_drizzli_ui=False, actual_http_bridge=False, actual_ui_refresh=False,
+            end_to_end_proven=False, browser_triggered_cold_fetch=False, two_subflow_bulk_aggregation=False,
+            upstream_signature_attested=False, production_service_complete=False),
+        cleanup=dict(publisher_sources_removed_before_fetch=True))
+    validate_cold_export(result)
+    return result
+
+
+def validate_cold_export(value):
+    """Exact closed schema: no paths, names, coordinates, peers or raw receipts."""
+    require(type(value) is dict and set(value) == {"schema", "success", "kind", "bundle_manifest_sha256",
+        "core_sha256", "forecast_sha256", "forecast_bytes", "manifest_id", "cold_receipt_sha256",
+        "decoder_sha256", "acquired_fields", "protected_cold", "scope", "cleanup"})
+    same(value["schema"], 1); same(value["success"], True)
+    same(value["kind"], "volparossa-weather-protected-cold")
+    require(all(hex64(value[key]) for key in ("bundle_manifest_sha256", "core_sha256", "forecast_sha256",
+        "manifest_id", "cold_receipt_sha256", "decoder_sha256")) and value["decoder_sha256"] == B["DECODER_SHA"]
+        and type(value["forecast_bytes"]) is int and 0 < value["forecast_bytes"] <= MAX_FORECAST)
+    same(value["acquired_fields"], 9)
+    transfer = value["protected_cold"]
+    require(type(transfer) is dict and type(transfer.get("providers_used")) is int and transfer["providers_used"] in (1, 2))
+    same(transfer, dict(peer_bytes=value["forecast_bytes"], providers_used=transfer["providers_used"],
+        origin_body_bytes=0, origin_range_requests=0, privacy_captures_validated=True))
+    same(value["scope"], dict(actual_acquisition=True, acquisition_outside_overlay=True, same_publication_joined=True,
+        protected_cold_transfer=True, actual_drizzli_ui=False, actual_http_bridge=False, actual_ui_refresh=False,
+        end_to_end_proven=False, browser_triggered_cold_fetch=False, two_subflow_bulk_aggregation=False,
+        upstream_signature_attested=False, production_service_complete=False))
+    same(value["cleanup"], dict(publisher_sources_removed_before_fetch=True))
+
+
+def cold_evidence(work, manifest_sha, binary_sha):
+    publication, acquisition, cold, _manifest, _before = validate_cold_phase(work, manifest_sha, binary_sha)
+    return cold_summary(publication, acquisition, cold, manifest_sha, binary_sha)
+
+
+def evidence(work, manifest_sha, binary_sha):
+    publication, acquisition, cold, manifest, before = validate_cold_phase(work, manifest_sha, binary_sha)
+    retained_cold = read(work / "weather-client-delivery-cold-evidence.json")
+    validate_cold_export(retained_cold)
+    same(retained_cold, cold_summary(publication, acquisition, cold, manifest_sha, binary_sha))
     same(read(work / "weather-client-delivery-input-cleanup.json"), dict(directory_removed=True, files_removed=True))
     require(all(not path.exists() and not path.is_symlink() for path in
         (work / "client-fixtures/weather-publisher", work / "client-fixtures/weather-viewer")))
-    before, after = (read(work / f"weather-client-delivery-cache-{phase}.json") for phase in ("before", "after"))
+    after = read(work / "weather-client-delivery-cache-after.json")
     same(before, after); same(after, cache_state(work / "state-client/weather-cache", after["user_uid"], after["group_gid"]))
     require(after["user_uid"] != 985 and cold["boundary"]["primary_control_gid"] != after["group_gid"])
     # A root-owned manifest was retained before the verified tree was handed to
     # UID985. Worker verify-tree receipts check that tree before and after use;
     # root never weakens owner checks or grants access to private agent caches.
-    manifest = B["manifest"](raw_file(work / "weather-client-delivery-manifest.json", B["MAX_MANIFEST"], 0o400), manifest_sha)
     checked = dict(manifest_sha256=manifest_sha, files=len(manifest["files"]), runtime_executed=False)
     for phase in ("before", "after"):
         same(read(work / f"weather-client-delivery-tree-{phase}.json"), dict(version=1, action="verify-tree", **checked))
@@ -495,14 +564,18 @@ def evidence(work, manifest_sha, binary_sha):
             viewer_removed=True, agent_cache_identity_preserved=True, agent_cache_private=True))
 
 
-def copy_artifacts(work, output, uid, gid):
+def copy_artifacts(work, output, uid, gid, only_cold=False):
     # Closed identifiers only; original page/forecast/receipt/paths never cross this boundary.
+    # The earlier cold-only export is independent of later UI receipt failures.
+    # Full export still prevalidates every candidate and never replaces a file.
+    if only_cold: require((work / "weather-client-delivery-cold-evidence.json").exists())
     pending = []; count = 0
-    for suffix in EXPORTS:
+    for suffix in (("cold-evidence",) if only_cold else EXPORTS):
         source = work / f"weather-client-delivery-{suffix}.json"
         if not source.exists(): continue
         raw = raw_file(source, MAX_REPORT); value = json.loads(raw, object_pairs_hook=B["B"]["unique_pairs"])
         if suffix == "original-report": closed_report(value)
+        elif suffix == "cold-evidence": validate_cold_export(value)
         else: validate_export(value)
         target = output / source.name
         if target.exists() or target.is_symlink():
@@ -557,7 +630,9 @@ def main():
     elif action in ("publisher-cleanup", "user-cleanup") and len(args) == 1: result = cleanup(Path(args[0]), action == "publisher-cleanup")
     elif action == "cache-state" and len(args) == 3: result = cache_state(Path(args[0]), int(args[1]), int(args[2]))
     elif action == "retain" and len(args) == 1: result = retain(Path(args[0]))
+    elif action == "cold-evidence" and len(args) == 3: result = cold_evidence(Path(args[0]), args[1], args[2])
     elif action == "evidence" and len(args) == 3: result = evidence(Path(args[0]), args[1], args[2])
+    elif action == "copy-cold-evidence" and len(args) == 4: result = copy_artifacts(Path(args[0]), Path(args[1]), int(args[2]), int(args[3]), only_cold=True)
     elif action == "copy-artifacts" and len(args) == 4: result = copy_artifacts(Path(args[0]), Path(args[1]), int(args[2]), int(args[3]))
     else: raise ValueError("weather_client_delivery_rejected")
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
