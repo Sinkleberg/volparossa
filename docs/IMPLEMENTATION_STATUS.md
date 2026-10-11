@@ -83,8 +83,7 @@ comparison remains unavailable. No weather origin was queried by this run.
 
 Weather [PR7](https://github.com/VOLPAROSSA/volparossa-weather/pull/7), merged into
 `main` at `44b721fd42c86880f5a8838ae18efd2c8b2dd0a1`, includes the Overmorrow
-browser milestone
-connects the actual pinned Flutter app's provider dispatcher, phone/tablet layouts,
+browser milestone. It connects the actual pinned Flutter app's provider dispatcher, phone/tablet layouts,
 forecast surface and air-quality detail route to the same local HTTP bridge.
 Its release build and sixteen synthetic Flutter tests pass, as do thirty-one
 HTTP checks and thirty-seven build/deployment/browser-harness checks. Native weather and particulate
@@ -106,6 +105,7 @@ forecast accuracy. A shorter client timeout can still race the bridge's cleanup
 and make the next product temporarily busy; real cold delivery must cover that
 case. The existing frozen Drizz.li bundle remains valid, but new joined inputs
 must bind fresh proof to their actual bridge and preparer sources.
+
 Before merge, three CodeQL file-race findings were corrected: NOAA now inspects
 and reads one no-follow descriptor and executes its pinned bytes from private
 scratch; the preparation test also inspects and reads the same opened file.
