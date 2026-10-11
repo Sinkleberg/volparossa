@@ -272,9 +272,8 @@ correction. The persistent bridge requires an explicitly initialized, owned cach
 with reuse enabled, rather than trying to create it again on every refresh.
 The final repository CI and CodeQL checks pass.
 
-A real core-cache publication reaching the browser remains unproven; the
-synthetic trial does not establish live overlay or weather-origin delivery.
-The local proof fixture acquires fresh public ECMWF data,
+The corrected joined KVM trial now proves one real temperature/wind publication
+reaching the browser and surviving refresh. The local proof fixture acquires public ECMWF data,
 publishes it to peers, requires a cold protected core transfer, and attempts to
 display and refresh the same publication through the production bridge in Drizz.li. Origin
 HTTPS acquisition is distinct from the subsequent overlay transfer. Explicit
@@ -300,7 +299,8 @@ a root-owned executable becomes unmapped inside the unprivileged user namespace
 despite unchanged bytes and a read-only mount. A narrow verifier correction
 passes twelve focused tests, including the real minimal namespace case; it
 keeps strict outer ownership and checks the exact authorized executable through
-a read-only descriptor inside the namespace. No corrected joined run has passed yet.
+a read-only descriptor inside the namespace. The corrected Weather phase passes
+in the second trial described below; the complete topology run still fails later.
 
 The failed trial cleaned up all owned objects. Guest-root and host network state
 checks were unchanged. Retained local evidence is under
@@ -313,7 +313,40 @@ transfer before starting the browser. Its closed receipt binds acquisition and
 publication bytes, core identity, provider traffic and privacy checks, and
 explicitly excludes UI or end-to-end success. Fourteen helper tests and twelve
 shell tests pass, including preservation across a later invalid UI receipt;
-this is fixture behavior, not a newly passed joined network trial.
+these targeted tests establish fixture behavior independently of the live trial.
+
+The second joined trial on core `93dc2a64bd7157a77ee1837e4b8375f9b222fac6`
+uses bundle manifest `a3dab90657e742ce181994cb0be6741eccaaaaf63464026a09da67b49db7cb6e`.
+Its Weather phase passes: nine real ECMWF fields produce a 7,149-byte forecast,
+then a protected cold transfer obtains those same bytes from a peer after the
+publisher sources are removed, with zero origin requests or bytes in that phase.
+The actual Drizz.li page and production bridge display and refresh the exact
+publication, bound by matching hashes; browser, bridge, viewer, private state
+and agent-cache identity checks pass. This does not prove a browser-triggered
+cold fetch, simultaneous bulk throughput on two subflows, precipitation delivery,
+AQI, or a complete weather service. Origin acquisition occurs outside the overlay.
+
+Evidence is retained under `.git/ci-evidence/weather-client-delivery-02.kusV5m/output`:
+`weather-client-delivery-evidence.json` has SHA-256
+`f8a0a792e8e392cc8981c293b548bcec34852255cbad6b5aa7f6e3fc39d659d4`,
+and its browser report hash is
+`a869419e5302cb079240f68acbe327f46157c63c102d427b1701b48b38e5836b`.
+The **overall runner exits 1** afterwards at the separate 15 MiB adaptive-provider
+fetch with `CONTENT_UNAVAILABLE`. It must not be described as an all-green topology
+run. A15 reports unchanged state outside the owned disposable namespaces, and the
+runner and QEMU exit.
+
+A deterministic regression reproduces one cause of incomplete adaptive transfer:
+a peer rejected by the speed probe still owns untested complementary chunks,
+but closing it leaves only six of nine chunks. The local correction retains that
+already-counted peer for gap coverage, after ordinary active peers have attempted
+the missing chunk. It does not grant extra credits, duplicate an in-flight request
+or extend the original deadline. Nine parallel-transfer tests pass, including
+all nine complementary chunks, no speculative payload from a redundant peer,
+single-owner assignment and hard-pressure partial progress. Hard pressure can
+still stop a transfer; the final reassembly gate explicitly rejects the incomplete
+object rather than calling it complete. The correction has an independent review
+but still requires a new live topology run; the earlier failing receipt is retained.
 
 In a separate Weather candidate, native precipitation acquisition now passes for
 IFS and AIFS Single with the pinned decoder. The shared provider preserves source
@@ -326,8 +359,16 @@ receipt `integrations/drizzli/precipitation-browser-smoke.json` has SHA-256
 `cb972cbf4b3930c87df017865c68b1da88f1fa81ed48f23008dd623ba5051a58`;
 it explicitly makes no origin, core or overlay-delivery claim. A subsequent
 baseline temperature/wind run on the same new build also passes.
-Overmorrow, additional location selection, air quality and complete application
-delivery remain required work. Absent fields are never substituted with zero.
+The Weather air-quality candidate now has a separate NOAA GEFS-Aerosols
+PM2.5/PM10 contract, exact-range source adapter and shared core-cache consumer.
+A real CLI/decoder trial verifies two native instantaneous forecast points
+(steps 3 and 6) using 2,841,174 field bytes; it does not derive AQI or observations.
+Ninety-one Weather tests pass, including subprocess-based cache/CLI boundaries,
+query/expiry checks and cancellation. The particulate core-cache tests use a
+synthetic core process; real overlay delivery and application display remain
+unproved. Overmorrow, additional location selection, precipitation delivery and
+complete application delivery remain required work. Absent fields are never
+substituted with zero.
 
 ### Citizen procedure simulation
 

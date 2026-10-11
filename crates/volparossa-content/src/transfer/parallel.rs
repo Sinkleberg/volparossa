@@ -43,6 +43,7 @@ struct Peer {
     pending: Option<usize>,
     state: adaptive::PeerState,
     probing: bool,
+    coverage_only: bool,
 }
 
 /// A bounded writer/coordinator; workers never own or reopen the destination cache.
@@ -319,13 +320,25 @@ impl ParallelDownload {
     }
 
     fn assign(&mut self, index: usize) -> Result<(), TransferError> {
-        let peer = &mut self.peers[index];
+        let peer = &self.peers[index];
         if peer.state != adaptive::PeerState::Active || peer.pending.is_some() {
             return Ok(());
         }
         let eligible = |item: &PendingChunk| {
-            !item.complete && item.owner.is_none() && !item.attempted.contains(&index)
+            !item.complete
+                && item.owner.is_none()
+                && !item.attempted.contains(&index)
+                && (!peer.coverage_only
+                    || !self.peers.iter().enumerate().any(|(other, candidate)| {
+                        other != index
+                            && candidate.state == adaptive::PeerState::Active
+                            && !candidate.coverage_only
+                            && !item.attempted.contains(&other)
+                    }))
         };
+        // A failed speed probe keeps its existing, counted lease only to cover gaps.
+        // Let ordinary active peers try first; a slow probe is not evidence that it
+        // lacks later shards. Dormant or closing peers cannot promise live coverage.
         // A failed/missing request is useful evidence for exploration; manifest membership
         // alone never claims that a provider actually stores a chunk. Prefer that unresolved
         // coverage for the probe without reassigning anybody's still-in-flight request.
@@ -339,6 +352,7 @@ impl ParallelDownload {
         let Some(position) = missing.or_else(|| self.chunks.iter().position(eligible)) else {
             return Ok(());
         };
+        let peer = &mut self.peers[index];
         let pending = &mut self.chunks[position];
         match peer.requests.try_send(Work::Chunk(pending.chunk.clone())) {
             Ok(()) => {
@@ -442,6 +456,7 @@ fn peer(
                 adaptive::PeerState::Dormant
             },
             probing: false,
+            coverage_only: false,
         },
         ChunkWorker {
             manifest: manifest.clone(),

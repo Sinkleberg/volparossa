@@ -108,7 +108,10 @@ impl ParallelDownload {
     fn finish_probe(&mut self, index: usize, beneficial: bool) {
         self.peers[index].probing = false;
         if !beneficial {
-            self.finish_peer(index);
+            // Throughput says nothing about possession of untested complementary shards.
+            // Stop speculative credits, but retain bounded gap coverage until exhausted
+            // or resource pressure requires closure. This lease still counts at full width.
+            self.peers[index].coverage_only = true;
             self.growth_blocked = true;
         }
         self.probe_baseline = None;
