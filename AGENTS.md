@@ -2,6 +2,12 @@
 
 These instructions apply to the entire repository and must remain in force in future sessions.
 
+## Autonomous project execution
+
+- User revision 2026-10-11, applicable across all VOLPAROSSA repositories: use independent engineering judgment to make the project work well. Choose implementation details, architecture within the agreed requirements, priorities, parallel work, checks, and commit/push timing without requesting approval for ordinary development steps.
+- Continue useful work and resolve obsolete workflow restrictions against the user's latest explicit requirements. Distinguish a current implementation limit or an earlier milestone from a permanent prohibition. Explain material tradeoffs and preserve existing work; do not silently drop agreed functionality.
+- Autonomy does not authorize disclosing private data, using real funds, changing the development host's active configuration, bypassing access or release controls, or lowering agreed privacy. Ask a focused question only when a consequential choice falls outside the established scope or authority; do not repeatedly request authority already granted.
+
 ## Mission and truthfulness
 
 - Build VOLPAROSSA v1 as an open-source, decentralised VPN overlay for Debian 13 amd64.
@@ -29,7 +35,7 @@ These instructions apply to the entire repository and must remain in force in fu
 - TCP: transparent proxy framing over TLS 1.3 over a Linux `IPPROTO_MPTCP` connection whose subflows are bound to selected WireGuard relay paths; no silent ordinary-TCP fallback.
 - General UDP: datagrams over a protected single-path QUIC MASQUE CONNECT-IP/CONNECT-UDP association through exactly one relay; destination tuple is pinned.
 - Browser QUIC/HTTP/3: original QUIC datagrams inside MASQUE CONNECT-IP over genuine Multipath QUIC with at least two active WireGuard relay paths. Default is fail closed when multipath is required and unavailable.
-- Do not add cover traffic, cells, artificial delay, batching, packet duplication, FEC, erasure coding or adaptive path equalisation to the v1 network datapaths. Keep scheduler interfaces extensible for later policies. This transport restriction does not prohibit the agreed investigation of erasure coding for the separate Storage-layer's uniform redundancy policy.
+- Do not add cover traffic, cells, artificial delay, batching, packet duplication, FEC, erasure coding or adaptive path equalisation to the v1 network datapaths. Keep scheduler interfaces extensible for later policies. This transport restriction does not prohibit investigation and evidence-backed adoption of erasure coding under the separate Storage-layer's uniform redundancy policy, with compatibility and recoverability preserved.
 - Do not add payments, tokens or blockchain as conditions of overlay participation, automatically enable exit service, or add a GUI to the core daemon. These boundaries do not prohibit the agreed Transaction-layer or application user interfaces.
 - User extension 2026-10-04 and subsequent clarification: research and implement a separate reusable Transaction-layer connected to VOLPAROSSA Bank; research alone is not the endpoint. Isolated single-node and multi-node integration tests with fictitious assets/test units are authorized. They do not enable real-money services, introduce fees/tokens into overlay participation, or grant model workers financial authority. Keep securities ownership, payment authorization, internal accounting and external settlement distinct. Do not represent reversible simulations as distributed settlement, legal ownership or guaranteed recovery of externally transferred funds.
 
