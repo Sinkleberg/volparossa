@@ -31,7 +31,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Continue shared cache delivery — `volparossa`, `volparossa-weather` | Resolve the observed fixture I/O pressure, prove concurrent three-provider bulk transfer, then exercise late complementary-provider recovery. | The standalone run on `7ad108c0` reconstructs native and HTTPS adaptive objects sequentially. Both budget reports identify I/O pressure as the sole pressure/unavailability flag, holding admission at one worker despite memory and FD headroom. Identify and reduce the actual storage bottleneck or establish bounded readiness; do not override pressure protection or weaken the overlap gate. The separate CI primary-Exit failure remains unresolved. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
-| Extend the same provider to Overmorrow — `volparossa-weather` | Deliver core-cache products into the actual client, then verify native packaging. | The pinned web build, sixteen Flutter tests and actual isolated browser interaction with synthetic products pass. Core delivery and native Android/iOS execution remain unverified. Cover the client's shorter timeout and the bridge's cancellation cleanup when testing cold retrieval; reuse the shared provider without another scheduler. |
+| Extend the same provider to Overmorrow — `volparossa-weather` | Deliver core-cache products into the actual client, then verify native packaging. | PR8 aligns client/bridge deadlines, bounds busy retries and preserves cancellation cleanup. The pinned web build, twenty-three Flutter tests and actual isolated browser interaction with synthetic products pass. Cold core delivery and native Android/iOS execution remain unverified; reuse the shared provider without another scheduler. |
 
 Respect the observed source rate limit instead of repeatedly relaunching the
 joined trial or routing requests through other peers. Continue the standalone
@@ -96,6 +96,12 @@ eight adaptive-evidence and eighteen runner checks. Bounded native/HTTPS receipt
 not prove memory, FD or cgroup capacity. This adds no product delay or admission
 override: cache writes may reintroduce I/O pressure, and the live worker budget
 and three-provider packet-overlap requirements still decide the result.
+Its first launch attempt stops before VM boot at the unchanged memory preflight:
+the four-GiB guest plus two-GiB development-host reserve do not fit. The candidate
+is committed as `fa89523b0c49768d7c56c58f2cec3e0c902dccbd`; retry only when that
+capacity is genuinely available, without competing heavy jobs or reduced limits.
+The retained runner log is
+`.git/ci-evidence/content-provider-readiness-01.X2JNlh/runner.log`.
 
 The late-provider fixture uses a fresh publication, route and consumer cache.
 It registers the second complementary provider only after observing the first
@@ -135,7 +141,19 @@ The VM and owned temporary overlay are removed; development-host DNS and
 IPv4/IPv6 route hashes match their pre-run values. A development-host firewall
 comparison remains unavailable. No weather origin was queried by this run.
 
-Weather [PR7](https://github.com/VOLPAROSSA/volparossa-weather/pull/7), merged into
+Weather [PR8](https://github.com/VOLPAROSSA/volparossa-weather/pull/8) is merged into
+`main` at `ce1e28696d47808bd2908242325d1da478cbf0a1`. Each Overmorrow product now
+has one 195-second deadline including local abort/drain, with up to five bounded
+busy-only retries. Request and response-body cancellation are tested; unconfirmed
+core-process cleanup keeps admission closed, even if scratch cleanup also fails.
+Twenty-three Flutter tests, fifty-four focused Node checks and thirty-seven Python
+harness checks pass. The new release build and actual isolated CanvasKit/browser
+trial pass with synthetic products and complete cleanup. The report hash is
+`dd0f4ae08d15eccb655d4c761593a1028a88277c5d53dc75fb09a77a0136aa71`;
+core/peer delivery and native mobile execution remain open. CI and security checks
+pass; the merged temporary branch is removed without deleting its worktree.
+
+The preceding Weather [PR7](https://github.com/VOLPAROSSA/volparossa-weather/pull/7), merged into
 `main` at `44b721fd42c86880f5a8838ae18efd2c8b2dd0a1`, includes the Overmorrow
 browser milestone. It connects the actual pinned Flutter app's provider dispatcher, phone/tablet layouts,
 forecast surface and air-quality detail route to the same local HTTP bridge.
