@@ -16,6 +16,38 @@ HERE = Path(__file__).resolve().parent
 A = runpy.run_path(str(HERE / "weather-products-delivery.py"))
 OLD = runpy.run_path(str(HERE / "test-weather-client-delivery.py"))
 SHA = "a" * 64
+CLOCK = A["stamp"]("2026-10-11T14:00:00.000Z")
+
+
+def iso(milliseconds):
+    return (datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+        + datetime.timedelta(milliseconds=milliseconds)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def forecast(key, model_run=None, acquired_at=None):
+    p = A["PRODUCTS"][key]
+    model_run = model_run or selected()["products"][key]["query"]["run"]
+    def field(parameter):
+        return dict(parameter=parameter, decoder_sha256=A["B"]["DECODER_SHA"], index_sha256=SHA, field_sha256=SHA)
+    samples = []
+    for step in p["steps"]:
+        samples.append(dict(lead_hours=step, valid_at=iso(A["stamp"](model_run) + step * 3600000),
+            **(dict(evidence=field("2t"), wind_10m=dict(evidence=dict(eastward=field("10u"), northward=field("10v"))),
+                precipitation=dict(evidence=field("tp"))) if key == "weather" else
+                dict(evidence=dict(pm2_5=field("PMTF"), pm10=field("PMTC"))))))
+    return dict(schema=p["schema"], kind="forecast", source=dict(provider=p["provider"], acquisition="origin-https",
+        model=p["model"], model_run_at=model_run, acquired_at=acquired_at or iso(CLOCK)),
+        area=dict(latitude=52.52, longitude=13.41, sharing="public-community"), samples=samples)
+
+
+def prepare_fixture(viewer):
+    selection, forecasts = selected(), {}
+    for key, p in A["PRODUCTS"].items():
+        forecasts[key] = forecast(key)
+        raw = A["B"]["encode"](forecasts[key]); A["write_new"](viewer / p["filename"], raw)
+        selection["products"][key]["publication"].update(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+    save(viewer / "selection.json", selection, 0o400)
+    return selection, forecasts
 
 
 def selected():
@@ -116,6 +148,10 @@ def joined_fixture(work):
 
 
 class Products(unittest.TestCase):
+    def setUp(self):
+        clock = patch.dict(A["prepare"].__globals__, observed_ms=lambda: CLOCK)
+        clock.start(); self.addCleanup(clock.stop)
+
     def test_acquisition_commands_include_precipitation_and_independent_noaa_cycle_with_one_deadline(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary); root = base / "weather-publisher"; root.mkdir(mode=0o700)
@@ -126,18 +162,7 @@ class Products(unittest.TestCase):
                 calls.append((command, timeout))
                 if command[-1] == "-V": return b"ecCodes Version 2.44.0\n"
                 key = "weather" if command[2].endswith("/forecast.mjs") else "air_quality"
-                p = A["PRODUCTS"][key]
-                def field(parameter):
-                    return dict(parameter=parameter, decoder_sha256=A["B"]["DECODER_SHA"], index_sha256=SHA, field_sha256=SHA)
-                samples = []
-                for step in p["steps"]:
-                    samples.append(dict(lead_hours=step, **(dict(evidence=field("2t"),
-                        wind_10m=dict(evidence=dict(eastward=field("10u"), northward=field("10v"))),
-                        precipitation=dict(evidence=field("tp"))) if key == "weather" else
-                        dict(evidence=dict(pm2_5=field("PMTF"), pm10=field("PMTC"))))))
-                return json.dumps(dict(schema=p["schema"], source=dict(provider=p["provider"], acquisition="origin-https",
-                    model=p["model"], model_run_at=command[command.index("--run")+1]),
-                    area=dict(latitude=52.52, longitude=13.41, sharing="public-community"), samples=samples)).encode()
+                return json.dumps(forecast(key, command[command.index("--run")+1])).encode()
             clock = datetime.datetime(2026, 10, 11, 14, tzinfo=datetime.timezone.utc).timestamp()
             with patch.dict(A["acquisition"].__globals__, run=execute, boundary=lambda *args: None), \
                     patch.dict(A["B"], verify_tree=lambda *args: None, manifest=lambda *args: {"version": 2}), \
@@ -151,15 +176,81 @@ class Products(unittest.TestCase):
             self.assertEqual(aq[aq.index("--run")+1], "2026-10-11T00:00:00.000Z")
             # Same cycle time is permissible when independently selected;
             # unlike their native samples, the times need not differ by force.
-            self.assertEqual(weather[weather.index("--steps")+1], "3,9,24")
-            self.assertEqual(aq[aq.index("--steps")+1], "3,6,12")
+            self.assertEqual(weather[weather.index("--steps")+1], "3,9,24,48")
+            self.assertEqual(aq[aq.index("--steps")+1], "3,6,12,24,48")
             self.assertEqual([call[1] for call in calls], [10, 360, 340])
             self.assertTrue((root / "forecast.json").exists()); self.assertTrue((root / "air-quality.json").exists())
+
+    def test_acquisition_preserves_future_native_coverage_across_midnight_and_noon(self):
+        cases = [
+            ("2026-10-10T23:59:59.999Z", "2026-10-10T00:00:00.000Z", "2026-10-10T00:00:00.000Z"),
+            ("2026-10-11T00:00:00.000Z", "2026-10-10T12:00:00.000Z", "2026-10-10T00:00:00.000Z"),
+            ("2026-10-11T11:59:59.999Z", "2026-10-10T12:00:00.000Z", "2026-10-10T00:00:00.000Z"),
+            ("2026-10-11T12:00:00.000Z", "2026-10-11T00:00:00.000Z", "2026-10-11T00:00:00.000Z"),
+        ]
+        for when, weather_run, aq_run in cases:
+            with self.subTest(when=when), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary); root = base / "weather-publisher"; root.mkdir(mode=0o700)
+                source = base / "inputs"; source.mkdir(mode=0o700)
+                A["initialize"](root); A["write_new"](source / "INPUTS.json", b"fixture", 0o400)
+                started, received = A["stamp"](when), []
+                def execute(command, cwd, maximum, timeout):
+                    if command[-1] == "-V": return b"ecCodes Version 2.44.0\n"
+                    key = "weather" if command[2].endswith("/forecast.mjs") else "air_quality"
+                    value = forecast(key, command[command.index("--run")+1], iso(started + 2000))
+                    received.append(value); return json.dumps(value).encode()
+                with patch.dict(A["acquisition"].__globals__, run=execute, boundary=lambda *args: None,
+                        observed_ms=lambda: started + 2000), \
+                        patch.dict(A["B"], verify_tree=lambda *args: None, manifest=lambda *args: {"version": 2}), \
+                        patch.object(A["time"], "time", return_value=started / 1000), \
+                        patch.object(A["time"], "monotonic", side_effect=[100, 120, 480]):
+                    A["acquisition"](source, SHA, root, "net:[1]", "net:[2]", 1000)
+                self.assertEqual([v["source"]["model_run_at"] for v in received], [weather_run, aq_run])
+                for value in received:
+                    self.assertGreater(A["stamp"](value["samples"][-1]["valid_at"]), started + 2000)
+                    self.assertLess(A["stamp"](value["samples"][0]["valid_at"]), started + 2000)
+
+    def test_utc_timestamps_require_real_dates_and_preserve_exact_milliseconds(self):
+        self.assertEqual(A["stamp"]("2026-10-11T14:00:00.001Z"), CLOCK + 1)
+        for value in (None, True, "2026-02-30T00:00:00.000Z", "2026-10-11T24:00:00.000Z",
+                "2026-10-11T14:00:00Z", "2026-10-11T14:00:00.000+00:00", "2026-10-11T14:00:00.0000Z"):
+            with self.subTest(value=value), self.assertRaises(ValueError): A["stamp"](value)
+        for key, value in (("weather", "2026-02-30T00:00:00.000Z"), ("weather", "2026-10-11T06:00:00.000Z"),
+                ("air_quality", "2026-10-11T12:00:00.000Z")):
+            bad = selected(); bad["products"][key]["query"]["run"] = value
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError): A["validate_selection"](bad)
+
+    def test_forecast_times_bind_acquisition_window_native_leads_and_future_coverage(self):
+        for key in A["PRODUCTS"]:
+            good = forecast(key); model_run = good["source"]["model_run_at"]
+            A["forecast_times"](good, key, model_run, CLOCK, (CLOCK, CLOCK))
+            mutations = [(("kind",), "observation"), (("source", "model_run_at"), iso(CLOCK)),
+                (("source", "acquired_at"), iso(A["stamp"](model_run)-1)),
+                (("source", "acquired_at"), iso(CLOCK+1)),
+                (("samples", 0, "valid_at"), iso(A["stamp"](good["samples"][0]["valid_at"])+1)),
+                (("samples", 0, "lead_hours"), True),
+                (("samples", -1, "valid_at"), iso(CLOCK+1))]
+            for keys, changed in mutations:
+                value = copy.deepcopy(good); target = value
+                for part in keys[:-1]: target = target[part]
+                target[keys[-1]] = changed
+                with self.subTest(key=key, mutation=keys), self.assertRaises(ValueError):
+                    A["forecast_times"](value, key, model_run, CLOCK)
+            backdated = copy.deepcopy(good); backdated["source"]["acquired_at"] = iso(CLOCK-1)
+            with self.assertRaises(ValueError): A["forecast_times"](backdated, key, model_run, CLOCK, (CLOCK, CLOCK))
+            with self.assertRaises(ValueError): A["forecast_times"](good, key, model_run, CLOCK, (CLOCK+1, CLOCK))
+            last = A["stamp"](good["samples"][-1]["valid_at"])
+            A["forecast_times"](good, key, model_run, last-1)
+            for observed in (last, last+1):
+                with self.subTest(key=key, observed=observed), self.assertRaises(ValueError):
+                    A["forecast_times"](good, key, model_run, observed)
+            query = A["fixed_query"](key, model_run)
+            with self.assertRaises(ValueError): A["future_query"](key, query, A["stamp"](model_run)-1)
 
     def test_preparer_uses_both_receipts_and_separate_caches(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary); viewer = base / "weather-viewer"; viewer.mkdir(mode=0o700)
-            selection = selected(); save(viewer / "selection.json", selection, 0o400)
+            selection, forecasts = prepare_fixture(viewer)
             def execute(command, cwd, maximum, timeout):
                 self.assertEqual(command[command.index("--air-quality")+1], str(viewer / "air-quality.json"))
                 self.assertEqual(command[command.index("--air-quality-receipt")+1], str(viewer / "air-quality-cold-receipt.json"))
@@ -168,13 +259,40 @@ class Products(unittest.TestCase):
                 self.assertEqual(config["core"]["scratchParent"], config["airQuality"]["core"]["scratchParent"])
                 self.assertTrue(config["core"]["query"]["includePrecipitation"])
                 expected = dict(schema=2, core_sha256=SHA, display_sha256=SHA,
-                    products={key: {"publication": value["publication"]} for key, value in selection["products"].items()})
+                    products={key: dict(publication=value["publication"], forecast=forecasts[key])
+                        for key, value in selection["products"].items()})
                 raw = A["B"]["encode"](expected); A["write_new"](viewer / "expected.json", raw, 0o400)
                 return json.dumps(dict(prepared=True, expected_sha256=hashlib.sha256(raw).hexdigest(), display_sha256=SHA)).encode()
             with patch.dict(A["prepare"].__globals__, run=execute), patch.dict(A["B"], fingerprint=lambda *args: {"sha256": SHA}):
                 result = A["prepare"](base / "source", viewer, base / "binary", base / "agent.sock",
                     base / "state-client/weather-cache", base / "state-client/air-quality-cache")
             self.assertTrue(result["prepared"])
+
+    def test_preparer_rejects_unbound_cold_bytes_expected_forecast_and_exhausted_future(self):
+        for key in A["PRODUCTS"]:
+            for fault in ("length", "hash", "expected", "future"):
+                with self.subTest(key=key, fault=fault), tempfile.TemporaryDirectory() as temporary:
+                    base = Path(temporary); viewer = base / "weather-viewer"; viewer.mkdir(mode=0o700)
+                    selection, forecasts = prepare_fixture(viewer)
+                    if fault in ("length", "hash"):
+                        path = viewer / A["PRODUCTS"][key]["filename"]
+                        raw = A["B"]["encode"](forecasts[key])
+                        altered = raw + b" " if fault == "length" else raw.replace(b"2026-10-10", b"2026-10-09", 1)
+                        self.assertNotEqual(raw, altered)
+                        if fault == "hash": self.assertEqual(len(raw), len(altered))
+                        path.unlink(); A["write_new"](path, altered)
+                    if fault == "expected": forecasts[key]["source"]["acquired_at"] = iso(CLOCK-1)
+                    observed = A["stamp"](forecasts[key]["samples"][-1]["valid_at"]) if fault == "future" else CLOCK
+                    def execute(command, cwd, maximum, timeout):
+                        expected = dict(schema=2, core_sha256=SHA, display_sha256=SHA,
+                            products={name: dict(publication=value["publication"], forecast=forecasts[name])
+                                for name, value in selection["products"].items()})
+                        raw = A["B"]["encode"](expected); A["write_new"](viewer / "expected.json", raw, 0o400)
+                        return json.dumps(dict(prepared=True, expected_sha256=hashlib.sha256(raw).hexdigest(), display_sha256=SHA)).encode()
+                    with patch.dict(A["prepare"].__globals__, run=execute, observed_ms=lambda: observed), \
+                            patch.dict(A["B"], fingerprint=lambda *args: {"sha256": SHA}), self.assertRaises(ValueError):
+                        A["prepare"](base / "source", viewer, base / "binary", base / "agent.sock",
+                            base / "state-client/weather-cache", base / "state-client/air-quality-cache")
 
     def test_partial_browser_report_is_retainable_but_never_success(self):
         failed = report(); failed.update(passed=False, phase="provider", checks={}, cleanup={})
@@ -197,8 +315,9 @@ class Products(unittest.TestCase):
             bad = copy.deepcopy(value); bad["products"][key][group][field] = changed
             with self.subTest(field=field), self.assertRaises(ValueError): A["validate_selection"](bad)
 
-    def test_acquisition_requires_twelve_weather_and_six_native_particulate_fields(self):
+    def test_acquisition_requires_sixteen_weather_and_ten_native_particulate_fields(self):
         good = acquisition(); A["validate_acquisition"](good)
+        self.assertEqual([len(good["products"][key]["fields"]) for key in A["PRODUCTS"]], [16, 10])
         for key in A["PRODUCTS"]:
             for field in ("missing", "duplicate", "wrong_parameter", "wrong_step"):
                 value = copy.deepcopy(good); fields = value["products"][key]["fields"]
@@ -244,8 +363,8 @@ class Products(unittest.TestCase):
                         proof = A["evidence"](work, digest, SHA); A["validate_evidence_export"](proof)
                         self.assertTrue(proof["scope"]["end_to_end_proven"])
                         self.assertFalse(proof["scope"]["browser_triggered_cold_fetch"])
-                        self.assertEqual(proof["products"]["weather"]["acquired_fields"], 12)
-                        self.assertEqual(proof["products"]["air_quality"]["acquired_fields"], 6)
+                        self.assertEqual(proof["products"]["weather"]["acquired_fields"], 16)
+                        self.assertEqual(proof["products"]["air_quality"]["acquired_fields"], 10)
 
     def test_weather_only_capture_or_receipt_never_proves_air_quality(self):
         for suffix in ("cold-consumer", "selection", "privacy-client", "privacy-exit", "control", "cache-before"):
@@ -254,6 +373,24 @@ class Products(unittest.TestCase):
                 A["artifact"](work, suffix, "air_quality").unlink()
                 with patch.dict(A["cold_evidence"].__globals__, cache_state=lambda key, *args: caches[key]):
                     with self.assertRaises((OSError, ValueError)): A["cold_evidence"](work, digest, SHA)
+
+    def test_final_future_check_works_after_viewer_cleanup_but_export_has_no_wall_clock_dependency(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary); digest, caches = joined_fixture(work)
+            self.assertFalse((work / "client-fixtures/weather-viewer").exists())
+            last = min(A["stamp"](v["query"]["run"]) + 48 * 3600000 for v in selected()["products"].values())
+            with patch.dict(A["evidence"].__globals__, cache_state=lambda key, *args: caches[key], observed_ms=lambda: last-1):
+                proof = A["evidence"](work, digest, SHA)
+            for observed in (last, last+1, 0):
+                with patch.dict(A["evidence"].__globals__, cache_state=lambda key, *args: caches[key], observed_ms=lambda: observed):
+                    with self.subTest(observed=observed), self.assertRaises(ValueError): A["evidence"](work, digest, SHA)
+            def unexpected_clock(): raise AssertionError("historical export must not read wall clock")
+            with patch.dict(A["evidence"].__globals__, observed_ms=unexpected_clock), \
+                    patch.object(A["time"], "time", side_effect=unexpected_clock), \
+                    patch.object(A["time"], "time_ns", side_effect=unexpected_clock):
+                A["validate_evidence_export"](proof)
+                A["validate_acquisition"](acquisition())
+                A["validate_cold_export"](A["read"](A["artifact"](work, "cold-evidence")))
 
     def test_cold_evidence_survives_missing_ui_without_claiming_end_to_end(self):
         with tempfile.TemporaryDirectory() as temporary:

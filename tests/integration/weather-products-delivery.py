@@ -31,12 +31,12 @@ PRODUCTS = {
     "weather": dict(suffix="weather", name="disposable-public-community-weather", filename="forecast.json",
         manifest="manifest.bin", published="publish-receipt.json", cache="weather-cache", source_cache="source-cache",
         receipt="cold-receipt.json", script="forecast.mjs", schema="volparossa.forecast.v1", provider="ecmwf",
-        model="ifs", steps=[3, 9, 24], parameters=["2t", "10u", "10v", "tp"]),
+        model="ifs", steps=[3, 9, 24, 48], parameters=["2t", "10u", "10v", "tp"]),
     "air_quality": dict(suffix="air-quality", name="disposable-public-community-air-quality", filename="air-quality.json",
         manifest="air-quality-manifest.bin", published="air-quality-publish-receipt.json", cache="air-quality-cache",
         source_cache="air-quality-source-cache", receipt="air-quality-cold-receipt.json", script="air-quality.mjs",
         schema="volparossa.air-quality.forecast.v1", provider="noaa", model="gefs-aerosols",
-        steps=[3, 6, 12], parameters=["PMTF", "PMTC"]),
+        steps=[3, 6, 12, 24, 48], parameters=["PMTF", "PMTC"]),
 }
 BRIDGE_MODULES = {"scripts/serve-provider.mjs", "src/provider-http.mjs", "src/provider-core.mjs", "src/core-cache.mjs",
     "src/air-quality.mjs", "src/air-quality-provider.mjs", "src/air-quality-core.mjs"}
@@ -67,6 +67,39 @@ def fixed_query(key, model_run):
     return result
 
 
+def stamp(value):
+    require(type(value) is str and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", value))
+    moment = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return (moment - datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)) // datetime.timedelta(milliseconds=1)
+
+
+def observed_ms():
+    return time.time_ns() // 1000000
+
+
+def future_query(key, query, observed_at):
+    same(query, fixed_query(key, query["run"]))
+    run_at = stamp(query["run"])
+    require(type(observed_at) is int and run_at <= observed_at < run_at + 48 * 3600000)
+
+
+def forecast_times(value, key, model_run, observed_at, acquisition_window=None):
+    require(value["kind"] == "forecast" and value["source"]["model_run_at"] == model_run)
+    run_at, acquired_at = stamp(model_run), stamp(value["source"]["acquired_at"])
+    require(type(observed_at) is int and run_at <= acquired_at <= observed_at)
+    samples = value["samples"]
+    same([sample["lead_hours"] for sample in samples], product(key)["steps"])
+    for sample in samples:
+        require(type(sample["lead_hours"]) is int
+            and stamp(sample["valid_at"]) == run_at + sample["lead_hours"] * 3600000)
+    # Past native samples remain forecasts, never observations. The final lead
+    # must still be in the future at this actual acquisition/preparation check.
+    require(stamp(samples[-1]["valid_at"]) > observed_at)
+    if acquisition_window is not None:
+        started_at, finished_at = acquisition_window
+        require(started_at <= acquired_at <= finished_at == observed_at)
+
+
 def acquisition(source, manifest_sha, root, parent, client, group):
     private(root)
     require(root.name == "weather-publisher" and set(p.name for p in root.iterdir()) == {"passphrase", "scratch"})
@@ -77,8 +110,9 @@ def acquisition(source, manifest_sha, root, parent, client, group):
     require(run([str(source / "decoder/grib_ls"), "-V"], root, 4096, 10).strip() == b"ecCodes Version 2.44.0")
     now = int(time.time())
     # Select independently completed cycles. NOAA's 00UTC cycle with an explicit
-    # twelve-hour availability margin is not
-    # rewritten to match IFS and its native 3/6/12h samples are not interpolated.
+    # twelve-hour availability margin is not rewritten to match IFS. Native
+    # samples are not interpolated; lead 48 preserves future coverage across
+    # midnight/noon boundaries without pretending the earlier leads are current.
     cycles = dict(weather=now // 43200 * 43200 - 43200, air_quality=(now - 43200) // 86400 * 86400)
     products = {}
     for key, p in PRODUCTS.items():
@@ -90,13 +124,15 @@ def acquisition(source, manifest_sha, root, parent, client, group):
             "--decoder-sha256", B["DECODER_SHA"], "--scratch-parent", str(root / "scratch")]
         if key == "weather": command += ["--model", "ifs", "--include-wind", "--include-precipitation"]
         remaining = deadline - time.monotonic(); require(remaining > 0)
+        started_at = observed_ms()
         raw = run(command, root, MAX_FORECAST, min(360, remaining))
+        finished_at = observed_ms()
         value = json.loads(raw, object_pairs_hook=B["B"]["unique_pairs"])
         require(value["schema"] == p["schema"] and value["source"]["provider"] == p["provider"]
             and value["source"]["acquisition"] == "origin-https" and value["source"]["model"] == p["model"]
             and value["source"]["model_run_at"] == model_run)
         same(value["area"], dict(latitude=52.52, longitude=13.41, sharing="public-community"))
-        same([sample["lead_hours"] for sample in value["samples"]], p["steps"])
+        forecast_times(value, key, model_run, finished_at, (started_at, finished_at))
         require(not list((root / "scratch").iterdir()))
         fields = []
         for sample in value["samples"]:
@@ -135,6 +171,7 @@ def validate_selection(value):
         same(query, fixed_query(key, query["run"]))
         require(type(query["run"]) is str and re.fullmatch(r"\d{4}-\d{2}-\d{2}T(?:00|12):00:00\.000Z" if key == "weather"
             else r"\d{4}-\d{2}-\d{2}T00:00:00\.000Z", query["run"]))
+        stamp(query["run"])
     require(value["products"]["weather"]["publication"]["manifest_id"] != value["products"]["air_quality"]["publication"]["manifest_id"])
     return value
 
@@ -213,7 +250,14 @@ def prepare(source, viewer, binary, control, weather_cache, air_quality_cache):
         and expected["core_sha256"] == core_sha and set(expected["products"]) == set(PRODUCTS)
         and hashlib.sha256(expected_raw).hexdigest() == result["expected_sha256"]
         and expected["display_sha256"] == result["display_sha256"])
-    for key in PRODUCTS: same(expected["products"][key]["publication"], selected["products"][key]["publication"])
+    for key, p in PRODUCTS.items():
+        publication = selected["products"][key]["publication"]
+        same(expected["products"][key]["publication"], publication)
+        cold_raw = raw_file(viewer / p["filename"], MAX_FORECAST, 0o600)
+        require(len(cold_raw) == publication["bytes"] and hashlib.sha256(cold_raw).hexdigest() == publication["sha256"])
+        forecast = json.loads(cold_raw, object_pairs_hook=B["B"]["unique_pairs"])
+        same(expected["products"][key]["forecast"], forecast)
+        forecast_times(forecast, key, selected["products"][key]["query"]["run"], observed_ms())
     return result
 
 
@@ -403,7 +447,8 @@ def validate_cold_export(value):
         require(set(item) == {"forecast_sha256", "forecast_bytes", "manifest_id", "cold_receipt_sha256", "acquired_fields", "protected_cold"}
             and all(hex64(item[k]) for k in ("forecast_sha256", "manifest_id", "cold_receipt_sha256"))
             and type(item["forecast_bytes"]) is int and 0 < item["forecast_bytes"] <= MAX_FORECAST)
-        same(item["acquired_fields"], 12 if key == "weather" else 6)
+        p = product(key)
+        same(item["acquired_fields"], len(p["steps"]) * len(p["parameters"]))
         transfer = item["protected_cold"]
         require(type(transfer["providers_used"]) is int and transfer["providers_used"] in (1, 2))
         same(transfer, dict(peer_bytes=item["forecast_bytes"], providers_used=transfer["providers_used"],
@@ -462,6 +507,12 @@ def evidence(work, manifest_sha, binary_sha):
         initial_dom_display_sha256=report["expected"]["display_sha256"], refresh_dom_display_sha256=report["expected"]["display_sha256"]))
     same(report["cleanup"], dict(browser_exited=True, bridge_exited=True, private_state_removed=True, normal_browser_stop=True, normal_bridge_stop=True))
     same(report["outer_cleanup"], dict(namespace_wrapper_exited=True, private_state_removed=True, client_namespace_unchanged=True))
+    # Raw viewer inputs have already been removed. Acquisition and preparation
+    # bound their native times to these queries and the browser's exact hashes.
+    # Check future coverage when creating the joined proof, never when merely
+    # validating/exporting this historical evidence later.
+    observed_at = observed_ms()
+    for key in PRODUCTS: future_query(key, selected["products"][key]["query"], observed_at)
     result = dict(schema=2, success=True, kind="volparossa-weather-products-delivery", bundle_manifest_sha256=manifest_sha,
         core_sha256=binary_sha, decoder_sha256=B["DECODER_SHA"], products=retained["products"],
         browser_report_sha256=hashlib.sha256(raw_file(artifact(work, "original-report"))).hexdigest(),

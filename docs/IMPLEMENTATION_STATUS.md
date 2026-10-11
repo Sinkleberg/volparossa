@@ -459,8 +459,17 @@ forecasts and the publisher identity before either cold fetch. Each product
 requires its own drained packet/control captures, selected protected route,
 byte-matched receipt and private-cache checks. The browser then checks both
 provider responses, initial panels and refresh against those cold receipts.
-Native NOAA timestamps remain independent of ECMWF; these selected model points
-are not presented as current observations or guaranteed future coverage.
+Native NOAA timestamps remain independent of ECMWF. The driver now requests
+IFS leads 3, 9, 24 and 48 hours and NOAA leads 3, 6, 12, 24 and 48 hours:
+sixteen weather fields and ten particulate fields. It checks exact native
+validity times and requires future coverage during acquisition, browser
+preparation and final proof creation. Earlier forecast points are not relabelled
+as current observations. This correction leaves the frozen Weather inputs and
+time budgets unchanged; future coverage in the joined live trial remains to be
+demonstrated. Seventeen targeted driver tests, eight shell-contract tests and
+fourteen unchanged v1-delivery tests pass. They cover clock boundaries, native
+validity, acquisition timing, cold-byte and browser-expectation binding, and
+historical evidence validation without consulting the current clock.
 
 A shared 840-second post-acquisition budget bounds publication, transfers and
 browser work, without extending either signed 900-second publication or source
