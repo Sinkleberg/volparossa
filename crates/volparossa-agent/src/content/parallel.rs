@@ -102,6 +102,22 @@ pub(super) async fn pull_with_budget(
     let deadline = Instant::now()
         .checked_add(budget)
         .ok_or(ContentError::Invalid)?;
+    pull_until(context, manifest, store, policy, providers, deadline).await
+}
+
+/// Preserve a caller's absolute session deadline across discovery and successive batches.
+/// Partial verified progress survives exhaustion; no batch renews protected-stream lifetime.
+pub(super) async fn pull_until(
+    context: &ControlContext,
+    manifest: &VerifiedManifest,
+    store: &mut ChunkStore,
+    policy: &volparossa_policy::VerifiedManifest,
+    providers: Vec<DiscoveredContentProvider>,
+    deadline: Instant,
+) -> Result<(Vec<String>, u64), ContentError> {
+    if providers.len() > super::recent::OFFER_BATCH {
+        return Err(ContentError::Invalid);
+    }
     pull_inner(
         context,
         manifest,

@@ -29,16 +29,16 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Verify the adaptive-provider correction in the real disposable topology, preserving the joined temperature/wind-to-Drizz.li proof, traffic checks and cleanup. | Core candidate `44c50563` passes targeted tests, but the corrected live run remains outstanding. Trial 03 stopped before VM startup at the unchanged 4 GiB guest plus 2 GiB host-reserve gate; it produced no new network evidence. |
-| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The combined UI/bridge passes with synthetic data. The two-product joined driver and exact input bundle now pass targeted checks; the next step is the real disposable trial when the unchanged memory gate permits. Real peer delivery remains unproved; existing temperature/wind evidence does not cover it. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Recover missing chunks from late-discovered complementary providers within one bounded operation, then verify the real topology including the earlier adaptive-provider correction. | The local run on `c8b57d94` reached the base fetch but discovered only one of two complementary stores. The separate CI run failed earlier, before discovering the required Exit. Neither reached adaptive transfer or Weather delivery. Keep these failures distinct; do not replace the required Exit or weaken completeness checks. |
+| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The combined UI/bridge passes with synthetic data; the joined driver and immutable input bundle pass targeted checks. Real two-product delivery depends on the shared discovery repair and a new exact-source trial. Existing temperature/wind proof and the separate NOAA source trial do not cover this delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather` | Build and exercise the actual client against the shared provider, including unavailable/stale fields and no implicit Open-Meteo fallback. | Reuse the provider contracts and core retrieval path; client adaptation, a reproducible client build and its own runtime proof remain required. Do not create a second network scheduler or source-acquisition implementation. |
 
-Parallel work may continue on the Drizz.li field adapter and Overmorrow client
-boundaries while the core trial waits for sufficient memory. Keep the trial's
-inputs frozen, give shared interface changes one owner and integrate dependent
-consumer changes together. Do not launch competing heavy builds or lower the
-host reserve to make a trial start. A resource wait delays that proof, not all
-implementation work.
+Prioritize the shared discovery failure before another unchanged live run or a
+second client integration. The Drizz.li/Weather candidate and frozen input bundle
+remain intact; Overmorrow's client work is still required. Keep shared interface
+changes under one owner and integrate dependent consumers together. Any new VM
+trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
+do not run competing heavy builds or lower that reserve.
 
 After each milestone, or when a substantive blocker changes, reassess the next
 shared dependency against the existing evidence and application worktrees.
@@ -404,6 +404,12 @@ The Weather air-quality candidate now has a separate NOAA GEFS-Aerosols
 PM2.5/PM10 contract, exact-range source adapter and shared core-cache consumer.
 A real CLI/decoder trial verifies two native instantaneous forecast points
 (steps 3 and 6) using 2,841,174 field bytes; it does not derive AQI or observations.
+A separate [native forecast receipt](https://github.com/VOLPAROSSA/volparossa-weather/blob/f5accb1c674aa2bd2eaec00e36ccbc4c393b51a0/third_party/noaa-gefs-future-smoke.json)
+records steps 3, 6, 12, 24 and 48 from the 2026-10-11 00:00 UTC run, acquired
+at 18:13 UTC that day. Steps 24 and 48 were still in the future at acquisition.
+Ten native fields total 6,357,433 bytes and produce an 8,773-byte forecast.
+This verifies source acquisition and the production decoder, not forecast
+accuracy, observations, peer delivery or browser display.
 Ninety-one Weather tests pass, including subprocess-based cache/CLI boundaries,
 query/expiry checks and cancellation. The particulate core-cache tests use a
 synthetic core process; real particulate overlay delivery remains unproved.
@@ -473,9 +479,55 @@ and archive SHA-256
 `f1509e305236e37afecfc7287e517c99a6714487f036af4b25db5770a0bc5493`.
 Capture, full runtime-input verification, read-only unpack and tree verification
 pass; the frozen v1 archive remains unchanged and accepted. This is fixture and
-input evidence, not a completed live two-product trial. The unchanged 4 GiB guest
-plus 2 GiB host reserve is still required; no VM or new origin acquisition was
-started for this preparation.
+input evidence, not a completed live two-product trial.
+
+The subsequent local run on `c8b57d94dd21e8db6a08f961228cccc530aa873d`
+passed the unchanged memory gate, built the core in the disposable VM, and
+established the protected route. It failed at the earlier base content fetch
+with `CONTENT_PROVIDER_RUNTIME_FETCH_FAILED`, before Weather acquisition.
+Both stores were registered locally, but the one discovery snapshot recorded
+only one verified provider offer. Only that provider, holding five of nine chunks,
+returned application data; the complementary four-chunk provider received no
+application request. The failed fetch retained no completed transfer receipt.
+A completed discovery query is not a complete provider catalogue. The evidence
+establishes the incomplete snapshot; a publication/convergence race is the
+likely cause, not a separately proven DHT diagnosis.
+
+The failed local report is retained at
+`.git/ci-evidence/weather-products-delivery-01.TH6yxN/output/content-provider-smoke.json`
+with SHA-256 `3a4a9c7243e1b77508a5f5d5a578bb75f3b1ecf36505aef4525258526eb15a1a`.
+Cleanup reports zero owned objects and unchanged guest-root network state outside
+the test namespaces. The runner and QEMU exited. This report contains no Weather
+transfer, UI, adaptive-provider or full-alpha success.
+
+The separate [CI run 38163595466](https://github.com/VOLPAROSSA/volparossa/actions/runs/38163595466)
+on the same source failed earlier with `CONTENT_PROVIDER_INVENTORY_UNAVAILABLE`:
+the relay advertisements and second Exit appeared, but the required primary Exit
+did not. Its artifact retains successful cleanup and unchanged guest-root state.
+Current logs do not distinguish a missing primary publication from later
+provider-index propagation. Neither a longer readiness wait nor substituting
+the second Exit is an established fix. The previous pre-VM fixture failure
+in [run 38162824767](https://github.com/VOLPAROSSA/volparossa/actions/runs/38162824767)
+is fixed by `c8b57d94`; that correction does not resolve either live failure.
+
+The candidate now retries completed capability snapshots when verified chunks
+are missing: at most three generic discovery rounds and sixteen unique provider
+candidates, including recent hints. All batches share one absolute 300-second
+transfer budget inside the unchanged 600-second operation limit. Previously
+verified chunks remain in the same cache, and publication, policy, control-relay
+and route-context authority are checked between rounds. There is no new origin
+or direct-peer fallback. Native fetch and explicit HTTPS `PeersFirst` use this
+coordinator; other source-selection strategies are unchanged.
+
+Seven targeted coordinator/stream tests pass, including late complementary
+discovery, exact reconstruction without duplicate bytes, the complete-cache and
+single-provider fast paths, bounds, errors, invalidation, deadlines and
+cancellation. These tests use signed manifests and real chunk streams, with
+controlled discovery snapshots. Five existing parallel-transfer tests and four
+recent-provider tests also pass, including partial progress at the transfer
+deadline and cleanup before fallback. These checks do not establish live DHT convergence or
+resolve the separate CI primary-Exit failure. A new exact-source topology trial
+remains required before either live failure is described as fixed.
 
 ### Citizen procedure simulation
 
