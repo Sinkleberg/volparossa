@@ -1358,7 +1358,7 @@ if [ "$scenario" = content-provider ]; then
         content-provider-https-smoke.sh content-provider-https-smoke.py content-publication-smoke.sh content-named-smoke.sh \
         content-provider-site-smoke.sh content-provider-site-smoke.py \
         content-provider-filter-smoke.sh content-provider-filter-smoke.py \
-        content-provider-adaptive-smoke.sh content-provider-adaptive-smoke.py \
+        content-provider-adaptive-smoke.sh content-provider-adaptive-smoke.py content-provider-worker-budget.py \
         content-provider-late-recovery.sh content-provider-late-recovery.py content-cancellation-smoke.py; do
         if [ ! -f "$source_directory/tests/integration/$provider_fixture" ] \
             || [ -L "$source_directory/tests/integration/$provider_fixture" ]; then
@@ -2325,6 +2325,9 @@ cleanup() {
         done
     fi
     for cleanup_unit in $AGENT_UNITS; do retire_unit "$cleanup_unit" || true; done
+    if [ "$scenario" = content-provider ] && command -v content_provider_worker_budget_finalize >/dev/null 2>&1; then
+        content_provider_worker_budget_finalize
+    fi
     if { [ "$scenario" = content-provider ] || [ "$scenario" = content-custody ]; } \
         && ip netns exec "$CLIENT" nft list table inet vpa_content_adaptive_client_control >/dev/null 2>&1; then
         ip netns exec "$CLIENT" nft delete table inet vpa_content_adaptive_client_control || original_status=1
@@ -3966,6 +3969,10 @@ launch_agent() {
     [ "$(unit_load_state "$agent_unit")" = not-found ] || fail AGENT_UNIT_COLLISION
     AGENT_UNITS="$AGENT_UNITS $agent_unit"
     agent_rust_log=volparossa_agent=info
+    if [ "$scenario" = content-provider ] && [ "$node" = client ]; then
+        # Disposable fixture opt-in: closed per-batch resources only, no object/route/peer identities.
+        agent_rust_log=$agent_rust_log,volparossa_agent::content::worker_budget=debug
+    fi
     if [ "$scenario" = browser-network ] && [ "$node" = client ]; then
         agent_rust_log=$agent_rust_log,volparossa_agent::browser_gateway::connect=debug
     fi

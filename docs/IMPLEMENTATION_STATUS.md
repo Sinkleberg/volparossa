@@ -29,7 +29,7 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Observe real worker-budget admission, restore proven concurrent three-provider bulk transfer, then exercise late complementary-provider recovery. | The standalone run on `9b602bb5` reconstructs native and HTTPS adaptive objects sequentially and stops before late recovery/cancellation. Resource pressure intentionally caps the runtime at one worker, but this run retains no pressure snapshot. Capture that decision before changing policy or fixture resources; do not weaken the overlap gate. The separate CI primary-Exit failure remains unresolved. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Use the new worker-budget observations in the real provider trial, restore proven concurrent three-provider bulk transfer, then exercise late complementary-provider recovery. | The standalone run on `9b602bb5` reconstructs native and HTTPS adaptive objects sequentially and stops before late recovery/cancellation. Pressure can cap admission at one worker, but this run retains no pressure snapshot. The new diagnostics distinguish pressure, missing observations, resource capacity and shared reservations without changing admission. Obtain live evidence before changing policy or fixture resources; do not weaken the overlap gate. The separate CI primary-Exit failure remains unresolved. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather` | Deliver core-cache products into the actual client, then verify native packaging. | The pinned web build, sixteen Flutter tests and actual isolated browser interaction with synthetic products pass. Core delivery and native Android/iOS execution remain unverified. Cover the client's shorter timeout and the bridge's cancellation cleanup when testing cold retrieval; reuse the shared provider without another scheduler. |
 
@@ -42,6 +42,21 @@ bundle remain intact; Overmorrow's core delivery and native execution are still 
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
+
+Worker-budget diagnostics are now opt-in through one dedicated debug target.
+Each provider batch retains only bounded allowance and reservation counts,
+resource-capacity minima and closed pressure/unavailability flags from the same
+samples used for admission. No object, peer, route, path or user identifiers are
+added. Default logging remains unchanged. The disposable fixture exports separate
+native and HTTPS observations before transfer validation and finalizes interrupted
+observations after agent retirement; diagnostic failure cannot turn a failed
+transfer into a pass. Seventeen focused Rust tests pass, including four driver
+tests for three concurrent duplex streams without pressure, one under pressure,
+refused admission and release after interruption. Twelve extraction checks,
+eight existing adaptive-evidence checks and eighteen runner checks also pass.
+These are component results, not a new protected-network overlap result.
+The pressure thresholds, shared resource budget and packet-overlap gates
+are unchanged; the next real trial must establish the actual limiting condition.
 
 The late-provider fixture uses a fresh publication, route and consumer cache.
 It registers the second complementary provider only after observing the first

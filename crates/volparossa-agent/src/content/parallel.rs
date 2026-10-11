@@ -186,58 +186,67 @@ async fn pull_inner(
     }
     limits.session_timeout = limits.session_timeout.min(remaining);
     limits.exchange_timeout = limits.exchange_timeout.min(remaining);
-    let budget = &context.content.worker_budget;
-    let allowance = budget.available_workers();
-    if allowance == 0 {
-        return Ok(IndexedReceipt::default());
+    // One bounded, opt-in summary of the actual admission decisions, including a zero
+    // allowance or interrupted batch. It contains no publication or provider identity.
+    // The inner future owns all workers, so leases drain before the summary is dropped.
+    let budget = context.content.worker_budget.for_batch();
+    let result = async {
+        let allowance = budget.available_workers();
+        if allowance == 0 {
+            return Ok(IndexedReceipt::default());
+        }
+        let (download, workers) = prepare_download(manifest, store, &providers, limits, allowance)?;
+        let scope = RecentProviderScope::for_route(context, policy).await;
+        let observed_at = Instant::now();
+        let observed_wall = now();
+        let active = AtomicUsize::new(0);
+        let drivers = workers
+            .into_iter()
+            .zip(&providers)
+            .map(|(worker, source)| {
+                drivers::assigned(
+                    worker,
+                    deadline,
+                    &active,
+                    || budget.try_acquire(),
+                    move |worker| peer(context, policy, &source.provider, worker),
+                )
+            })
+            .collect();
+        let (progress, measurements, timed_out) = Box::pin(receive_workers(
+            download,
+            store,
+            drivers,
+            || budget.allowance(active.load(Ordering::Acquire)),
+            deadline,
+        ))
+        .await?;
+        let elapsed = observed_at.elapsed();
+        if timed_out {
+            content_event(context, "CONTENT_PROVIDER_TRANSFER_FAILED").await;
+            content_event(context, "CONTENT_PROVIDER_TRANSFER_DEADLINE").await;
+        }
+        let same_route = RecentProviderScope::for_route(context, policy).await == scope;
+        record_batch(
+            context,
+            manifest,
+            providers,
+            progress,
+            measurements,
+            BatchMeasurement {
+                scope,
+                observed_at,
+                observed_wall,
+                elapsed,
+                valid: !timed_out && same_route,
+            },
+        )
+        .await
     }
-    let (download, workers) = prepare_download(manifest, store, &providers, limits, allowance)?;
-    let scope = RecentProviderScope::for_route(context, policy).await;
-    let observed_at = Instant::now();
-    let observed_wall = now();
-    let active = AtomicUsize::new(0);
-    let drivers = workers
-        .into_iter()
-        .zip(&providers)
-        .map(|(worker, source)| {
-            drivers::assigned(
-                worker,
-                deadline,
-                &active,
-                || budget.try_acquire(),
-                move |worker| peer(context, policy, &source.provider, worker),
-            )
-        })
-        .collect();
-    let (progress, measurements, timed_out) = Box::pin(receive_workers(
-        download,
-        store,
-        drivers,
-        || budget.allowance(active.load(Ordering::Acquire)),
-        deadline,
-    ))
-    .await?;
-    let elapsed = observed_at.elapsed();
-    if timed_out {
-        content_event(context, "CONTENT_PROVIDER_TRANSFER_FAILED").await;
-        content_event(context, "CONTENT_PROVIDER_TRANSFER_DEADLINE").await;
-    }
-    let same_route = RecentProviderScope::for_route(context, policy).await == scope;
-    record_batch(
-        context,
-        manifest,
-        providers,
-        progress,
-        measurements,
-        BatchMeasurement {
-            scope,
-            observed_at,
-            observed_wall,
-            elapsed,
-            valid: !timed_out && same_route,
-        },
-    )
-    .await
+    .await;
+    // Ok can contain partial progress: diagnostics call this "returned", not "complete".
+    budget.finish(result.is_ok());
+    result
 }
 
 fn prepare_download(

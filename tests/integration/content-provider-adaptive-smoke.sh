@@ -3,6 +3,18 @@
 # Sourced only by the disposable content-provider KVM topology.
 # shellcheck disable=SC2154,SC2034
 
+content_provider_worker_budget_capture() {
+    # Diagnostic-only: never replace the real transfer/evidence result on failure.
+    python3 -B "$source_directory/tests/integration/content-provider-worker-budget.py" \
+        "$1" "$WORK" "$2" || true
+}
+
+content_provider_worker_budget_finalize() {
+    # Agent retirement drains RAII summaries after a cancelled/failed CLI command.
+    python3 -B "$source_directory/tests/integration/content-provider-worker-budget.py" \
+        finalize "$WORK" || true
+}
+
 content_provider_adaptive_event_count() {
     awk -v baseline="$adaptive_baseline_ms" -v event="event=$2" '
         $1 ~ /^[0-9]+$/ && $1 > baseline && $3 == event { count++ }
@@ -102,6 +114,8 @@ content_provider_adaptive_https_run() {
     content_provider_adaptive_start_control_observer "$ah_prefix-control-privacy" \
         || fail CONTENT_PROVIDER_ADAPTIVE_HTTPS_CONTROL_FAILED
     PHASE=content-provider-adaptive-https-fetch
+    content_provider_worker_budget_capture mark https
+    ah_fetch_status=0
     # Reuse the existing non-browser consumer: it checks real inherited UID/caps/netns and
     # executes ordinary origin-digest CLI without a publisher key or manifest argument.
     timeout --signal=TERM --kill-after=5s 120s ip netns exec "$CLIENT" setpriv \
@@ -111,7 +125,13 @@ content_provider_adaptive_https_run() {
         "$binary_directory/volparossa" "$WORK/runtime-client/control/agent.sock" "$ah_cache" "$ah_user" \
         "$ah_parent_ns" "$ah_client_ns" "$WORKER_UID" "$WORKER_GID" "$ah_control_gid" \
         >"$WORK/$ah_prefix-application.json" 2>"$WORK/$ah_prefix-application.err" \
-        || fail CONTENT_PROVIDER_ADAPTIVE_HTTPS_FETCH_FAILED
+        || ah_fetch_status=$?
+    if [ "$ah_fetch_status" -eq 0 ]; then
+        content_provider_worker_budget_capture finish https
+    else
+        content_provider_worker_budget_capture pending https
+        fail CONTENT_PROVIDER_ADAPTIVE_HTTPS_FETCH_FAILED
+    fi
     jq -e '.final' "$WORK/$ah_prefix-application.json" >"$WORK/$ah_prefix-fetch.json" \
         || fail CONTENT_PROVIDER_ADAPTIVE_HTTPS_RECEIPT_INVALID
     benchmark_capture_paths "$ah_prefix-live" mptcp || fail CONTENT_PROVIDER_ADAPTIVE_HTTPS_PATHS_FAILED
@@ -258,12 +278,20 @@ content_provider_adaptive_run() {
     content_provider_adaptive_start_control_observer content-provider-adaptive-control-privacy \
         || fail CONTENT_PROVIDER_ADAPTIVE_CONTROL_CAPTURE_UNAVAILABLE
     PHASE=content-provider-adaptive-fetch
+    content_provider_worker_budget_capture mark native
+    adaptive_fetch_status=0
     timeout --signal=TERM --kill-after=5s 120s "$binary_directory/volparossa" \
         --control-socket "$WORK/runtime-client/control/agent.sock" \
         content fetch --manifest "$adaptive_manifest" --publisher-key "$adaptive_publisher" \
         --cache "$adaptive_client/cache" --output "$adaptive_client/object.bin" \
         >"$WORK/content-provider-adaptive-fetch.json" 2>"$WORK/content-provider-adaptive-fetch.err" \
-        || fail CONTENT_PROVIDER_ADAPTIVE_RUNTIME_FETCH_FAILED
+        || adaptive_fetch_status=$?
+    if [ "$adaptive_fetch_status" -eq 0 ]; then
+        content_provider_worker_budget_capture finish native
+    else
+        content_provider_worker_budget_capture pending native
+        fail CONTENT_PROVIDER_ADAPTIVE_RUNTIME_FETCH_FAILED
+    fi
     benchmark_capture_paths content-provider-adaptive-live mptcp \
         || fail CONTENT_PROVIDER_ADAPTIVE_LIVE_PATHS_UNAVAILABLE
     jq -e --arg context "$adaptive_context" '.route_context_id == $context' \
