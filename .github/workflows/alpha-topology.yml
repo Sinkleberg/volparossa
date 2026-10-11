@@ -180,6 +180,8 @@ jobs:
           sh -n tests/integration/content-provider-filter-smoke.sh
           python3 -B tests/integration/test-content-provider-filter-smoke.py
           python3 -B tests/integration/test-content-provider-smoke.py
+          sh -n tests/integration/content-provider-late-recovery.sh
+          python3 -B tests/integration/test-content-provider-late-recovery.py
           sh -n tests/integration/content-provider-https-smoke.sh
           python3 -B tests/integration/test-content-provider-https-smoke.py
           sh -n tests/integration/content-mailbox-smoke.sh

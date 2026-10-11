@@ -29,7 +29,7 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Verify late complementary-provider recovery and the earlier adaptive-provider correction in the real topology. | The latest local run on `cc5f3558` completes the base two-provider fetch with measured overlap, using one discovery query. It does not exercise late rediscovery or reach adaptive transfer. The separate CI primary-Exit discovery failure remains unresolved. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Verify late complementary-provider recovery and the earlier adaptive-provider correction in the real topology. | The separate late-provider fixture is implemented and passes its focused tests; its real discovery timing is unproven. The latest local run on `cc5f3558` completes only the base two-provider fetch with measured overlap and one discovery query. The separate CI primary-Exit discovery failure remains unresolved. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather` | Build and exercise the actual client against the shared provider, including unavailable/stale fields and no implicit Open-Meteo fallback. | Reuse the provider contracts and core retrieval path; client adaptation, a reproducible client build and its own runtime proof remain required. Do not create a second network scheduler or source-acquisition implementation. |
 
@@ -41,6 +41,17 @@ bundle remain intact; Overmorrow's client work is still required. Keep shared in
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
+
+The late-provider fixture uses a fresh publication, route and consumer cache.
+It registers the second complementary provider only after observing the first
+completed, single-offer discovery. A temporary provider-side gate is bounded to
+six seconds, below the unchanged ten-second connection timeout, and is removed
+before child-process cleanup. Seven coordinator/evidence tests, two Rust seed
+tests and nineteen aggregate-report tests pass, alongside ten cancellation
+checks. Current reports require this separate result; historical version-one
+reports remain explicitly readable. These checks validate the fixture, not live
+late-provider discovery or improved transfer speed. The existing concurrent
+transfer and privacy requirements remain mandatory.
 
 After each milestone, or when a substantive blocker changes, reassess the next
 shared dependency against the existing evidence and application worktrees.

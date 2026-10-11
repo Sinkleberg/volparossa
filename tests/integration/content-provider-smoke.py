@@ -305,6 +305,21 @@ def validate_transfer(evidence):
             and adaptive["publication"]["publisher_hex"] != publication["publisher_hex"]
             and adaptive["publication"]["manifest_id"] != publication["manifest_id"],
             "adaptive proof substituted the topology or reused the earlier route/publication")
+    # Historical component evidence predates this phase; only new aggregate v2
+    # acceptance requires it. If supplied, it must validate and bind to this run.
+    if "late_provider_recovery" in evidence:
+        late_check = runpy.run_path(str(Path(__file__).with_name("content-provider-late-recovery.py")))
+        late = evidence["late_provider_recovery"]
+        late_check["validate"](late)
+        require(late["expected_peers"] == peers
+                and late["previous_context"] == adaptive["selected_route"]["route_context_id"]
+                and late["selected_route"]["route_context_id"] not in {
+                    selected["route_context_id"], adaptive["selected_route"]["route_context_id"]}
+                and late["publication"]["publisher_hex"] not in {
+                    publication["publisher_hex"], adaptive["publication"]["publisher_hex"]}
+                and late["publication"]["manifest_id"] not in {
+                    publication["manifest_id"], adaptive["publication"]["manifest_id"]},
+                "late recovery substituted the topology or reused an earlier route/publication")
     # Earlier source-exact reports predate this additive phase; never reinterpret them.
     if "requester_cancellation" in evidence:
         cancellation = runpy.run_path(str(Path(__file__).with_name("content-cancellation-smoke.py")))
@@ -337,6 +352,14 @@ def build_filter_snapshot(work):
     return rebuilt
 
 
+def build_late_provider_recovery(work):
+    checker = runpy.run_path(str(Path(__file__).with_name("content-provider-late-recovery.py")))
+    rebuilt = checker["build_evidence"](work)
+    require(rebuilt == read(work / "content-provider-late-recovery-evidence.json"),
+            "late recovery differs from its raw discovery, transfer or cleanup evidence")
+    return rebuilt
+
+
 def build_evidence(work):
     layout = read(work / "content-provider-layout.json")
     evidence = dict(success=True, publication=read(work / "content-provider-publication.json"),
@@ -356,6 +379,7 @@ def build_evidence(work):
                     site_publication=build_site_publication(work),
                     filter_snapshot=build_filter_snapshot(work),
                     adaptive_workers=build_adaptive_workers(work),
+                    late_provider_recovery=build_late_provider_recovery(work),
                     requester_cancellation=read(work / "content-provider-cancellation.json"),
                     expected_peers=read(work / "a01-expected-peers.json"),
                     selected_route=read(work / "content-provider-live-selection.json"),
@@ -405,7 +429,19 @@ def validate_control_underlay(evidence, control_node, provider_nodes):
                     "actual kernel route does not bind the two advertised public endpoints")
 
 
-def validate_report(report, revision):
+def validate_report(report, revision, *, historical=False):
+    expected_version = 1 if historical else 2
+    require(type(report.get("schema_version")) is int
+            and report["schema_version"] == expected_version,
+            "wrong aggregate report version for current or historical validation")
+    if historical:
+        require("late_provider_recovery" not in report
+                and "late_provider_recovery" not in report["transfer"],
+                "historical v1 report must not claim the later recovery phase")
+    else:
+        require(report.get("late_provider_recovery") is True
+                and report["transfer"].get("late_provider_recovery", {}).get("success") is True,
+                "current aggregate report requires actual late complementary-provider recovery")
     require(report["report_kind"] == "volparossa-native-content-providers"
             and report["source_revision"] == revision and report["success"] is True
             and report["runner_exit_status"] == 0
@@ -428,14 +464,14 @@ def validate_report(report, revision):
 if __name__ == "__main__":
     try:
         if len(sys.argv) != 4:
-            raise ValueError("usage: evidence WORK OUTPUT | user-publication WORK OUTPUT | report REPORT REVISION")
+            raise ValueError("usage: evidence WORK OUTPUT | user-publication WORK OUTPUT | report REPORT REVISION | historical-report REPORT REVISION")
         if sys.argv[1] in ("evidence", "user-publication"):
             builder = build_evidence if sys.argv[1] == "evidence" else build_user_publication
             result = builder(Path(sys.argv[2]))
             with Path(sys.argv[3]).open("x", encoding="ascii") as target:
                 json.dump(result, target, sort_keys=True, separators=(",", ":"))
-        elif sys.argv[1] == "report":
-            validate_report(read(Path(sys.argv[2])), sys.argv[3])
+        elif sys.argv[1] in ("report", "historical-report"):
+            validate_report(read(Path(sys.argv[2])), sys.argv[3], historical=sys.argv[1] == "historical-report")
         else:
             raise ValueError("unknown evidence mode")
     except (KeyError, TypeError, ValueError, OSError) as error:

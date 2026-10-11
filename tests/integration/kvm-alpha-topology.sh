@@ -567,6 +567,8 @@ print_plan() {
             '  open by publisher/name in the Client, verify HTTP assets/ranges and SIGTERM spool cleanup (no browser engine);' \
             '  after existing phases, create three separate control-only broker links to R3/R4/R5 and fetch 15 disjoint chunks on a fresh route;' \
             '  require real triple provider payload overlap, exact reconstruction and normal service/route teardown;' \
+            '  then admit a complementary provider only after one real one-offer discovery snapshot on another fresh route;' \
+            '  bound the disposable provider gate below the unchanged Exit connect timeout; require real rediscovery or fail;' \
             '  pause only the exact guest Client helper via pidfd, cancel a pending named download and require independent cached delivery;' \
             '  stop the original Client agent while bootstrap is pending, resume that helper before teardown and require successful drain;' \
             '  retain complete privacy captures/cleanup; no general NAT, arbitrary-browser HTTPS or full-C02 claim.'
@@ -1356,7 +1358,8 @@ if [ "$scenario" = content-provider ]; then
         content-provider-https-smoke.sh content-provider-https-smoke.py content-publication-smoke.sh content-named-smoke.sh \
         content-provider-site-smoke.sh content-provider-site-smoke.py \
         content-provider-filter-smoke.sh content-provider-filter-smoke.py \
-        content-provider-adaptive-smoke.sh content-provider-adaptive-smoke.py content-cancellation-smoke.py; do
+        content-provider-adaptive-smoke.sh content-provider-adaptive-smoke.py \
+        content-provider-late-recovery.sh content-provider-late-recovery.py content-cancellation-smoke.py; do
         if [ ! -f "$source_directory/tests/integration/$provider_fixture" ] \
             || [ -L "$source_directory/tests/integration/$provider_fixture" ]; then
             printf '%s\n' 'content provider fixture unavailable' >&2
@@ -2152,6 +2155,10 @@ cleanup() {
     [ "$FINALIZED" = no ] || exit "$original_status"
     FINALIZED=yes
     trap - EXIT HUP INT TERM
+    # Release the fixture gate and reap its exact owned fetch before services or namespaces.
+    if [ "$scenario" = content-provider ] && command -v content_provider_late_recovery_cleanup >/dev/null 2>&1; then
+        content_provider_late_recovery_cleanup || original_status=1
+    fi
     # Resume a fixture-paused helper BEFORE any namespace, process or service teardown.
     if [ "$scenario" = content-provider ] && command -v content_provider_cancellation_resume >/dev/null 2>&1; then
         content_provider_cancellation_resume || original_status=1
@@ -2689,6 +2696,8 @@ if [ "$scenario" = content-provider ]; then
     . "$source_directory/tests/integration/content-provider-filter-smoke.sh"
     # shellcheck source=tests/integration/content-provider-adaptive-smoke.sh
     . "$source_directory/tests/integration/content-provider-adaptive-smoke.sh"
+    # shellcheck source=tests/integration/content-provider-late-recovery.sh
+    . "$source_directory/tests/integration/content-provider-late-recovery.sh"
     if [ -n "$weather_client_bundle" ]; then
         # shellcheck source=tests/integration/weather-client-delivery.sh
         . "$source_directory/tests/integration/weather-client-delivery.sh"
@@ -2936,6 +2945,10 @@ fi
 if [ "$scenario" = content-provider ]; then
     install -o root -g root -m 0555 "$source_directory/tests/integration/content-provider-readiness.py" \
         "$WORK/bin/content-provider-readiness.py"
+    for late_recovery_helper in content-provider-late-recovery.py content-provider-https-smoke.py content-network-smoke.py; do
+        install -o root -g root -m 0555 "$source_directory/tests/integration/$late_recovery_helper" \
+            "$WORK/bin/$late_recovery_helper"
+    done
 fi
 if [ "$scenario" = content-custody ] || [ "$scenario" = agent-artifact ] || [ "$scenario" = agent-jobs ]; then
     for custody_script in content-custody-smoke.py content-retain-smoke.py content-provider-smoke.py content-provider-https-smoke.py content-network-smoke.py; do
@@ -6192,6 +6205,8 @@ start_privacy_observers() {
         content-https-complete-privacy|content-https-missing-privacy)
             [ "$scenario" = content-https ] || return 1 ;;
         weather-products-delivery-weather-privacy|weather-products-delivery-air-quality-privacy)
+            [ "$scenario" = content-provider ] || return 1 ;;
+        content-provider-late-recovery-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;
         content-provider-privacy|content-provider-adaptive-privacy|content-provider-adaptive-https-privacy|content-provider-https-complete-privacy|content-provider-https-missing-privacy|content-provider-https-baseline-privacy|content-provider-https-origin-only-privacy|content-provider-https-auto-privacy|content-provider-https-digest-origin-only-privacy|content-provider-https-digest-peers-first-privacy|content-provider-https-limited-origin-only-privacy|content-provider-https-limited-peers-first-privacy|content-provider-https-limited-auto-privacy|content-provider-https-checksum-origin-only-privacy|content-provider-https-checksum-peers-first-privacy|content-provider-https-checksum-mismatch-privacy|content-provider-user-privacy|content-provider-named-privacy|content-provider-site-privacy|content-provider-site-cache-only-privacy|content-provider-filter-cold-privacy|content-provider-filter-warm-privacy|weather-client-delivery-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;
