@@ -828,7 +828,7 @@ if [ -n "$weather_client_bundle" ]; then
     python3 -B "$HERE/weather-client-bundle.py" verify-runtime "$WEATHER_CLIENT_ARCHIVE" "$weather_client_manifest_sha256"
     WEATHER_CLIENT_ARCHIVE_SHA256=$(sha256sum "$WEATHER_CLIENT_ARCHIVE" | awk '{ print $1 }')
     WEATHER_CLIENT_MANIFEST_SHA256=$weather_client_manifest_sha256
-    printf '%s\n' 'Additional proof: public model HTTPS acquisition (ECMWF, plus NOAA for the two-product profile), protected peer transfer and real Drizz.li UI; origin acquisition is not an overlay claim.'
+    printf '%s\n' 'Additional proof: public model HTTPS acquisition (ECMWF, plus NOAA for the two-product profiles), protected peer transfer and the exact bundled Drizz.li or Overmorrow UI; origin acquisition is not an overlay claim.'
 fi
 CODE_ARCHIVE_SHA256=none
 CODE_MANIFEST_SHA256=none

@@ -31,8 +31,11 @@ class WeatherBundle(unittest.TestCase):
         self.files = self.profile_files()
 
     def profile_files(self, version=1):
+        fixed = W[{1: "FIXED", 2: "FIXED_V2", 3: "FIXED_V3"}[version]]
+        static = ({W["STATIC_V3"] + name for name in W["STATIC_REQUIRED_V3"]} if version == 3
+                  else {W["STATIC"] + "index.html"})
         return {name: dict(bytes=len(self.raw), mode=W["mode"](name), sha256=self.digest)
-            for name in W["FIXED" if version == 1 else "FIXED_V2"] | {W["STATIC"] + "index.html"}}
+            for name in fixed | static}
 
     def manifest(self, value=None, version=1):
         raw = W["encode"](value or dict(version=version, kind=W["KIND"], files=self.files))
@@ -76,7 +79,7 @@ class WeatherBundle(unittest.TestCase):
         self.assertIn(W["WEATHER"] + "integrations/drizzli/browser-smoke.json", self.files)
 
     def test_runtime_version_action_checks_whole_archive_without_executing_or_changing_profiles(self):
-        for version in (1, 2):
+        for version in (1, 2, 3):
             self.files = self.profile_files(version)
             archive, expected = self.archive(version=version)
             before = archive.read_bytes()
@@ -140,6 +143,213 @@ class WeatherBundle(unittest.TestCase):
             self.assertEqual((destination / name).stat().st_mode & 0o777, item["mode"])
         self.assertTrue(all(path.stat().st_mode & 0o777 == 0o500
             for path in (destination, *destination.rglob("*")) if path.is_dir()))
+
+    def test_v3_roundtrip_and_runtime_gate_preserve_original_archive_and_closed_files(self):
+        self.files = self.profile_files(3)
+        archive, expected = self.archive(version=3)
+        before = archive.read_bytes()
+        destination = self.root / "v3-tree"
+        checked = W["checked_archive"](archive, expected, destination, runtime=True, report_version=True)
+        self.assertEqual(checked["bundle_version"], 3)
+        self.assertEqual(W["verify_tree"](destination, expected)["files"], len(self.files))
+        self.assertEqual(archive.read_bytes(), before)
+        self.assertEqual(json.loads((destination / "INPUTS.json").read_bytes())["version"], 3)
+        for name, item in self.files.items():
+            self.assertEqual((destination / name).read_bytes(), self.raw)
+            self.assertEqual((destination / name).stat().st_mode & 0o777, item["mode"])
+        self.assertIn(W["WEATHER"] + "integrations/overmorrow/prepare_core_browser.mjs", self.files)
+        self.assertIn(W["WEATHER"] + "integrations/drizzli/prepare-core-browser.mjs", self.files)
+        self.assertFalse(any(name.startswith(W["UI_STAGE"]) for name in self.files))
+
+    def test_v3_static_closure_and_limits_do_not_spill_into_legacy_profiles(self):
+        for version in (1, 2, 3):
+            base = self.profile_files(version)
+            wrong_prefix = W["STATIC"] if version == 3 else W["STATIC_V3"]
+            files = {**base, wrong_prefix + "index.html": dict(bytes=5, mode=0o400, sha256=self.digest)}
+            raw, expected = self.manifest(dict(version=version, kind=W["KIND"], files=files))
+            with self.subTest(version=version), self.assertRaises(ValueError): W["manifest"](raw, expected)
+        for bad in ("flutter_service_worker.js", "canvaskit/skwasm.wasm", "canvaskit/canvaskit.js.symbols",
+                    "assets/worker.js", "extra.html", "../escape", ".hidden"):
+            files = self.profile_files(3)
+            files[W["STATIC_V3"] + bad] = dict(bytes=10, mode=0o400, sha256=self.digest)
+            raw, expected = self.manifest(dict(version=3, kind=W["KIND"], files=files))
+            with self.subTest(bad=bad), self.assertRaises(ValueError): W["manifest"](raw, expected)
+        for missing in W["FIXED_V3"] | {W["STATIC_V3"] + name for name in W["STATIC_REQUIRED_V3"]}:
+            files = self.profile_files(3); del files[missing]
+            raw, expected = self.manifest(dict(version=3, kind=W["KIND"], files=files))
+            with self.subTest(missing=missing), self.assertRaises(ValueError): W["manifest"](raw, expected)
+        files = self.profile_files(3)
+        for name in ("assets/font.otf", "assets/shaders/ink_sparkle.frag", "assets/AssetManifest.bin.json"):
+            files[W["STATIC_V3"] + name] = dict(bytes=32, mode=0o400, sha256=self.digest)
+        raw, expected = self.manifest(dict(version=3, kind=W["KIND"], files=files))
+        W["manifest"](raw, expected)
+        files[W["STATIC_V3"] + "canvaskit/canvaskit.wasm"]["bytes"] = 8 * 1024**2 + 1
+        raw, expected = self.manifest(dict(version=3, kind=W["KIND"], files=files))
+        with self.assertRaises(ValueError): W["manifest"](raw, expected)
+        files = self.profile_files(3)
+        for index in range(5):
+            files[W["STATIC_V3"] + f"assets/large{index}.bin"] = dict(bytes=8*1024**2, mode=0o400, sha256=self.digest)
+        raw, expected = self.manifest(dict(version=3, kind=W["KIND"], files=files))
+        with self.assertRaises(ValueError): W["manifest"](raw, expected)
+
+    def v3_proof_fixture(self):
+        _, records = self.proof_fixture(2)
+        selected = self.profile_files(3)
+        hashes = {name[len(W["STATIC_V3"]):]: item["sha256"] for name, item in selected.items()
+                  if name.startswith(W["STATIC_V3"])}
+        tree = hashlib.sha256(json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        source = dict(upstream="b" * 40, tree="c" * 40, patch_sha256=self.digest,
+            overlay_sha256=dict.fromkeys(W["OVERMORROW_OVERLAY"], self.digest),
+            deployed_tree_sha256=tree, deployed_files=len(hashes), deployed_bytes=len(hashes) * len(self.raw),
+            bridge_modules=dict.fromkeys(W["OVERMORROW_BRIDGE"], self.digest),
+            fixture_modules=dict.fromkeys(W["OVERMORROW_FIXTURE"], self.digest),
+            browser_helpers=dict.fromkeys(W["PROVEN_BROWSER_HELPERS"], self.digest),
+            isolation_helper_sha256=self.digest, driver_sha256=self.digest, fixture_sha256=self.digest)
+        proof = dict(schema=1, passed=True, phase="complete", wrapper_outcome="completed", source=source,
+            runtime=dict(sha256=dict.fromkeys(W["PROVEN_RUNTIME_FILES"], self.digest), node_sha256=self.digest),
+            scope=dict(actual_overmorrow_ui=True, actual_http_bridge=True, synthetic_weather=True,
+                synthetic_air_quality=True, core_executed=False, overlay_proven=False,
+                upstream_origin_proven=False, native_mobile_proven=False),
+            cleanup=dict.fromkeys(("browser_exited", "fixture_exited", "private_profile_removed",
+                                   "normal_browser_stop", "normal_fixture_stop"), True),
+            outer_cleanup=dict.fromkeys(("namespace_wrapper_exited", "private_profile_removed", "host_netns_unchanged"), True),
+            checks=dict.fromkeys(("actual_canvas_and_semantics", "independent_native_timelines", "native_values_visible",
+                "no_fabricated_current_or_aqi", "fixed_public_area", "source_attribution", "actual_refresh",
+                "weather_failure_and_stale_preserve_air_quality", "weather_idle_expiry_without_request",
+                "air_quality_failure_and_stale_preserve_weather", "air_quality_idle_expiry_without_request",
+                "existing_aq_detail_without_new_request", "same_origin_loaded_resources"), True))
+        proof["checks"].update(provider_requests=10, air_quality_provider_requests=10,
+                               initial_semantics_sha256=self.digest, final_semantics_sha256=self.digest)
+        records["browser-proof.json"] = proof
+        records["upstream.json"] = dict(commit="b" * 40, tree="c" * 40, license_sha256=self.digest,
+            pubspec_lock_sha256=self.digest, upstream_patch_sha256=self.digest, flutter="3.38.5", flutter_commit="d" * 40)
+        records["build-verification.json"] = dict(schema=1, upstream_commit="b" * 40,
+            upstream_patch_sha256=self.digest, pubspec_lock_sha256=self.digest,
+            profile="VOLPAROSSA_WEATHER=true", flutter="3.38.5", flutter_commit="d" * 40,
+            actual_release_web_build=True, synthetic_products=True, browser_interaction_verified=True,
+            core_delivery_verified=False, native_android_ios_verified=False, forecast_accuracy_verified=False,
+            deployment=dict(tree_sha256=tree, files=len(hashes), bytes=len(hashes) * len(self.raw),
+                static_profile="flutter-canvaskit", main_js_sha256=self.digest, bootstrap_sha256=self.digest,
+                notices_sha256=self.digest),
+            browser_trial=dict(passed=True, report_sha256=self.digest),
+            request_lifecycle=dict(provider_source_sha256=self.digest, cold_core_delivery_verified=False))
+        # Historical origin proof intentionally predates current wrapper changes.
+        records["noaa-gefs-smoke.json"]["source_modules"] = dict.fromkeys(W["NOAA_MODULES"], "e" * 64)
+        return selected, records
+
+    def check_v3_proof(self, selected, records):
+        with patch.dict(W["overmorrow_source_proof"].__globals__, small_json=lambda path: records[path.name]):
+            W["overmorrow_source_proof"](Path("/inert/weather"), Path("/inert/firefox"),
+                                        selected, Path("/inert/browser-proof.json"))
+
+    def test_v3_current_ui_provenance_binds_exact_tree_sources_runtime_and_licenses(self):
+        self.check_v3_proof(*self.v3_proof_fixture())
+        paths = {*(W["STATIC_V3"] + name for name in W["STATIC_REQUIRED_V3"]),
+            *(W["WEATHER"] + name for name in W["OVERMORROW_BRIDGE"] | W["OVERMORROW_FIXTURE"]),
+            *(W["BROWSER"] + name for name in W["PROVEN_BROWSER_HELPERS"]),
+            *(W["STAGE"] + name for name in W["PROVEN_RUNTIME_FILES"] | {"volparossa.cfg"}),
+            *(W["UI_STAGE_V3"] + name for name in W["CLIENT_FILES_V3"]),
+            *(W["WEATHER"] + "integrations/overmorrow/overlay/" + name for name in W["OVERMORROW_OVERLAY"]),
+            W["WEATHER"] + W["OVERMORROW_PROOF"], W["WEATHER"] + "LICENSE",
+            *(W["WEATHER"] + name for name in ("integrations/overmorrow/upstream.patch",
+                "integrations/overmorrow/smoke_browser.py", "integrations/overmorrow/browser-fixture.mjs",
+                "integrations/drizzli/smoke_browser.py"))}
+        for name in paths:
+            selected, records = self.v3_proof_fixture(); selected[name]["sha256"] = "f" * 64
+            with self.subTest(name=name), self.assertRaises(ValueError): self.check_v3_proof(selected, records)
+
+    def test_v3_module_maps_cannot_be_truncated_or_expanded(self):
+        for group in ("overlay_sha256", "bridge_modules", "fixture_modules", "browser_helpers"):
+            for fault in ("empty", "missing", "extra", "invalid"):
+                selected, records = self.v3_proof_fixture()
+                target = records["browser-proof.json"]["source"][group]
+                if fault == "empty": target.clear()
+                elif fault == "missing": target.pop(next(iter(target)))
+                elif fault == "extra": target["unreviewed"] = self.digest
+                else: target[next(iter(target))] = "invalid"
+                with self.subTest(group=group, fault=fault), self.assertRaises(ValueError):
+                    self.check_v3_proof(selected, records)
+
+    def test_v3_historical_origin_evidence_is_not_current_execution_authority(self):
+        selected, records = self.v3_proof_fixture()
+        self.check_v3_proof(selected, records)
+        self.assertNotEqual(records["noaa-gefs-smoke.json"]["source_modules"]["src/noaa-gefs.mjs"],
+                            selected[W["WEATHER"] + "src/noaa-gefs.mjs"]["sha256"])
+        for filename, path in (("noaa-gefs-smoke.json", ("scope", "core_executed")),
+                               ("noaa-gefs-smoke.json", ("scope", "overlay_proven")),
+                               ("ecmwf-precipitation-smoke.json", ("core_overlay_roundtrip_proven",)),
+                               ("browser-proof.json", ("scope", "upstream_origin_proven")),
+                               ("build-verification.json", ("core_delivery_verified",))):
+            selected, records = self.v3_proof_fixture(); parent = records[filename]
+            for key in path[:-1]: parent = parent[key]
+            parent[path[-1]] = True
+            with self.subTest(filename=filename, path=path), self.assertRaises(ValueError):
+                self.check_v3_proof(selected, records)
+        # This historical exception belongs only to v3: v2 still requires current hashes.
+        selected, records = self.proof_fixture(2)
+        records["noaa-gefs-smoke.json"]["source_modules"]["src/noaa-gefs.mjs"] = "e" * 64
+        with self.assertRaises(ValueError): self.check_proof(selected, records, 2)
+
+    def test_v3_exact_synthetic_scope_success_checks_and_cleanup_required(self):
+        _, original = self.v3_proof_fixture()
+        proof = original["browser-proof.json"]
+        paths = [("passed",), ("phase",), ("wrapper_outcome",), ("schema",)]
+        paths += [(group, key) for group in ("scope", "checks", "cleanup", "outer_cleanup") for key in proof[group]]
+        for path in paths:
+            selected, records = self.v3_proof_fixture(); parent = records["browser-proof.json"]
+            for key in path[:-1]: parent = parent[key]
+            old = parent[path[-1]]
+            parent[path[-1]] = not old if type(old) is bool else "invalid"
+            with self.subTest(path=path), self.assertRaises(ValueError): self.check_v3_proof(selected, records)
+
+    def test_v3_capture_interface_is_explicit_and_cannot_replace_legacy_capture(self):
+        arguments = [str(self.root / str(index)) for index in range(8)]
+        for action, args in (("capture-v3", arguments), ("capture", arguments[:6]), ("capture-v2", arguments[:6])):
+            calls = []
+            def record(*paths, **kwargs):
+                calls.append((paths, kwargs)); return {"captured": False}
+            with patch.dict(W["main"].__globals__, capture_v3=record, capture=record), \
+                    patch.object(W["sys"], "argv", ["bundle", action, *args]), redirect_stdout(io.StringIO()):
+                W["main"]()
+            self.assertEqual(calls, [(tuple(map(Path, args)), {} if action == "capture-v3"
+                                     else {"version": 2 if action == "capture-v2" else 1})])
+
+    def test_v3_actual_inert_capture_freezes_current_bytes_without_executing_them(self):
+        weather, app, static, browser, firefox = (self.root / name for name in
+                                                ("weather", "app", "static", "browser", "firefox"))
+        for root in (weather, app, static, browser, firefox): root.mkdir(mode=0o700)
+        sources = [(weather, W["WEATHER_FILES_V3"] - {W["OVERMORROW_PROOF"]}),
+                   (app, W["CLIENT_FILES_V3"]), (static, W["STATIC_REQUIRED_V3"]),
+                   (browser, W["BROWSER_FILES"]), (firefox, W["RUNTIME_FILES"])]
+        for root, names in sources:
+            for name in names:
+                path = root / name; path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                path.write_bytes(self.raw); path.chmod(0o600)
+        for name in W["EXECUTABLES"]:
+            if name.startswith(W["STAGE"]): (firefox / name[len(W["STAGE"]):]).chmod(0o700)
+        node = self.root / "node"; node.write_bytes(self.raw); node.chmod(0o700)
+        decoder = weather / "build/eccodes/eccodes-build/bin/grib_ls"
+        decoder.parent.mkdir(parents=True, mode=0o700); decoder.write_bytes(self.raw); decoder.chmod(0o700)
+        proof = self.root / "retained-proof.json"; proof.write_bytes(self.raw); proof.chmod(0o600)
+        for directory in self.root.rglob("*"):
+            if directory.is_dir(): directory.chmod(0o700)
+        archive = self.root / "captured.tar"
+        proof_calls = []
+        with patch.dict(W["capture_v3"].__globals__, overmorrow_source_proof=lambda *args: proof_calls.append(args)):
+            result = W["capture_v3"](weather, app, static, browser, firefox, node, proof, archive)
+        self.assertEqual(len(proof_calls), 1)
+        self.assertEqual(proof_calls[0][:2], (weather, firefox))
+        self.assertEqual(proof_calls[0][3], proof)
+        self.assertTrue(result["historical_source_proofs_only"])
+        self.assertFalse(result["current_origin_acquisition_proven"])
+        self.assertFalse(result["joined_delivery_proven"])
+        expected = result["manifest_sha256"]
+        self.assertEqual(W["checked_archive"](archive, expected, runtime=True, report_version=True)["bundle_version"], 3)
+        frozen = self.root / "frozen"
+        W["checked_archive"](archive, expected, frozen)
+        self.assertEqual((frozen / W["WEATHER"] / W["OVERMORROW_PROOF"]).read_bytes(), self.raw)
+        self.assertEqual(proof.read_bytes(), self.raw, "historical original must remain untouched")
+        self.assertEqual(W["verify_tree"](frozen, expected)["runtime_executed"], False)
 
     def test_v2_runtime_gate_checks_complete_archive_and_preserves_existing_roots(self):
         self.files = self.profile_files(2)

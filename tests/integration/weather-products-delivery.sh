@@ -102,8 +102,15 @@ weather_client_delivery_copy_artifacts() {
 weather_products_delivery_run() {
     [ -n "$weather_client_bundle" ] && [ -n "$weather_client_manifest_sha256" ] \
         || fail WEATHER_PRODUCTS_INPUTS_MISSING
+    # Selected by complete immutable-archive validation in the enclosing
+    # dispatcher. Never accept a caller-supplied driver path or fallback UI.
+    case ${weather_profile_version:-} in
+        2) weather_products_driver=integrations/drizzli/smoke_core_browser.py ;;
+        3) weather_products_driver=integrations/overmorrow/smoke_core_browser.py ;;
+        *) fail WEATHER_CLIENT_PROFILE_INVALID ;;
+    esac
     PHASE=weather-products-delivery-prepare
-    printf '%s\n' 'Weather v2 trial: acquire public ECMWF precipitation/weather and NOAA particulate fields in the disposable guest; publish separately to two existing peers, remove both originals and publisher identity, cold-fetch each product with independent captures, then check both products and refresh in the real isolated client. No host network or user-data changes.'
+    printf '%s\n' 'Weather two-product trial: acquire public ECMWF precipitation/weather and NOAA particulate fields in the disposable guest; publish separately to two existing peers, remove both originals and publisher identity, cold-fetch each product with independent captures, then check both products and refresh in the exact bundled isolated client. No host network or user-data changes.'
     [ "$WORKER_UID" = 985 ] && [ "$site_control_gid" != "$AGENT_GID" ] \
         || fail WEATHER_PRODUCTS_USER_INVALID
     weather_client_directory=$WORK/client-fixtures/weather-client-source
@@ -264,7 +271,8 @@ weather_products_delivery_run() {
         --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs \
         -- python3 -B "$WORK/bin/weather-products-delivery.py" prepare "$weather_client_directory" "$weather_viewer" \
         "$binary_directory/volparossa" "$WORK/runtime-client/control/agent.sock" "$WORK/state-client/weather-cache" \
-        "$WORK/state-client/air-quality-cache" >"$WORK/weather-products-delivery-prepared.json" || fail WEATHER_PRODUCTS_EXPECTED_FAILED
+        "$WORK/state-client/air-quality-cache" "$weather_profile_version" \
+        >"$WORK/weather-products-delivery-prepared.json" || fail WEATHER_PRODUCTS_EXPECTED_FAILED
     PHASE=weather-products-delivery-browser
     weather_browser_status=0
     weather_command_limit=$(weather_products_remaining 270) || fail WEATHER_PRODUCTS_DEADLINE
@@ -272,7 +280,7 @@ weather_products_delivery_run() {
         --reuid="$WORKER_UID" --regid="$site_control_gid" --clear-groups \
         --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs \
         -- env -i PATH=/usr/bin:/bin LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 \
-        python3 -B "$weather_client_directory/volparossa-weather/integrations/drizzli/smoke_core_browser.py" \
+        python3 -B "$weather_client_directory/volparossa-weather/$weather_products_driver" \
         --execute --bundle-root "$weather_client_directory" --bundle-manifest-sha256 "$weather_client_manifest_sha256" \
         --config "$weather_viewer/config.json" --expected "$weather_viewer/expected.json" \
         --output "$weather_viewer/browser-output" --parent-netns "$site_parent_ns" --client-netns "$site_client_ns" \

@@ -88,7 +88,7 @@ def failure_fixture(work, raw=None):
     return marker
 
 
-def report():
+def report(version=2):
     legacy = OLD["report"](); expected = legacy["expected"]
     result = dict(schema=2, passed=True, phase="complete", source=legacy["source"],
         expected={key: expected[key] for key in ("expected_sha256", "core_sha256", "display_sha256")},
@@ -101,6 +101,9 @@ def report():
         publication = selected()["products"][key]["publication"]
         result["products"][key] = dict(expected=dict(cold_receipt_sha256=SHA, display_sha256=SHA,
             forecast_sha256=publication["sha256"], manifest_id=publication["manifest_id"]), checks=copy.deepcopy(legacy["checks"]))
+    if version == 3:
+        result["schema"] = 3
+        result["scope"]["actual_overmorrow_ui"] = result["scope"].pop("actual_drizzli_ui")
     return result
 
 
@@ -108,7 +111,7 @@ def save(path, value, mode=0o600):
     A["write_new"](path, json.dumps(value).encode(), mode)
 
 
-def joined_fixture(work):
+def joined_fixture(work, version=2):
     f = OLD["FILTER"]["fixture"]()
     selection = selected()
     common = {"input": selection, "acquisition": acquisition(),
@@ -142,17 +145,22 @@ def joined_fixture(work):
             files[node + "-serve"] = dict(f["serves"][node], publications=4 if key == "weather" else 5)
         for suffix, value in files.items(): save(A["artifact"](work, suffix, key), value)
     B = A["B"]
-    items = {name: dict(bytes=1, mode=B["mode"](name), sha256=SHA) for name in B["FIXED_V2"] | {B["STATIC"]+"index.html"}}
+    profile = A["ui_profile"](version)
+    fixed = B["FIXED_V2"] if version == 2 else B["FIXED_V3"]
+    static_files = {"index.html"} if version == 2 else B["STATIC_REQUIRED_V3"]
+    items = {name: dict(bytes=1, mode=B["mode"](name), sha256=SHA)
+        for name in fixed | {profile["static"] + name for name in static_files}}
     for name, digest in (("runtime/node", B["NODE_SHA"]), ("decoder/grib_ls", B["DECODER_SHA"]),
             (B["WEATHER"]+"third_party/eccodes-sources.json", B["PIN_SHA"]), (B["WEATHER"]+"scripts/build_eccodes.py", B["BUILD_SHA"])):
         items[name]["sha256"] = digest
-    manifest = B["encode"](dict(version=2, kind=B["KIND"], files=items)); digest = hashlib.sha256(manifest).hexdigest()
+    manifest = B["encode"](dict(version=version, kind=B["KIND"], files=items)); digest = hashlib.sha256(manifest).hexdigest()
     A["write_new"](A["artifact"](work, "manifest"), manifest, 0o400)
     for phase in ("before", "after"):
         common["tree-"+phase] = dict(version=1, action="verify-tree", manifest_sha256=digest, files=len(items), runtime_executed=False)
         common["cache-"+phase] = dict(schema=2, products=caches)
-    browser = report(); browser["source"]["bundle_manifest_sha256"] = digest
-    browser["source"]["built_tree_sha256"] = hashlib.sha256(json.dumps({"index.html": SHA}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    browser = report(version); browser["source"]["bundle_manifest_sha256"] = digest
+    browser["source"]["built_tree_sha256"] = hashlib.sha256(json.dumps(
+        {name: SHA for name in static_files}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     common["original-report"] = browser
     save(work / "a01-expected-peers.json", f["expected_peers"]); save(work / "content-provider-layout.json", f["layout"])
     socket = work / "runtime-client/control/agent.sock"; socket.parent.mkdir(parents=True)
@@ -167,6 +175,48 @@ class Products(unittest.TestCase):
     def setUp(self):
         clock = patch.dict(A["prepare"].__globals__, observed_ms=lambda: CLOCK)
         clock.start(); self.addCleanup(clock.stop)
+
+    def test_profiles_and_browser_exports_never_accept_other_consumers(self):
+        for version, consumer in ((2, "drizzli"), (3, "overmorrow")):
+            good = report(version)
+            A["closed_report"](good)
+            self.assertEqual(A["ui_profile"](version)["ui"], "actual_"+consumer+"_ui")
+            for other in (1, 5, "3", True, 5-version):
+                bad = copy.deepcopy(good); bad["schema"] = other
+                with self.subTest(version=version, other=other), self.assertRaises(ValueError): A["closed_report"](bad)
+            bad = copy.deepcopy(good); bad["scope"]["arbitrary_ui"] = True
+            with self.assertRaises(ValueError): A["closed_report"](bad)
+        for version in (1, 4, "3", True, None):
+            with self.assertRaises(ValueError): A["ui_profile"](version)
+
+    def test_overmorrow_full_join_is_bound_to_profile_three_and_cold_products(self):
+        mutations = [None, ("schema",), ("scope", "actual_overmorrow_ui"),
+            ("source", "driver_sha256"), ("source", "preparer_sha256"), ("source", "built_tree_sha256"),
+            ("products", "weather", "checks", "exact_native_times_and_values"),
+            ("products", "air_quality", "checks", "refresh_dom_display_sha256"),
+            ("products", "air_quality", "expected", "cold_receipt_sha256")]
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary); digest, caches = joined_fixture(work, 3)
+                if mutation:
+                    path = A["artifact"](work, "original-report"); value = A["read"](path); target = value
+                    for key in mutation[:-1]: target = target[key]
+                    target[mutation[-1]] = (2 if mutation == ("schema",) else
+                        False if type(target[mutation[-1]]) is bool else "f"*64)
+                    if mutation == ("schema",):
+                        value["scope"]["actual_drizzli_ui"] = value["scope"].pop("actual_overmorrow_ui")
+                    path.unlink(); save(path, value)
+                with patch.dict(A["evidence"].__globals__, cache_state=lambda key, *args: caches[key]):
+                    if mutation:
+                        with self.assertRaises(ValueError): A["evidence"](work, digest, SHA)
+                    else:
+                        proof = A["evidence"](work, digest, SHA); A["validate_evidence_export"](proof)
+                        self.assertEqual(proof["schema"], 3)
+                        self.assertTrue(proof["scope"]["actual_overmorrow_ui"])
+                        self.assertNotIn("actual_drizzli_ui", proof["scope"])
+                        self.assertFalse(proof["scope"]["browser_triggered_cold_fetch"])
+                        bad = copy.deepcopy(proof); bad["schema"] = 2
+                        with self.assertRaises(ValueError): A["validate_evidence_export"](bad)
 
     def test_acquisition_diagnoses_every_stage_without_error_details(self):
         for failed_stage in A["ACQUISITION_STAGES"]:
@@ -429,6 +479,28 @@ class Products(unittest.TestCase):
                             patch.dict(A["B"], fingerprint=lambda *args: {"sha256": SHA}), self.assertRaises(ValueError):
                         A["prepare"](base / "source", viewer, base / "binary", base / "agent.sock",
                             base / "state-client/weather-cache", base / "state-client/air-quality-cache")
+
+    def test_overmorrow_preparer_selects_only_its_source_and_schema(self):
+        for expected_version in (2, 3, "3", True):
+            with self.subTest(expected_version=expected_version), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary); viewer = base / "weather-viewer"; viewer.mkdir(mode=0o700)
+                selection, forecasts = prepare_fixture(viewer)
+                def execute(command, cwd, maximum, timeout):
+                    self.assertEqual(command[2], str(base / "source" / A["B"]["WEATHER"] /
+                        "integrations/overmorrow/prepare_core_browser.mjs"))
+                    self.assertNotIn("drizzli", command[2])
+                    expected = dict(schema=expected_version, core_sha256=SHA, display_sha256=SHA,
+                        products={key: dict(publication=value["publication"], forecast=forecasts[key])
+                            for key, value in selection["products"].items()})
+                    raw = A["B"]["encode"](expected); A["write_new"](viewer / "expected.json", raw, 0o400)
+                    return json.dumps(dict(prepared=True, expected_sha256=hashlib.sha256(raw).hexdigest(), display_sha256=SHA)).encode()
+                with patch.dict(A["prepare"].__globals__, run=execute), patch.dict(A["B"], fingerprint=lambda *args: {"sha256": SHA}):
+                    args = (base / "source", viewer, base / "binary", base / "agent.sock",
+                        base / "state-client/weather-cache", base / "state-client/air-quality-cache", 3)
+                    if type(expected_version) is int and expected_version == 3:
+                        self.assertTrue(A["prepare"](*args)["prepared"])
+                    else:
+                        with self.assertRaises(ValueError): A["prepare"](*args)
 
     def test_partial_browser_report_is_retainable_but_never_success(self):
         failed = report(); failed.update(passed=False, phase="provider", checks={}, cleanup={})

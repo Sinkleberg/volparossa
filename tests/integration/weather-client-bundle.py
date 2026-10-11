@@ -72,6 +72,33 @@ CLIENT_FILES_V2 = CLIENT_FILES | OVERLAY_FILES | {"LICENSE.VOLPAROSSA",
 FIXED_V2 = frozenset({*(WEATHER + name for name in WEATHER_FILES_V2),
     *(BROWSER + name for name in BROWSER_FILES), *(STAGE + name for name in RUNTIME_FILES),
     *(UI_STAGE + name for name in CLIENT_FILES_V2), "runtime/node", "decoder/grib_ls"})
+# A distinct consumer profile, not a relaxation or reinterpretation of v1/v2.
+UI_STAGE_V3 = WEATHER + "build/overmorrow-app/"
+STATIC_V3 = WEATHER + "build/overmorrow-web/"
+OVERMORROW_OVERLAY = frozenset(("lib/api_key.dart", "lib/volparossa/products.dart",
+    "lib/volparossa/profile.dart", "lib/volparossa/provider.dart", "lib/volparossa/views.dart",
+    "test/volparossa_products_test.dart", "test/volparossa_provider_test.dart",
+    "test/volparossa_ui_test.dart", "web/flutter_bootstrap.js"))
+OVERMORROW_BRIDGE = PROVEN_BRIDGE_MODULES | PROVEN_WEATHER_MODULES | AQ_MODULES | {"src/air-quality-core.mjs"}
+OVERMORROW_FIXTURE = FIXTURE_MODULES | {"integrations/overmorrow/test-fixtures.mjs", "integrations/drizzli/browser-fixture.mjs"}
+OVERMORROW_PROOF = "integrations/overmorrow/browser-proof.json"
+OVERMORROW_FILES = frozenset(("upstream.json", "upstream.patch", "build-verification.json", "deploy.py",
+    "smoke_browser.py", "smoke_core_browser.py", "prepare_core_browser.mjs", "browser-fixture.mjs", "test-fixtures.mjs"))
+WEATHER_FILES_V3 = frozenset({*(name for name in WEATHER_FILES_V2 if not name.startswith("integrations/")),
+    *("integrations/drizzli/" + name for name in ("smoke_browser.py", "smoke_core_browser.py",
+                                                 "prepare-core-browser.mjs", "browser-fixture.mjs")),
+    *("integrations/overmorrow/" + name for name in OVERMORROW_FILES),
+    *("integrations/overmorrow/overlay/" + name for name in OVERMORROW_OVERLAY), OVERMORROW_PROOF})
+CLIENT_FILES_V3 = OVERMORROW_OVERLAY | {"LICENSE", "LICENSE.VOLPAROSSA", "pubspec.lock"}
+FIXED_V3 = frozenset({*(WEATHER + name for name in WEATHER_FILES_V3),
+    *(BROWSER + name for name in BROWSER_FILES), *(STAGE + name for name in RUNTIME_FILES),
+    *(UI_STAGE_V3 + name for name in CLIENT_FILES_V3), "runtime/node", "decoder/grib_ls"})
+STATIC_REQUIRED_V3 = frozenset(("index.html", "version.json", "flutter.js", "main.dart.js", "favicon.png",
+    "manifest.json", "flutter_bootstrap.js", "canvaskit/canvaskit.js", "canvaskit/canvaskit.wasm",
+    "canvaskit/chromium/canvaskit.js", "canvaskit/chromium/canvaskit.wasm", "assets/NOTICES",
+    "assets/AssetManifest.bin", "LICENSE.txt", "LICENSE.VOLPAROSSA.txt"))
+STATIC_ASSET_EXTENSIONS_V3 = frozenset((".png", ".jpg", ".jpeg", ".webp", ".svg", ".ttf", ".otf",
+    ".woff", ".woff2", ".json", ".bin", ".frag"))
 EXECUTABLES = frozenset({"runtime/node", "decoder/grib_ls", *(STAGE + name for name in
     ("firefox-esr", "firefox-bin", "crashhelper", "crashreporter", "glxtest", "vaapitest", "pingsender"))})
 MAX_FILES = 512
@@ -92,31 +119,41 @@ def mode(name):
 def bound(name):
     if name.startswith(STAGE) or name in ("runtime/node", "decoder/grib_ls"):
         return MAX_FILE
-    return 8 * 1024 * 1024 if name.startswith(STATIC) else 1024 * 1024
+    return 8 * 1024 * 1024 if name.startswith((STATIC, STATIC_V3)) else 1024 * 1024
 
 
-def static_name(name):
-    return name.startswith(STATIC) and all(re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@+-]{0,254}", part)
-        and part not in (".", "..") for part in name[len(STATIC):].split("/"))
+def static_name(name, version=1):
+    prefix = STATIC_V3 if version == 3 else STATIC
+    safe = name.startswith(prefix) and all(re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@+-]{0,254}", part)
+        and part not in (".", "..") for part in name[len(prefix):].split("/"))
+    if not safe or version != 3:
+        return safe
+    relative = name[len(prefix):]
+    return (relative in STATIC_REQUIRED_V3
+        or relative.startswith("assets/") and Path(relative).suffix in STATIC_ASSET_EXTENSIONS_V3
+        or relative.startswith("icons/") and Path(relative).suffix == ".png")
 
 
 def manifest(raw, expected):
     require(hex64(expected) and 0 < len(raw) <= MAX_MANIFEST and hashlib.sha256(raw).hexdigest() == expected)
     value = json.loads(raw, object_pairs_hook=B["unique_pairs"])
     require(type(value) is dict and set(value) == {"version", "kind", "files"}
-        and type(value["version"]) is int and value["version"] in (1, 2) and value["kind"] == KIND
+        and type(value["version"]) is int and value["version"] in (1, 2, 3) and value["kind"] == KIND
         and type(value["files"]) is dict
         and 1 <= len(value["files"]) <= MAX_FILES and encode(value) == raw)
-    fixed = FIXED if value["version"] == 1 else FIXED_V2
-    require(fixed <= set(value["files"]) and all(name in fixed or static_name(name) for name in value["files"])
-        and STATIC + "index.html" in value["files"])
+    version = value["version"]
+    fixed = {1: FIXED, 2: FIXED_V2, 3: FIXED_V3}[version]
+    prefix = STATIC_V3 if version == 3 else STATIC
+    required_static = STATIC_REQUIRED_V3 if version == 3 else {"index.html"}
+    require(fixed <= set(value["files"]) and all(name in fixed or static_name(name, version) for name in value["files"])
+        and {prefix + name for name in required_static} <= set(value["files"]))
     total = static_bytes = 0
     for name, item in value["files"].items():
         require(type(item) is dict and set(item) == {"bytes", "mode", "sha256"}
             and type(item["bytes"]) is int and 0 < item["bytes"] <= bound(name)
             and type(item["mode"]) is int and item["mode"] == mode(name) and hex64(item["sha256"]))
         total += item["bytes"]
-        static_bytes += item["bytes"] if name.startswith(STATIC) else 0
+        static_bytes += item["bytes"] if name.startswith(prefix) else 0
     require(total <= MAX_TOTAL and static_bytes <= MAX_STATIC)
     for name, expected_sha in (("runtime/node", NODE_SHA), ("decoder/grib_ls", DECODER_SHA),
             (WEATHER + "third_party/eccodes-sources.json", PIN_SHA), (WEATHER + "scripts/build_eccodes.py", BUILD_SHA)):
@@ -207,6 +244,12 @@ def source_proof(weather, browser, ui, stage, selected, version=1):
         and metadata["autoconfig_sha256"] == selected[STAGE + "volparossa.cfg"]["sha256"])
     for relative, digest in runtime.items():
         require(selected[STAGE + relative]["sha256"] == digest)
+    decoder_proof(weather)
+    if version == 2:
+        extended_source_proof(weather, selected, proof)
+
+
+def decoder_proof(weather):
     build = small_json(weather / "build/eccodes/build-receipt.json")
     require(build["compiled"] is True and build["embedded_definitions"] is True
         and build["required_environment"] == {} and build["source_pin_sha256"] == PIN_SHA
@@ -220,8 +263,6 @@ def source_proof(weather, browser, ui, stage, selected, version=1):
         artifacts[item["path"]] = item
     require(artifacts.get("build/eccodes/eccodes-build/bin/grib_ls")
         == dict(path="build/eccodes/eccodes-build/bin/grib_ls", bytes=31328216, sha256=DECODER_SHA))
-    if version == 2:
-        extended_source_proof(weather, selected, proof)
 
 
 def extended_source_proof(weather, selected, proof):
@@ -275,6 +316,112 @@ def extended_source_proof(weather, selected, proof):
         require(selected[WEATHER + relative]["sha256"] == digest)
 
 
+def overmorrow_source_proof(weather, stage, selected, proof_path):
+    """Bind the current real UI proof. Origin receipts remain historical only.
+
+This does not assert that the current acquisition wrappers have run against
+origins: the joined runner must acquire and validate new products itself.
+Neither historical receipt is changed or used as current-wrapper authority.
+"""
+    proof = small_json(proof_path)
+    pin = small_json(weather / "integrations/overmorrow/upstream.json")
+    build = small_json(weather / "integrations/overmorrow/build-verification.json")
+    require(type(proof["schema"]) is int and proof["schema"] == 1 and proof["passed"] is True
+        and proof["phase"] == "complete" and proof["wrapper_outcome"] == "completed")
+    scope = dict(actual_overmorrow_ui=True, actual_http_bridge=True, synthetic_weather=True,
+        synthetic_air_quality=True, core_executed=False, overlay_proven=False,
+        upstream_origin_proven=False, native_mobile_proven=False)
+    require(proof["scope"] == scope and all(type(value) is bool for value in proof["scope"].values()))
+    for group, names in (("cleanup", ("browser_exited", "fixture_exited", "private_profile_removed",
+                                     "normal_browser_stop", "normal_fixture_stop")),
+                         ("outer_cleanup", ("namespace_wrapper_exited", "private_profile_removed", "host_netns_unchanged"))):
+        require(set(proof[group]) == set(names) and all(proof[group][name] is True for name in names))
+    checks = proof["checks"]
+    for name in ("actual_canvas_and_semantics", "independent_native_timelines", "native_values_visible",
+                 "no_fabricated_current_or_aqi", "fixed_public_area", "source_attribution", "actual_refresh",
+                 "weather_failure_and_stale_preserve_air_quality", "weather_idle_expiry_without_request",
+                 "air_quality_failure_and_stale_preserve_weather", "air_quality_idle_expiry_without_request",
+                 "existing_aq_detail_without_new_request", "same_origin_loaded_resources"):
+        require(checks[name] is True)
+    for name in ("provider_requests", "air_quality_provider_requests"):
+        require(type(checks[name]) is int and checks[name] == 10)
+    require(all(hex64(checks[name]) for name in ("initial_semantics_sha256", "final_semantics_sha256")))
+    source = proof["source"]
+    require(set(source) == {"upstream", "tree", "patch_sha256", "overlay_sha256", "deployed_tree_sha256",
+        "deployed_files", "deployed_bytes", "bridge_modules", "fixture_modules", "browser_helpers",
+        "isolation_helper_sha256", "driver_sha256", "fixture_sha256"})
+    require(source["upstream"] == pin["commit"] == build["upstream_commit"]
+        and source["tree"] == pin["tree"] and source["patch_sha256"] == pin["upstream_patch_sha256"]
+        == build["upstream_patch_sha256"] == selected[WEATHER + "integrations/overmorrow/upstream.patch"]["sha256"]
+        and selected[UI_STAGE_V3 + "LICENSE"]["sha256"] == pin["license_sha256"]
+        == selected[STATIC_V3 + "LICENSE.txt"]["sha256"]
+        and selected[UI_STAGE_V3 + "pubspec.lock"]["sha256"] == pin["pubspec_lock_sha256"] == build["pubspec_lock_sha256"]
+        and selected[UI_STAGE_V3 + "LICENSE.VOLPAROSSA"]["sha256"] == selected[WEATHER + "LICENSE"]["sha256"]
+        == selected[STATIC_V3 + "LICENSE.VOLPAROSSA.txt"]["sha256"])
+    for relative, digest in proven_hashes(source["overlay_sha256"], OVERMORROW_OVERLAY).items():
+        require(selected[WEATHER + "integrations/overmorrow/overlay/" + relative]["sha256"]
+            == selected[UI_STAGE_V3 + relative]["sha256"] == digest)
+    for group, names, prefix in (("bridge_modules", OVERMORROW_BRIDGE, WEATHER),
+            ("fixture_modules", OVERMORROW_FIXTURE, WEATHER),
+            ("browser_helpers", PROVEN_BROWSER_HELPERS, BROWSER)):
+        for relative, digest in proven_hashes(source[group], names).items():
+            require(selected[prefix + relative]["sha256"] == digest)
+    for field, relative in (("isolation_helper_sha256", "integrations/drizzli/smoke_browser.py"),
+            ("driver_sha256", "integrations/overmorrow/smoke_browser.py"),
+            ("fixture_sha256", "integrations/overmorrow/browser-fixture.mjs")):
+        require(hex64(source[field]) and selected[WEATHER + relative]["sha256"] == source[field])
+    hashes = {name[len(STATIC_V3):]: item["sha256"] for name, item in selected.items() if name.startswith(STATIC_V3)}
+    tree_sha = hashlib.sha256(json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    deployment = build["deployment"]
+    require(tree_sha == source["deployed_tree_sha256"] == deployment["tree_sha256"]
+        and type(source["deployed_files"]) is int and source["deployed_files"] == len(hashes) == deployment["files"]
+        and type(source["deployed_bytes"]) is int and source["deployed_bytes"] == deployment["bytes"]
+        == sum(item["bytes"] for name, item in selected.items() if name.startswith(STATIC_V3))
+        and deployment["static_profile"] == "flutter-canvaskit")
+    for field, name in (("main_js_sha256", "main.dart.js"), ("bootstrap_sha256", "flutter_bootstrap.js"),
+                        ("notices_sha256", "assets/NOTICES")):
+        require(deployment[field] == hashes[name])
+    require(type(build["schema"]) is int and build["schema"] == 1 and build["actual_release_web_build"] is True
+        and build["profile"] == "VOLPAROSSA_WEATHER=true" and build["flutter"] == pin["flutter"]
+        and build["flutter_commit"] == pin["flutter_commit"] and build["synthetic_products"] is True
+        and build["browser_interaction_verified"] is True and build["core_delivery_verified"] is False
+        and build["native_android_ios_verified"] is False and build["forecast_accuracy_verified"] is False
+        and build["browser_trial"]["passed"] is True
+        and build["browser_trial"]["report_sha256"] == selected[WEATHER + OVERMORROW_PROOF]["sha256"]
+        and build["request_lifecycle"]["provider_source_sha256"] == source["overlay_sha256"]["lib/volparossa/provider.dart"]
+        and build["request_lifecycle"]["cold_core_delivery_verified"] is False)
+    metadata = small_json(stage / "volparossa-staging.json")
+    runtime = proven_hashes(metadata["runtime_sha256"], PROVEN_RUNTIME_FILES)
+    require(runtime == proven_hashes(proof["runtime"]["sha256"], PROVEN_RUNTIME_FILES)
+        and proof["runtime"]["node_sha256"] == NODE_SHA
+        and metadata["defaults_sha256"] == selected[BROWSER + "defaults/privacy.json"]["sha256"]
+        and metadata["autoconfig_sha256"] == selected[STAGE + "volparossa.cfg"]["sha256"])
+    for relative, digest in runtime.items():
+        require(selected[STAGE + relative]["sha256"] == digest)
+    decoder_proof(weather)
+    # Retain known separate historical source evidence without claiming its
+    # hashes describe these current wrappers (notably the newer NOAA cleanup).
+    for filename, kind, group in (("noaa-gefs-smoke.json", "direct-noaa-native-particulate-forecast", NOAA_MODULES),
+                                 ("ecmwf-precipitation-smoke.json", "direct-ecmwf-native-precipitation-forecast", ECMWF_MODULES)):
+        historical = small_json(weather / "third_party" / filename)
+        require(type(historical["version"]) is int and historical["version"] == 1 and historical["kind"] == kind
+            and historical["success"] is True and historical["node_sha256"] == NODE_SHA
+            and historical["decoder_sha256"] == DECODER_SHA)
+        proven_hashes(historical["source_modules"], group)
+        if filename.startswith("noaa"):
+            require(historical["origin"] == "https://noaa-gefs-pds.s3.amazonaws.com"
+                and historical["scope"]["actual_origin_acquisition"] is True
+                and historical["scope"]["actual_pinned_native_decoder"] is True
+                and all(historical["scope"][key] is False for key in
+                        ("core_executed", "overlay_proven", "browser_executed", "accuracy_proven")))
+        else:
+            require(historical["source"] == "https://data.ecmwf.int/forecasts"
+                and historical["native_accumulation_windows_preserved"] is True
+                and historical["hourly_rates_inferred"] is False
+                and historical["core_overlay_roundtrip_proven"] is False
+                and historical["browser_execution_proven"] is False)
+
+
 def capture(weather, ui, browser, stage, node, archive, version=1):
     require(type(version) is int and version in (1, 2))
     for root in (weather, ui, browser, stage):
@@ -292,6 +439,32 @@ def capture(weather, ui, browser, stage, node, archive, version=1):
     raw = encode(dict(version=version, kind=KIND, files=selected)); expected = hashlib.sha256(raw).hexdigest()
     manifest(raw, expected)
     source_proof(weather, browser, ui, stage, selected, version)
+    return write_archive(sources, selected, raw, expected, archive)
+
+
+def capture_v3(weather, ui, static_root, browser, stage, node, proof, archive):
+    for root in (weather, ui, static_root, browser, stage):
+        B["canonical"](root)
+    inventory(stage, exact=RUNTIME_FILES)
+    require(set(inventory(weather / "integrations/overmorrow/overlay")) == OVERMORROW_OVERLAY)
+    sources = {**{WEATHER + name: weather / name for name in WEATHER_FILES_V3 if name != OVERMORROW_PROOF},
+        WEATHER + OVERMORROW_PROOF: proof,
+        **{BROWSER + name: browser / name for name in BROWSER_FILES},
+        **{STAGE + name: stage / name for name in RUNTIME_FILES},
+        **{UI_STAGE_V3 + name: ui / name for name in CLIENT_FILES_V3},
+        **{STATIC_V3 + name: path for name, path in inventory(static_root).items()},
+        "runtime/node": node, "decoder/grib_ls": weather / "build/eccodes/eccodes-build/bin/grib_ls"}
+    selected = {name: dict(**fingerprint(path, bound(name)), mode=mode(name)) for name, path in sorted(sources.items())}
+    for name in EXECUTABLES:
+        require(sources[name].stat().st_mode & 0o100)
+    raw = encode(dict(version=3, kind=KIND, files=selected)); expected = hashlib.sha256(raw).hexdigest()
+    manifest(raw, expected)
+    overmorrow_source_proof(weather, stage, selected, proof)
+    return dict(**write_archive(sources, selected, raw, expected, archive),
+        historical_source_proofs_only=True, current_origin_acquisition_proven=False, joined_delivery_proven=False)
+
+
+def write_archive(sources, selected, raw, expected, archive):
     new_path(archive)
     with os.fdopen(os.open(archive, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "wb") as output:
         for name in ("INPUTS.json", *sorted(selected)):
@@ -322,9 +495,9 @@ def checked_archive(archive, expected, root=None, *, runtime=False, report_versi
         raw = read_exact(source, item.size)
         require(read_exact(source, -item.size % 512) == b"\0" * (-item.size % 512))
         selected = manifest(raw, expected)
-        # Both closed profiles have distinct joined-runtime dispatch. Preserve
+        # All closed profiles have explicit joined-runtime dispatch. Preserve
         # this explicit gate when future archive-only profiles are introduced.
-        require(not runtime or selected["version"] in (1, 2))
+        require(not runtime or selected["version"] in (1, 2, 3))
         if root is not None:
             new_path(root); root.mkdir(mode=0o700)
         for name, record in sorted(selected["files"].items()):
@@ -374,6 +547,8 @@ def main():
     action, *args = sys.argv[1:]
     if action in ("capture", "capture-v2") and len(args) == 6:
         result = capture(*map(Path, args), version=2 if action == "capture-v2" else 1)
+    elif action == "capture-v3" and len(args) == 8:
+        result = capture_v3(*map(Path, args))
     elif action == "verify-runtime" and len(args) == 2:
         result = checked_archive(Path(args[0]), args[1], runtime=True)
     elif action == "runtime-version" and len(args) == 2:

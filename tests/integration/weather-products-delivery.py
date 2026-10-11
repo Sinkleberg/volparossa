@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Join two real source products to independent cold transfers and native UI.
 
-Version one is deliberately untouched. This closed version-two fixture shares
-its process, ownership and packet-boundary checks, never its single-product
-evidence. Coordinates and raw receipts stay inside the disposable guest.
+Version one is deliberately untouched. Closed version-two (Drizz.li) and
+version-three (Overmorrow) UI profiles share two-product acquisition and transfer,
+not each other's UI evidence. Coordinates and raw receipts stay inside the guest.
 """
 import datetime
 import hashlib
@@ -49,6 +49,18 @@ FAILURE_CLASSES = {"missing-input", "permission-denied", "io-failed", "timeout",
     "check-or-execution-failed"}
 FAILURE_EXPORTS = ("acquisition-failure", "tree-before", "input-cleanup")
 SAFE_ERRORS = (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.SubprocessError)
+
+
+def ui_profile(version):
+    # A version selects a fixed consumer, never a caller-supplied executable.
+    require(type(version) is int and version in (2, 3))
+    if version == 2:
+        return dict(ui="actual_drizzli_ui", static=B["STATIC"],
+            preparer="integrations/drizzli/prepare-core-browser.mjs",
+            driver="integrations/drizzli/smoke_core_browser.py")
+    return dict(ui="actual_overmorrow_ui", static=B["WEATHER"] + "build/overmorrow-web/",
+        preparer="integrations/overmorrow/prepare_core_browser.mjs",
+        driver="integrations/overmorrow/smoke_core_browser.py")
 
 
 class AcquisitionFailure(ValueError):
@@ -169,7 +181,7 @@ def acquisition(source, manifest_sha, root, parent, client, group):
         boundary(parent, client, group, True)
         stage = "tree"
         B["verify_tree"](source, manifest_sha)
-        require(B["manifest"](raw_file(source / "INPUTS.json", B["MAX_MANIFEST"], 0o400), manifest_sha)["version"] == 2)
+        ui_profile(B["manifest"](raw_file(source / "INPUTS.json", B["MAX_MANIFEST"], 0o400), manifest_sha)["version"])
         deadline = time.monotonic() + 720
         stage = "decoder"
         require(run([str(source / "decoder/grib_ls"), "-V"], root, 4096, 10).strip() == b"ecCodes Version 2.44.0")
@@ -293,7 +305,8 @@ def cold(key, binary, control, cache, viewer, parent, client, group):
         cold_cache_requested=True, observed_unix_seconds=int(time.time()))
 
 
-def prepare(source, viewer, binary, control, weather_cache, air_quality_cache):
+def prepare(source, viewer, binary, control, weather_cache, air_quality_cache, version=2):
+    profile = ui_profile(version)
     private(viewer)
     selected = validate_selection(read(viewer / "selection.json", mode=0o400))
     core_sha = B["fingerprint"](binary, 256*1024**2)["sha256"]
@@ -307,7 +320,7 @@ def prepare(source, viewer, binary, control, weather_cache, air_quality_cache):
         airQuality=dict(core=core_config("air_quality", air_quality_cache), variables=["pm2_5", "pm10"]))
     write_new(viewer / "config.json", B["encode"](config))
     raw = run([str(source / "runtime/node"), "--max-old-space-size=256",
-        str(source / B["WEATHER"] / "integrations/drizzli/prepare-core-browser.mjs"),
+        str(source / B["WEATHER"] / profile["preparer"]),
         "--forecast", str(viewer / "forecast.json"), "--receipt", str(viewer / "cold-receipt.json"),
         "--air-quality", str(viewer / "air-quality.json"), "--air-quality-receipt", str(viewer / "air-quality-cold-receipt.json"),
         "--config", str(viewer / "config.json"), "--core-sha256", core_sha, "--output", str(viewer / "expected.json")], viewer, 4096, 30)
@@ -316,7 +329,8 @@ def prepare(source, viewer, binary, control, weather_cache, air_quality_cache):
     require(result["prepared"] is True and hex64(result["expected_sha256"]) and hex64(result["display_sha256"]))
     expected_raw = raw_file(viewer / "expected.json", MAX_EXPECTED, 0o400)
     expected = json.loads(expected_raw, object_pairs_hook=B["B"]["unique_pairs"])
-    require(set(expected) == {"schema", "core_sha256", "products", "display_sha256"} and expected["schema"] == 2
+    require(set(expected) == {"schema", "core_sha256", "products", "display_sha256"}
+        and type(expected["schema"]) is int and expected["schema"] == version
         and expected["core_sha256"] == core_sha and set(expected["products"]) == set(PRODUCTS)
         and hashlib.sha256(expected_raw).hexdigest() == result["expected_sha256"]
         and expected["display_sha256"] == result["display_sha256"])
@@ -394,7 +408,7 @@ def validate_acquisition(value):
 def closed_report(report):
     require(type(report) is dict and set(report) <= {"schema", "passed", "phase", "source", "expected", "products",
         "scope", "checks", "cleanup", "outer_cleanup", "failure"})
-    same(report["schema"], 2); require(type(report["passed"]) is bool)
+    profile = ui_profile(report["schema"]); require(type(report["passed"]) is bool)
     require(report["phase"] in {"inputs", "sandbox", "bridge_start", "provider", "browser_start", "hydration", "refresh", "shutdown", "complete"})
     if "failure" in report: require(report["failure"] in ("interrupted", "check_or_runtime_failed"))
     source = report["source"]
@@ -415,7 +429,7 @@ def closed_report(report):
         for key, v in item["checks"].items():
             require(hex64(v) if key.endswith("sha256") else type(v) is int and 0 <= v <= 2
                 if key in {"browser_api_requests", "provider_requests_checked"} else type(v) is bool)
-    require(set(report["scope"]) == {"actual_drizzli_ui", "actual_http_bridge", "real_core_adapter", "synthetic_weather",
+    require(set(report["scope"]) == {profile["ui"], "actual_http_bridge", "real_core_adapter", "synthetic_weather",
         "synthetic_air_quality", "separate_native_runs", "standalone_origin_proven", "standalone_overlay_proven", "browser_triggered_cold_fetch"}
         and all(type(v) is bool for v in report["scope"].values()))
     require(set(report["checks"]) <= {"no_external_resources", "provider_requests_checked", "browser_api_requests",
@@ -483,7 +497,7 @@ def validate_cold_phase(work, manifest_sha, binary_sha):
     publisher = work / "client-fixtures/weather-publisher"
     require(not publisher.exists() and not publisher.is_symlink())
     manifest = B["manifest"](raw_file(artifact(work, "manifest"), B["MAX_MANIFEST"], 0o400), manifest_sha)
-    same(manifest["version"], 2)
+    ui_profile(manifest["version"])
     same(read(artifact(work, "tree-before")), dict(version=1, action="verify-tree", manifest_sha256=manifest_sha,
         files=len(manifest["files"]), runtime_executed=False))
     return selected, acquired, colds, manifest, caches
@@ -537,6 +551,8 @@ def cold_evidence(work, manifest_sha, binary_sha):
 
 def evidence(work, manifest_sha, binary_sha):
     selected, acquired, colds, manifest, before = validate_cold_phase(work, manifest_sha, binary_sha)
+    version = manifest["version"]
+    profile = ui_profile(version)
     retained = read(artifact(work, "cold-evidence")); validate_cold_export(retained)
     same(retained, cold_summary(selected, acquired, colds, manifest_sha, binary_sha))
     same(read(artifact(work, "input-cleanup")), dict(directory_removed=True, files_removed=True))
@@ -549,19 +565,20 @@ def evidence(work, manifest_sha, binary_sha):
         same(read(artifact(work, "tree-" + phase)), dict(version=1, action="verify-tree", manifest_sha256=manifest_sha,
             files=len(manifest["files"]), runtime_executed=False))
     report = closed_report(read(artifact(work, "original-report"), 16384))
+    same(report["schema"], version)
     same(read(artifact(work, "prepared")), dict(prepared=True,
         expected_sha256=report["expected"]["expected_sha256"], display_sha256=report["expected"]["display_sha256"]))
     require(report["passed"] is True and report["phase"] == "complete" and "failure" not in report)
-    same(report["scope"], dict(actual_drizzli_ui=True, actual_http_bridge=True, real_core_adapter=True,
+    same(report["scope"], dict({profile["ui"]: True}, actual_http_bridge=True, real_core_adapter=True,
         synthetic_weather=False, synthetic_air_quality=False, separate_native_runs=True,
         standalone_origin_proven=False, standalone_overlay_proven=False, browser_triggered_cold_fetch=False))
     require(report["source"]["bundle_manifest_sha256"] == manifest_sha and report["expected"]["core_sha256"] == binary_sha)
-    for field, relative in (("driver_sha256", "integrations/drizzli/smoke_core_browser.py"),
-            ("preparer_sha256", "integrations/drizzli/prepare-core-browser.mjs")):
+    for field, relative in (("driver_sha256", profile["driver"]), ("preparer_sha256", profile["preparer"])):
         require(report["source"][field] == manifest["files"][B["WEATHER"] + relative]["sha256"])
     for relative, digest in report["source"]["bridge_modules"].items(): require(digest == manifest["files"][B["WEATHER"] + relative]["sha256"])
     require(report["source"]["node_sha256"] == B["NODE_SHA"])
-    static = {name[len(B["STATIC"]):]: item["sha256"] for name, item in manifest["files"].items() if name.startswith(B["STATIC"])}
+    static = {name[len(profile["static"]):]: item["sha256"] for name, item in manifest["files"].items()
+        if name.startswith(profile["static"])}
     require(report["source"]["built_tree_sha256"] == hashlib.sha256(json.dumps(static, sort_keys=True, separators=(",", ":")).encode()).hexdigest())
     for key in PRODUCTS:
         item = report["products"][key]; publication = selected["products"][key]["publication"]
@@ -583,12 +600,12 @@ def evidence(work, manifest_sha, binary_sha):
     # validating/exporting this historical evidence later.
     observed_at = observed_ms()
     for key in PRODUCTS: future_query(key, selected["products"][key]["query"], observed_at)
-    result = dict(schema=2, success=True, kind="volparossa-weather-products-delivery", bundle_manifest_sha256=manifest_sha,
+    result = dict(schema=version, success=True, kind="volparossa-weather-products-delivery", bundle_manifest_sha256=manifest_sha,
         core_sha256=binary_sha, decoder_sha256=B["DECODER_SHA"], products=retained["products"],
         browser_report_sha256=hashlib.sha256(raw_file(artifact(work, "original-report"))).hexdigest(),
         display_sha256=report["expected"]["display_sha256"],
-        scope=dict(actual_acquisition=True, same_publications_joined=True, independent_product_captures=True,
-            actual_drizzli_ui=True, actual_http_bridge=True, actual_ui_refresh=True, end_to_end_proven=True,
+        scope=dict({profile["ui"]: True}, actual_acquisition=True, same_publications_joined=True, independent_product_captures=True,
+            actual_http_bridge=True, actual_ui_refresh=True, end_to_end_proven=True,
             browser_triggered_cold_fetch=False, browser_cache_only_proven=False, two_subflow_bulk_aggregation=False,
             upstream_signature_attested=False, production_service_complete=False),
         cleanup=dict(publisher_sources_removed_before_fetch=True, browser_private_state_removed=True,
@@ -601,16 +618,17 @@ def validate_evidence_export(value):
     require(set(value) == {"schema", "success", "kind", "bundle_manifest_sha256", "core_sha256", "decoder_sha256", "products",
         "browser_report_sha256", "display_sha256", "scope", "cleanup"})
     same(value["kind"], "volparossa-weather-products-delivery")
+    profile = ui_profile(value["schema"])
     require(hex64(value["browser_report_sha256"]) and hex64(value["display_sha256"]))
     cold = {k: v for k, v in value.items() if k not in {"browser_report_sha256", "display_sha256", "scope", "cleanup"}}
-    cold.update(kind="volparossa-weather-products-protected-cold", scope=dict(actual_acquisition=True,
+    cold.update(schema=2, kind="volparossa-weather-products-protected-cold", scope=dict(actual_acquisition=True,
         acquisition_outside_overlay=True, same_publications_joined=True, independent_product_captures=True,
         protected_cold_transfer=True, actual_drizzli_ui=False, actual_http_bridge=False, actual_ui_refresh=False,
         end_to_end_proven=False, browser_triggered_cold_fetch=False, two_subflow_bulk_aggregation=False,
         upstream_signature_attested=False, production_service_complete=False), cleanup=dict(publisher_sources_removed_before_fetch=True))
     validate_cold_export(cold)
-    same(value["scope"], dict(actual_acquisition=True, same_publications_joined=True, independent_product_captures=True,
-        actual_drizzli_ui=True, actual_http_bridge=True, actual_ui_refresh=True, end_to_end_proven=True,
+    same(value["scope"], dict({profile["ui"]: True}, actual_acquisition=True, same_publications_joined=True, independent_product_captures=True,
+        actual_http_bridge=True, actual_ui_refresh=True, end_to_end_proven=True,
         browser_triggered_cold_fetch=False, browser_cache_only_proven=False, two_subflow_bulk_aggregation=False,
         upstream_signature_attested=False, production_service_complete=False))
     same(value["cleanup"], dict(publisher_sources_removed_before_fetch=True, browser_private_state_removed=True,
@@ -727,6 +745,7 @@ def main():
     elif action == "select" and len(args) == 2: result = select(*map(Path, args))
     elif action == "cold" and len(args) == 8: result = cold(args[0], *map(Path, args[1:5]), args[5], args[6], int(args[7]))
     elif action == "prepare" and len(args) == 6: result = prepare(*map(Path, args))
+    elif action == "prepare" and len(args) == 7: result = prepare(*map(Path, args[:6]), int(args[6]))
     elif action in {"publisher-cleanup", "user-cleanup"} and len(args) == 1: result = cleanup(Path(args[0]), action == "publisher-cleanup")
     elif action == "cache-state" and len(args) == 4: result = cache_state(args[0], Path(args[1]), int(args[2]), int(args[3]))
     elif action == "cache-summary" and len(args) == 2: result = cache_summary(Path(args[0]), args[1])

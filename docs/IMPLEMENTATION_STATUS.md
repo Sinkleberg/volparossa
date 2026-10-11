@@ -31,7 +31,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Continue shared cache delivery — `volparossa`, `volparossa-weather` | Resolve the observed fixture I/O pressure, prove concurrent three-provider bulk transfer, then exercise late complementary-provider recovery. | The standalone run on `7ad108c0` reconstructs native and HTTPS adaptive objects sequentially. Both budget reports identify I/O pressure as the sole pressure/unavailability flag, holding admission at one worker despite memory and FD headroom. Identify and reduce the actual storage bottleneck or establish bounded readiness; do not override pressure protection or weaken the overlap gate. The separate CI primary-Exit failure remains unresolved. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
-| Extend the same provider to Overmorrow — `volparossa-weather` | Deliver core-cache products into the actual client, then verify native packaging. | PR8 aligns client/bridge deadlines, bounds busy retries and preserves cancellation cleanup. The pinned web build, twenty-three Flutter tests and actual isolated browser interaction with synthetic products pass. Cold core delivery and native Android/iOS execution remain unverified; reuse the shared provider without another scheduler. |
+| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR8 aligns client/bridge deadlines and cancellation. The new closed bundle profile 3 reuses the two-product acquisition/transfer path and checks exact ordered Flutter rows; component tests pass. Actual joined core delivery, runtime table extraction and native Android/iOS execution remain unverified. |
 
 Respect the observed source rate limit instead of repeatedly relaunching the
 joined trial or routing requests through other peers. Continue the standalone
@@ -103,6 +103,14 @@ capacity is genuinely available, without competing heavy jobs or reduced limits.
 The retained runner log is
 `.git/ci-evidence/content-provider-readiness-01.X2JNlh/runner.log`.
 
+The following readiness attempt uses clean source
+`a5e698ccb20c8d4a5288ca9d49e2286b1ff37019` in a separate worktree, retaining
+the same guest and host-memory limits. It starts after capacity becomes
+available; its private evidence directory is
+`.git/ci-evidence/content-provider-readiness-02.WgVnio`.
+No result is claimed while the trial runs. Overmorrow changes are excluded
+from that snapshot, and competing heavy builds remain deferred.
+
 The late-provider fixture uses a fresh publication, route and consumer cache.
 It registers the second complementary provider only after observing the first
 completed, single-offer discovery. A temporary provider-side gate is bounded to
@@ -140,6 +148,21 @@ Cleanup leaves zero owned objects and unchanged guest-root network state.
 The VM and owned temporary overlay are removed; development-host DNS and
 IPv4/IPv6 route hashes match their pre-run values. A development-host firewall
 comparison remains unavailable. No weather origin was queried by this run.
+
+The next joined Weather candidate adds immutable bundle profile 3 for Overmorrow,
+without changing Drizz.li profiles 1 and 2. It reuses actual source acquisition,
+separate public weather/particulate publications and independent protected cold
+transfers. The production bridge serves the existing CanvasKit build; the new
+driver checks native timestamps and values in their actual ordered table cells,
+precipitation windows, per-product attribution and a real pointer refresh.
+Thirty bundle, twenty-six product-evidence, twelve shell and eighteen runner
+checks pass independently, alongside three Weather preparation and ten browser
+driver checks. The current synthetic UI/build proof binds the bundled assets;
+older ECMWF/NOAA receipts remain historical and cannot attest changed acquisition
+code. Real origin acquisition and joined UI delivery still require the live
+trial. A prior cold core fetch followed by UI use is not browser-triggered
+first-cold delivery. No SDK rebuild, renderer CDN, new scheduler, resource-limit
+increase or extra source request is introduced by this candidate.
 
 Weather [PR8](https://github.com/VOLPAROSSA/volparossa-weather/pull/8) is merged into
 `main` at `ce1e28696d47808bd2908242325d1da478cbf0a1`. Each Overmorrow product now
