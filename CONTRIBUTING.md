@@ -74,8 +74,10 @@ future model trial; it does not rewrite the results of an earlier source-bound t
 
 ## Native code and dependencies
 
-Rust is required for new control-plane and orchestration code. Native C/C++ belongs only in the
-isolated MPQUIC integration where upstream mqvpn/xquic requires it. Pin exact source revisions,
+Rust is required for new control-plane and orchestration code. Keep upstream native C/C++
+behind isolated, documented integration boundaries, including mqvpn/xquic and the dependencies
+needed by agreed compute or application integrations. Do not duplicate the Rust control plane
+in native code. Pin exact source revisions,
 record origin/license/patches in `THIRD_PARTY_LICENSES.md`, build from source, and run upstream tests
 plus ASan/Valgrind. New dependencies must pass `./scripts/check-rust-dependencies.sh`; unpinned Git
 dependencies and prebuilt binaries are not accepted.
