@@ -214,8 +214,12 @@ successful joined trial remain required; raw browser logs are not exported.
 
 The Browser driver records closed initialization/check subphases and
 error categories, while retaining the original failure through cleanup. The
-core validates those optional failure-only fields before exporting them; 20
-joined-proof/export tests and 13 runner tests pass. The driver also corrects its
+core validates those optional failure-only fields before exporting them. The
+latest local diagnostic changes distinguish WebDriver errors from malformed
+responses, framing failures, EOF, timeout and transport failures. Only fixed
+error codes and bounded locations in the pinned runtime may be retained; no
+raw response, error message or browser log is exported. The 49 Browser driver,
+23 joined-proof/export and 13 runner tests pass. The driver also corrects its
 fresh-profile check to treat an absent uBO `importedLists` key as the upstream
 default empty list. Explicit malformed values and unexpected lists remain
 rejected. This is a verified fixture defect, not proof of VM4's precise cause;
@@ -235,9 +239,14 @@ The retained `browser-filter-delivery-05.KDUpgD` collection records broker reapi
 profile/input removal, zero remaining owned topology objects and matching
 guest-root network hashes
 `f1146383d82ba978c0546b4e0f02f8268aaf25cb85b727c217387740579510fd`.
-The VM and temporary disk were removed. The next diagnostic step is an isolated
-session-start reproduction, not another full network trial without a diagnosed
-change. Joined filter delivery remains incomplete.
+The VM and temporary disk were removed. A subsequent loopback-only session-start
+probe using the same frozen runtime, original preferences and session parameters
+succeeded and shut Firefox down normally. Its receipt is retained in
+`browser-session-start-01.0EIlLL` with SHA-256
+`685683e29d023ac2c0cc5e30778164700feb875e8b5acc96ba2ebc8af11c3559`.
+It did not run a core, broker or full VM. The VM-specific failure remains
+unresolved; the more precise diagnostics have not yet been exercised in a new
+joined run. Joined filter delivery remains incomplete.
 
 ### Weather provider and Drizz.li web integration
 
@@ -265,6 +274,23 @@ The final repository CI and CodeQL checks pass.
 
 A real core-cache publication reaching the browser remains unproven; the
 synthetic trial does not establish live overlay or weather-origin delivery.
+The next local proof fixture is prepared: acquire fresh public ECMWF data,
+publish it to peers, require a cold protected core transfer, and display and
+refresh the same publication through the production bridge in Drizz.li. Origin
+HTTPS acquisition is distinct from the subsequent overlay transfer. Explicit
+bundle selection, immutable input checks, private disk scratch and the existing
+4 GiB guest plus 2 GiB host-memory preflight are wired into the disposable runner;
+the nine runner and closed-export tests pass. The separate real-core browser
+driver has four Node preparation tests and eight inert Python tests, including
+exact display/refresh bindings to the cold publication. Ten bundle tests, ten
+joined-evidence tests and eleven inert shell/cleanup tests pass. The immutable
+168-file input bundle was captured and
+independently verified without executing a runtime; its manifest is
+`e77f3240ab93a836f3ef19393909e4d0809a2d1a75fd143613e6a476f858c905`
+and archive SHA-256 is
+`4843f20f8f47db5f82f5902217514c184dadc31d3e5fe7c19ca01238b65add68`.
+This is preparation, not a successful end-to-end Weather run.
+
 Overmorrow, additional location selection, precipitation and air quality remain
 required work. Unsupported fields are explicitly unavailable, never substituted
 with zero values.

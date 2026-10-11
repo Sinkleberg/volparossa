@@ -23,6 +23,8 @@ code_bundle=
 code_manifest_sha256=
 browser_filter_bundle=
 browser_filter_manifest_sha256=
+weather_client_bundle=
+weather_client_manifest_sha256=
 
 guest_memory_for_scenario() {
     # These fixtures co-locate two 360M providers in one guest. Production
@@ -45,6 +47,7 @@ usage() {
         '       agent-cooperative-code also requires --code-bundle DIRECTORY --code-manifest-sha256 SHA256.' \
         '       --native-runtime PATH is required for agent-native-coding or agent-native-editor (exact verified bundle).' \
         '       content-provider optionally accepts --browser-filter-bundle ARCHIVE --browser-filter-manifest-sha256 SHA256.' \
+        '       Or --weather-client-bundle ARCHIVE --weather-client-manifest-sha256 SHA256 (one joined client per run).' \
         '       Native-editor, cooperative-code and content-provider accept --host-tools-directory PATH (verified workspace-only QEMU).'
 }
 
@@ -519,6 +522,16 @@ while [ "$#" -gt 0 ]; do
             browser_filter_manifest_sha256=$2
             shift
             ;;
+        --weather-client-bundle)
+            if [ "$#" -lt 2 ] || [ -n "$weather_client_bundle" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            weather_client_bundle=$2
+            shift
+            ;;
+        --weather-client-manifest-sha256)
+            if [ "$#" -lt 2 ] || [ -n "$weather_client_manifest_sha256" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            weather_client_manifest_sha256=$2
+            shift
+            ;;
         --code-manifest-sha256)
             if [ "$#" -lt 2 ] || [ -n "$code_manifest_sha256" ]; then usage >&2; exit 64; fi
             code_manifest_sha256=$2
@@ -573,7 +586,7 @@ done
 
 if [ "$mode" = preview ]; then
     if [ "$approval" != no ] \
-        || [ -n "$image_path$mpquic_path$package_path$native_runtime_path$host_tools_directory$output_directory$expected_commit$code_bundle$code_manifest_sha256$browser_filter_bundle$browser_filter_manifest_sha256" ]; then
+        || [ -n "$image_path$mpquic_path$package_path$native_runtime_path$host_tools_directory$output_directory$expected_commit$code_bundle$code_manifest_sha256$browser_filter_bundle$browser_filter_manifest_sha256$weather_client_bundle$weather_client_manifest_sha256" ]; then
         usage >&2
         exit 64
     fi
@@ -607,6 +620,13 @@ if [ -n "$browser_filter_bundle$browser_filter_manifest_sha256" ]; then
     case $browser_filter_bundle in /*) ;; *) exit 64 ;; esac
     case $browser_filter_manifest_sha256 in ''|*[!0-9a-f]*) exit 64 ;; esac
     [ "${#browser_filter_manifest_sha256}" -eq 64 ] || exit 64
+fi
+if [ -n "$weather_client_bundle$weather_client_manifest_sha256" ]; then
+    [ "$scenario" = content-provider ] && [ -z "$browser_filter_bundle$browser_filter_manifest_sha256" ] || exit 64
+    case $weather_client_bundle in /*) ;; *) exit 64 ;; esac
+    case $weather_client_bundle in /|*/|*//*|*/../*|*/./*|*/..|*/.|*[[:cntrl:]]*) exit 64 ;; esac
+    case $weather_client_manifest_sha256 in ''|*[!0-9a-f]*) exit 64 ;; esac
+    [ "${#weather_client_manifest_sha256}" -eq 64 ] || exit 64
 fi
 case $expected_commit in ''|*[!0-9a-f]*) exit 64 ;; esac
 case ${#expected_commit} in 40|64) ;; *) exit 64 ;; esac
@@ -713,17 +733,18 @@ elif [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperati
     [ "$(readlink -f -- "$output_directory")" = "$output_directory" ] || exit 64
     RUN_DIRECTORY_PARENT=$(dirname -- "$output_directory")
     RUN_DIRECTORY_PREFIX=cooperative-code-kvm
-elif [ "$scenario" = content-provider ] && [ -n "$browser_filter_bundle" ]; then
+elif [ "$scenario" = content-provider ] && [ -n "$browser_filter_bundle${weather_client_bundle:-}" ]; then
     # The real Browser join builds Rust in this 4 GiB guest. A growing qcow2
     # overlay on tmpfs otherwise competes directly with the guest's RAM.
     # Keep scratch beside validated workspace evidence, never in its export.
     [ "$(readlink -f -- "$output_directory")" = "$output_directory" ] || exit 64
     RUN_DIRECTORY_PARENT=$(dirname -- "$output_directory")
     RUN_DIRECTORY_PREFIX=browser-filter-kvm
+    [ -z "${weather_client_bundle:-}" ] || RUN_DIRECTORY_PREFIX=weather-client-kvm
     runner_scratch_filesystem=$(stat -f -c '%T' -- "$RUN_DIRECTORY_PARENT") || exit 69
     case $runner_scratch_filesystem in
         ''|tmpfs|ramfs)
-            printf '%s\n' 'Browser filter VM scratch requires non-memory-backed workspace storage' >&2
+            printf '%s\n' 'Joined client VM scratch requires non-memory-backed workspace storage' >&2
             exit 69 ;;
     esac
 fi
@@ -796,6 +817,17 @@ if [ -n "$browser_filter_bundle" ]; then
     printf '%s\n' 'Additional proof: exact Browser/ESR/signed-addons bundle, real core filter broker, uBO engine probes and revocation.'
 fi
 CODE_ARCHIVE=$RUN_DIRECTORY/cooperative-code.tar
+WEATHER_CLIENT_ARCHIVE=$RUN_DIRECTORY/weather-client.tar
+WEATHER_CLIENT_ARCHIVE_SHA256=none
+WEATHER_CLIENT_MANIFEST_SHA256=none
+if [ -n "$weather_client_bundle" ]; then
+    python3 -B "$HERE/weather-client-bundle.py" verify "$weather_client_bundle" "$weather_client_manifest_sha256"
+    install -m 0600 "$weather_client_bundle" "$WEATHER_CLIENT_ARCHIVE"
+    python3 -B "$HERE/weather-client-bundle.py" verify "$WEATHER_CLIENT_ARCHIVE" "$weather_client_manifest_sha256"
+    WEATHER_CLIENT_ARCHIVE_SHA256=$(sha256sum "$WEATHER_CLIENT_ARCHIVE" | awk '{ print $1 }')
+    WEATHER_CLIENT_MANIFEST_SHA256=$weather_client_manifest_sha256
+    printf '%s\n' 'Additional proof: fresh public ECMWF HTTPS acquisition, protected peer transfer and real Drizz.li UI; origin acquisition is not an overlay claim.'
+fi
 CODE_ARCHIVE_SHA256=none
 CODE_MANIFEST_SHA256=none
 if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative-code-proposal ]; then
@@ -1068,9 +1100,14 @@ BROWSER_FILTER_NAMES = {f"browser-filter-delivery-{suffix}.json" for suffix in (
 BROWSER_FILTER_HELPERS = ("browser-filter-delivery.py", "browser-filter-bundle.py",
     "content-provider-filter-smoke.py", "content-provider-site-smoke.py",
     "content-network-smoke.py", "content-provider-https-smoke.py")
+WEATHER_CLIENT_NAMES = {f"weather-client-delivery-{suffix}.json" for suffix in (
+    "evidence", "acquisition", "original-report", "tree-before", "tree-after",
+    "cache-before", "cache-after", "input-cleanup")}
+WEATHER_CLIENT_HELPERS = ("weather-client-delivery.py", "weather-client-bundle.py",
+    "browser-filter-bundle.py", "content-provider-https-smoke.py", "content-network-smoke.py")
 
 
-def browser_filter_helper(work):
+def joined_client_helper(work, names, entrypoint):
     """Trust only the topology's immutable root-staged validation closure."""
     try:
         directory = work / "bin"
@@ -1080,15 +1117,37 @@ def browser_filter_helper(work):
             info = parent.lstat()
             if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
                 return None
-        for name in BROWSER_FILTER_HELPERS:
+        for name in names:
             path = directory / name
             info = path.lstat()
             if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1
                     or info.st_mode & 0o022 or not 0 < info.st_size <= 262144):
                 return None
-        return directory / "browser-filter-delivery.py"
+        return directory / entrypoint
     except OSError:
         return None
+
+
+def browser_filter_helper(work):
+    return joined_client_helper(work, BROWSER_FILTER_HELPERS, "browser-filter-delivery.py")
+
+
+def weather_client_helper(work):
+    return joined_client_helper(work, WEATHER_CLIENT_HELPERS, "weather-client-delivery.py")
+
+
+def weather_client_candidates(root, label, helper, target):
+    # No raw forecast, request/config, CLI receipt or process log is exported.
+    validated = Path(tempfile.mkdtemp(prefix="weather-client-validated.", dir=target))
+    try:
+        subprocess.run(["/usr/bin/python3", "-I", "-B", str(helper), "copy-artifacts", str(root),
+                        str(validated), str(os.getuid()), str(os.getgid())],
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       cwd="/", env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}, timeout=3, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [(validated / name, f"{label}/{name}") for name in sorted(WEATHER_CLIENT_NAMES)
+            if (validated / name).is_file() and not (validated / name).is_symlink()]
 
 
 def browser_filter_candidates(root, label, helper, target):
@@ -1216,6 +1275,12 @@ def collect(home, opt, revision, scenario, guest_status,
             for root, label in roots:
                 if root.is_dir() and not root.is_symlink():
                     candidates.extend(browser_filter_candidates(root, label, helper, target))
+        helper = next((found for root, _ in roots[1:]
+                       if (found := weather_client_helper(root)) is not None), None)
+        if helper is not None:
+            for root, label in roots:
+                if root.is_dir() and not root.is_symlink():
+                    candidates.extend(weather_client_candidates(root, label, helper, target))
     for root, label in roots:
         if root.is_symlink() or not root.is_dir():
             continue
@@ -1382,7 +1447,7 @@ def collect(home, opt, revision, scenario, guest_status,
         if observed is None:
             continue
         data, original_size = observed
-        if path.name in BROWSER_FILTER_NAMES and original_size > len(data):
+        if path.name in BROWSER_FILTER_NAMES | WEATHER_CLIENT_NAMES and original_size > len(data):
             continue  # Preserve complete validated original bytes, never a JSON tail.
         if scenario == "browser-network" and path.name in browser_names and original_size > len(data):
             # A truncated JSON tail is not reconstructible structured evidence.
@@ -1456,6 +1521,8 @@ code_archive_sha256=none
 code_manifest_sha256=none
 browser_filter_archive_sha256=none
 browser_filter_manifest_sha256=none
+weather_client_archive_sha256=none
+weather_client_manifest_sha256=none
 # Native and cooperative bundles share positions only in disjoint scenarios.
 case $scenario in
     agent-native-coding|agent-native-editor)
@@ -1468,7 +1535,13 @@ case $scenario in
         code_manifest_sha256=${7:-none}
         ;;
     content-provider)
-        if [ "$#" -eq 7 ]; then
+        if [ "$#" -eq 8 ]; then
+            [ "$6" = weather-client ] || exit 64
+            weather_client_archive_sha256=$7
+            weather_client_manifest_sha256=$8
+            case $weather_client_archive_sha256:$weather_client_manifest_sha256 in *[!0-9a-f:]*) exit 64 ;; esac
+            [ "${#weather_client_archive_sha256}" -eq 64 ] && [ "${#weather_client_manifest_sha256}" -eq 64 ] || exit 64
+        elif [ "$#" -eq 7 ]; then
             browser_filter_archive_sha256=$6
             browser_filter_manifest_sha256=$7
             case $browser_filter_archive_sha256:$browser_filter_manifest_sha256 in *[!0-9a-f:]*) exit 64 ;; esac
@@ -1604,7 +1677,7 @@ fi
 if [ "$scenario" = image-snapshot ] || [ "$scenario" = cloud-private-file ] || [ "$scenario" = cloud-private-upload ]; then
     sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends gpg gpg-agent gpgconf tar
 fi
-if [ "$scenario" = agent-cooperative-browser ] || [ "$scenario" = agent-cooperative-browser-discovered ] || [ "$scenario" = browser-network ] || [ "$scenario" = cloud-private-file ] || [ "$scenario" = cloud-private-upload ] || [ "$browser_filter_manifest_sha256" != none ]; then
+if [ "$scenario" = agent-cooperative-browser ] || [ "$scenario" = agent-cooperative-browser-discovered ] || [ "$scenario" = browser-network ] || [ "$scenario" = cloud-private-file ] || [ "$scenario" = cloud-private-upload ] || [ "$browser_filter_manifest_sha256" != none ] || [ "$weather_client_manifest_sha256" != none ]; then
     # Exact pinned ESR is extracted separately, not installed; these are its
     # ordinary Debian dependencies plus the isolated browser/HTTPS fixture tools.
     sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
@@ -1637,6 +1710,11 @@ if [ "$browser_filter_manifest_sha256" != none ]; then
     guest_phase browser-filter-inputs
     printf '%s  /home/vpci/browser-filter.tar\n' "$browser_filter_archive_sha256" | sha256sum --check --strict -
     python3 -B tests/integration/browser-filter-bundle.py verify /home/vpci/browser-filter.tar "$browser_filter_manifest_sha256"
+fi
+if [ "$weather_client_manifest_sha256" != none ]; then
+    guest_phase weather-client-inputs
+    printf '%s  /home/vpci/weather-client.tar\n' "$weather_client_archive_sha256" | sha256sum --check --strict -
+    python3 -B tests/integration/weather-client-bundle.py verify /home/vpci/weather-client.tar "$weather_client_manifest_sha256"
 fi
 if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative-code-proposal ]; then
     guest_phase code-inputs
@@ -1778,6 +1856,9 @@ if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative
 elif [ "$browser_filter_manifest_sha256" != none ]; then
     set -- ./tests/integration/kvm-alpha-topology.sh --browser-filter-bundle /home/vpci/browser-filter.tar \
         --browser-filter-manifest-sha256 "$browser_filter_manifest_sha256"
+elif [ "$weather_client_manifest_sha256" != none ]; then
+    set -- ./tests/integration/kvm-alpha-topology.sh --weather-client-bundle /home/vpci/weather-client.tar \
+        --weather-client-manifest-sha256 "$weather_client_manifest_sha256"
 else
     set -- env "$@" ./tests/integration/kvm-alpha-topology.sh
 fi
@@ -1873,7 +1954,7 @@ set -- -no-reboot
 case $scenario in wifi-mesh|wifi-link) set -- ;; esac
 guest_memory_mib=$(guest_memory_for_scenario)
 runner_reserve_mib=1024
-if [ "$scenario" = content-provider ] && [ -n "$browser_filter_bundle" ]; then
+if [ "$scenario" = content-provider ] && [ -n "$browser_filter_bundle${weather_client_bundle:-}" ]; then
     runner_reserve_mib=2048
 fi
 if [ "$guest_memory_mib" -gt 4096 ] || [ "$runner_reserve_mib" -eq 2048 ]; then
@@ -2002,6 +2083,7 @@ done
 ssh_base sudo -n cloud-init status --wait >/dev/null
 scp_to "$SOURCE_ARCHIVE" /home/vpci/source.tar.gz
 if [ -n "$browser_filter_bundle" ]; then scp_to "$BROWSER_FILTER_ARCHIVE" /home/vpci/browser-filter.tar; fi
+if [ -n "$weather_client_bundle" ]; then scp_to "$WEATHER_CLIENT_ARCHIVE" /home/vpci/weather-client.tar; fi
 if [ -n "$native_runtime_path" ]; then scp_to "$native_runtime_path" /home/vpci/native-runtime.tar.gz; fi
 if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative-code-proposal ]; then scp_to "$CODE_ARCHIVE" /home/vpci/cooperative-code.tar; fi
 if [ -n "$mpquic_path" ]; then scp_to "$mpquic_path" /home/vpci/volparossa-mpquic; fi
@@ -2046,7 +2128,10 @@ driver_time_bound=2400s
 [ "$scenario" != signal-backup-fragments ] || driver_time_bound=7200s
 case $scenario in
     content-provider)
-        if [ -n "$browser_filter_bundle" ]; then
+        if [ -n "$weather_client_bundle" ]; then
+            ssh_bounded "$driver_time_bound" /home/vpci/guest-driver.sh "$expected_commit" "$SOURCE_SHA256" \
+                "$MPQUIC_SHA256" "$PACKAGE_SHA256" "$scenario" weather-client "$WEATHER_CLIENT_ARCHIVE_SHA256" "$WEATHER_CLIENT_MANIFEST_SHA256"
+        elif [ -n "$browser_filter_bundle" ]; then
             ssh_bounded "$driver_time_bound" /home/vpci/guest-driver.sh "$expected_commit" "$SOURCE_SHA256" \
                 "$MPQUIC_SHA256" "$PACKAGE_SHA256" "$scenario" "$BROWSER_FILTER_ARCHIVE_SHA256" "$BROWSER_FILTER_MANIFEST_SHA256"
         else

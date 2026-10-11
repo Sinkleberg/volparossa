@@ -61,6 +61,9 @@ code_manifest_sha256=
 browser_filter_bundle=
 browser_filter_manifest_sha256=
 browser_filter_directory=
+weather_client_bundle=
+weather_client_manifest_sha256=
+weather_client_directory=
 # Only explicit scenario arguments may authorize the staged Code inputs.
 COOPERATIVE_CODE_BUNDLE=
 COOPERATIVE_CODE_MANIFEST_SHA256=
@@ -74,6 +77,7 @@ usage() {
         '         --scenario signal-backup also runs the exact pinned native Signal backup test' \
         '         --scenario agent-cooperative-code requires --code-bundle DIRECTORY --code-manifest-sha256 HEX' \
         '         --scenario content-provider accepts --browser-filter-bundle ARCHIVE --browser-filter-manifest-sha256 HEX' \
+        '         or --weather-client-bundle ARCHIVE --weather-client-manifest-sha256 HEX (not both)' \
         '         --mpquic PATH --expected-commit SHA [--scenario alpha|reciprocity|reciprocity-private-dns|local-link|mixed-link|mpquic-growth|mptcp-growth|mptcp-refill|sharing|download-sharing|wifi-link|uplink-link|crash-recovery|content|content-message|content-https|content-provider|content-replication|content-repair|content-mailbox|content-custody|private-storage-peer|private-storage-replicas|signal-backup|private-storage-handoff|private-storage-fragments|agent-artifact|agent-train-cycle|agent-train-loop|agent-artifact-quarantine|agent-jobs|agent-jobs-loss|agent-jobs-follow|agent-jobs-peer-recovery|agent-jobs-ready-queue|agent-jobs-package-queue|agent-public-task|agent-public-document|agent-public-collection|agent-public-network-sources|agent-task-graph|agent-ready-dag|agent-model-planning|agent-model-task-graph|agent-successor-serving|agent-active-recovery|agent-adapter-aggregation|agent-autonomous-aggregation|agent-policy-assessment|dns-cache]'
 }
 
@@ -879,6 +883,16 @@ while [ "$#" -gt 0 ]; do
             browser_filter_manifest_sha256=$2
             shift
             ;;
+        --weather-client-bundle)
+            if [ "$#" -lt 2 ] || [ -n "$weather_client_bundle" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            weather_client_bundle=$2
+            shift
+            ;;
+        --weather-client-manifest-sha256)
+            if [ "$#" -lt 2 ] || [ -n "$weather_client_manifest_sha256" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            weather_client_manifest_sha256=$2
+            shift
+            ;;
         --code-manifest-sha256)
             if [ "$#" -lt 2 ] || [ -n "$code_manifest_sha256" ]; then usage >&2; exit 64; fi
             code_manifest_sha256=$2
@@ -899,7 +913,7 @@ done
 
 if [ "$mode" = preview ]; then
     if [ "$approval" != no ] \
-        || [ -n "$source_directory$binary_directory$mpquic_binary$output_directory$expected_commit$code_bundle$code_manifest_sha256$browser_filter_bundle$browser_filter_manifest_sha256" ]; then
+        || [ -n "$source_directory$binary_directory$mpquic_binary$output_directory$expected_commit$code_bundle$code_manifest_sha256$browser_filter_bundle$browser_filter_manifest_sha256$weather_client_bundle$weather_client_manifest_sha256" ]; then
         usage >&2
         exit 64
     fi
@@ -943,6 +957,13 @@ if [ -n "$browser_filter_bundle$browser_filter_manifest_sha256" ]; then
     case $browser_filter_manifest_sha256 in ''|*[!0-9a-f]*) exit 64 ;; esac
     [ "${#browser_filter_manifest_sha256}" -eq 64 ] || exit 64
 fi
+if [ -n "$weather_client_bundle$weather_client_manifest_sha256" ]; then
+    [ "$scenario" = content-provider ] && [ -z "$browser_filter_bundle$browser_filter_manifest_sha256" ] || exit 64
+    case $weather_client_bundle in /*) ;; *) exit 64 ;; esac
+    case $weather_client_bundle in /|*/|*//*|*/../*|*/./*|*/..|*/.|*[[:cntrl:]]*) exit 64 ;; esac
+    case $weather_client_manifest_sha256 in ''|*[!0-9a-f]*) exit 64 ;; esac
+    [ "${#weather_client_manifest_sha256}" -eq 64 ] || exit 64
+fi
 [ "$(id -u)" -eq 0 ] || { printf '%s\n' 'execution requires root inside KVM' >&2; exit 77; }
 [ "$(sed -n '1{s/\..*$//;p;}' /etc/debian_version)" = 13 ] \
     || { printf '%s\n' 'execution requires Debian 13' >&2; exit 77; }
@@ -971,6 +992,21 @@ if [ -n "$browser_filter_bundle" ]; then
     elif [ "$browser_filter_input_uid" -eq "$(id -u vpci)" ]; then
         runuser -u vpci -- python3 -B "$source_directory/tests/integration/browser-filter-bundle.py" verify \
             "$browser_filter_bundle" "$browser_filter_manifest_sha256" || exit 69
+    else
+        exit 69
+    fi
+fi
+if [ -n "$weather_client_bundle" ]; then
+    [ -f "$weather_client_bundle" ] && [ ! -L "$weather_client_bundle" ] \
+        && [ "$(readlink -e -- "$weather_client_bundle")" = "$weather_client_bundle" ] \
+        && [ "$(stat -Lc '%a' "$weather_client_bundle")" = 600 ] || exit 69
+    weather_client_input_uid=$(stat -Lc '%u' "$weather_client_bundle")
+    if [ "$weather_client_input_uid" -eq 0 ]; then
+        python3 -B "$source_directory/tests/integration/weather-client-bundle.py" verify \
+            "$weather_client_bundle" "$weather_client_manifest_sha256" || exit 69
+    elif [ "$weather_client_input_uid" -eq "$(id -u vpci)" ]; then
+        runuser -u vpci -- python3 -B "$source_directory/tests/integration/weather-client-bundle.py" verify \
+            "$weather_client_bundle" "$weather_client_manifest_sha256" || exit 69
     else
         exit 69
     fi
@@ -1584,6 +1620,9 @@ capture_host_state() {
 }
 
 copy_artifacts() {
+    if [ -n "$weather_client_bundle" ] && command -v weather_client_delivery_copy_artifacts >/dev/null 2>&1; then
+        weather_client_delivery_copy_artifacts || return 1
+    fi
     if [ -n "$browser_filter_bundle" ] && command -v browser_filter_delivery_copy_artifacts >/dev/null 2>&1; then
         browser_filter_delivery_copy_artifacts || return 1
     fi
@@ -2241,6 +2280,9 @@ cleanup() {
     if [ -n "$browser_filter_bundle" ] && command -v browser_filter_delivery_cleanup >/dev/null 2>&1; then
         browser_filter_delivery_cleanup || original_status=1
     fi
+    if [ -n "$weather_client_bundle" ] && command -v weather_client_delivery_cleanup >/dev/null 2>&1; then
+        weather_client_delivery_cleanup || original_status=1
+    fi
     if [ "$scenario" = mpquic-growth ] && command -v mpquic_growth_cleanup >/dev/null 2>&1; then
         mpquic_growth_cleanup || original_status=1
     fi
@@ -2643,6 +2685,10 @@ if [ "$scenario" = content-provider ]; then
     . "$source_directory/tests/integration/content-provider-filter-smoke.sh"
     # shellcheck source=tests/integration/content-provider-adaptive-smoke.sh
     . "$source_directory/tests/integration/content-provider-adaptive-smoke.sh"
+    if [ -n "$weather_client_bundle" ]; then
+        # shellcheck source=tests/integration/weather-client-delivery.sh
+        . "$source_directory/tests/integration/weather-client-delivery.sh"
+    fi
 fi
 if [ "$scenario" = content-replication ]; then
     # shellcheck source=tests/integration/content-replication-smoke.sh
@@ -3069,7 +3115,7 @@ mpquic_binary=$WORK/bin/volparossa-mpquic
 [ "$scenario" != agent-jobs ] || agent_jobs_prepare
 
 # BEGIN browser-filter namespace-parent preflight
-if [ -n "$browser_filter_bundle" ]; then
+if [ -n "$browser_filter_bundle${weather_client_bundle:-}" ]; then
     PHASE=browser-filter-netns-parent
     printf '%s\n' 'Browser fixture: create /run/netns root:root mode 0755 only if absent; preserve a safe existing parent; never change private cache permissions.'
     # This is after the root/Debian/systemd/KVM gates, inside the disposable
@@ -6141,7 +6187,7 @@ start_privacy_observers() {
             [ "$scenario" = content ] || [ "$scenario" = content-message ] || return 1 ;;
         content-https-complete-privacy|content-https-missing-privacy)
             [ "$scenario" = content-https ] || return 1 ;;
-        content-provider-privacy|content-provider-adaptive-privacy|content-provider-adaptive-https-privacy|content-provider-https-complete-privacy|content-provider-https-missing-privacy|content-provider-https-baseline-privacy|content-provider-https-origin-only-privacy|content-provider-https-auto-privacy|content-provider-https-digest-origin-only-privacy|content-provider-https-digest-peers-first-privacy|content-provider-https-limited-origin-only-privacy|content-provider-https-limited-peers-first-privacy|content-provider-https-limited-auto-privacy|content-provider-https-checksum-origin-only-privacy|content-provider-https-checksum-peers-first-privacy|content-provider-https-checksum-mismatch-privacy|content-provider-user-privacy|content-provider-named-privacy|content-provider-site-privacy|content-provider-site-cache-only-privacy|content-provider-filter-cold-privacy|content-provider-filter-warm-privacy)
+        content-provider-privacy|content-provider-adaptive-privacy|content-provider-adaptive-https-privacy|content-provider-https-complete-privacy|content-provider-https-missing-privacy|content-provider-https-baseline-privacy|content-provider-https-origin-only-privacy|content-provider-https-auto-privacy|content-provider-https-digest-origin-only-privacy|content-provider-https-digest-peers-first-privacy|content-provider-https-limited-origin-only-privacy|content-provider-https-limited-peers-first-privacy|content-provider-https-limited-auto-privacy|content-provider-https-checksum-origin-only-privacy|content-provider-https-checksum-peers-first-privacy|content-provider-https-checksum-mismatch-privacy|content-provider-user-privacy|content-provider-named-privacy|content-provider-site-privacy|content-provider-site-cache-only-privacy|content-provider-filter-cold-privacy|content-provider-filter-warm-privacy|weather-client-delivery-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;
         content-message-publication-privacy)
             [ "$scenario" = content-message ] || return 1 ;;
