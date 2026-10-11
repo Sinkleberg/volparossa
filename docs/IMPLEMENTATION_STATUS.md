@@ -29,13 +29,15 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Recover missing chunks from late-discovered complementary providers within one bounded operation, then verify the real topology including the earlier adaptive-provider correction. | The local run on `c8b57d94` reached the base fetch but discovered only one of two complementary stores. The separate CI run failed earlier, before discovering the required Exit. Neither reached adaptive transfer or Weather delivery. Keep these failures distinct; do not replace the required Exit or weaken completeness checks. |
-| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The combined UI/bridge passes with synthetic data; the joined driver and immutable input bundle pass targeted checks. Real two-product delivery depends on the shared discovery repair and a new exact-source trial. Existing temperature/wind proof and the separate NOAA source trial do not cover this delivery. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Verify late complementary-provider recovery and the earlier adaptive-provider correction in the real topology. | The latest local run on `5f82f619` completes the base two-provider fetch with measured overlap, using one discovery query. It does not exercise late rediscovery or reach adaptive transfer. The separate CI primary-Exit discovery failure remains unresolved. |
+| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run stops before acquisition at an archive-owner mismatch during profile dispatch. The corrected invocation passes 43 focused tests; the joined path still needs a new exact-source trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather` | Build and exercise the actual client against the shared provider, including unavailable/stale fields and no implicit Open-Meteo fallback. | Reuse the provider contracts and core retrieval path; client adaptation, a reproducible client build and its own runtime proof remain required. Do not create a second network scheduler or source-acquisition implementation. |
 
-Prioritize the shared discovery failure before another unchanged live run or a
-second client integration. The Drizz.li/Weather candidate and frozen input bundle
-remain intact; Overmorrow's client work is still required. Keep shared interface
+Run the corrected archive-owner dispatch in a new exact-source trial, retaining
+the separate discovery and adaptive-transfer checks. This follows the latest
+trial's progress beyond the earlier base-fetch failure, without claiming that
+discovery convergence is solved. The Drizz.li/Weather candidate and frozen input
+bundle remain intact; Overmorrow's client work is still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
@@ -537,6 +539,34 @@ recent-provider tests also pass, including partial progress at the transfer
 deadline and cleanup before fallback. These checks do not establish live DHT convergence or
 resolve the separate CI primary-Exit failure. A new exact-source topology trial
 remains required before either live failure is described as fixed.
+
+The next local run on `5f82f619cca8c4e6e621d01bcc3269e41a499ba8` builds
+successfully and completes the base native fetch: 2,097,275 bytes in nine chunks
+from the two complementary providers, with no origin bytes. Independent checks
+of the retained receipts, selected route, control traffic and drained packet
+captures pass. The two bulk-payload windows overlap by 643,330,579 ns. Both
+offers arrived in one discovery query, so this run does not prove late-provider
+recovery, per-subflow bulk aggregation or a speed improvement.
+
+The run then stops before Weather acquisition with `WEATHER_CLIENT_PROFILE_INVALID`,
+recorded under the preceding `content-provider-filter-cold` phase. Preflight
+verified the 0600 archive as its VM owner, but later profile dispatch called the
+strict reader as root, which rejects that non-root owner. This is a test-driver
+ownership-context error, not evidence of a malformed frozen bundle. No Weather
+or adaptive-transfer success is claimed. The report remains at
+`.git/ci-evidence/weather-products-delivery-02.w9hxuJ/output/content-provider-smoke.json`,
+SHA-256 `62adcc7bc20002ead79e5cd1a75fb8d5022f9dabe9dc93a7814343febd6916b9`.
+Cleanup retains zero owned objects and unchanged guest-root network state.
+The development host's DNS and IPv4/IPv6 route hashes also match their pre-run
+values; a host-firewall comparison was unavailable without additional privilege.
+
+Profile dispatch now mirrors preflight: root-owned archives are checked as root,
+and VM-user-owned archives as that user. Other owners and failed checks remain
+rejected; parser rules, archive bytes and downstream root-owned unpacking are
+unchanged. The profile check also has its own reported phase. All 43 focused
+checks pass (22 bundle, nine products shell and 12 legacy shell tests), including
+the reproduced owner mismatch and closed failure paths; ShellCheck passes too.
+This correction still requires a new joined live trial.
 
 ### Citizen procedure simulation
 

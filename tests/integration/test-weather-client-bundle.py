@@ -103,6 +103,27 @@ class WeatherBundle(unittest.TestCase):
                 self.assertEqual(rejected.getvalue(), "")
             archive.unlink()
 
+    def test_runtime_profile_keeps_invoking_owner_boundary(self):
+        if os.geteuid() == 0:
+            self.skipTest("ownership regression uses an unprivileged test-owned archive")
+        for version in (1, 2):
+            self.files = self.profile_files(version)
+            archive, expected = self.archive(version=version)
+            before = archive.read_bytes()
+            owner = archive.stat().st_uid
+            # VM inputs belong to vpci: reading those as root must not bypass
+            # the existing parser's owner check. No real uid/chown is changed.
+            with self.subTest(version=version), patch.object(W["os"], "geteuid", return_value=0):
+                with self.assertRaises(ValueError):
+                    W["checked_archive"](archive, expected, report_version=True)
+            with patch.object(W["os"], "geteuid", return_value=owner):
+                profile = W["checked_archive"](archive, expected, report_version=True)
+            self.assertEqual(profile["bundle_version"], version)
+            self.assertEqual(archive.read_bytes(), before)
+            self.assertEqual(archive.stat().st_uid, owner)
+            self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
+            archive.unlink()
+
     def test_v2_roundtrip_is_readonly_and_never_executes_captured_inputs(self):
         self.files = self.profile_files(2)
         archive, expected = self.archive(version=2)

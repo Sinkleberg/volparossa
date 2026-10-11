@@ -92,15 +92,31 @@ weather_client_verify_tree() {
         "$weather_client_directory" "$weather_client_manifest_sha256"
 }
 
+weather_client_runtime_profile() {
+    # Match the topology preflight: the guest input may still belong to vpci.
+    # Root readability is not parser ownership; do not relax its owner check or
+    # retry a failed unprivileged validation with broader authority.
+    weather_profile_uid=$(stat -Lc '%u' "$weather_client_bundle") || return 1
+    if [ "$weather_profile_uid" -eq 0 ]; then
+        python3 -B "$source_directory/tests/integration/weather-client-bundle.py" \
+            runtime-version "$weather_client_bundle" "$weather_client_manifest_sha256"
+    elif weather_profile_vpci_uid=$(id -u vpci) \
+        && [ "$weather_profile_uid" -eq "$weather_profile_vpci_uid" ]; then
+        runuser -u vpci -- python3 -B "$source_directory/tests/integration/weather-client-bundle.py" \
+            runtime-version "$weather_client_bundle" "$weather_client_manifest_sha256"
+    else
+        return 1
+    fi
+}
+
 weather_client_delivery_run() {
+    PHASE=weather-client-delivery-profile
     if [ -z "${weather_client_bundle:-}" ] || [ -z "${weather_client_manifest_sha256:-}" ]; then
         fail WEATHER_CLIENT_INPUTS_MISSING
     fi
     # Select only after the complete immutable archive has been validated. The
     # legacy profile must keep its original driver and evidence contract.
-    weather_profile=$(python3 -B "$source_directory/tests/integration/weather-client-bundle.py" \
-        runtime-version "$weather_client_bundle" "$weather_client_manifest_sha256") \
-        || fail WEATHER_CLIENT_PROFILE_INVALID
+    weather_profile=$(weather_client_runtime_profile) || fail WEATHER_CLIENT_PROFILE_INVALID
     weather_profile_version=$(printf '%s\n' "$weather_profile" | \
         jq -er '.bundle_version | select(type == "number" and (. == 1 or . == 2))') \
         || fail WEATHER_CLIENT_PROFILE_INVALID

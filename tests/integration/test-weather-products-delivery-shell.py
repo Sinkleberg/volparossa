@@ -104,14 +104,84 @@ weather_client_delivery_cleanup
 source_directory=$WORK
 weather_client_bundle=inert
 weather_client_manifest_sha256=inert
+stat() { printf '0\\n'; }
 python3() { printf '%s\n' 'JSON'; }
 fail() { exit 77; }
 run_selected
-'''.replace("JSON", value), source="run_selected() {\n" + head + '\nprintf "v1\\n"\n}\n')
+'''.replace("JSON", value), source=source + "\nrun_selected() {\n" + head + '\nprintf "v1\\n"\n}\n')
                 self.assertEqual(result.returncode, 0 if type(version) is int and version in (1, 2) else 77)
                 if result.returncode == 0: self.assertEqual(result.stdout, f"v{version}\n")
-        self.assertLess(head.index("runtime-version"), head.index(".bundle_version"))
+        self.assertLess(head.index("weather_client_runtime_profile"), head.index(".bundle_version"))
         self.assertLess(head.index(".bundle_version"), head.index('            . "$source_directory'))
+
+    def test_profile_owner_boundary_and_helper_failure_are_fail_closed(self):
+        source = LEGACY.read_text()
+        head = source.split("weather_client_delivery_run() {", 1)[1].split("    PHASE=weather-client-delivery-prepare", 1)[0]
+        helper_root = self.root / "tests/integration"
+        helper_root.mkdir(parents=True)
+        (helper_root / "weather-products-delivery.sh").write_text(
+            'weather_products_delivery_run() { printf "v2\\n"; }\n')
+        scenarios = (("root", 0, 0, 0), ("vpci", 1000, 0, 0), ("other", 985, 0, 77),
+                     ("stat-failure", 1000, 0, 77), ("missing-account", 1000, 0, 77),
+                     ("runuser-failure", 1000, 0, 77), ("helper-failure", 0, 1, 77),
+                     ("helper-failure", 1000, 1, 77))
+        for version in (1, 2):
+            for scenario, owner, helper_status, expected_status in scenarios:
+                with self.subTest(version=version, scenario=scenario, owner=owner):
+                    result = self.call('''
+source_directory=$WORK
+weather_client_bundle=$WORK/inert.tar
+weather_client_manifest_sha256=inert-digest
+PHASE=content-provider-filter-cold
+test_scenario=SCENARIO
+test_owner=OWNER
+test_effective_uid=0
+stat() {
+    [ "$*" = "-Lc %u $weather_client_bundle" ] || exit 90
+    [ "$test_scenario" != stat-failure ] || return 1
+    printf '%s\n' "$test_owner"
+}
+id() {
+    [ "$*" = '-u vpci' ] || exit 91
+    [ "$test_scenario" != missing-account ] || return 1
+    printf '1000\n'
+}
+python3() {
+    [ "$*" = "-B $source_directory/tests/integration/weather-client-bundle.py runtime-version $weather_client_bundle $weather_client_manifest_sha256" ] || exit 92
+    printf 'python:%s\n' "$test_effective_uid" >> "$WORK/profile-calls"
+    # The real parser accepts root-owned or invoking-owner files, not a
+    # vpci-owned input merely because the invoking process has root access.
+    [ "$test_owner" = 0 ] || [ "$test_owner" = "$test_effective_uid" ] || return 93
+    printf '{"bundle_version":VERSION}\n'
+    return HELPER_STATUS
+}
+runuser() {
+    [ "$1 $2 $3" = '-u vpci --' ] || exit 94
+    printf 'runuser\n' >> "$WORK/profile-calls"
+    [ "$test_scenario" != runuser-failure ] || return 1
+    shift 3
+    test_effective_uid=1000
+    "$@"
+}
+fail() { printf '%s %s\n' "$PHASE" "$1" >&2; exit 77; }
+run_selected
+'''.replace("SCENARIO", scenario).replace("OWNER", str(owner))
+                        .replace("VERSION", str(version)).replace("HELPER_STATUS", str(helper_status)),
+                        source=source + "\nrun_selected() {\n" + head + '\nprintf "v1\\n"\n}\n')
+                    self.assertEqual(result.returncode, expected_status, result.stdout + result.stderr)
+                    if expected_status:
+                        self.assertEqual(result.stdout, "")
+                        self.assertEqual(result.stderr.strip(),
+                            "weather-client-delivery-profile WEATHER_CLIENT_PROFILE_INVALID")
+                    else:
+                        self.assertEqual(result.stdout, f"v{version}\n")
+                    calls = self.root / "profile-calls"
+                    observed = calls.read_text().splitlines() if calls.exists() else []
+                    expected = [] if scenario in ("other", "stat-failure", "missing-account") else (
+                        ["runuser"] if scenario == "runuser-failure" else
+                        ["python:0"] if owner == 0 else ["runuser", "python:1000"])
+                    self.assertEqual(observed, expected)
+                    if calls.exists(): calls.unlink()
 
     def test_publication_cleanup_independent_captures_and_retained_proof_order(self):
         source = SOURCE.read_text()
