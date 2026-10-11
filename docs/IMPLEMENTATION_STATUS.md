@@ -29,9 +29,9 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Exercise late complementary-provider recovery after the now-proven concurrent three-provider transfers. | The standalone run on `a5e698cc` passes native and HTTPS bulk-overlap checks after bounded readiness, without overriding resource protection. It then stops because the control observer rejects the new late-provider test interfaces before fetching. Correct that fixture allowlist and repeat the real trial; late recovery and requester cancellation remain unproven. The separate CI primary-Exit failure remains unresolved. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Exercise late complementary-provider recovery after the now-proven concurrent three-provider transfers. | The standalone run on `a5e698cc` passes native and HTTPS bulk-overlap checks after bounded readiness, without overriding resource protection. It then stops because the control observer rejects the new late-provider test interfaces before fetching. The narrow fixture correction is in `c2fbcd8c` and a new standalone trial is running; late recovery and requester cancellation remain unproven. The separate CI primary-Exit failure remains unresolved. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
-| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR8 aligns client/bridge deadlines and cancellation. The new closed bundle profile 3 reuses the two-product acquisition/transfer path and checks exact ordered Flutter rows; component tests pass. Actual joined core delivery, runtime table extraction and native Android/iOS execution remain unverified. |
+| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9 is merged with passing CI. The closed bundle profile 3 reuses the two-product acquisition/transfer path and checks exact ordered Flutter rows; an exact immutable input archive passes capture and verification. Actual joined core delivery, runtime table extraction and native Android/iOS execution remain unverified. |
 
 Respect the observed source rate limit instead of repeatedly relaunching the
 joined trial or routing requests through other peers. Continue the standalone
@@ -141,6 +141,12 @@ provider checks, ten inert cancellation checks, seven late-recovery checks and
 eleven observer checks pass. This fixture correction still needs a new live
 late-recovery result; it changes neither production admission nor privacy policy.
 
+A new standalone trial uses clean source
+`c2fbcd8c7f14a4c917c2c7bfe721a0650e8d20c9`, with evidence reserved at
+`.git/ci-evidence/content-provider-late-02.2GyayM`. It retains the four-GiB guest,
+two-GiB host reserve and all existing acceptance gates, and makes no weather
+source requests. Its result is pending; do not restart an active run.
+
 The late-provider fixture uses a fresh publication, route and consumer cache.
 It registers the second complementary provider only after observing the first
 completed, single-offer discovery. A temporary provider-side gate is bounded to
@@ -193,6 +199,26 @@ code. Real origin acquisition and joined UI delivery still require the live
 trial. A prior cold core fetch followed by UI use is not browser-triggered
 first-cold delivery. No SDK rebuild, renderer CDN, new scheduler, resource-limit
 increase or extra source request is introduced by this candidate.
+
+Weather [PR9](https://github.com/VOLPAROSSA/volparossa-weather/pull/9) is merged
+at `fe6eb4b92984ed5569bb2db7026414593fc392b8`. Its CI passes 120 core-contract,
+13 Drizz.li, seven Overmorrow Node and 47 Overmorrow Python checks, plus CodeQL.
+A stale-data test previously sampled the clock twice, occasionally exceeding
+the thirty-minute validity limit by one millisecond. Its corrected single-clock
+fixture retains both strict expiry rejection and stale-result rejection; no
+production freshness rule changes.
+
+The actual profile-three archive is retained at
+`.git/ci-evidence/weather-overmorrow-inputs-v3.2mYCGu/inputs.tar`:
+176 files, 455,024,116 payload bytes and 455,191,552 archive bytes.
+Its manifest SHA-256 is
+`da01dec6735c3084c3affb596531e798ed9ae21cbe1d52cf146bfda4dc8c4f29`;
+archive SHA-256 is
+`1f7cb371d04c546e17267f6ff94a113534cd58e4057c415756efb1725dc0fe63`.
+Capture, runtime eligibility, unpacking and exact-tree verification pass against
+private, byte-verified source copies and the existing pinned decoder. No runtime
+or origin executes during capture. This establishes reproducible trial inputs,
+not successful joined delivery or mobile execution.
 
 Weather [PR8](https://github.com/VOLPAROSSA/volparossa-weather/pull/8) is merged into
 `main` at `ce1e28696d47808bd2908242325d1da478cbf0a1`. Each Overmorrow product now
