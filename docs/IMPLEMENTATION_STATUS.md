@@ -7,13 +7,54 @@ This is the repository's source of truth for implementation progress. A checked 
 detailed evidence ledger, including historical failures—not an installation guide.
 
 [Current work](#current-integration-and-active-work) ·
+[Execution plan](#execution-priorities-and-next-milestones) ·
 [Earlier milestones](#earlier-milestone-evidence) ·
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-08
+Last updated: 2026-10-11
 
 ## Current integration and active work
+
+### Execution priorities and next milestones
+
+Continue the existing core-cache and Weather integration; the prioritization
+revision does not restart development or interrupt useful work. Choose the next
+slice across repositories by shared blockers, architectural uncertainty and a
+demonstrable end-to-end result, not by the order of applications in the goal or
+the number of changes. Develop shared core functions with their actual consumers
+rather than waiting for the entire core to be complete.
+
+The immediate milestones build on the retained candidates and evidence below:
+
+| Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
+| --- | --- | --- |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Verify the adaptive-provider correction in the real disposable topology, preserving the joined temperature/wind-to-Drizz.li proof, traffic checks and cleanup. | Core candidate `44c50563` passes targeted tests, but the corrected live run remains outstanding. Trial 03 stopped before VM startup at the unchanged 4 GiB guest plus 2 GiB host-reserve gate; it produced no new network evidence. |
+| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The combined UI/bridge passes with synthetic data. The two-product joined driver and exact input bundle now pass targeted checks; the next step is the real disposable trial when the unchanged memory gate permits. Real peer delivery remains unproved; existing temperature/wind evidence does not cover it. |
+| Extend the same provider to Overmorrow — `volparossa-weather` | Build and exercise the actual client against the shared provider, including unavailable/stale fields and no implicit Open-Meteo fallback. | Reuse the provider contracts and core retrieval path; client adaptation, a reproducible client build and its own runtime proof remain required. Do not create a second network scheduler or source-acquisition implementation. |
+
+Parallel work may continue on the Drizz.li field adapter and Overmorrow client
+boundaries while the core trial waits for sufficient memory. Keep the trial's
+inputs frozen, give shared interface changes one owner and integrate dependent
+consumer changes together. Do not launch competing heavy builds or lower the
+host reserve to make a trial start. A resource wait delays that proof, not all
+implementation work.
+
+After each milestone, or when a substantive blocker changes, reassess the next
+shared dependency against the existing evidence and application worktrees.
+Protected compute for Code/Browser, private storage for Chat/Image/Cloud,
+message custody for Chat/Mail, public content for Map/Weather, and transaction
+or civic simulation dependencies remain in scope; this is not a new serial
+queue or a claim that those integrations are complete. Architecture-defining
+checks can proceed alongside useful integration when they do not conflict with
+shared interfaces or available resources.
+
+Keep this plan concise: record the selected milestone, affected repositories,
+dependencies and remaining blocker. When changing course, record why, where
+unfinished work is retained and what permits its continuation. No integration
+is interrupted solely because of this planning revision. Existing functionality,
+privacy boundaries and completion criteria are unchanged; local candidates and
+component checks do not become merged or end-to-end verified by appearing here.
 
 ### Browser consent cooperation and public filter snapshots
 
@@ -365,10 +406,76 @@ A real CLI/decoder trial verifies two native instantaneous forecast points
 (steps 3 and 6) using 2,841,174 field bytes; it does not derive AQI or observations.
 Ninety-one Weather tests pass, including subprocess-based cache/CLI boundaries,
 query/expiry checks and cancellation. The particulate core-cache tests use a
-synthetic core process; real overlay delivery and application display remain
-unproved. Overmorrow, additional location selection, precipitation delivery and
+synthetic core process; real particulate overlay delivery remains unproved.
+Overmorrow, additional location selection, precipitation delivery and
 complete application delivery remain required work. Absent fields are never
 substituted with zero.
+
+The next local Weather slice connects that separate particulate product to the
+actual Drizz.li week route through `/api/volparossa/air-quality`. Owner-selected
+weather and particulate configurations must use the same public area, while
+their publishers, source runs, native times and expiry remain independent.
+Both endpoints use one bounded retrieval slot, no origin fallback and no browser
+selection of locations or publishers. Timeout failure follows backend cancellation
+cleanup; the next product request does not race a still-occupied slot.
+
+The complete client type check and networkless production build pass. A total
+of 126 targeted Node tests (including eight actual Svelte render/compiler tests)
+and thirteen inert harness checks pass. The actual isolated Firefox trial with
+synthetic precipitation and PM2.5/PM10 also passes: eleven requests per product,
+exact missing/zero concentrations, independent native timestamps, refresh,
+separate expiry/failure handling, route guards and complete private-state/process
+cleanup. The same build passes the existing temperature/wind scenario with AQ
+unconfigured. Weather's retained `integrations/drizzli/air-quality-browser-smoke.json`
+has SHA-256 `7977c31ad53d5ed12455ec7147daf220a05987aca71273344a3a536fe0a76d3d`.
+This is real UI and HTTP-bridge evidence with synthetic values, not a new NOAA
+origin trial or precipitation/particulate peer-delivery result. The frozen
+temperature/wind inputs for the outstanding core topology rerun are unchanged.
+
+The local v2 input-bundle preparation now preserves the complete precipitation
+and particulate module set, both application licences, source overlays, staged
+copies and the pinned decoder/runtime. It checks exact provenance groups against
+the combined browser receipt and the separate ECMWF and NOAA acquisition
+receipts. Capturing a file does not establish that it has run in the joined test.
+The actual 193-file archive (433,030,799 payload bytes) passes capture, readonly
+unpack and a complete tree recheck. Its manifest SHA-256 is
+`6165442537ddacf0e287118447670a285ac2d1cb1bf33fa37afe42bfaa037b28`;
+archive SHA-256 is
+`97facd0bd87160094774143d016cc4e6659fb69fe984280e3a1812a2c7de3989`.
+The earlier v1 archive still passes unchanged. Twenty bundle tests and 37
+existing delivery/shell/runner checks pass, including the new profile gate.
+Four Weather preparation tests also pass after their temporary test copies were
+updated to include the imported particulate modules; no assertion was relaxed.
+
+The two-product joined driver now acquires both products before publishing,
+creates distinct publications and agent caches, and removes both original
+forecasts and the publisher identity before either cold fetch. Each product
+requires its own drained packet/control captures, selected protected route,
+byte-matched receipt and private-cache checks. The browser then checks both
+provider responses, initial panels and refresh against those cold receipts.
+Native NOAA timestamps remain independent of ECMWF; these selected model points
+are not presented as current observations or guaranteed future coverage.
+
+A shared 840-second post-acquisition budget bounds publication, transfers and
+browser work, without extending either signed 900-second publication or source
+expiry. Helper timeouts allow bounded descendant cleanup before a hard kill.
+Closed cold-transfer evidence is retained before browser preparation, and
+interruption cleanup attempts every owned resource independently. Eighty-two
+core bundle/driver/shell/runner tests and the seven Weather preparation plus
+sixteen browser-driver tests pass; cross-repository checks confirm the matching
+report contract. The wider Weather check passes 133 Node tests.
+
+Both topology runners now accept exactly the validated v1 and v2 input profiles,
+selecting the matching driver. The updated 193-file archive has 433,046,126
+payload bytes, manifest SHA-256
+`ec789a95fb07e2eba17f87253f7387acd4a5c488a23703c1d90f11808a48d102`
+and archive SHA-256
+`f1509e305236e37afecfc7287e517c99a6714487f036af4b25db5770a0bc5493`.
+Capture, full runtime-input verification, read-only unpack and tree verification
+pass; the frozen v1 archive remains unchanged and accepted. This is fixture and
+input evidence, not a completed live two-product trial. The unchanged 4 GiB guest
+plus 2 GiB host reserve is still required; no VM or new origin acquisition was
+started for this preparation.
 
 ### Citizen procedure simulation
 

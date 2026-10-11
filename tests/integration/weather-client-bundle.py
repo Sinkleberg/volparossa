@@ -51,6 +51,27 @@ CLIENT_FILES = frozenset(("LICENSE", *("src/lib/services/volparossa/" + name + "
 FIXED = frozenset({*(WEATHER + name for name in WEATHER_FILES),
     *(BROWSER + name for name in BROWSER_FILES), *(STAGE + name for name in RUNTIME_FILES),
     *(UI_STAGE + name for name in CLIENT_FILES), "runtime/node", "decoder/grib_ls"})
+# Version 1 remains the exact frozen temperature/wind input contract. Version 2
+# selects the separate precipitation/particulate runner. Input eligibility does
+# not constitute evidence that either runtime has completed a live proof.
+AQ_MODULES = frozenset(("src/air-quality.mjs", "src/air-quality-provider.mjs"))
+OVERLAY_FILES = frozenset(("src/lib/services/volparossa/client.mjs",
+    "src/lib/services/volparossa/client.d.mts", "src/lib/services/volparossa-mode.ts",
+    "src/routes/weather/week/VolparossaForecast.svelte", "src/routes/weather/week/VolparossaWeek.svelte",
+    "src/routes/weather/week/VolparossaAirQuality.svelte"))
+FIXTURE_MODULES = frozenset(("tests/fixtures.mjs", "tests/air-quality-fixtures.mjs", "src/ecmwf.mjs"))
+NOAA_MODULES = frozenset(("src/noaa-gefs.mjs", "src/air-quality.mjs", "src/core-cache.mjs", "scripts/air-quality.mjs"))
+ECMWF_MODULES = frozenset(("src/ecmwf.mjs", "src/forecast.mjs", "src/provider.mjs", "scripts/forecast.mjs"))
+WEATHER_FILES_V2 = (WEATHER_FILES - {"integrations/drizzli/browser-smoke.json"}) | AQ_MODULES | NOAA_MODULES | FIXTURE_MODULES | {
+    "src/air-quality-core.mjs", "third_party/noaa-gefs.json", "third_party/noaa-gefs-smoke.json",
+    "third_party/ecmwf-precipitation-smoke.json",
+    "integrations/drizzli/air-quality-browser-smoke.json", "integrations/drizzli/browser-fixture.mjs",
+    *("integrations/drizzli/overlay/" + name for name in OVERLAY_FILES)}
+CLIENT_FILES_V2 = CLIENT_FILES | OVERLAY_FILES | {"LICENSE.VOLPAROSSA",
+    *("src/lib/services/volparossa/" + Path(name).name for name in AQ_MODULES)}
+FIXED_V2 = frozenset({*(WEATHER + name for name in WEATHER_FILES_V2),
+    *(BROWSER + name for name in BROWSER_FILES), *(STAGE + name for name in RUNTIME_FILES),
+    *(UI_STAGE + name for name in CLIENT_FILES_V2), "runtime/node", "decoder/grib_ls"})
 EXECUTABLES = frozenset({"runtime/node", "decoder/grib_ls", *(STAGE + name for name in
     ("firefox-esr", "firefox-bin", "crashhelper", "crashreporter", "glxtest", "vaapitest", "pingsender"))})
 MAX_FILES = 512
@@ -83,10 +104,11 @@ def manifest(raw, expected):
     require(hex64(expected) and 0 < len(raw) <= MAX_MANIFEST and hashlib.sha256(raw).hexdigest() == expected)
     value = json.loads(raw, object_pairs_hook=B["unique_pairs"])
     require(type(value) is dict and set(value) == {"version", "kind", "files"}
-        and type(value["version"]) is int and value["version"] == 1 and value["kind"] == KIND
-        and type(value["files"]) is dict and FIXED <= set(value["files"])
+        and type(value["version"]) is int and value["version"] in (1, 2) and value["kind"] == KIND
+        and type(value["files"]) is dict
         and 1 <= len(value["files"]) <= MAX_FILES and encode(value) == raw)
-    require(all(name in FIXED or static_name(name) for name in value["files"])
+    fixed = FIXED if value["version"] == 1 else FIXED_V2
+    require(fixed <= set(value["files"]) and all(name in fixed or static_name(name) for name in value["files"])
         and STATIC + "index.html" in value["files"])
     total = static_bytes = 0
     for name, item in value["files"].items():
@@ -144,9 +166,11 @@ def proven_hashes(value, names):
     return value
 
 
-def source_proof(weather, browser, ui, stage, selected):
+def source_proof(weather, browser, ui, stage, selected, version=1):
     """Check retained build provenance; do not run either project's validators."""
-    proof = small_json(weather / "integrations/drizzli/browser-smoke.json")
+    require(type(version) is int and version in (1, 2))
+    proof = small_json(weather / ("integrations/drizzli/browser-smoke.json" if version == 1
+                                 else "integrations/drizzli/air-quality-browser-smoke.json"))
     upstream = small_json(weather / "integrations/drizzli/upstream.json")
     require(proof["passed"] is True and proof["scope"]["synthetic_weather"] is True
         and proof["scope"]["core_executed"] is False)
@@ -159,15 +183,20 @@ def source_proof(weather, browser, ui, stage, selected):
         and selected[WEATHER + "integrations/drizzli/upstream.patch"]["sha256"]
             == upstream["upstream_patch_sha256"] == proof["source"]["patch_sha256"]
         and selected[WEATHER + "integrations/drizzli/smoke_browser.py"]["sha256"] == proof["source"]["driver_sha256"])
-    weather_modules = proven_hashes(upstream["weather_modules"], PROVEN_WEATHER_MODULES)
-    require(weather_modules == proven_hashes(proof["source"]["weather_modules"], PROVEN_WEATHER_MODULES))
-    for module in ("forecast", "provider"):
-        digest = selected[WEATHER + "src/" + module + ".mjs"]["sha256"]
-        require(digest == selected[UI_STAGE + "src/lib/services/volparossa/" + module + ".mjs"]["sha256"]
-            == weather_modules["src/" + module + ".mjs"])
+    module_names = PROVEN_WEATHER_MODULES | (AQ_MODULES if version == 2 else set())
+    weather_modules = proven_hashes(upstream["weather_modules"], module_names)
+    require(weather_modules == proven_hashes(proof["source"]["weather_modules"], module_names))
+    for module, expected_sha in weather_modules.items():
+        digest = selected[WEATHER + module]["sha256"]
+        require(digest == selected[UI_STAGE + "src/lib/services/volparossa/" + Path(module).name]["sha256"]
+            == expected_sha)
+    overlay = proof["source"]["overlay_sha256"]
+    if version == 2:
+        overlay = proven_hashes(overlay, OVERLAY_FILES)
     require(selected[UI_STAGE + "src/lib/services/volparossa/client.mjs"]["sha256"]
-        == proof["source"]["overlay_sha256"]["src/lib/services/volparossa/client.mjs"])
-    for relative, digest in proven_hashes(proof["source"]["bridge_modules"], PROVEN_BRIDGE_MODULES).items():
+        == overlay["src/lib/services/volparossa/client.mjs"])
+    bridge_names = PROVEN_BRIDGE_MODULES | ({"src/air-quality-core.mjs"} if version == 2 else set())
+    for relative, digest in proven_hashes(proof["source"]["bridge_modules"], bridge_names).items():
         require(selected[WEATHER + relative]["sha256"] == digest)
     for relative, digest in proven_hashes(proof["source"]["browser_helpers"], PROVEN_BROWSER_HELPERS).items():
         require(selected[BROWSER + relative]["sha256"] == digest)
@@ -191,24 +220,78 @@ def source_proof(weather, browser, ui, stage, selected):
         artifacts[item["path"]] = item
     require(artifacts.get("build/eccodes/eccodes-build/bin/grib_ls")
         == dict(path="build/eccodes/eccodes-build/bin/grib_ls", bytes=31328216, sha256=DECODER_SHA))
+    if version == 2:
+        extended_source_proof(weather, selected, proof)
 
 
-def capture(weather, ui, browser, stage, node, archive):
+def extended_source_proof(weather, selected, proof):
+    """Bind separate historical source/UI proofs, never infer joined delivery."""
+    require(proof["phase"] == "complete" and proof["scenario"] == "precipitation"
+        and proof["air_quality_scenario"] is True and proof["wrapper_outcome"] == "completed"
+        and proof["scope"]["synthetic_air_quality"] is True
+        and proof["scope"]["actual_drizzli_ui"] is True and proof["scope"]["actual_http_bridge"] is True
+        and proof["scope"]["overlay_proven"] is False and proof["scope"]["upstream_origin_proven"] is False
+        and proof["runtime"]["node_sha256"] == NODE_SHA)
+    for group, names in (("cleanup", ("browser_exited", "fixture_exited", "private_profile_removed",
+                                     "normal_browser_stop", "normal_fixture_stop")),
+                         ("outer_cleanup", ("namespace_wrapper_exited", "private_profile_removed", "host_netns_unchanged"))):
+        require(all(proof[group][name] is True for name in names))
+    for name in ("precipitation_native_windows", "precipitation_missing_zero_small_amount", "precipitation_no_hourly_rate",
+                 "air_quality_is_separate_product", "air_quality_native_times", "air_quality_missing_zero_concentrations",
+                 "air_quality_not_aqi_or_observations", "actual_refresh", "no_external_resources",
+                 "weather_failure_preserves_air_quality", "weather_expiry_preserves_air_quality",
+                 "aq_unavailable_weather_preserved", "aq_stale_weather_preserved", "air_quality_expiry_preserves_weather"):
+        require(proof["checks"][name] is True)
+    for name in ("precipitation", "air_quality"):
+        initial = proof["checks"][name + "_initial_dom_sha256"]
+        require(hex64(initial) and initial == proof["checks"][name + "_refresh_dom_sha256"])
+    for name in ("provider_requests", "air_quality_provider_requests"):
+        require(type(proof["checks"][name]) is int and proof["checks"][name] == 11)
+    for relative, digest in proven_hashes(proof["source"]["overlay_sha256"], OVERLAY_FILES).items():
+        require(selected[WEATHER + "integrations/drizzli/overlay/" + relative]["sha256"]
+            == selected[UI_STAGE + relative]["sha256"] == digest)
+    for relative, digest in proven_hashes(proof["source"]["fixture_modules"], FIXTURE_MODULES).items():
+        require(selected[WEATHER + relative]["sha256"] == digest)
+    require(selected[WEATHER + "integrations/drizzli/browser-fixture.mjs"]["sha256"] == proof["source"]["fixture_sha256"]
+        and selected[UI_STAGE + "LICENSE.VOLPAROSSA"]["sha256"] == selected[WEATHER + "LICENSE"]["sha256"])
+    noaa = small_json(weather / "third_party/noaa-gefs-smoke.json")
+    require(type(noaa["version"]) is int and noaa["version"] == 1
+        and noaa["kind"] == "direct-noaa-native-particulate-forecast" and noaa["success"] is True
+        and noaa["origin"] == "https://noaa-gefs-pds.s3.amazonaws.com"
+        and noaa["node_sha256"] == NODE_SHA and noaa["decoder_sha256"] == DECODER_SHA
+        and noaa["scope"]["actual_origin_acquisition"] is True
+        and noaa["scope"]["actual_pinned_native_decoder"] is True
+        and all(noaa["scope"][key] is False for key in ("core_executed", "overlay_proven", "browser_executed", "accuracy_proven")))
+    for relative, digest in proven_hashes(noaa["source_modules"], NOAA_MODULES).items():
+        require(selected[WEATHER + relative]["sha256"] == digest)
+    ecmwf = small_json(weather / "third_party/ecmwf-precipitation-smoke.json")
+    require(type(ecmwf["version"]) is int and ecmwf["version"] == 1
+        and ecmwf["kind"] == "direct-ecmwf-native-precipitation-forecast" and ecmwf["success"] is True
+        and ecmwf["source"] == "https://data.ecmwf.int/forecasts"
+        and ecmwf["node_sha256"] == NODE_SHA and ecmwf["decoder_sha256"] == DECODER_SHA
+        and ecmwf["native_accumulation_windows_preserved"] is True and ecmwf["hourly_rates_inferred"] is False
+        and ecmwf["core_overlay_roundtrip_proven"] is False and ecmwf["browser_execution_proven"] is False)
+    for relative, digest in proven_hashes(ecmwf["source_modules"], ECMWF_MODULES).items():
+        require(selected[WEATHER + relative]["sha256"] == digest)
+
+
+def capture(weather, ui, browser, stage, node, archive, version=1):
+    require(type(version) is int and version in (1, 2))
     for root in (weather, ui, browser, stage):
         B["canonical"](root)
     inventory(stage, exact=RUNTIME_FILES)
-    sources = {**{WEATHER + name: weather / name for name in WEATHER_FILES},
+    sources = {**{WEATHER + name: weather / name for name in (WEATHER_FILES if version == 1 else WEATHER_FILES_V2)},
         **{BROWSER + name: browser / name for name in BROWSER_FILES},
         **{STAGE + name: stage / name for name in RUNTIME_FILES},
-        **{UI_STAGE + name: ui / name for name in CLIENT_FILES},
+        **{UI_STAGE + name: ui / name for name in (CLIENT_FILES if version == 1 else CLIENT_FILES_V2)},
         **{STATIC + name: path for name, path in inventory(ui / "build").items()},
         "runtime/node": node, "decoder/grib_ls": weather / "build/eccodes/eccodes-build/bin/grib_ls"}
     selected = {name: dict(**fingerprint(path, bound(name)), mode=mode(name)) for name, path in sorted(sources.items())}
     for name in EXECUTABLES:
         require(sources[name].stat().st_mode & 0o100)
-    raw = encode(dict(version=1, kind=KIND, files=selected)); expected = hashlib.sha256(raw).hexdigest()
+    raw = encode(dict(version=version, kind=KIND, files=selected)); expected = hashlib.sha256(raw).hexdigest()
     manifest(raw, expected)
-    source_proof(weather, browser, ui, stage, selected)
+    source_proof(weather, browser, ui, stage, selected, version)
     new_path(archive)
     with os.fdopen(os.open(archive, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "wb") as output:
         for name in ("INPUTS.json", *sorted(selected)):
@@ -228,7 +311,7 @@ def capture(weather, ui, browser, stage, node, archive):
     return checked_archive(archive, expected)
 
 
-def checked_archive(archive, expected, root=None):
+def checked_archive(archive, expected, root=None, *, runtime=False, report_version=False):
     source, before = open_checked(archive, MAX_ARCHIVE)
     with source:
         require(before.st_size % 512 == 0)
@@ -239,6 +322,9 @@ def checked_archive(archive, expected, root=None):
         raw = read_exact(source, item.size)
         require(read_exact(source, -item.size % 512) == b"\0" * (-item.size % 512))
         selected = manifest(raw, expected)
+        # Both closed profiles have distinct joined-runtime dispatch. Preserve
+        # this explicit gate when future archive-only profiles are introduced.
+        require(not runtime or selected["version"] in (1, 2))
         if root is not None:
             new_path(root); root.mkdir(mode=0o700)
         for name, record in sorted(selected["files"].items()):
@@ -268,7 +354,8 @@ def checked_archive(archive, expected, root=None):
         for directory in sorted([root, *(p for p in root.rglob("*") if p.is_dir())], key=lambda p: len(p.parts), reverse=True):
             directory.chmod(0o500)
     return dict(manifest_sha256=expected, archive_sha256=archive_sha, files=len(selected["files"]),
-        bytes=sum(item["bytes"] for item in selected["files"].values()))
+        bytes=sum(item["bytes"] for item in selected["files"].values()),
+        **({"bundle_version": selected["version"]} if report_version else {}))
 
 
 def verify_tree(root, expected):
@@ -285,8 +372,14 @@ def verify_tree(root, expected):
 
 def main():
     action, *args = sys.argv[1:]
-    if action == "capture" and len(args) == 6:
-        result = capture(*map(Path, args))
+    if action in ("capture", "capture-v2") and len(args) == 6:
+        result = capture(*map(Path, args), version=2 if action == "capture-v2" else 1)
+    elif action == "verify-runtime" and len(args) == 2:
+        result = checked_archive(Path(args[0]), args[1], runtime=True)
+    elif action == "runtime-version" and len(args) == 2:
+        # Dispatch only after checking every member and the complete archive.
+        # Identifying a valid input profile does not authorize its execution.
+        result = checked_archive(Path(args[0]), args[1], report_version=True)
     elif action == "unpack" and len(args) == 3:
         result = checked_archive(Path(args[0]), args[2], Path(args[1]))
     elif action in ("verify", "verify-tree") and len(args) == 2:

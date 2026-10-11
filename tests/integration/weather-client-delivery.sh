@@ -96,6 +96,22 @@ weather_client_delivery_run() {
     if [ -z "${weather_client_bundle:-}" ] || [ -z "${weather_client_manifest_sha256:-}" ]; then
         fail WEATHER_CLIENT_INPUTS_MISSING
     fi
+    # Select only after the complete immutable archive has been validated. The
+    # legacy profile must keep its original driver and evidence contract.
+    weather_profile=$(python3 -B "$source_directory/tests/integration/weather-client-bundle.py" \
+        runtime-version "$weather_client_bundle" "$weather_client_manifest_sha256") \
+        || fail WEATHER_CLIENT_PROFILE_INVALID
+    weather_profile_version=$(printf '%s\n' "$weather_profile" | \
+        jq -er '.bundle_version | select(type == "number" and (. == 1 or . == 2))') \
+        || fail WEATHER_CLIENT_PROFILE_INVALID
+    case $weather_profile_version in
+        1) ;;
+        2)
+            . "$source_directory/tests/integration/weather-products-delivery.sh"
+            weather_products_delivery_run
+            return ;;
+        *) fail WEATHER_CLIENT_PROFILE_INVALID ;;
+    esac
     PHASE=weather-client-delivery-prepare
     printf '%s\n' 'Weather trial: stage verified inputs under disposable WORK; acquire one explicit public ECMWF forecast in the guest parent namespace; publish to two existing peers; cold-fetch through the protected Client route, then render and refresh the same bytes in an isolated browser. Create the empty root-owned /nonexistent only if absent in this KVM guest; remove only that owned empty directory. No HOME override or private cache permission change.'
     if [ "$WORKER_UID" != 985 ] || [ "$site_control_gid" = "$AGENT_GID" ]; then

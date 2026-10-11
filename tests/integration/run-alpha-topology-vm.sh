@@ -821,12 +821,12 @@ WEATHER_CLIENT_ARCHIVE=$RUN_DIRECTORY/weather-client.tar
 WEATHER_CLIENT_ARCHIVE_SHA256=none
 WEATHER_CLIENT_MANIFEST_SHA256=none
 if [ -n "$weather_client_bundle" ]; then
-    python3 -B "$HERE/weather-client-bundle.py" verify "$weather_client_bundle" "$weather_client_manifest_sha256"
+    python3 -B "$HERE/weather-client-bundle.py" verify-runtime "$weather_client_bundle" "$weather_client_manifest_sha256"
     install -m 0600 "$weather_client_bundle" "$WEATHER_CLIENT_ARCHIVE"
-    python3 -B "$HERE/weather-client-bundle.py" verify "$WEATHER_CLIENT_ARCHIVE" "$weather_client_manifest_sha256"
+    python3 -B "$HERE/weather-client-bundle.py" verify-runtime "$WEATHER_CLIENT_ARCHIVE" "$weather_client_manifest_sha256"
     WEATHER_CLIENT_ARCHIVE_SHA256=$(sha256sum "$WEATHER_CLIENT_ARCHIVE" | awk '{ print $1 }')
     WEATHER_CLIENT_MANIFEST_SHA256=$weather_client_manifest_sha256
-    printf '%s\n' 'Additional proof: fresh public ECMWF HTTPS acquisition, protected peer transfer and real Drizz.li UI; origin acquisition is not an overlay claim.'
+    printf '%s\n' 'Additional proof: public model HTTPS acquisition (ECMWF, plus NOAA for the two-product profile), protected peer transfer and real Drizz.li UI; origin acquisition is not an overlay claim.'
 fi
 CODE_ARCHIVE_SHA256=none
 CODE_MANIFEST_SHA256=none
@@ -1105,6 +1105,9 @@ WEATHER_CLIENT_NAMES = {f"weather-client-delivery-{suffix}.json" for suffix in (
     "cache-before", "cache-after", "input-cleanup")}
 WEATHER_CLIENT_HELPERS = ("weather-client-delivery.py", "weather-client-bundle.py",
     "browser-filter-bundle.py", "content-provider-https-smoke.py", "content-network-smoke.py")
+WEATHER_PRODUCTS_NAMES = {name.replace("weather-client-delivery-", "weather-products-delivery-", 1)
+    for name in WEATHER_CLIENT_NAMES}
+WEATHER_PRODUCTS_HELPERS = ("weather-products-delivery.py", *WEATHER_CLIENT_HELPERS)
 
 
 def joined_client_helper(work, names, entrypoint):
@@ -1133,11 +1136,23 @@ def browser_filter_helper(work):
 
 
 def weather_client_helper(work):
-    return joined_client_helper(work, WEATHER_CLIENT_HELPERS, "weather-client-delivery.py")
+    # A present v2 entrypoint selects the complete v2 validation closure. If
+    # unsafe, reject it rather than silently interpreting v2 evidence as v1.
+    try:
+        (work / "bin/weather-products-delivery.py").lstat()
+    except FileNotFoundError:
+        return joined_client_helper(work, WEATHER_CLIENT_HELPERS, "weather-client-delivery.py")
+    except OSError:
+        return None
+    return joined_client_helper(work, WEATHER_PRODUCTS_HELPERS, "weather-products-delivery.py")
 
 
 def weather_client_candidates(root, label, helper, target):
     # No raw forecast, request/config, CLI receipt or process log is exported.
+    names = {"weather-client-delivery.py": WEATHER_CLIENT_NAMES,
+        "weather-products-delivery.py": WEATHER_PRODUCTS_NAMES}.get(helper.name)
+    if names is None:
+        return []
     validated = Path(tempfile.mkdtemp(prefix="weather-client-validated.", dir=target))
     try:
         subprocess.run(["/usr/bin/python3", "-I", "-B", str(helper), "copy-artifacts", str(root),
@@ -1146,7 +1161,7 @@ def weather_client_candidates(root, label, helper, target):
                        cwd="/", env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}, timeout=3, check=True)
     except (OSError, subprocess.SubprocessError):
         return []
-    return [(validated / name, f"{label}/{name}") for name in sorted(WEATHER_CLIENT_NAMES)
+    return [(validated / name, f"{label}/{name}") for name in sorted(names)
             if (validated / name).is_file() and not (validated / name).is_symlink()]
 
 
@@ -1447,7 +1462,7 @@ def collect(home, opt, revision, scenario, guest_status,
         if observed is None:
             continue
         data, original_size = observed
-        if path.name in BROWSER_FILTER_NAMES | WEATHER_CLIENT_NAMES and original_size > len(data):
+        if path.name in BROWSER_FILTER_NAMES | WEATHER_CLIENT_NAMES | WEATHER_PRODUCTS_NAMES and original_size > len(data):
             continue  # Preserve complete validated original bytes, never a JSON tail.
         if scenario == "browser-network" and path.name in browser_names and original_size > len(data):
             # A truncated JSON tail is not reconstructible structured evidence.
@@ -1714,7 +1729,7 @@ fi
 if [ "$weather_client_manifest_sha256" != none ]; then
     guest_phase weather-client-inputs
     printf '%s  /home/vpci/weather-client.tar\n' "$weather_client_archive_sha256" | sha256sum --check --strict -
-    python3 -B tests/integration/weather-client-bundle.py verify /home/vpci/weather-client.tar "$weather_client_manifest_sha256"
+    python3 -B tests/integration/weather-client-bundle.py verify-runtime /home/vpci/weather-client.tar "$weather_client_manifest_sha256"
 fi
 if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative-code-proposal ]; then
     guest_phase code-inputs

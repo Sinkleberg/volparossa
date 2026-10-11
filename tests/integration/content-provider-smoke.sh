@@ -82,7 +82,10 @@ content_provider_control_underlay() {
 
 content_provider_start_control_observer() {
     provider_control_prefix=$1
-    case $provider_control_prefix in content-provider-*|weather-client-delivery-control) ;; *) return 1 ;; esac
+    case $provider_control_prefix in
+        content-provider-*|weather-client-delivery-control|weather-products-delivery-weather-control|weather-products-delivery-air-quality-control) ;;
+        *) return 1 ;;
+    esac
     [ -z "$PROVIDER_CONTROL_PID" ] || return 1
     ip netns exec "$provider_control_ns" python3 "$WORK/bin/privacy-observer.py" \
         content-control "$WORK/$provider_control_prefix.json" \

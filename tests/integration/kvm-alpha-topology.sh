@@ -1002,10 +1002,10 @@ if [ -n "$weather_client_bundle" ]; then
         && [ "$(stat -Lc '%a' "$weather_client_bundle")" = 600 ] || exit 69
     weather_client_input_uid=$(stat -Lc '%u' "$weather_client_bundle")
     if [ "$weather_client_input_uid" -eq 0 ]; then
-        python3 -B "$source_directory/tests/integration/weather-client-bundle.py" verify \
+        python3 -B "$source_directory/tests/integration/weather-client-bundle.py" verify-runtime \
             "$weather_client_bundle" "$weather_client_manifest_sha256" || exit 69
     elif [ "$weather_client_input_uid" -eq "$(id -u vpci)" ]; then
-        runuser -u vpci -- python3 -B "$source_directory/tests/integration/weather-client-bundle.py" verify \
+        runuser -u vpci -- python3 -B "$source_directory/tests/integration/weather-client-bundle.py" verify-runtime \
             "$weather_client_bundle" "$weather_client_manifest_sha256" || exit 69
     else
         exit 69
@@ -6187,6 +6187,8 @@ start_privacy_observers() {
             [ "$scenario" = content ] || [ "$scenario" = content-message ] || return 1 ;;
         content-https-complete-privacy|content-https-missing-privacy)
             [ "$scenario" = content-https ] || return 1 ;;
+        weather-products-delivery-weather-privacy|weather-products-delivery-air-quality-privacy)
+            [ "$scenario" = content-provider ] || return 1 ;;
         content-provider-privacy|content-provider-adaptive-privacy|content-provider-adaptive-https-privacy|content-provider-https-complete-privacy|content-provider-https-missing-privacy|content-provider-https-baseline-privacy|content-provider-https-origin-only-privacy|content-provider-https-auto-privacy|content-provider-https-digest-origin-only-privacy|content-provider-https-digest-peers-first-privacy|content-provider-https-limited-origin-only-privacy|content-provider-https-limited-peers-first-privacy|content-provider-https-limited-auto-privacy|content-provider-https-checksum-origin-only-privacy|content-provider-https-checksum-peers-first-privacy|content-provider-https-checksum-mismatch-privacy|content-provider-user-privacy|content-provider-named-privacy|content-provider-site-privacy|content-provider-site-cache-only-privacy|content-provider-filter-cold-privacy|content-provider-filter-warm-privacy|weather-client-delivery-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;
         content-message-publication-privacy)

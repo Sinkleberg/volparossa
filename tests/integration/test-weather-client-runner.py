@@ -8,6 +8,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -22,6 +23,14 @@ class WeatherRunner(unittest.TestCase):
     def call(self, runner, *args, env=None):
         return subprocess.run(["/bin/sh", str(HERE / runner), *args],
                               capture_output=True, timeout=5, env=env)
+
+    def test_runners_require_the_joined_runtime_profile_not_only_valid_archive(self):
+        for runner, calls in (("run-alpha-topology-vm.sh", 3), ("kvm-alpha-topology.sh", 2)):
+            source = (HERE / runner).read_text()
+            verifier_lines = [line for line in source.splitlines()
+                              if 'weather-client-bundle.py" verify' in line or 'weather-client-bundle.py verify' in line]
+            self.assertEqual(len(verifier_lines), calls)
+            self.assertTrue(all(" verify-runtime " in line for line in verifier_lines))
 
     def required(self, runner, scenario="content-provider"):
         args = ["--execute", "--yes", "--scenario", scenario,
@@ -140,6 +149,66 @@ class WeatherEmergencyExport(unittest.TestCase):
         cls.api = {"__name__": "inert_weather_collector"}
         exec(compile(body, "weather-collector", "exec"), cls.api)
 
+    def test_products_helper_requires_complete_root_owned_closure_without_v1_fallback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary).resolve()
+            directory = work / "bin"
+            directory.mkdir()
+            for name in self.api["WEATHER_PRODUCTS_HELPERS"]:
+                path = directory / name
+                path.write_text("raise RuntimeError('inert; must not execute')\n")
+                path.chmod(0o555)
+            original = Path.lstat
+            bad_path, fault = None, {}
+
+            def fixture_stat(path):
+                actual = original(path)
+                # Simulate trusted root staging without requiring root, mounts,
+                # chown, or changing the host. The selected fault stays real to
+                # the production closure checker.
+                values = dict(st_mode=actual.st_mode & ~0o022, st_uid=0,
+                              st_nlink=actual.st_nlink, st_size=actual.st_size)
+                if path == bad_path:
+                    values.update(fault)
+                return SimpleNamespace(**values)
+
+            with patch.object(Path, "lstat", fixture_stat):
+                self.assertEqual(self.api["weather_client_helper"](work), directory / "weather-products-delivery.py")
+                for name in self.api["WEATHER_PRODUCTS_HELPERS"]:
+                    bad_path = directory / name
+                    for fault in (dict(st_uid=1000), dict(st_nlink=2),
+                                  dict(st_mode=stat.S_IFREG | 0o666), dict(st_size=262145),
+                                  dict(st_mode=stat.S_IFLNK | 0o555)):
+                        with self.subTest(name=name, fault=fault):
+                            self.assertIsNone(self.api["weather_client_helper"](work))
+                bad_path, fault = None, {}
+                products = directory / "weather-products-delivery.py"
+                products.unlink()
+                self.assertEqual(self.api["weather_client_helper"](work), directory / "weather-client-delivery.py")
+                products.symlink_to("missing-products-driver")
+                self.assertIsNone(self.api["weather_client_helper"](work))
+
+    def test_products_candidate_allowlist_never_exports_private_or_other_profile_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            target = root / "output"
+            target.mkdir()
+
+            def inert_copy(command, **kwargs):
+                self.assertEqual(command[4:6], ["copy-artifacts", str(root)])
+                copied = Path(command[6])
+                for name in self.api["WEATHER_CLIENT_NAMES"] | self.api["WEATHER_PRODUCTS_NAMES"] | {
+                        "weather-products-delivery-config.json", "forecast.json", "private.log"}:
+                    (copied / name).write_text("{}")
+
+            with patch.object(self.api["subprocess"], "run", inert_copy):
+                candidates = self.api["weather_client_candidates"](root, "work-1",
+                    root / "weather-products-delivery.py", target)
+            self.assertEqual({name for _, name in candidates},
+                             {"work-1/" + name for name in self.api["WEATHER_PRODUCTS_NAMES"]})
+            with patch.object(self.api["subprocess"], "run", side_effect=AssertionError("must not execute")):
+                self.assertEqual(self.api["weather_client_candidates"](root, "work-1", root / "unknown.py", target), [])
+
     def acquisition(self):
         return dict(schema=1, success=True, origin_https=True, acquisition_outside_overlay=True,
                     upstream_signature_attested=False, synthetic_weather=False,
@@ -148,30 +217,46 @@ class WeatherEmergencyExport(unittest.TestCase):
                                  index_sha256=SHA, field_sha256=SHA)
                             for step in (3, 9, 24) for parameter in ("2t", "10u", "10v")])
 
-    def collect(self, raw, limit=None, published=None, late_invalid=False):
+    def products_acquisition(self):
+        return dict(schema=2, success=True, origin_https=True, acquisition_outside_overlay=True,
+                    upstream_signature_attested=False, synthetic_weather=False, synthetic_air_quality=False,
+                    independent_product_runs=True,
+                    decoder_sha256="3a3b64581e6922db4287445f217f993f6967dea5fcc45ff66944b0bc883408f4",
+                    products={name: dict(forecast_sha256=SHA, forecast_bytes=6000,
+                        fields=[dict(lead_hours=step, parameter=parameter,
+                                     index_sha256=SHA, field_sha256=SHA)
+                                for step in steps for parameter in parameters])
+                              for name, steps, parameters in (
+                                  ("weather", (3, 9, 24), ("2t", "10u", "10v", "tp")),
+                                  ("air_quality", (3, 6, 12), ("PMTF", "PMTC")))})
+
+    def collect(self, raw, limit=None, published=None, late_invalid=False, products=False):
         with tempfile.TemporaryDirectory() as temporary:
+            prefix = "weather-products-delivery" if products else "weather-client-delivery"
             base = Path(temporary).resolve()
             home, opt, proc, cgroups = (base / name for name in ("home", "opt", "proc", "cgroups"))
             for directory in (home, opt, proc, cgroups):
                 directory.mkdir()
             (home / "alpha-output").mkdir()
             if published is not None:
-                early = home / "alpha-output/weather-client-delivery-cold-evidence.json"
+                early = home / "alpha-output" / (prefix + "-cold-evidence.json")
                 early.write_bytes(published)
                 early.chmod(0o600)
             work = opt / ("va." + "a" * 32 + ".ABC123")
             work.mkdir()
-            source = work / "weather-client-delivery-acquisition.json"
+            source = work / (prefix + "-acquisition.json")
             source.write_bytes(raw)
             source.chmod(0o600)
             if late_invalid:
-                invalid = work / "weather-client-delivery-evidence.json"
+                invalid = work / (prefix + "-evidence.json")
                 invalid.write_text('{"unknown":"PRIVATE CANARY"}')
                 invalid.chmod(0o600)
             for name in ("weather-client-delivery-cold-consumer.json", "weather-client-delivery-input.json",
-                         "weather-client-delivery.err", "forecast.json", "config.json"):
+                         "weather-client-delivery.err", "forecast.json", "config.json",
+                         "weather-products-delivery-input.json", "weather-products-delivery-air_quality-cold-consumer.json",
+                         "weather-products-delivery.err", "air-quality.json"):
                 (work / name).write_text("PRIVATE CANARY")
-            overrides = {"weather_client_helper": lambda root: HERE / "weather-client-delivery.py"}
+            overrides = {"weather_client_helper": lambda root: HERE / (prefix + ".py")}
             if limit is not None:
                 overrides["FILE_LIMIT"] = limit
             # Bypass only root-owned staging in this unprivileged inert test.
@@ -189,6 +274,33 @@ class WeatherEmergencyExport(unittest.TestCase):
         self.assertFalse(summary["success"])
         self.assertEqual(summary["cleanup"], {"complete": False, "verified": False})
         self.assertFalse(any(b"PRIVATE CANARY" in data for data in files.values()))
+
+    def test_products_valid_receipt_survives_exactly_without_inventing_joined_success(self):
+        raw = json.dumps(self.products_acquisition(), indent=2).encode() + b"\n"
+        files = self.collect(raw, products=True)
+        self.assertEqual(files["work-1/weather-products-delivery-acquisition.json"], raw)
+        self.assertFalse(json.loads(files["vm-incomplete.json"])["success"])
+        self.assertFalse(any(b"PRIVATE CANARY" in data for data in files.values()))
+        self.assertFalse(any("weather-client-delivery" in name for name in files))
+
+    def test_products_export_rejects_unknown_private_duplicate_and_mixed_source_data(self):
+        valid = self.products_acquisition()
+        wrong_field = self.products_acquisition()
+        wrong_field["products"]["air_quality"]["fields"][0]["parameter"] = "2t"
+        bad = [b"not json", json.dumps(dict(valid, prompt="PRIVATE CANARY")).encode(),
+               b'{"schema":"PRIVATE CANARY",' + json.dumps(valid).encode()[1:],
+               json.dumps(dict(valid, synthetic_air_quality=True)).encode(),
+               json.dumps(dict(valid, decoder_sha256="PRIVATE CANARY")).encode(),
+               json.dumps(wrong_field).encode()]
+        for raw in bad:
+            with self.subTest(raw=raw[:50]):
+                files = self.collect(raw, products=True)
+                self.assertNotIn("work-1/weather-products-delivery-acquisition.json", files)
+                self.assertFalse(any(b"PRIVATE CANARY" in data for data in files.values()))
+        files = self.collect(json.dumps(valid).encode(), products=True, limit=64)
+        self.assertFalse(any("weather-products-delivery" in name for name in files))
+        files = self.collect(json.dumps(valid).encode(), products=True, late_invalid=True)
+        self.assertFalse(any("weather-products-delivery" in name for name in files))
 
     def test_private_unknown_duplicate_and_malformed_json_do_not_escape(self):
         valid = self.acquisition()
