@@ -29,7 +29,7 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Use the new worker-budget observations in the real provider trial, restore proven concurrent three-provider bulk transfer, then exercise late complementary-provider recovery. | The standalone run on `9b602bb5` reconstructs native and HTTPS adaptive objects sequentially and stops before late recovery/cancellation. Pressure can cap admission at one worker, but this run retains no pressure snapshot. The new diagnostics distinguish pressure, missing observations, resource capacity and shared reservations without changing admission. Obtain live evidence before changing policy or fixture resources; do not weaken the overlap gate. The separate CI primary-Exit failure remains unresolved. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Resolve the observed fixture I/O pressure, prove concurrent three-provider bulk transfer, then exercise late complementary-provider recovery. | The standalone run on `7ad108c0` reconstructs native and HTTPS adaptive objects sequentially. Both budget reports identify I/O pressure as the sole pressure/unavailability flag, holding admission at one worker despite memory and FD headroom. Identify and reduce the actual storage bottleneck or establish bounded readiness; do not override pressure protection or weaken the overlap gate. The separate CI primary-Exit failure remains unresolved. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather` | Deliver core-cache products into the actual client, then verify native packaging. | The pinned web build, sixteen Flutter tests and actual isolated browser interaction with synthetic products pass. Core delivery and native Android/iOS execution remain unverified. Cover the client's shorter timeout and the bridge's cancellation cleanup when testing cold retrieval; reuse the shared provider without another scheduler. |
 
@@ -56,7 +56,46 @@ refused admission and release after interruption. Twelve extraction checks,
 eight existing adaptive-evidence checks and eighteen runner checks also pass.
 These are component results, not a new protected-network overlap result.
 The pressure thresholds, shared resource budget and packet-overlap gates
-are unchanged; the next real trial must establish the actual limiting condition.
+are unchanged.
+
+The real diagnostic run on `7ad108c0211183abba0e27a7922849a0455c1d9c`
+identifies I/O pressure as the admission limit in both adaptive transfers. Each
+complete budget report records allowance one throughout, three admitted leases,
+peak concurrency one, no denied leases and zero active leases on return. Memory
+and FD capacity minima are twelve and twenty-nine workers respectively; CPU,
+memory and unavailable-observation flags are false. This establishes why these
+transfers were serialized, not which activity caused the underlying I/O pressure.
+Earlier batches in the same run had no pressure and allowed twelve workers,
+including an observed two-worker peak. The pressure therefore was not continuous
+since the build; it reappeared around adaptive preparation or execution.
+Inspect fixture storage and readiness before changing resources; do not bypass
+the owner's pressure protection to satisfy a concurrency test.
+
+Both transfers reconstruct 15,728,640 bytes in sixty chunks from three providers,
+with no origin body bytes or range requests. Their three-provider bulk windows
+have negative overlap: `-6,629,715,618 ns` native and `-5,983,140,384 ns` HTTPS.
+The earlier two-provider transfer passes its existing path/control checks and
+reconstructs 2,097,275 bytes in nine chunks, with `373,929,069 ns` bulk overlap;
+that does not satisfy the separate three-provider requirement. The run stops
+at `content-provider-adaptive-cleanup` with
+`CONTENT_PROVIDER_ADAPTIVE_EVIDENCE_INVALID`; late recovery and requester
+cancellation are not reached. The report is retained at
+`.git/ci-evidence/content-provider-budget-01.VUAE79/output/content-provider-smoke.json`,
+SHA-256 `c5dd6bebef5d803ccbba8dd4e5f11b8ddad86b824febe294f5882432b337dc19`.
+The separate native and HTTPS worker-budget reports are complete and observed.
+Cleanup leaves zero owned objects, with identical guest-root network-state
+hashes. The VM and its owned scratch overlay are removed. Development-host DNS
+and IPv4/IPv6 route hashes remain unchanged; host-firewall comparison remains
+unavailable. No weather origin was queried.
+
+The next fixture candidate waits for three consecutive guest-global PSI samples,
+one second apart, below the unchanged production pressure thresholds before each
+adaptive fetch. Its single thirty-second deadline fails visibly if readiness is
+unavailable. Fifteen focused checks pass, alongside the twelve budget-extraction,
+eight adaptive-evidence and eighteen runner checks. Bounded native/HTTPS receipts explicitly do
+not prove memory, FD or cgroup capacity. This adds no product delay or admission
+override: cache writes may reintroduce I/O pressure, and the live worker budget
+and three-provider packet-overlap requirements still decide the result.
 
 The late-provider fixture uses a fresh publication, route and consumer cache.
 It registers the second complementary provider only after observing the first

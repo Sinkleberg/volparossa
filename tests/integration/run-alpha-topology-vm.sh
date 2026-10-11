@@ -915,6 +915,7 @@ SAFE_NAMES = {"runner.stdout", "runner.stderr", "guest-exit-status", "current-ph
               "private-unbound-package.json", "private-unbound-package-lifecycle.json",
               "worker-network-diagnostics.txt", "host-state-before.json", "host-state-after.json",
               "content-provider-adaptive-worker-budget.json", "content-provider-adaptive-https-worker-budget.json",
+              "content-provider-adaptive-resource-ready.json", "content-provider-adaptive-https-resource-ready.json",
               "report.json", "local-link-smoke.json", "wifi-link-smoke.json",
               "reciprocity-smoke.json", "mixed-link-smoke.json", "mpquic-growth-smoke.json", "mptcp-growth-smoke.json", "mptcp-refill-smoke.json", "sharing-smoke.json", "download-sharing-smoke.json",
               "uplink-link-smoke.json", "crash-recovery.json", "content-network-smoke.json", "content-message-smoke.json", "content-https-smoke.json", "content-provider-smoke.json", "content-replication-smoke.json", "content-mailbox-smoke.json", "dns-cache-smoke.json",

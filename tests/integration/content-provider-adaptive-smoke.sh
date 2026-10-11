@@ -110,6 +110,10 @@ content_provider_adaptive_https_run() {
     TLS_POLICY_SERVER_PID=$!
     wait_observer "$TLS_POLICY_SERVER_PID" "$ah_origin_report.ready" || fail CONTENT_PROVIDER_ADAPTIVE_HTTPS_ORIGIN_FAILED
     install -o "$WORKER_UID" -g "$WORKER_GID" -m 0400 "$WORK/destination/$ah_prefix-origin.pem" "$ah_user/origin.pem"
+    # Fixture readiness only: current production admission and triple overlap still decide.
+    PHASE=content-provider-adaptive-https-resource-ready
+    python3 -B "$source_directory/tests/integration/content-provider-resource-ready.py" "$WORK" https \
+        || fail CONTENT_PROVIDER_ADAPTIVE_HTTPS_RESOURCE_UNAVAILABLE
     start_privacy_observers "$ah_prefix-privacy" || fail CONTENT_PROVIDER_ADAPTIVE_HTTPS_CAPTURE_FAILED
     content_provider_adaptive_start_control_observer "$ah_prefix-control-privacy" \
         || fail CONTENT_PROVIDER_ADAPTIVE_HTTPS_CONTROL_FAILED
@@ -271,6 +275,9 @@ content_provider_adaptive_run() {
             || fail CONTENT_PROVIDER_ADAPTIVE_REGISTRATION_INCOMPLETE
     done
     capture_product_logs
+    PHASE=content-provider-adaptive-resource-ready
+    python3 -B "$source_directory/tests/integration/content-provider-resource-ready.py" "$WORK" native \
+        || fail CONTENT_PROVIDER_ADAPTIVE_RESOURCE_UNAVAILABLE
     adaptive_baseline_ms=$(client_log_baseline_ms) || fail CONTENT_PROVIDER_ADAPTIVE_BASELINE_UNAVAILABLE
     PHASE=content-provider-adaptive-capture
     start_privacy_observers content-provider-adaptive-privacy \

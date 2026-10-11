@@ -1359,6 +1359,7 @@ if [ "$scenario" = content-provider ]; then
         content-provider-site-smoke.sh content-provider-site-smoke.py \
         content-provider-filter-smoke.sh content-provider-filter-smoke.py \
         content-provider-adaptive-smoke.sh content-provider-adaptive-smoke.py content-provider-worker-budget.py \
+        content-provider-resource-ready.py \
         content-provider-late-recovery.sh content-provider-late-recovery.py content-cancellation-smoke.py; do
         if [ ! -f "$source_directory/tests/integration/$provider_fixture" ] \
             || [ -L "$source_directory/tests/integration/$provider_fixture" ]; then
