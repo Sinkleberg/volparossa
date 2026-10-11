@@ -31,13 +31,13 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Continue shared cache delivery — `volparossa`, `volparossa-weather` | Verify late complementary-provider recovery and the earlier adaptive-provider correction in the real topology. | The separate late-provider fixture is implemented and passes its focused tests; its real discovery timing is unproven. The latest local run on `cc5f3558` completes only the base two-provider fetch with measured overlap and one discovery query. The separate CI primary-Exit discovery failure remains unresolved. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
-| Extend the same provider to Overmorrow — `volparossa-weather` | Build and exercise the actual client against the shared provider, including unavailable/stale fields and no implicit Open-Meteo fallback. | Reuse the provider contracts and core retrieval path; client adaptation, a reproducible client build and its own runtime proof remain required. Do not create a second network scheduler or source-acquisition implementation. |
+| Extend the same provider to Overmorrow — `volparossa-weather` | Exercise the actual client against the shared provider, including unavailable/stale fields and no implicit Open-Meteo fallback. | The pinned Flutter web release builds and fifteen synthetic component tests pass. Actual browser interaction, core delivery and native Android/iOS packaging remain unverified. Reuse the existing provider and core retrieval path; no second network scheduler or source-acquisition implementation. |
 
 Respect the observed source rate limit instead of repeatedly relaunching the
 joined trial or routing requests through other peers. Continue the separate
 late-provider recovery proof, which needs no weather downloads; the successful
 base fetch does not prove late discovery convergence. The Drizz.li/Weather candidate and frozen input
-bundle remain intact; Overmorrow's client work is still required. Keep shared interface
+bundle remain intact; Overmorrow's runtime and delivery proof is still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
@@ -52,6 +52,22 @@ checks. Current reports require this separate result; historical version-one
 reports remain explicitly readable. These checks validate the fixture, not live
 late-provider discovery or improved transfer speed. The existing concurrent
 transfer and privacy requirements remain mandatory.
+
+The Overmorrow candidate
+[`54abb095`](https://github.com/VOLPAROSSA/volparossa-weather/commit/54abb0951ee0936da1f9faaa4c51cce02f29e33e)
+connects the actual pinned Flutter app's provider dispatcher, phone/tablet layouts,
+forecast surface and air-quality detail route to the same local HTTP bridge.
+Its release build and fifteen synthetic Flutter tests pass, as do thirty-one
+HTTP checks and twenty-five build/deployment checks. Native weather and particulate
+times, missing versus zero values and independent expiry are preserved. The
+self-hosted CanvasKit deployment contains 61 files and 22,953,717 bytes within
+the unchanged asset limits. A separate isolated Firefox trial reaches actual
+CanvasKit rendering through the local bridge with synthetic products and verifies
+native timelines, visible values, missing observations/AQI, area and attribution.
+It then times out during refresh; the cause is not yet resolved. Browser and
+fixture processes exit, the private profile is removed and the host network
+namespace is unchanged. This partial trial does not prove the remaining browser
+interactions, peer delivery, native mobile execution or forecast accuracy.
 
 After each milestone, or when a substantive blocker changes, reassess the next
 shared dependency against the existing evidence and application worktrees.
