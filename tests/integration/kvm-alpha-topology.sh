@@ -1620,8 +1620,11 @@ capture_host_state() {
 }
 
 copy_artifacts() {
+    artifact_copy_status=0
     if [ -n "$weather_client_bundle" ] && command -v weather_client_delivery_copy_artifacts >/dev/null 2>&1; then
-        weather_client_delivery_copy_artifacts || return 1
+        # Keep the failed closed export visible to final acceptance, but retain
+        # independent safe diagnostics even when a Weather artifact is invalid.
+        weather_client_delivery_copy_artifacts || artifact_copy_status=1
     fi
     if [ -n "$browser_filter_bundle" ] && command -v browser_filter_delivery_copy_artifacts >/dev/null 2>&1; then
         browser_filter_delivery_copy_artifacts || return 1
@@ -1632,7 +1635,7 @@ copy_artifacts() {
             [ ! -f "$WORK/$artifact" ] || [ -L "$WORK/$artifact" ] || \
                 install -o "$OUTPUT_UID" -g "$OUTPUT_GID" -m 0600 "$WORK/$artifact" "$output_directory/$artifact" || return 1
         done
-        return 0
+        return "$artifact_copy_status"
     fi
     for artifact in \
         benchmark-selection-draws.jsonl a02-selected-paths.json \
@@ -1751,9 +1754,10 @@ copy_artifacts() {
         host-state-before.json host-state-after.json a15-evidence.json; do
         if [ -f "$WORK/$artifact" ] && [ ! -L "$WORK/$artifact" ]; then
             install -o "$OUTPUT_UID" -g "$OUTPUT_GID" -m 0600 \
-                "$WORK/$artifact" "$output_directory/$artifact"
+                "$WORK/$artifact" "$output_directory/$artifact" || artifact_copy_status=1
         fi
     done
+    return "$artifact_copy_status"
 }
 
 # shellcheck source=tests/integration/benchmark-selection.sh

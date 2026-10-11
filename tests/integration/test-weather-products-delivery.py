@@ -8,6 +8,8 @@ import json
 import os
 from pathlib import Path
 import runpy
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -70,6 +72,20 @@ def acquisition():
                 forecast_bytes=selection["products"][key]["publication"]["bytes"],
                 fields=[dict(lead_hours=step, parameter=parameter, index_sha256=SHA, field_sha256=SHA)
                     for step in p["steps"] for parameter in p["parameters"]]) for key, p in A["PRODUCTS"].items()})
+
+
+def diagnostic(stage="weather-run"):
+    return A["AcquisitionFailure"](stage, ValueError("private coordinates, path, URL and raw stderr")).diagnostic
+
+
+def failure_fixture(work, raw=None):
+    save(A["artifact"](work, "tree-before"), dict(version=1, action="verify-tree", manifest_sha256=SHA,
+        files=193, runtime_executed=False))
+    save(A["artifact"](work, "input-cleanup"), dict(directory_removed=True, files_removed=True))
+    A["write_new"](A["artifact"](work, "acquisition"), raw if raw is not None else A["B"]["encode"](diagnostic()))
+    marker = A["retain_acquisition_failure"](work, 1)
+    save(A["artifact"](work, "acquisition-failure"), marker)
+    return marker
 
 
 def report():
@@ -151,6 +167,126 @@ class Products(unittest.TestCase):
     def setUp(self):
         clock = patch.dict(A["prepare"].__globals__, observed_ms=lambda: CLOCK)
         clock.start(); self.addCleanup(clock.stop)
+
+    def test_acquisition_diagnoses_every_stage_without_error_details(self):
+        for failed_stage in A["ACQUISITION_STAGES"]:
+            with self.subTest(stage=failed_stage), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary); root = base / "weather-publisher"; root.mkdir(mode=0o700)
+                source = base / "inputs"; source.mkdir(mode=0o700)
+                A["initialize"](root); A["write_new"](source / "INPUTS.json", b"fixture", 0o400)
+                def gate(stage):
+                    if failed_stage == stage: raise ValueError("SECRET URL coordinates and path")
+                def execute(command, cwd, maximum, timeout):
+                    if command[-1] == "-V":
+                        gate("decoder"); return b"ecCodes Version 2.44.0\n"
+                    key = "weather" if command[2].endswith("/forecast.mjs") else "air_quality"
+                    gate(A["PRODUCTS"][key]["suffix"] + "-run")
+                    if failed_stage == A["PRODUCTS"][key]["suffix"] + "-validation": return b'{"SECRET":'
+                    return json.dumps(forecast(key, command[command.index("--run")+1])).encode()
+                with patch.dict(A["acquisition"].__globals__, run=execute,
+                        private=lambda *args, **kwargs: gate("preconditions"),
+                        boundary=lambda *args: gate("boundary"),
+                        validate_acquisition=lambda *args: gate("final-validation")), \
+                        patch.dict(A["B"], verify_tree=lambda *args: gate("tree"), manifest=lambda *args: {"version": 2}), \
+                        patch.object(A["time"], "time", return_value=CLOCK // 1000):
+                    with self.assertRaises(A["AcquisitionFailure"]) as raised:
+                        A["acquisition"](source, SHA, root, "net:[1]", "net:[2]", 1000)
+                value = raised.exception.diagnostic
+                A["validate_acquisition_diagnostic"](value)
+                self.assertEqual(value["stage"], failed_stage)
+                self.assertNotIn("SECRET", json.dumps(value))
+                self.assertNotIn(str(base), json.dumps(value))
+
+    def test_acquisition_failure_classification_does_not_leak_subprocess_arguments(self):
+        cases = [(FileNotFoundError("SECRET path"), "missing-input"),
+            (PermissionError("SECRET path"), "permission-denied"), (OSError("SECRET"), "io-failed"),
+            (subprocess.TimeoutExpired(["SECRET", "URL"], 1, output=b"SECRET"), "timeout"),
+            (subprocess.CalledProcessError(7, ["SECRET"], stderr=b"SECRET"), "process-failed"),
+            (ValueError("SECRET"), "check-or-execution-failed")]
+        for error, expected in cases:
+            with self.subTest(expected=expected):
+                value = A["AcquisitionFailure"]("air-quality-run", error).diagnostic
+                A["validate_acquisition_diagnostic"](value)
+                self.assertEqual(value["failure"], expected); self.assertNotIn("SECRET", json.dumps(value))
+        with tempfile.TemporaryDirectory() as temporary:
+            result = subprocess.run([sys.executable, str(HERE / "weather-products-delivery.py"), "acquire",
+                temporary, SHA, str(Path(temporary) / "missing-private-path"), "net:[1]", "net:[2]", "1000"],
+                capture_output=True, check=False)
+            self.assertEqual(result.returncode, 1)
+            value = json.loads(result.stdout); A["validate_acquisition_diagnostic"](value)
+            self.assertEqual(value["stage"], "preconditions"); self.assertEqual(result.stderr, b"")
+            self.assertNotIn(temporary.encode(), result.stdout)
+
+    def test_retained_acquisition_failures_are_closed_and_not_success_claims(self):
+        cases = [(None, "missing"), (b"", "missing"), (b'{"secret":', "invalid"),
+            (A["B"]["encode"](acquisition()), "invalid"),
+            (A["B"]["encode"](dict(diagnostic(), stderr="SECRET")), "invalid"),
+            (A["B"]["encode"](dict(diagnostic(), product="air_quality")), "invalid"),
+            (A["B"]["encode"](diagnostic()), "valid")]
+        for raw, state in cases:
+            with self.subTest(state=state, raw=raw), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary)
+                if raw is not None: A["write_new"](A["artifact"](work, "acquisition"), raw)
+                value = A["retain_acquisition_failure"](work, 124)
+                A["validate_acquisition_failure"](value)
+                self.assertEqual(value["diagnostic_state"], state)
+                self.assertEqual(value["command_exit_status"], 124)
+                self.assertNotIn("SECRET", json.dumps(value))
+                with self.assertRaises(ValueError): A["validate_acquisition"](value)
+                for status in (0, True, -1, 256):
+                    with self.assertRaises(ValueError): A["retain_acquisition_failure"](work, status)
+        mutations = [dict(diagnostic(), success=True), dict(diagnostic(), coordinates=[52.52, 13.41]),
+            dict(diagnostic(), stage="private URL"), dict(diagnostic(), failure="raw stderr")]
+        for value in mutations:
+            with self.assertRaises(ValueError): A["validate_acquisition_diagnostic"](value)
+
+    def test_dedicated_failure_export_retains_valid_siblings_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary); failure_fixture(work)
+            output = work / "output"; output.mkdir()
+            A["write_new"](work / "raw-private.log", b"SECRET")
+            for _ in range(2):
+                result = A["copy_failure_artifacts"](work, output, os.getuid(), os.getgid())
+                A["validate_failure_export_status"](result); self.assertTrue(result["success"])
+                self.assertEqual(result["exported"], list(A["FAILURE_EXPORTS"]))
+            self.assertEqual({path.name for path in output.iterdir()},
+                {A["artifact"](output, suffix).name for suffix in (*A["FAILURE_EXPORTS"], "export-status")})
+            self.assertFalse(A["artifact"](output, "acquisition").exists())
+
+    def test_failure_export_retains_safe_siblings_but_exits_nonzero_for_rejected_evidence(self):
+        for bad in ("acquisition", "tree-before", "input-cleanup"):
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary); failure_fixture(work, b"" if bad == "acquisition" else None)
+                if bad != "acquisition":
+                    source = A["artifact"](work, bad); source.unlink(); save(source, dict(raw="SECRET"))
+                output = work / "output"; output.mkdir()
+                result = subprocess.run([sys.executable, str(HERE / "weather-products-delivery.py"),
+                    "copy-failure-artifacts", str(work), str(output), str(os.getuid()), str(os.getgid())],
+                    capture_output=True, check=False)
+                self.assertEqual(result.returncode, 1); self.assertEqual(result.stderr, b"")
+                status = A["read"](A["artifact"](output, "export-status"))
+                A["validate_failure_export_status"](status)
+                self.assertFalse(status["success"]); self.assertEqual(status["rejected"], [bad])
+                self.assertEqual(json.loads(result.stdout), status)
+                for suffix in status["exported"]: self.assertTrue(A["artifact"](output, suffix).exists())
+                for path in output.iterdir(): self.assertNotIn(b"SECRET", path.read_bytes())
+                self.assertFalse(A["artifact"](output, bad).exists())
+
+    def test_failure_export_rejects_unsafe_or_forged_marker_before_writing(self):
+        for bad in ("missing", "symlink", "mode", "success", "raw-field", "status", "duplicate"):
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary); value = failure_fixture(work); marker = A["artifact"](work, "acquisition-failure")
+                marker.unlink()
+                if bad == "symlink": marker.symlink_to(A["artifact"](work, "acquisition"))
+                elif bad != "missing":
+                    if bad == "success": value["success"] = True
+                    elif bad == "raw-field": value["raw"] = "SECRET"
+                    elif bad == "status": value["command_exit_status"] = 0
+                    if bad == "duplicate": A["write_new"](marker, b'{"schema":2,"schema":2}')
+                    else: save(marker, value, 0o644 if bad == "mode" else 0o600)
+                output = work / "output"; output.mkdir()
+                with self.assertRaises((ValueError, OSError)): A["copy_failure_artifacts"](work, output, os.getuid(), os.getgid())
+                self.assertEqual(list(output.iterdir()), [])
 
     def test_acquisition_commands_include_precipitation_and_independent_noaa_cycle_with_one_deadline(self):
         with tempfile.TemporaryDirectory() as temporary:

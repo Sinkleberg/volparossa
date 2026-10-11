@@ -140,6 +140,53 @@ class WeatherRunner(unittest.TestCase):
                                         capture_output=True, timeout=5)
                 self.assertEqual(result.returncode, expected, result.stderr)
 
+    def test_failed_weather_export_retains_safe_general_artifacts_and_failure_status(self):
+        source = (HERE / "kvm-alpha-topology.sh").read_text()
+        body = source.split("\ncopy_artifacts() {\n", 1)[1].split("\n}\n", 1)[0]
+        function = "copy_artifacts() {\n" + body + "\n}\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            work = root / "work"
+            work.mkdir()
+            for name in ("host-state-before.json", "host-state-after.json", "a15-evidence.json"):
+                (work / name).write_bytes(b'{"safe":true}\n')
+            (work / "status-client.txt").write_bytes(b"connected: false\n")
+            for name in ("weather-products-delivery-acquisition.err", "forecast.json", "config.json"):
+                (work / name).write_bytes(b"PRIVATE CANARY")
+            (work / "logs-client.txt").symlink_to(work / "config.json")
+            for scenario in ("content-provider", "browser-network"):
+                for export_status in (0, 1):
+                    with self.subTest(scenario=scenario, export_status=export_status):
+                        output = root / f"output-{scenario}-{export_status}"
+                        output.mkdir()
+                        script = "set -eu\n" + function + '''
+WORK=$1
+output_directory=$2
+OUTPUT_UID=$3
+OUTPUT_GID=$4
+scenario=$5
+weather_client_bundle=/selected
+browser_filter_bundle=
+weather_client_delivery_copy_artifacts() { return "$6"; }
+if copy_artifacts; then actual=0; else actual=$?; fi
+printf '%s\\n' "$actual"
+'''
+                        # A shell function has its own positional arguments.
+                        script = script.replace('return "$6"', f"return {export_status}")
+                        result = subprocess.run(["/bin/sh", "-c", script, "fixture", str(work), str(output),
+                                                 str(os.getuid()), str(os.getgid()), scenario],
+                                                capture_output=True, timeout=5)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(result.stdout.decode().strip(), str(export_status))
+                        expected = {"host-state-before.json", "host-state-after.json", "a15-evidence.json"}
+                        if scenario == "content-provider": expected.add("status-client.txt")
+                        self.assertEqual({path.name for path in output.iterdir()}, expected)
+                        for path in output.iterdir():
+                            self.assertEqual(path.read_bytes(), (work / path.name).read_bytes())
+                            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+                            self.assertEqual((path.stat().st_uid, path.stat().st_gid), (os.getuid(), os.getgid()))
+                            self.assertNotIn(b"PRIVATE CANARY", path.read_bytes())
+
 
 class WeatherEmergencyExport(unittest.TestCase):
     @classmethod
@@ -209,6 +256,56 @@ class WeatherEmergencyExport(unittest.TestCase):
             with patch.object(self.api["subprocess"], "run", side_effect=AssertionError("must not execute")):
                 self.assertEqual(self.api["weather_client_candidates"](root, "work-1", root / "unknown.py", target), [])
 
+    def test_products_failure_candidates_require_completed_closed_export(self):
+        for outcome in ("success", "rejected", "missing-status", "bad-status", "float-schema", "unsafe-status", "missing-file",
+                        "duplicate-status-key", "signal", "timeout", "oserror", "invalid-marker"):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                target = root / "output"
+                target.mkdir()
+                marker = root / "weather-products-delivery-acquisition-failure.json"
+                # The immutable helper must validate even a dangling symlink;
+                # selection must never silently fall back to the success path.
+                marker.symlink_to("missing-marker")
+
+                def inert_copy(command, **kwargs):
+                    self.assertEqual(command[4:6], ["copy-failure-artifacts", str(root)])
+                    self.assertEqual(kwargs["stderr"], subprocess.DEVNULL)
+                    copied = Path(command[6])
+                    if outcome != "invalid-marker":
+                        exported = ["acquisition-failure", "tree-before", "input-cleanup"]
+                        for suffix in exported:
+                            path = copied / f"weather-products-delivery-{suffix}.json"
+                            path.write_text('{"inert":true}')
+                            path.chmod(0o600)
+                        (copied / "forecast.json").write_text("PRIVATE CANARY")
+                        (copied / "weather-products-delivery-acquisition.err").write_text("PRIVATE CANARY")
+                        rejected = ["acquisition"] if outcome == "rejected" else []
+                        status = dict(schema=2, kind="weather-products-failure-export", complete=True,
+                                      success=not rejected, exported=exported, rejected=rejected)
+                        if outcome == "bad-status": status["private"] = "PRIVATE CANARY"
+                        if outcome == "float-schema": status["schema"] = 2.0
+                        if outcome != "missing-status":
+                            path = copied / "weather-products-delivery-export-status.json"
+                            raw = json.dumps(status)
+                            if outcome == "duplicate-status-key": raw = '{"schema":2,' + raw[1:]
+                            path.write_text(raw)
+                            path.chmod(0o644 if outcome == "unsafe-status" else 0o600)
+                        if outcome == "missing-file":
+                            (copied / "weather-products-delivery-input-cleanup.json").unlink()
+                    if outcome == "timeout": raise subprocess.TimeoutExpired(command, 3)
+                    if outcome == "oserror": raise OSError("inert")
+                    if outcome in {"rejected", "missing-status", "invalid-marker", "signal"}:
+                        raise subprocess.CalledProcessError(-15 if outcome == "signal" else 1, command)
+
+                with patch.object(self.api["subprocess"], "run", inert_copy):
+                    candidates = self.api["weather_client_candidates"](root, "work-1",
+                        root / "weather-products-delivery.py", target)
+                expected = ({"work-1/" + name for name in self.api["WEATHER_PRODUCTS_FAILURE_NAMES"]}
+                            if outcome in {"success", "rejected"} else set())
+                self.assertEqual({name for _, name in candidates}, expected)
+                self.assertFalse(any(b"PRIVATE CANARY" in path.read_bytes() for path, _ in candidates))
+
     def acquisition(self):
         return dict(schema=1, success=True, origin_https=True, acquisition_outside_overlay=True,
                     upstream_signature_attested=False, synthetic_weather=False,
@@ -227,10 +324,11 @@ class WeatherEmergencyExport(unittest.TestCase):
                                      index_sha256=SHA, field_sha256=SHA)
                                 for step in steps for parameter in parameters])
                               for name, steps, parameters in (
-                                  ("weather", (3, 9, 24), ("2t", "10u", "10v", "tp")),
-                                  ("air_quality", (3, 6, 12), ("PMTF", "PMTC")))})
+                                  ("weather", (3, 9, 24, 48), ("2t", "10u", "10v", "tp")),
+                                  ("air_quality", (3, 6, 12, 24, 48), ("PMTF", "PMTC")))})
 
-    def collect(self, raw, limit=None, published=None, late_invalid=False, products=False):
+    def collect(self, raw, limit=None, published=None, late_invalid=False, products=False,
+                failure_marker=None, invalid_cleanup=False):
         with tempfile.TemporaryDirectory() as temporary:
             prefix = "weather-products-delivery" if products else "weather-client-delivery"
             base = Path(temporary).resolve()
@@ -247,6 +345,16 @@ class WeatherEmergencyExport(unittest.TestCase):
             source = work / (prefix + "-acquisition.json")
             source.write_bytes(raw)
             source.chmod(0o600)
+            if failure_marker is not None:
+                values = {"acquisition-failure": failure_marker,
+                          "tree-before": dict(version=1, action="verify-tree", manifest_sha256=SHA,
+                                              files=193, runtime_executed=False),
+                          "input-cleanup": ({"private": "PRIVATE CANARY"} if invalid_cleanup else
+                                            dict(directory_removed=True, files_removed=True))}
+                for suffix, value in values.items():
+                    path = work / f"{prefix}-{suffix}.json"
+                    path.write_text(json.dumps(value))
+                    path.chmod(0o600)
             if late_invalid:
                 invalid = work / (prefix + "-evidence.json")
                 invalid.write_text('{"unknown":"PRIVATE CANARY"}')
@@ -282,6 +390,39 @@ class WeatherEmergencyExport(unittest.TestCase):
         self.assertFalse(json.loads(files["vm-incomplete.json"])["success"])
         self.assertFalse(any(b"PRIVATE CANARY" in data for data in files.values()))
         self.assertFalse(any("weather-client-delivery" in name for name in files))
+
+    def test_products_dedicated_failure_exports_survive_real_helper_and_invalid_sibling(self):
+        diagnostic = dict(schema=2, kind="weather-products-acquisition-diagnostic", success=False,
+                          stage="weather-run", product="weather", failure="check-or-execution-failed")
+        marker = dict(schema=2, kind="weather-products-acquisition-failure", success=False,
+                      command_exit_status=1, diagnostic_state="valid", diagnostic=diagnostic)
+        cases = ((marker, False), (marker, True),
+                 (dict(marker, command_exit_status=124, diagnostic_state="missing", diagnostic=None), False))
+        for value, invalid_cleanup in cases:
+            with self.subTest(state=value["diagnostic_state"], invalid_cleanup=invalid_cleanup):
+                files = self.collect(json.dumps(diagnostic).encode(), products=True,
+                                     failure_marker=value, invalid_cleanup=invalid_cleanup)
+                prefix = "work-1/weather-products-delivery-"
+                self.assertEqual(json.loads(files[prefix + "acquisition-failure.json"]), value)
+                self.assertIn(prefix + "tree-before.json", files)
+                self.assertEqual(prefix + "input-cleanup.json" in files, not invalid_cleanup)
+                status = json.loads(files[prefix + "export-status.json"])
+                expected_rejected = (["acquisition"] if value["diagnostic_state"] != "valid" else [])
+                if invalid_cleanup: expected_rejected.append("input-cleanup")
+                self.assertEqual(status["rejected"], expected_rejected)
+                self.assertEqual(status["success"], not expected_rejected)
+                self.assertTrue(status["complete"])
+                self.assertNotIn(prefix + "acquisition.json", files)
+                self.assertFalse(json.loads(files["vm-incomplete.json"])["success"])
+                self.assertFalse(any(b"PRIVATE CANARY" in data for data in files.values()))
+        malformed = dict(marker, private="PRIVATE CANARY")
+        files = self.collect(json.dumps(diagnostic).encode(), products=True, failure_marker=malformed)
+        self.assertFalse(any("weather-products-delivery" in name for name in files))
+        files = self.collect(json.dumps(diagnostic).encode(), products=True, failure_marker=marker, limit=64)
+        self.assertEqual({name for name in files if "weather-products-delivery" in name},
+                         {"work-1/weather-products-delivery-input-cleanup.json"})
+        self.assertEqual(json.loads(files["work-1/weather-products-delivery-input-cleanup.json"]),
+                         dict(directory_removed=True, files_removed=True))
 
     def test_products_export_rejects_unknown_private_duplicate_and_mixed_source_data(self):
         valid = self.products_acquisition()

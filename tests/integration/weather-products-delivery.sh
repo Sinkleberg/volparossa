@@ -88,7 +88,14 @@ weather_client_delivery_cleanup() {
 
 weather_client_delivery_copy_artifacts() {
     [ -f "$WORK/bin/weather-products-delivery.py" ] || return 0
-    python3 -B "$WORK/bin/weather-products-delivery.py" copy-artifacts "$WORK" \
+    weather_export_action=copy-artifacts
+    if [ -e "$WORK/weather-products-delivery-acquisition-failure.json" ] \
+        || [ -L "$WORK/weather-products-delivery-acquisition-failure.json" ]; then
+        weather_export_action=copy-failure-artifacts
+    fi
+    # The trusted helper validates the marker. An unsafe failure marker must not
+    # fall back to the independent, atomic success-evidence exporter.
+    python3 -B "$WORK/bin/weather-products-delivery.py" "$weather_export_action" "$WORK" \
         "$output_directory" "$OUTPUT_UID" "$OUTPUT_GID" >/dev/null
 }
 
@@ -133,6 +140,7 @@ weather_products_delivery_run() {
     # the publication's lifetime. No origin retry is delegated to the browser.
     # The helper owns separately-sessioned decoder children. Allow its bounded
     # TERM/KILL/reap cleanup (at most 20s) to finish before the outer hard kill.
+    weather_acquisition_status=0
     timeout --signal=TERM --kill-after=30s 740s setpriv \
         --reuid="$WORKER_UID" --regid="$site_control_gid" --clear-groups \
         --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs \
@@ -140,7 +148,18 @@ weather_products_delivery_run() {
         "$weather_client_directory" "$weather_client_manifest_sha256" "$weather_publisher" \
         "$site_parent_ns" "$site_client_ns" "$site_control_gid" \
         >"$WORK/weather-products-delivery-acquisition.json" 2>"$WORK/weather-products-delivery-acquisition.err" \
-        || fail WEATHER_PRODUCTS_ACQUISITION_FAILED
+        || weather_acquisition_status=$?
+    if [ "$weather_acquisition_status" -ne 0 ]; then
+        if [ -e "$WORK/weather-products-delivery-acquisition-failure.json" ] \
+            || [ -L "$WORK/weather-products-delivery-acquisition-failure.json" ]; then
+            fail WEATHER_PRODUCTS_ACQUISITION_DIAGNOSTIC_FAILED
+        fi
+        python3 -B "$WORK/bin/weather-products-delivery.py" retain-acquisition-failure \
+            "$WORK" "$weather_acquisition_status" \
+            >"$WORK/weather-products-delivery-acquisition-failure.json" \
+            || fail WEATHER_PRODUCTS_ACQUISITION_DIAGNOSTIC_FAILED
+        fail WEATHER_PRODUCTS_ACQUISITION_FAILED
+    fi
     # Budget all later commands together, not 900 seconds per operation. Each
     # immutable publication still independently enforces its original expiry.
     WEATHER_PRODUCTS_DEADLINE=$(($(date +%s) + 840))

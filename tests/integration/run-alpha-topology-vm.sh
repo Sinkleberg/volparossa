@@ -1107,6 +1107,8 @@ WEATHER_CLIENT_HELPERS = ("weather-client-delivery.py", "weather-client-bundle.p
     "browser-filter-bundle.py", "content-provider-https-smoke.py", "content-network-smoke.py")
 WEATHER_PRODUCTS_NAMES = {name.replace("weather-client-delivery-", "weather-products-delivery-", 1)
     for name in WEATHER_CLIENT_NAMES}
+WEATHER_PRODUCTS_FAILURE_NAMES = {f"weather-products-delivery-{suffix}.json" for suffix in (
+    "acquisition-failure", "export-status", "tree-before", "input-cleanup")}
 WEATHER_PRODUCTS_HELPERS = ("weather-products-delivery.py", *WEATHER_CLIENT_HELPERS)
 
 
@@ -1153,16 +1155,83 @@ def weather_client_candidates(root, label, helper, target):
         "weather-products-delivery.py": WEATHER_PRODUCTS_NAMES}.get(helper.name)
     if names is None:
         return []
+    action = "copy-artifacts"
+    if helper.name == "weather-products-delivery.py":
+        try:
+            (root / "weather-products-delivery-acquisition-failure.json").lstat()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return []
+        else:
+            # Marker trust is checked by the immutable helper, never inferred
+            # from existence; unsafe markers have no success-export fallback.
+            action = "copy-failure-artifacts"
     validated = Path(tempfile.mkdtemp(prefix="weather-client-validated.", dir=target))
+    export_status = 0
     try:
-        subprocess.run(["/usr/bin/python3", "-I", "-B", str(helper), "copy-artifacts", str(root),
+        subprocess.run(["/usr/bin/python3", "-I", "-B", str(helper), action, str(root),
                         str(validated), str(os.getuid()), str(os.getgid())],
                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                        cwd="/", env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}, timeout=3, check=True)
+    except subprocess.CalledProcessError as error:
+        if action != "copy-failure-artifacts" or error.returncode != 1:
+            return []
+        export_status = 1
     except (OSError, subprocess.SubprocessError):
         return []
+    if action == "copy-failure-artifacts":
+        names = weather_failure_exports(validated, export_status)
     return [(validated / name, f"{label}/{name}") for name in sorted(names)
             if (validated / name).is_file() and not (validated / name).is_symlink()]
+
+
+def weather_failure_exports(validated, returncode):
+    """Keep only a completed dedicated failure export, never a crashed partial write."""
+    status_name = "weather-products-delivery-export-status.json"
+
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate status key")
+            value[key] = item
+        return value
+
+    def safe_file(path):
+        info = path.lstat()
+        return (stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                and info.st_uid == os.getuid() and info.st_gid == os.getgid()
+                and stat.S_IMODE(info.st_mode) == 0o600 and 0 < info.st_size <= 65536)
+
+    try:
+        status_path = validated / status_name
+        if not safe_file(status_path):
+            return set()
+        observed = read_tail(status_path, 65536)
+        if observed is None or observed[1] > 65536:
+            return set()
+        value = json.loads(observed[0], object_pairs_hook=unique)
+        if (type(value) is not dict or set(value) != {"schema", "kind", "complete", "success", "exported", "rejected"}
+                or type(value["schema"]) is not int or value["schema"] != 2
+                or value["kind"] != "weather-products-failure-export"
+                or value["complete"] is not True or value["success"] is not (returncode == 0)):
+            return set()
+        allowed = {"acquisition-failure", "tree-before", "input-cleanup"}
+        exported, rejected = value["exported"], value["rejected"]
+        if (type(exported) is not list or type(rejected) is not list
+                or not all(type(item) is str for item in exported + rejected)
+                or len(exported) != len(set(exported)) or len(rejected) != len(set(rejected))
+                or not set(exported) <= allowed or not set(rejected) <= allowed | {"acquisition"}
+                or set(exported) & set(rejected) or "acquisition-failure" not in exported
+                or value["success"] is not (not rejected)):
+            return set()
+        names = {f"weather-products-delivery-{suffix}.json" for suffix in exported} | {status_name}
+        if not names <= WEATHER_PRODUCTS_FAILURE_NAMES or not all(safe_file(validated / name) for name in names):
+            return set()
+        return names
+    except (OSError, ValueError, TypeError):
+        return set()
 
 
 def browser_filter_candidates(root, label, helper, target):
@@ -1462,7 +1531,7 @@ def collect(home, opt, revision, scenario, guest_status,
         if observed is None:
             continue
         data, original_size = observed
-        if path.name in BROWSER_FILTER_NAMES | WEATHER_CLIENT_NAMES | WEATHER_PRODUCTS_NAMES and original_size > len(data):
+        if path.name in BROWSER_FILTER_NAMES | WEATHER_CLIENT_NAMES | WEATHER_PRODUCTS_NAMES | WEATHER_PRODUCTS_FAILURE_NAMES and original_size > len(data):
             continue  # Preserve complete validated original bytes, never a JSON tail.
         if scenario == "browser-network" and path.name in browser_names and original_size > len(data):
             # A truncated JSON tail is not reconstructible structured evidence.

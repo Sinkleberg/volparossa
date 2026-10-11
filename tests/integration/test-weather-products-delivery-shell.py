@@ -89,6 +89,71 @@ weather_client_delivery_cleanup
 '''))
         self.assertEqual(retained.read_bytes(), b"retained")
 
+    def test_acquisition_failure_is_retained_before_fail_without_entering_publication(self):
+        source = SOURCE.read_text()
+        fragment = "    PHASE=weather-products-delivery-acquire\n" + source.split(
+            "    PHASE=weather-products-delivery-acquire\n", 1)[1].split(
+            "    WEATHER_PRODUCTS_DEADLINE=", 1)[0]
+        for status, retain_status in ((1, 0), (124, 0), (137, 0), (1, 1), (0, 0)):
+            with self.subTest(status=status, retain_status=retain_status):
+                result = self.call('''
+umask 077
+weather_client_directory=$WORK/source
+weather_client_manifest_sha256=inert
+weather_publisher=$WORK/publisher
+WORKER_UID=985
+site_parent_ns=net:[1]
+site_client_ns=net:[2]
+timeout() { printf '{"success":false}\n'; return STATUS; }
+python3() {
+    [ "$*" = "-B $WORK/bin/weather-products-delivery.py retain-acquisition-failure $WORK STATUS" ] || exit 90
+    printf 'retained:STATUS\n'
+    printf 'STATUS\n' > "$WORK/retained-status"
+    return RETAIN_STATUS
+}
+fail() { printf '%s %s\n' "$PHASE" "$1" >&2; exit 77; }
+'''.replace("RETAIN_STATUS", str(retain_status)).replace("STATUS", str(status)) +
+                    fragment + '\nprintf "publication-next\\n"\n')
+                if status:
+                    expected = "WEATHER_PRODUCTS_ACQUISITION_DIAGNOSTIC_FAILED" if retain_status else "WEATHER_PRODUCTS_ACQUISITION_FAILED"
+                    self.assertEqual(result.returncode, 77, result.stderr)
+                    self.assertEqual(result.stderr.strip(), "weather-products-delivery-acquire " + expected)
+                    self.assertEqual(result.stdout, "")
+                    self.assertEqual((self.root / "retained-status").read_text().strip(), str(status))
+                    marker = self.root / "weather-products-delivery-acquisition-failure.json"
+                    self.assertEqual(marker.read_text(), f"retained:{status}\n")
+                    self.assertEqual(marker.stat().st_mode & 0o777, 0o600)
+                    marker.unlink()
+                    (self.root / "retained-status").unlink()
+                else:
+                    self.ok(result)
+                    self.assertEqual(result.stdout, "publication-next\n")
+                    self.assertFalse((self.root / "retained-status").exists())
+
+    def test_failure_marker_selects_only_dedicated_closed_export(self):
+        (self.root / "bin").mkdir()
+        (self.root / "bin/weather-products-delivery.py").touch()
+        marker = self.root / "weather-products-delivery-acquisition-failure.json"
+        for kind in ("absent", "regular", "symlink"):
+            with self.subTest(kind=kind):
+                if kind == "regular": marker.write_text("untrusted fixture marker")
+                elif kind == "symlink": marker.symlink_to("missing-target")
+                result = self.call('''
+output_directory=$WORK/output
+OUTPUT_UID=1000
+OUTPUT_GID=1000
+python3() {
+    printf '%s\n' "$*" > "$WORK/export-call"
+    return 1
+}
+if weather_client_delivery_copy_artifacts; then exit 90; fi
+''')
+                self.ok(result)
+                action = "copy-artifacts" if kind == "absent" else "copy-failure-artifacts"
+                self.assertEqual((self.root / "export-call").read_text().strip(),
+                    f"-B {self.root}/bin/weather-products-delivery.py {action} {self.root} {self.root}/output 1000 1000")
+                if kind != "absent": marker.unlink()
+
     def test_verified_closed_dispatch_before_any_v1_work(self):
         source = LEGACY.read_text()
         head = source.split("weather_client_delivery_run() {", 1)[1].split("    PHASE=weather-client-delivery-prepare", 1)[0]

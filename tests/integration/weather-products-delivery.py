@@ -42,6 +42,66 @@ BRIDGE_MODULES = {"scripts/serve-provider.mjs", "src/provider-http.mjs", "src/pr
     "src/air-quality.mjs", "src/air-quality-provider.mjs", "src/air-quality-core.mjs"}
 EXPORTS = ("cold-evidence", "evidence", "acquisition", "original-report", "tree-before", "tree-after",
     "cache-before", "cache-after", "input-cleanup")
+ACQUISITION_STAGES = {"preconditions": None, "boundary": None, "tree": None, "decoder": None,
+    "weather-run": "weather", "weather-validation": "weather", "air-quality-run": "air_quality",
+    "air-quality-validation": "air_quality", "final-validation": None}
+FAILURE_CLASSES = {"missing-input", "permission-denied", "io-failed", "timeout", "process-failed",
+    "check-or-execution-failed"}
+FAILURE_EXPORTS = ("acquisition-failure", "tree-before", "input-cleanup")
+SAFE_ERRORS = (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.SubprocessError)
+
+
+class AcquisitionFailure(ValueError):
+    """Carry only a closed classification, never a subprocess error or argv."""
+    def __init__(self, stage, error):
+        failure = ("missing-input" if isinstance(error, FileNotFoundError) else
+            "permission-denied" if isinstance(error, PermissionError) else
+            "io-failed" if isinstance(error, OSError) else
+            "timeout" if isinstance(error, subprocess.TimeoutExpired) else
+            "process-failed" if isinstance(error, subprocess.CalledProcessError) else
+            "check-or-execution-failed")
+        self.diagnostic = dict(schema=2, kind="weather-products-acquisition-diagnostic", success=False,
+            stage=stage, product=ACQUISITION_STAGES[stage], failure=failure)
+        super().__init__("weather_products_acquisition_failed")
+
+
+def validate_acquisition_diagnostic(value):
+    require(type(value) is dict and set(value) == {"schema", "kind", "success", "stage", "product", "failure"})
+    same(value["schema"], 2); same(value["kind"], "weather-products-acquisition-diagnostic"); same(value["success"], False)
+    require(type(value["stage"]) is str and value["stage"] in ACQUISITION_STAGES
+        and type(value["failure"]) is str and value["failure"] in FAILURE_CLASSES)
+    same(value["product"], ACQUISITION_STAGES[value["stage"]])
+
+
+def validate_acquisition_failure(value):
+    require(type(value) is dict and set(value) == {"schema", "kind", "success", "command_exit_status", "diagnostic_state", "diagnostic"})
+    same(value["schema"], 2); same(value["kind"], "weather-products-acquisition-failure"); same(value["success"], False)
+    require(type(value["command_exit_status"]) is int and 1 <= value["command_exit_status"] <= 255
+        and type(value["diagnostic_state"]) is str and value["diagnostic_state"] in {"valid", "missing", "invalid"})
+    if value["diagnostic_state"] == "valid": validate_acquisition_diagnostic(value["diagnostic"])
+    else: same(value["diagnostic"], None)
+
+
+def retain_acquisition_failure(work, status):
+    # The root shell invokes this only after acquire exits nonzero. A killed
+    # worker may leave empty stdout; never turn that into guessed source failure.
+    require(type(status) is int and 1 <= status <= 255)
+    source = artifact(work, "acquisition")
+    state, diagnostic = "missing", None
+    try:
+        if source.exists() or source.is_symlink():
+            info = private(source, directory=False)
+            raw = raw_file(source, MAX_REPORT, 0o600) if info.st_size else b""
+            if raw:
+                candidate = json.loads(raw, object_pairs_hook=B["B"]["unique_pairs"])
+                validate_acquisition_diagnostic(candidate)
+                state, diagnostic = "valid", candidate
+    except SAFE_ERRORS:
+        state = "invalid"
+    result = dict(schema=2, kind="weather-products-acquisition-failure", success=False,
+        command_exit_status=status, diagnostic_state=state, diagnostic=diagnostic)
+    validate_acquisition_failure(result)
+    return result
 
 
 def product(key):
@@ -101,55 +161,65 @@ def forecast_times(value, key, model_run, observed_at, acquisition_window=None):
 
 
 def acquisition(source, manifest_sha, root, parent, client, group):
-    private(root)
-    require(root.name == "weather-publisher" and set(p.name for p in root.iterdir()) == {"passphrase", "scratch"})
-    boundary(parent, client, group, True)
-    B["verify_tree"](source, manifest_sha)
-    require(B["manifest"](raw_file(source / "INPUTS.json", B["MAX_MANIFEST"], 0o400), manifest_sha)["version"] == 2)
-    deadline = time.monotonic() + 720
-    require(run([str(source / "decoder/grib_ls"), "-V"], root, 4096, 10).strip() == b"ecCodes Version 2.44.0")
-    now = int(time.time())
-    # Select independently completed cycles. NOAA's 00UTC cycle with an explicit
-    # twelve-hour availability margin is not rewritten to match IFS. Native
-    # samples are not interpolated; lead 48 preserves future coverage across
-    # midnight/noon boundaries without pretending the earlier leads are current.
-    cycles = dict(weather=now // 43200 * 43200 - 43200, air_quality=(now - 43200) // 86400 * 86400)
-    products = {}
-    for key, p in PRODUCTS.items():
-        model_run = datetime.datetime.fromtimestamp(cycles[key], datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-        command = [str(source / "runtime/node"), "--max-old-space-size=256",
-            str(source / B["WEATHER"] / "scripts" / p["script"]), "origin", "--latitude", "52.52", "--longitude", "13.41",
-            "--run", model_run, "--steps", ",".join(map(str, p["steps"])), "--community-area",
-            "--execute", "--accept-data-license", "--decoder", str(source / "decoder/grib_ls"),
-            "--decoder-sha256", B["DECODER_SHA"], "--scratch-parent", str(root / "scratch")]
-        if key == "weather": command += ["--model", "ifs", "--include-wind", "--include-precipitation"]
-        remaining = deadline - time.monotonic(); require(remaining > 0)
-        started_at = observed_ms()
-        raw = run(command, root, MAX_FORECAST, min(360, remaining))
-        finished_at = observed_ms()
-        value = json.loads(raw, object_pairs_hook=B["B"]["unique_pairs"])
-        require(value["schema"] == p["schema"] and value["source"]["provider"] == p["provider"]
-            and value["source"]["acquisition"] == "origin-https" and value["source"]["model"] == p["model"]
-            and value["source"]["model_run_at"] == model_run)
-        same(value["area"], dict(latitude=52.52, longitude=13.41, sharing="public-community"))
-        forecast_times(value, key, model_run, finished_at, (started_at, finished_at))
-        require(not list((root / "scratch").iterdir()))
-        fields = []
-        for sample in value["samples"]:
-            evidence = (sample["evidence"], *sample["wind_10m"]["evidence"].values(), sample["precipitation"]["evidence"]) \
-                if key == "weather" else tuple(sample["evidence"].values())
-            for field in evidence:
-                require(field["decoder_sha256"] == B["DECODER_SHA"] and field["parameter"] in p["parameters"]
-                    and hex64(field["index_sha256"]) and hex64(field["field_sha256"]))
-                fields.append(dict(lead_hours=sample["lead_hours"], parameter=field["parameter"],
-                    index_sha256=field["index_sha256"], field_sha256=field["field_sha256"]))
-        products[key] = dict(forecast_sha256=hashlib.sha256(raw).hexdigest(), forecast_bytes=len(raw), fields=fields)
-        write_new(root / p["filename"], raw)
-    result = dict(schema=2, success=True, origin_https=True, acquisition_outside_overlay=True,
-        upstream_signature_attested=False, synthetic_weather=False, synthetic_air_quality=False,
-        independent_product_runs=True, decoder_sha256=B["DECODER_SHA"], products=products)
-    validate_acquisition(result)
-    return result
+    stage = "preconditions"
+    try:
+        private(root)
+        require(root.name == "weather-publisher" and set(p.name for p in root.iterdir()) == {"passphrase", "scratch"})
+        stage = "boundary"
+        boundary(parent, client, group, True)
+        stage = "tree"
+        B["verify_tree"](source, manifest_sha)
+        require(B["manifest"](raw_file(source / "INPUTS.json", B["MAX_MANIFEST"], 0o400), manifest_sha)["version"] == 2)
+        deadline = time.monotonic() + 720
+        stage = "decoder"
+        require(run([str(source / "decoder/grib_ls"), "-V"], root, 4096, 10).strip() == b"ecCodes Version 2.44.0")
+        now = int(time.time())
+        # Select independently completed cycles. NOAA's 00UTC cycle with an explicit
+        # twelve-hour availability margin is not rewritten to match IFS. Native
+        # samples are not interpolated; lead 48 preserves future coverage across
+        # midnight/noon boundaries without pretending the earlier leads are current.
+        cycles = dict(weather=now // 43200 * 43200 - 43200, air_quality=(now - 43200) // 86400 * 86400)
+        products = {}
+        for key, p in PRODUCTS.items():
+            stage = p["suffix"] + "-run"
+            model_run = datetime.datetime.fromtimestamp(cycles[key], datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            command = [str(source / "runtime/node"), "--max-old-space-size=256",
+                str(source / B["WEATHER"] / "scripts" / p["script"]), "origin", "--latitude", "52.52", "--longitude", "13.41",
+                "--run", model_run, "--steps", ",".join(map(str, p["steps"])), "--community-area",
+                "--execute", "--accept-data-license", "--decoder", str(source / "decoder/grib_ls"),
+                "--decoder-sha256", B["DECODER_SHA"], "--scratch-parent", str(root / "scratch")]
+            if key == "weather": command += ["--model", "ifs", "--include-wind", "--include-precipitation"]
+            remaining = deadline - time.monotonic(); require(remaining > 0)
+            started_at = observed_ms()
+            raw = run(command, root, MAX_FORECAST, min(360, remaining))
+            finished_at = observed_ms()
+            stage = p["suffix"] + "-validation"
+            value = json.loads(raw, object_pairs_hook=B["B"]["unique_pairs"])
+            require(value["schema"] == p["schema"] and value["source"]["provider"] == p["provider"]
+                and value["source"]["acquisition"] == "origin-https" and value["source"]["model"] == p["model"]
+                and value["source"]["model_run_at"] == model_run)
+            same(value["area"], dict(latitude=52.52, longitude=13.41, sharing="public-community"))
+            forecast_times(value, key, model_run, finished_at, (started_at, finished_at))
+            require(not list((root / "scratch").iterdir()))
+            fields = []
+            for sample in value["samples"]:
+                evidence = (sample["evidence"], *sample["wind_10m"]["evidence"].values(), sample["precipitation"]["evidence"]) \
+                    if key == "weather" else tuple(sample["evidence"].values())
+                for field in evidence:
+                    require(field["decoder_sha256"] == B["DECODER_SHA"] and field["parameter"] in p["parameters"]
+                        and hex64(field["index_sha256"]) and hex64(field["field_sha256"]))
+                    fields.append(dict(lead_hours=sample["lead_hours"], parameter=field["parameter"],
+                        index_sha256=field["index_sha256"], field_sha256=field["field_sha256"]))
+            products[key] = dict(forecast_sha256=hashlib.sha256(raw).hexdigest(), forecast_bytes=len(raw), fields=fields)
+            write_new(root / p["filename"], raw)
+        stage = "final-validation"
+        result = dict(schema=2, success=True, origin_https=True, acquisition_outside_overlay=True,
+            upstream_signature_attested=False, synthetic_weather=False, synthetic_air_quality=False,
+            independent_product_runs=True, decoder_sha256=B["DECODER_SHA"], products=products)
+        validate_acquisition(result)
+        return result
+    except SAFE_ERRORS as error:
+        raise AcquisitionFailure(stage, error) from None
 
 
 def validate_publication(value, key):
@@ -594,10 +664,66 @@ def copy_artifacts(work, output, uid, gid, only_cold=False):
     return dict(files=count, raw_logs_exported=False)
 
 
+def validate_failure_export_status(value):
+    require(type(value) is dict and set(value) == {"schema", "kind", "complete", "success", "exported", "rejected"})
+    same(value["schema"], 2); same(value["kind"], "weather-products-failure-export"); same(value["complete"], True)
+    for field, allowed in (("exported", set(FAILURE_EXPORTS)), ("rejected", set(FAILURE_EXPORTS) | {"acquisition"})):
+        items = value[field]
+        require(type(items) is list and len(items) <= len(allowed)
+            and all(type(item) is str and item in allowed for item in items) and len(items) == len(set(items)))
+    require("acquisition-failure" in value["exported"] and not set(value["exported"]) & set(value["rejected"]))
+    same(value["success"], not value["rejected"])
+
+
+def copy_failure_file(target, raw, uid, gid):
+    if target.exists() or target.is_symlink():
+        require(target.resolve(strict=True) == target)
+        with os.fdopen(os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as existing:
+            info = os.fstat(existing.fileno())
+            require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid == uid and info.st_gid == gid
+                and stat.S_IMODE(info.st_mode) == 0o600 and info.st_size == len(raw))
+            require(existing.read(MAX_REPORT+1) == raw and B["identity"](os.fstat(existing.fileno())) == B["identity"](info))
+    else:
+        write_new(target, raw); os.chown(target, uid, gid)
+
+
+def copy_failure_artifacts(work, output, uid, gid):
+    # This action is explicitly selected only after acquisition failed. Its
+    # trusted-shell marker is mandatory; malformed success output is never an
+    # alternative success export. Keep copy_artifacts fully atomic as before.
+    marker = artifact(work, "acquisition-failure")
+    private(marker, directory=False)
+    raw = raw_file(marker, MAX_REPORT, 0o600)
+    failure = json.loads(raw, object_pairs_hook=B["B"]["unique_pairs"])
+    validate_acquisition_failure(failure)
+    copy_failure_file(artifact(output, "acquisition-failure"), raw, uid, gid)
+    exported, rejected = ["acquisition-failure"], []
+    if failure["diagnostic_state"] != "valid": rejected.append("acquisition")
+    for suffix in FAILURE_EXPORTS[1:]:
+        source = artifact(work, suffix)
+        if not source.exists() and not source.is_symlink(): continue
+        try:
+            raw = raw_file(source, MAX_REPORT, 0o600)
+            value = json.loads(raw, object_pairs_hook=B["B"]["unique_pairs"])
+            validate_export(suffix, value)
+            copy_failure_file(artifact(output, suffix), raw, uid, gid)
+            exported.append(suffix)
+        except SAFE_ERRORS:
+            rejected.append(suffix)
+    result = dict(schema=2, kind="weather-products-failure-export", complete=True,
+        success=not rejected, exported=exported, rejected=rejected)
+    validate_failure_export_status(result)
+    # Written last, allowing the emergency collector to distinguish a complete
+    # partial-safe export (exit 1) from a crash/timeout while copying files.
+    copy_failure_file(artifact(output, "export-status"), B["encode"](result), uid, gid)
+    return result
+
+
 def main():
     action, *args = sys.argv[1:]
     if action == "init" and len(args) == 1: result = initialize(Path(args[0]))
     elif action == "acquire" and len(args) == 6: result = acquisition(Path(args[0]), args[1], Path(args[2]), args[3], args[4], int(args[5]))
+    elif action == "retain-acquisition-failure" and len(args) == 2: result = retain_acquisition_failure(Path(args[0]), int(args[1]))
     elif action == "select" and len(args) == 2: result = select(*map(Path, args))
     elif action == "cold" and len(args) == 8: result = cold(args[0], *map(Path, args[1:5]), args[5], args[6], int(args[7]))
     elif action == "prepare" and len(args) == 6: result = prepare(*map(Path, args))
@@ -609,12 +735,18 @@ def main():
     elif action == "evidence" and len(args) == 3: result = evidence(Path(args[0]), args[1], args[2])
     elif action in {"copy-cold-evidence", "copy-artifacts"} and len(args) == 4:
         result = copy_artifacts(Path(args[0]), Path(args[1]), int(args[2]), int(args[3]), only_cold=action == "copy-cold-evidence")
+    elif action == "copy-failure-artifacts" and len(args) == 4:
+        result = copy_failure_artifacts(Path(args[0]), Path(args[1]), int(args[2]), int(args[3]))
     else: raise ValueError("weather_products_delivery_rejected")
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+    if action == "copy-failure-artifacts" and not result["success"]: raise SystemExit(1)
 
 
 if __name__ == "__main__":
     try: main()
-    except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.SubprocessError):
+    except AcquisitionFailure as error:
+        print(json.dumps(error.diagnostic, sort_keys=True, separators=(",", ":")))
+        raise SystemExit(1)
+    except SAFE_ERRORS:
         print('{"success":false,"failure":"weather_products_delivery_rejected"}')
         raise SystemExit(1)

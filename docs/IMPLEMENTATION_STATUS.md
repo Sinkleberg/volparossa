@@ -29,14 +29,14 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Verify late complementary-provider recovery and the earlier adaptive-provider correction in the real topology. | The latest local run on `5f82f619` completes the base two-provider fetch with measured overlap, using one discovery query. It does not exercise late rediscovery or reach adaptive transfer. The separate CI primary-Exit discovery failure remains unresolved. |
-| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run stops before acquisition at an archive-owner mismatch during profile dispatch. The corrected invocation passes 43 focused tests; the joined path still needs a new exact-source trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Verify late complementary-provider recovery and the earlier adaptive-provider correction in the real topology. | The latest local run on `cc5f3558` completes the base two-provider fetch with measured overlap, using one discovery query. It does not exercise late rediscovery or reach adaptive transfer. The separate CI primary-Exit discovery failure remains unresolved. |
+| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather` | Build and exercise the actual client against the shared provider, including unavailable/stale fields and no implicit Open-Meteo fallback. | Reuse the provider contracts and core retrieval path; client adaptation, a reproducible client build and its own runtime proof remain required. Do not create a second network scheduler or source-acquisition implementation. |
 
-Run the corrected archive-owner dispatch in a new exact-source trial, retaining
-the separate discovery and adaptive-transfer checks. This follows the latest
-trial's progress beyond the earlier base-fetch failure, without claiming that
-discovery convergence is solved. The Drizz.li/Weather candidate and frozen input
+Respect the observed source rate limit instead of repeatedly relaunching the
+joined trial or routing requests through other peers. Continue the separate
+late-provider recovery proof, which needs no weather downloads; the successful
+base fetch does not prove late discovery convergence. The Drizz.li/Weather candidate and frozen input
 bundle remain intact; Overmorrow's client work is still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
@@ -566,7 +566,50 @@ rejected; parser rules, archive bytes and downstream root-owned unpacking are
 unchanged. The profile check also has its own reported phase. All 43 focused
 checks pass (22 bundle, nine products shell and 12 legacy shell tests), including
 the reproduced owner mismatch and closed failure paths; ShellCheck passes too.
-This correction still requires a new joined live trial.
+The subsequent joined trial verifies that correction, as described below.
+
+The next local run on `cc5f355843dd35f7b30a162759cbe37b89904c9d` passes
+profile dispatch, source-tree verification and publisher initialization, then
+fails at `weather-products-delivery-acquire` with
+`WEATHER_PRODUCTS_ACQUISITION_FAILED`. Before that failure, the base protected
+fetch again reconstructs 2,097,275 bytes in nine chunks from two complementary
+providers. Independent route, control and packet-capture checks pass; bulk-payload
+windows overlap by 456,007,223 ns. Both offers arrive in one discovery query,
+so late rediscovery, adaptive transfer and Weather delivery remain unproved.
+
+The failure report is retained at
+`.git/ci-evidence/weather-products-delivery-03.TTYTlI/output/content-provider-smoke.json`,
+SHA-256 `011636021ae8d6d55db208b5991b16c34807f6c427744bbbe70e36639e96ac62`.
+Cleanup reports zero owned objects and unchanged guest-root network state;
+the VM and temporary overlay are removed. Development-host DNS and IPv4/IPv6
+route hashes match the pre-run values. This does not add a development-host
+firewall comparison.
+
+The retained report does not identify the acquisition substep that failed.
+The helper emits only a generic failure, and the success-only atomic exporter
+rejects that acquisition record before copying any Weather receipts. The
+topology and emergency collectors then lose otherwise valid Weather diagnostics.
+The correction separates closed failure diagnostics from atomic success evidence
+and retains independently validated tree/cleanup receipts without exporting raw
+process logs. Nine fixed acquisition stages identify the failing product and
+step; the shell retains command exit status, including missing or invalid
+diagnostics. Both collectors require a complete, validated failure export and
+preserve failure status. The existing runner still discards subprocess stderr,
+so stage diagnostics do not identify native upstream error codes. Seventy-eight
+focused tests pass: 23 products helper, 11 products shell, 18 runner, 14 legacy
+helper and 12 legacy shell tests. Independent review passes, shell syntax is valid
+and comparison against the committed baseline finds no new ShellCheck findings.
+
+A separate native source probe uses the same verified frozen inputs, IFS run
+`2026-10-11T00:00:00.000Z`, requested fields and leads. It stops before decoding
+with `EXACT_RANGE_REQUIRED`. One bounded header check at `2026-10-11T20:23:26.986Z`
+validates the index but receives HTTP 429 for the first 654,404-byte field range;
+the response body is cancelled without consumption. `Retry-After` was not
+captured, so its value is unknown. The closed diagnostic remains in
+`.git/ci-evidence/weather-ecmwf-source-diagnostic.apV8R0/http-header-diagnostic.json`,
+SHA-256 `504fae8c9c230ba502ef568acfa5f4c5cc78a1441832b6ebfda0fd75a968235a`.
+This establishes source rate limiting during the probe, not the lost VM error's
+exact cause. No further source retry or joined VM was launched after that check.
 
 ### Citizen procedure simulation
 
