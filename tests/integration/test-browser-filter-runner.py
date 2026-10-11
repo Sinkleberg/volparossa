@@ -55,44 +55,50 @@ class BrowserFilterArguments(unittest.TestCase):
         source = (HERE / "run-alpha-topology-vm.sh").read_text()
         return source.split("RUN_DIRECTORY_PARENT=/tmp\n", 1)[1].split("QEMU_PID=\n", 1)[0]
 
-    def test_joined_browser_scratch_is_created_next_to_workspace_output_not_inside_it(self):
+    def test_standalone_and_joined_provider_scratch_is_private_disk_sibling(self):
         # Run only the actual path-selection/mktemp/chmod fragment, not the
         # VM driver. This temporary directory itself is on the workspace disk.
         with tempfile.TemporaryDirectory(prefix="filter-runner-test-", dir=HERE) as temporary:
             parent = Path(temporary).resolve(); output = parent / "evidence"; output.mkdir()
-            script = ('set -eu\nscenario=content-provider\nbrowser_filter_bundle=/selected/bundle\n'
+            script = ('set -eu\nscenario=content-provider\nbrowser_filter_bundle=$2\n'
                       'output_directory=$1\nRUN_DIRECTORY_PARENT=/tmp\n' + self.directory_fragment()
                       + 'printf "%s\\n" "$RUN_DIRECTORY"\n')
-            result = subprocess.run(["/bin/sh", "-c", script, "fixture", str(output)], capture_output=True, timeout=5)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            scratch = Path(result.stdout.decode().strip())
-            self.assertEqual(scratch.parent, parent)
-            self.assertTrue(scratch.name.startswith("browser-filter-kvm."))
-            self.assertNotEqual(scratch, output)
-            self.assertEqual(stat.S_IMODE(scratch.stat().st_mode), 0o700)
-            self.assertEqual(list(output.iterdir()), [])
+            for bundle, prefix in (("", "content-provider-kvm."), ("/selected/bundle", "browser-filter-kvm.")):
+                with self.subTest(bundle=bundle):
+                    result = subprocess.run(["/bin/sh", "-c", script, "fixture", str(output), bundle],
+                                            capture_output=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    scratch = Path(result.stdout.decode().strip())
+                    self.assertEqual(scratch.parent, parent)
+                    self.assertTrue(scratch.name.startswith(prefix))
+                    self.assertNotEqual(scratch, output)
+                    self.assertEqual(stat.S_IMODE(scratch.stat().st_mode), 0o700)
+                    self.assertEqual(list(output.iterdir()), [])
 
-    def test_joined_browser_rejects_symlink_output_and_memory_backed_parent(self):
+    def test_standalone_and_joined_provider_reject_symlink_output_and_memory_backed_parent(self):
         with tempfile.TemporaryDirectory(prefix="filter-runner-test-", dir=HERE) as temporary:
             parent = Path(temporary).resolve(); output = parent / "evidence"; output.mkdir()
             alias = parent / "alias"; alias.symlink_to(output)
-            prefix = 'set -eu\nscenario=content-provider\nbrowser_filter_bundle=/selected/bundle\noutput_directory=$1\nRUN_DIRECTORY_PARENT=/tmp\n'
-            for path, filesystem, expected in ((alias, None, 64), (output, "tmpfs", 69), (output, "ramfs", 69), (output, "failed", 69)):
-                stub = '' if filesystem is None else ('stat() { return 1; }\n' if filesystem == "failed"
-                    else 'stat() { printf "%s\\n" "' + filesystem + '"; }\n')
-                result = subprocess.run(["/bin/sh", "-c", prefix + stub + self.directory_fragment(), "fixture", str(path)],
-                                        capture_output=True, timeout=5)
-                self.assertEqual(result.returncode, expected, result.stderr)
-                self.assertEqual({entry.name for entry in parent.iterdir()}, {"evidence", "alias"})
+            prefix = 'set -eu\nscenario=content-provider\nbrowser_filter_bundle=$2\noutput_directory=$1\nRUN_DIRECTORY_PARENT=/tmp\n'
+            for bundle in ("", "/selected/bundle"):
+                for path, filesystem, expected in ((alias, None, 64), (output, "tmpfs", 69),
+                                                  (output, "ramfs", 69), (output, "failed", 69)):
+                    with self.subTest(bundle=bundle, path=path, filesystem=filesystem):
+                        stub = '' if filesystem is None else ('stat() { return 1; }\n' if filesystem == "failed"
+                            else 'stat() { printf "%s\\n" "' + filesystem + '"; }\n')
+                        result = subprocess.run(["/bin/sh", "-c", prefix + stub + self.directory_fragment(),
+                                                 "fixture", str(path), bundle], capture_output=True, timeout=5)
+                        self.assertEqual(result.returncode, expected, result.stderr)
+                        self.assertEqual({entry.name for entry in parent.iterdir()}, {"evidence", "alias"})
 
-    def test_ordinary_provider_and_existing_scratch_selection_unchanged(self):
+    def test_standalone_provider_selects_disk_and_other_scenario_paths_are_unchanged(self):
         # Stub mktemp/chmod so an ordinary /tmp-path check creates no files.
         script = ('set -eu\nscenario=$1\nbrowser_filter_bundle=$2\noutput_directory=$3\nRUN_DIRECTORY_PARENT=/tmp\n'
                   'mktemp() { printf "%s\\n" "${2%XXXXXX}abcdef"; }\nchmod() { :; }\n'
                   + self.directory_fragment() + 'printf "%s\\n" "$RUN_DIRECTORY"\n')
         with tempfile.TemporaryDirectory(prefix="filter-runner-test-", dir=HERE) as temporary:
             output = Path(temporary).resolve() / "evidence"; output.mkdir()
-            for scenario, bundle, prefix in (("content-provider", "", "/tmp/volparossa-alpha-kvm."),
+            for scenario, bundle, prefix in (("content-provider", "", str(output.parent / "content-provider-kvm.")),
                 ("alpha", "", "/tmp/volparossa-alpha-kvm."),
                 ("agent-native-editor", "", str(output.parent / "native-editor-kvm.")),
                 ("agent-cooperative-code", "", str(output.parent / "cooperative-code-kvm."))):
@@ -111,7 +117,10 @@ class BrowserFilterArguments(unittest.TestCase):
         cases = (("content-provider", "bundle", 6144 * 1024 - 1, 69, None),
                  ("content-provider", "bundle", 6144 * 1024, 0, "4096:2048"),
                  ("content-provider", "bundle", "unknown", 69, None),
-                 ("content-provider", "", 0, 0, "4096:1024"),
+                 ("content-provider", "", 0, 69, None),
+                 ("content-provider", "", 6144 * 1024 - 1, 69, None),
+                 ("content-provider", "", 6144 * 1024, 0, "4096:2048"),
+                 ("content-provider", "", "unknown", 69, None),
                  ("alpha", "", 0, 0, "4096:1024"),
                  ("agent-native-editor", "", 9216 * 1024 - 1, 69, None),
                  ("agent-native-editor", "", 9216 * 1024, 0, "8192:1024"))

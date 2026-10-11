@@ -734,18 +734,19 @@ elif [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperati
     [ "$(readlink -f -- "$output_directory")" = "$output_directory" ] || exit 64
     RUN_DIRECTORY_PARENT=$(dirname -- "$output_directory")
     RUN_DIRECTORY_PREFIX=cooperative-code-kvm
-elif [ "$scenario" = content-provider ] && [ -n "$browser_filter_bundle${weather_client_bundle:-}" ]; then
-    # The real Browser join builds Rust in this 4 GiB guest. A growing qcow2
+elif [ "$scenario" = content-provider ]; then
+    # Every provider proof builds Rust in this 4 GiB guest. A growing qcow2
     # overlay on tmpfs otherwise competes directly with the guest's RAM.
     # Keep scratch beside validated workspace evidence, never in its export.
     [ "$(readlink -f -- "$output_directory")" = "$output_directory" ] || exit 64
     RUN_DIRECTORY_PARENT=$(dirname -- "$output_directory")
-    RUN_DIRECTORY_PREFIX=browser-filter-kvm
+    RUN_DIRECTORY_PREFIX=content-provider-kvm
+    [ -z "$browser_filter_bundle" ] || RUN_DIRECTORY_PREFIX=browser-filter-kvm
     [ -z "${weather_client_bundle:-}" ] || RUN_DIRECTORY_PREFIX=weather-client-kvm
     runner_scratch_filesystem=$(stat -f -c '%T' -- "$RUN_DIRECTORY_PARENT") || exit 69
     case $runner_scratch_filesystem in
         ''|tmpfs|ramfs)
-            printf '%s\n' 'Joined client VM scratch requires non-memory-backed workspace storage' >&2
+            printf '%s\n' 'Content-provider VM scratch requires non-memory-backed workspace storage' >&2
             exit 69 ;;
     esac
 fi
@@ -2049,14 +2050,14 @@ set -- -no-reboot
 case $scenario in wifi-mesh|wifi-link) set -- ;; esac
 guest_memory_mib=$(guest_memory_for_scenario)
 runner_reserve_mib=1024
-if [ "$scenario" = content-provider ] && [ -n "$browser_filter_bundle${weather_client_bundle:-}" ]; then
+if [ "$scenario" = content-provider ]; then
     runner_reserve_mib=2048
 fi
 if [ "$guest_memory_mib" -gt 4096 ] || [ "$runner_reserve_mib" -eq 2048 ]; then
     # A read-only preflight snapshot, not a host memory reservation. Refuse
     # before QEMU unless the guest plus its selected host reserve fits. The
-    # explicit Browser join requires 2 GiB reserve; larger model fixtures keep
-    # their existing 1 GiB reserve. No guest or model resource limit increases.
+    # standalone and joined provider proofs require 2 GiB reserve; larger model
+    # fixtures keep their existing 1 GiB reserve. No guest/model limit increases.
     runner_available_kib=$(awk '$1 == "MemAvailable:" && $3 == "kB" {print $2; found++} END {if (found != 1) exit 1}' /proc/meminfo)
     case $runner_available_kib in ''|*[!0-9]*) exit 69 ;; esac
     if [ "$runner_available_kib" -lt "$(((guest_memory_mib + runner_reserve_mib) * 1024))" ]; then
