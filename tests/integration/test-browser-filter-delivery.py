@@ -256,6 +256,68 @@ class JoinedFilterProof(unittest.TestCase):
                 CHECK["write_new"](original / "report.json", json.dumps(value).encode())
                 with self.assertRaises(ValueError): CHECK["retain"](work)
 
+    def test_closed_protocol_diagnostics_are_retained_and_exported_byte_exact(self):
+        values = [dict(kind=kind, webdriver_code=None, source_frames=[]) for kind in CHECK["PROTOCOL_ERROR_KINDS"]
+                  if kind != "webdriver_error"]
+        values += [dict(kind="webdriver_error", webdriver_code=code,
+                       source_frames=[dict(module=module, line=maximum)])
+                   for code in CHECK["WEBDRIVER_CODES"] for module, maximum in CHECK["RUNTIME_SOURCE_LINES"].items()]
+        for protocol in values:
+            with self.subTest(protocol=protocol), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary).resolve()
+                original = work / "client-fixtures/browser-filter-source/build/filter-delivery"
+                original.mkdir(parents=True)
+                diagnostic = dict(schema=1, phase="session", error_kind="command_error", cleanup_failed=False,
+                                  protocol_error=protocol)
+                value = dict(schema=1, passed=False, failure="fixture_failed", browser_diagnostic=diagnostic)
+                raw = json.dumps(value, indent=2).encode()
+                CHECK["write_new"](original / "report.json", raw)
+                retained = CHECK["retain"](work)
+                self.assertEqual(retained["originals_sha256"], {"report": hashlib.sha256(raw).hexdigest()})
+                self.assertFalse(retained["successful_native_execution_claimed"])
+                output = work / "export"; output.mkdir()
+                exported = CHECK["copy_artifacts"](work, output, os.getuid(), os.getgid())
+                self.assertEqual((output / "browser-filter-delivery-original-report.json").read_bytes(), raw)
+                self.assertFalse(exported["successful_native_execution_claimed"])
+
+    def test_protocol_diagnostic_rejects_private_fields_wrong_shapes_bounds_and_categories(self):
+        valid = dict(kind="webdriver_error", webdriver_code="session_not_created",
+                     source_frames=[dict(module="marionette/driver.sys.mjs", line=717)])
+        changed = [dict(kind="PRIVATE"), dict(kind=["webdriver_error"]), dict(webdriver_code="PRIVATE"),
+            dict(webdriver_code=None), dict(webdriver_code=["unknown_error"]), dict(source_frames=None),
+            dict(source_frames={}), dict(source_frames=[None]), dict(source_frames=[{}]),
+            dict(source_frames=[dict(module="PRIVATE", line=1)]),
+            dict(source_frames=[dict(module="marionette/driver.sys.mjs", line=True)]),
+            dict(source_frames=[dict(module="marionette/driver.sys.mjs", line=0)]),
+            dict(source_frames=[dict(module="marionette/driver.sys.mjs", line=3887)]),
+            dict(source_frames=[dict(module="marionette/driver.sys.mjs", line="717")]),
+            dict(source_frames=[dict(module="marionette/driver.sys.mjs", line=717, column=1)]),
+            dict(source_frames=[dict(module="marionette/driver.sys.mjs", line=717)] * 2),
+            dict(source_frames=[dict(module="marionette/driver.sys.mjs", line=i) for i in range(1, 10)]),
+            dict(message="PRIVATE"), dict(stacktrace="PRIVATE"), dict(response="PRIVATE"), dict(data="PRIVATE")]
+        bad_values = [None, {}, *(dict(valid, **change) for change in changed)]
+        for kind in CHECK["PROTOCOL_ERROR_KINDS"] - {"webdriver_error"}:
+            bad_values += [dict(kind=kind, webdriver_code="unknown_error", source_frames=[]),
+                           dict(kind=kind, webdriver_code=None, source_frames=valid["source_frames"])]
+        for protocol in bad_values:
+            with self.subTest(protocol=protocol), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary).resolve(); output = work / "export"; output.mkdir()
+                value = dict(schema=1, passed=False, failure="fixture_failed", browser_diagnostic=dict(
+                    schema=1, phase="session", error_kind="command_error", cleanup_failed=False, protocol_error=protocol))
+                raw = json.dumps(value).encode()
+                CHECK["write_new"](work / "browser-filter-delivery-original-report.json", raw)
+                with self.assertRaises(ValueError) as error:
+                    CHECK["copy_artifacts"](work, output, os.getuid(), os.getgid())
+                self.assertNotIn("PRIVATE", str(error.exception)); self.assertEqual(list(output.iterdir()), [])
+                original = work / "client-fixtures/browser-filter-source/build/filter-delivery"
+                original.mkdir(parents=True); CHECK["write_new"](original / "report.json", raw)
+                with self.assertRaises(ValueError): CHECK["retain"](work)
+
+    def test_protocol_diagnostic_is_never_accepted_on_success(self):
+        value = dict(passed=True, browser_diagnostic=dict(schema=1, phase="session", error_kind="command_error",
+            cleanup_failed=False, protocol_error=dict(kind="eof", webdriver_code=None, source_frames=[])))
+        with self.assertRaises(ValueError): CHECK["validate_report_diagnostic"](value)
+
     def test_browser_subphase_is_never_allowed_on_success_and_old_reports_remain_compatible(self):
         args = list(fixture())
         CHECK["validate_report_diagnostic"](args[0])

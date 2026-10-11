@@ -41,6 +41,16 @@ BROWSER_PHASES = {
     "selection", "probe", "final_addon_check", "final_preference_check", "quit", "join", "cleanup",
 }
 BROWSER_ERROR_KINDS = {"check_failed", "timeout", "io_error", "command_error", "interrupted", "other"}
+PROTOCOL_ERROR_KINDS = {"webdriver_error", "unexpected_envelope", "framing_error", "eof", "timeout", "transport_error"}
+WEBDRIVER_CODES = {"session_not_created", "invalid_argument", "unknown_command", "unknown_error",
+    "unsupported_operation", "invalid_session_id", "no_such_window", "timeout", "script_timeout", "other"}
+# Must match the Browser driver's closed source map for pinned ESR 140.16.0.
+RUNTIME_SOURCE_LINES = {
+    "marionette/driver.sys.mjs": 3886, "marionette/server.sys.mjs": 460,
+    "shared/WindowManager.sys.mjs": 595, "shared/NavigationManager.sys.mjs": 860,
+    "shared/webdriver/Capabilities.sys.mjs": 1075, "shared/webdriver/Errors.sys.mjs": 978,
+    "shared/webdriver/Session.sys.mjs": 489, "webdriver-bidi/NewSessionHandler.sys.mjs": 55,
+}
 REPORT_KEYS = {"schema", "passed", "scope", "operation", "receipts", "probes", "module_sha256", "driver_sha256",
     "broker_sha256", "expected", "runtime_version", "runtime_source_stamp", "runtime_sha256", "extension_packages",
     "failure", "host_read_only", "interfaces", "browser_exit_status", "broker_cleanup", "broker_socket_removed",
@@ -71,6 +81,7 @@ EXPORT_FIELDS = set().union(*EXPORT_KEYS.values(), SCOPE, OPERATIONS, CASES, {
     "fixture_authority_removed", "separate_owner_input_removed", "agent_cache_identity_preserved", "agent_cache_private",
     "staged_inputs_removed_by_enclosing_topology", "primary_control_gid", "supplementary_groups_empty", "client_namespace",
     "outside_parent_namespace", "all_capabilities_dropped", "no_new_privileges",
+    "protocol_error", "webdriver_code", "source_frames", "module", "line",
     *("integration/filters/" + name + ".sys.mjs" for name in BUNDLE["MODULES"]),
     "tests/fixtures/filter_delivery.sys.mjs", "firefox-esr", "libxul.so", "omni.ja", "browser/omni.ja"})
 EXPORT_WORDS = {"complete", "prepare", "browser_start", "browser_quit", "broker_start", "command", "bootstrap", *OPERATIONS,
@@ -81,7 +92,8 @@ EXPORT_WORDS = {"complete", "prepare", "browser_start", "browser_quit", "broker_
     "clock_error", "expired", "invalid_snapshot", "invalid_response", "not_configured", "owner_config", "owner_context",
     "owner_clock", "owner_busy", "owner_closed", "owner_failed", "owner_cleanup", "asset_config", "asset_package",
     "asset_context", "asset_authority", "asset_expired", "asset_clock", "asset_busy", "asset_closed", "asset_failed", "asset_cleanup",
-    *DIAGNOSTIC_PHASES, *BROWSER_PHASES, *BROWSER_ERROR_KINDS}
+    *DIAGNOSTIC_PHASES, *BROWSER_PHASES, *BROWSER_ERROR_KINDS,
+    *PROTOCOL_ERROR_KINDS, *WEBDRIVER_CODES, *RUNTIME_SOURCE_LINES}
 
 
 def require(condition):
@@ -132,17 +144,36 @@ def validate_diagnostic(value):
             and type(value["phase"]) is str and value["phase"] in DIAGNOSTIC_PHASES)
 
 
+def validate_protocol_error(value):
+    require(type(value) is dict and set(value) == {"kind", "webdriver_code", "source_frames"}
+            and type(value["kind"]) is str and value["kind"] in PROTOCOL_ERROR_KINDS
+            and type(value["source_frames"]) is list and len(value["source_frames"]) <= 8)
+    if value["kind"] != "webdriver_error":
+        require(value["webdriver_code"] is None and value["source_frames"] == [])
+        return
+    require(type(value["webdriver_code"]) is str and value["webdriver_code"] in WEBDRIVER_CODES)
+    seen = set()
+    for frame in value["source_frames"]:
+        require(type(frame) is dict and set(frame) == {"module", "line"}
+                and type(frame["module"]) is str and frame["module"] in RUNTIME_SOURCE_LINES
+                and type(frame["line"]) is int and 1 <= frame["line"] <= RUNTIME_SOURCE_LINES[frame["module"]])
+        pair = (frame["module"], frame["line"])
+        require(pair not in seen); seen.add(pair)
+
+
 def validate_report_diagnostic(report):
     # Older reports have no browser subphase. A new diagnostic is failure-only,
     # and must never turn baseline checks into a claim that Firefox did not start.
     if "browser_diagnostic" not in report:
         return
     value = report["browser_diagnostic"]
-    require(report.get("passed") is False and type(value) is dict and set(value) == BROWSER_DIAGNOSTIC_KEYS
+    require(report.get("passed") is False and type(value) is dict
+            and set(value) in (BROWSER_DIAGNOSTIC_KEYS, BROWSER_DIAGNOSTIC_KEYS | {"protocol_error"})
             and type(value["schema"]) is int and value["schema"] == 1
             and type(value["phase"]) is str and value["phase"] in BROWSER_PHASES
             and type(value["error_kind"]) is str and value["error_kind"] in BROWSER_ERROR_KINDS
             and type(value["cleanup_failed"]) is bool)
+    if "protocol_error" in value: validate_protocol_error(value["protocol_error"])
 
 
 def private_root(root):
