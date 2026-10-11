@@ -29,14 +29,14 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Resolve the observed fixture I/O pressure, prove concurrent three-provider bulk transfer, then exercise late complementary-provider recovery. | The standalone run on `7ad108c0` reconstructs native and HTTPS adaptive objects sequentially. Both budget reports identify I/O pressure as the sole pressure/unavailability flag, holding admission at one worker despite memory and FD headroom. Identify and reduce the actual storage bottleneck or establish bounded readiness; do not override pressure protection or weaken the overlap gate. The separate CI primary-Exit failure remains unresolved. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Exercise late complementary-provider recovery after the now-proven concurrent three-provider transfers. | The standalone run on `a5e698cc` passes native and HTTPS bulk-overlap checks after bounded readiness, without overriding resource protection. It then stops because the control observer rejects the new late-provider test interfaces before fetching. Correct that fixture allowlist and repeat the real trial; late recovery and requester cancellation remain unproven. The separate CI primary-Exit failure remains unresolved. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR8 aligns client/bridge deadlines and cancellation. The new closed bundle profile 3 reuses the two-product acquisition/transfer path and checks exact ordered Flutter rows; component tests pass. Actual joined core delivery, runtime table extraction and native Android/iOS execution remain unverified. |
 
 Respect the observed source rate limit instead of repeatedly relaunching the
 joined trial or routing requests through other peers. Continue the standalone
-provider proof, which needs no weather downloads, after investigating the failed
-concurrency requirement; successful reconstruction does not prove late discovery
+provider proof, which needs no weather downloads, after correcting the late-phase
+capture setup; successful concurrent reconstruction does not prove late discovery
 convergence. The Drizz.li/Weather candidate and frozen input
 bundle remain intact; Overmorrow's core delivery and native execution are still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
@@ -103,13 +103,43 @@ capacity is genuinely available, without competing heavy jobs or reduced limits.
 The retained runner log is
 `.git/ci-evidence/content-provider-readiness-01.X2JNlh/runner.log`.
 
-The following readiness attempt uses clean source
-`a5e698ccb20c8d4a5288ca9d49e2286b1ff37019` in a separate worktree, retaining
-the same guest and host-memory limits. It starts after capacity becomes
-available; its private evidence directory is
-`.git/ci-evidence/content-provider-readiness-02.WgVnio`.
-No result is claimed while the trial runs. Overmorrow changes are excluded
-from that snapshot, and competing heavy builds remain deferred.
+The following real readiness run on clean source
+`a5e698ccb20c8d4a5288ca9d49e2286b1ff37019` passes the separate adaptive
+evidence validator. Native and cooperative-HTTPS transfers each reconstruct
+15,728,640 bytes in sixty chunks from three providers, with no origin body bytes
+or range requests. Their three-provider bulk windows overlap by
+`4,082,921,445 ns` and `4,552,924,112 ns` respectively. Both worker-budget
+receipts record three concurrent leases, no pressure flags or denied leases,
+and zero leases remaining on return. Each preparation reaches three consecutive
+acceptable PSI samples after about twelve seconds; the unchanged live admission
+policy and packet-overlap requirements still decide the result.
+
+The overall run remains **failed**: it stops at
+`content-provider-late-recovery-register-a` with
+`CONTENT_PROVIDER_LATE_CONTROL_CAPTURE_FAILED`. The observer's closed interface
+list accepts `cp0/cp1` and `ac0/ac1/ac2`, but omits the new `lc0/lc1` pair.
+It rejects startup before the late fetch begins, so neither late recovery nor
+requester cancellation is established. The aggregate report conservatively
+retains false completion flags; the successful adaptive result is separate.
+
+Evidence is retained under
+`.git/ci-evidence/content-provider-readiness-02.WgVnio/output/`:
+`content-provider-adaptive-evidence.json` has SHA-256
+`bde143d0f81a8b846a98edec6be3b668bfd3091ba60c3e97cac7c50f3e315e77`;
+the failed `content-provider-smoke.json` has SHA-256
+`ee54a50e5ec025a3c0dce877c437bf407e03a22de09eae7524eaa5cb47ef8047`.
+Cleanup leaves zero owned objects and unchanged guest-root network state.
+The VM and scratch overlay are removed; development-host DNS and IPv4/IPv6
+route hashes match their pre-run values. Host-firewall comparison remains
+unavailable. No weather origin was queried, and Overmorrow changes are excluded
+from this exact-source run.
+
+The capture parser now also accepts the exact `lc0/lc1` interface pair.
+Regression checks continue rejecting duplicate, reordered, mixed or extra
+interfaces, malformed endpoints and foreign protocol/peer traffic. Nineteen
+provider checks, ten inert cancellation checks, seven late-recovery checks and
+eleven observer checks pass. This fixture correction still needs a new live
+late-recovery result; it changes neither production admission nor privacy policy.
 
 The late-provider fixture uses a fresh publication, route and consumer cache.
 It registers the second complementary provider only after observing the first

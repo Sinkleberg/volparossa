@@ -4667,7 +4667,7 @@ content_control_pairs = {}
 if role == "content-control" and content_provider_mode:
     control_argument = interfaces.pop(0) if interfaces else ""
     control_addresses = control_argument.removeprefix("--content-control=").split(",")
-    allowed_interfaces = (["cp0", "cp1"], ["ac0", "ac1", "ac2"])
+    allowed_interfaces = (["cp0", "cp1"], ["ac0", "ac1", "ac2"], ["lc0", "lc1"])
     if not control_argument.startswith("--content-control=") or interfaces not in allowed_interfaces \
             or len(control_addresses) != len(interfaces) + 1 \
             or len(set(control_addresses)) != len(control_addresses):

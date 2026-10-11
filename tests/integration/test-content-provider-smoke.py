@@ -703,9 +703,13 @@ class ContentProviderContract(unittest.TestCase):
                            for target in node.targets))
         parser = compile(ast.Module(body=nodes[start:end], type_ignores=[]), "actual-control-arguments", "exec")
         for interfaces, accepted in ((["cp0", "cp1"], True), (["ac0", "ac1", "ac2"], True),
+                                     (["lc0", "lc1"], True),
                                      (["cp0"], False), (["cp0", "ac1"], False),
                                      (["ac0", "ac1"], False), (["ac0", "ac1", "ac3"], False),
-                                     (["cp0", "cp1", "cp2"], False)):
+                                     (["cp0", "cp1", "cp2"], False),
+                                     (["lc0"], False), (["lc0", "lc0"], False),
+                                     (["lc1", "lc0"], False), (["lc0", "lc2"], False),
+                                     (["lc0", "cp1"], False), (["lc0", "lc1", "lc2"], False)):
             addresses = ["42.158.0.1", "48.164.4.1", "49.165.5.1", "50.166.6.1"][:len(interfaces) + 1]
             environment = dict(socket=socket, sys=SimpleNamespace(argv=["observer", "content-control", "out", "ready",
                 "--content-providers", "--content-control=" + ",".join(addresses), *interfaces]))
@@ -716,6 +720,21 @@ class ContentProviderContract(unittest.TestCase):
             else:
                 with self.assertRaises(SystemExit):
                     exec(parser, environment)
+        # The live late-recovery invocation uses this exact two-interface family;
+        # adding it must not admit malformed, repeated or incomplete endpoints.
+        for control_argument in (
+            "42.158.0.1,49.165.5.1,50.166.6.1",
+            "--content-control=42.158.0.1,49.165.5.1",
+            "--content-control=42.158.0.1,49.165.5.1,50.166.6.1,48.164.4.1",
+            "--content-control=42.158.0.1,49.165.5.1,49.165.5.1",
+            "--content-control=42.158.0.1,42.158.0.1,50.166.6.1",
+            "--content-control=42.158.0.1,not-an-address,50.166.6.1",
+            "--content-control=42.158.0.1,,50.166.6.1",
+        ):
+            environment = dict(socket=socket, sys=SimpleNamespace(argv=["observer", "content-control", "out", "ready",
+                "--content-providers", control_argument, "lc0", "lc1"]))
+            with self.subTest(control_argument=control_argument), self.assertRaises((SystemExit, OSError)):
+                exec(parser, environment)
         function = next(node for node in nodes if isinstance(node, ast.FunctionDef)
                         and node.name == "record_provider_control")
         environment = dict(socket=socket, content_control_pairs={"cp0": ["42.158.0.1", "49.165.5.1"]},
@@ -732,6 +751,26 @@ class ContentProviderContract(unittest.TestCase):
             ("cp0", socket.IPPROTO_UDP, "43.159.1.1", 41000, "49.165.5.1", 41000),
             ("cp1", socket.IPPROTO_UDP, "42.158.0.1", 41000, "49.165.5.1", 41000),
         ):
+            record(*args)
+        self.assertEqual(environment["unexpected_provider_control_packets"], 4)
+
+        # Late recovery still observes only the exact broker/provider UDP pairs,
+        # not provider application traffic or another family's interfaces.
+        pairs = {f"lc{index}": ["42.158.0.1", CHECK["PUBLIC_IPS"][node]]
+                 for index, node in enumerate(("relay4", "relay5"))}
+        environment = dict(socket=socket, content_control_pairs=pairs,
+                           content_control_packets={interface: dict(inbound=0, outbound=0) for interface in pairs},
+                           unexpected_provider_control_packets=0)
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "actual-late-control", "exec"), environment)
+        record = environment["record_provider_control"]
+        for interface, (source, destination) in pairs.items():
+            record(interface, socket.IPPROTO_UDP, source, 41000, destination, 41000)
+            record(interface, socket.IPPROTO_UDP, destination, 41000, source, 41000)
+            self.assertEqual(environment["content_control_packets"][interface], dict(inbound=1, outbound=1))
+        for args in (("lc0", socket.IPPROTO_TCP, "42.158.0.1", 32000, "49.165.5.1", 18080),
+                     ("lc0", socket.IPPROTO_UDP, "42.158.0.1", 41000, "50.166.6.1", 41000),
+                     ("lc2", socket.IPPROTO_UDP, "42.158.0.1", 41000, "49.165.5.1", 41000),
+                     ("ac0", socket.IPPROTO_UDP, "42.158.0.1", 41000, "49.165.5.1", 41000)):
             record(*args)
         self.assertEqual(environment["unexpected_provider_control_packets"], 4)
         # The additive family has three exact endpoint pairs, not a wildcard control allowance.
