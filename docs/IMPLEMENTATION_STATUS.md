@@ -12,7 +12,7 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 
 ## Current integration and active work
 
@@ -29,15 +29,16 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Verify late complementary-provider recovery and the earlier adaptive-provider correction in the real topology. | The separate late-provider fixture is implemented and passes its focused tests; its real discovery timing is unproven. The latest local run on `cc5f3558` completes only the base two-provider fetch with measured overlap and one discovery query. The separate CI primary-Exit discovery failure remains unresolved. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Observe real worker-budget admission, restore proven concurrent three-provider bulk transfer, then exercise late complementary-provider recovery. | The standalone run on `9b602bb5` reconstructs native and HTTPS adaptive objects sequentially and stops before late recovery/cancellation. Resource pressure intentionally caps the runtime at one worker, but this run retains no pressure snapshot. Capture that decision before changing policy or fixture resources; do not weaken the overlap gate. The separate CI primary-Exit failure remains unresolved. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
-| Extend the same provider to Overmorrow — `volparossa-weather` | Exercise the actual client against the shared provider, including unavailable/stale fields and no implicit Open-Meteo fallback. | The pinned Flutter web release builds and fifteen synthetic component tests pass. Actual browser interaction, core delivery and native Android/iOS packaging remain unverified. Reuse the existing provider and core retrieval path; no second network scheduler or source-acquisition implementation. |
+| Extend the same provider to Overmorrow — `volparossa-weather` | Deliver core-cache products into the actual client, then verify native packaging. | The pinned web build, sixteen Flutter tests and actual isolated browser interaction with synthetic products pass. Core delivery and native Android/iOS execution remain unverified. Cover the client's shorter timeout and the bridge's cancellation cleanup when testing cold retrieval; reuse the shared provider without another scheduler. |
 
 Respect the observed source rate limit instead of repeatedly relaunching the
-joined trial or routing requests through other peers. Continue the separate
-late-provider recovery proof, which needs no weather downloads; the successful
-base fetch does not prove late discovery convergence. The Drizz.li/Weather candidate and frozen input
-bundle remain intact; Overmorrow's runtime and delivery proof is still required. Keep shared interface
+joined trial or routing requests through other peers. Continue the standalone
+provider proof, which needs no weather downloads, after investigating the failed
+concurrency requirement; successful reconstruction does not prove late discovery
+convergence. The Drizz.li/Weather candidate and frozen input
+bundle remain intact; Overmorrow's core delivery and native execution are still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
@@ -53,21 +54,65 @@ reports remain explicitly readable. These checks validate the fixture, not live
 late-provider discovery or improved transfer speed. The existing concurrent
 transfer and privacy requirements remain mandatory.
 
-The Overmorrow candidate
-[`54abb095`](https://github.com/VOLPAROSSA/volparossa-weather/commit/54abb0951ee0936da1f9faaa4c51cce02f29e33e)
+The standalone run on `9b602bb5c1558cb510f0746ca31b094083e7347c`
+builds successfully and completes both adaptive native and cooperative-HTTPS
+fetches: each reconstructs 15,728,640 bytes in sixty chunks from three providers,
+with no origin body bytes or range requests. The evidence validator then rejects
+the native result because its three 5%-to-75% bulk-payload windows do not overlap
+(`-6,849,213,952 ns`). The separate HTTPS windows also fail that requirement
+(`-6,581,197,091 ns`). Both captures report zero timing errors and packet-socket
+drops. This is successful reconstruction, not proven concurrent bulk transfer.
+The earlier two-provider native phase reconstructs 2,097,275 bytes in nine chunks;
+independent existing route/control checks pass and its bulk windows overlap by
+343,764,366 ns. That base result does not satisfy the three-provider requirement.
+Helper logs show that the three adaptive flow openings occur sequentially even
+though one discovery already returned all three providers. Later socket acquires
+take only milliseconds. The runtime uses concurrent drivers but deliberately
+limits admission to one worker under resource pressure or low memory/FD headroom.
+The retained evidence does not identify which budget condition applied here;
+record that decision in the next targeted proof before choosing a correction.
+The run stops at `content-provider-adaptive-cleanup` with
+`CONTENT_PROVIDER_ADAPTIVE_EVIDENCE_INVALID`; late recovery and requester
+cancellation are not reached. The failed report is retained at
+`.git/ci-evidence/content-provider-late-01.EmI8OY/output/content-provider-smoke.json`,
+SHA-256 `9fd02652bd74b9733bc9193c753edae9ee360b49d452a311655a43bfd7dc7bb9`.
+Cleanup leaves zero owned objects and unchanged guest-root network state.
+The VM and owned temporary overlay are removed; development-host DNS and
+IPv4/IPv6 route hashes match their pre-run values. A development-host firewall
+comparison remains unavailable. No weather origin was queried by this run.
+
+Weather [PR7](https://github.com/VOLPAROSSA/volparossa-weather/pull/7), merged into
+`main` at `44b721fd42c86880f5a8838ae18efd2c8b2dd0a1`, includes the Overmorrow
+browser milestone
 connects the actual pinned Flutter app's provider dispatcher, phone/tablet layouts,
 forecast surface and air-quality detail route to the same local HTTP bridge.
-Its release build and fifteen synthetic Flutter tests pass, as do thirty-one
-HTTP checks and twenty-five build/deployment checks. Native weather and particulate
+Its release build and sixteen synthetic Flutter tests pass, as do thirty-one
+HTTP checks and thirty-seven build/deployment/browser-harness checks. Native weather and particulate
 times, missing versus zero values and independent expiry are preserved. The
-self-hosted CanvasKit deployment contains 61 files and 22,953,717 bytes within
-the unchanged asset limits. A separate isolated Firefox trial reaches actual
-CanvasKit rendering through the local bridge with synthetic products and verifies
-native timelines, visible values, missing observations/AQI, area and attribution.
-It then times out during refresh; the cause is not yet resolved. Browser and
-fixture processes exit, the private profile is removed and the host network
-namespace is unchanged. This partial trial does not prove the remaining browser
-interactions, peer delivery, native mobile execution or forecast accuracy.
+self-hosted CanvasKit deployment contains 61 files and 22,953,908 bytes within
+the unchanged asset limits. The isolated Firefox trial now passes against the
+actual CanvasKit UI and local HTTP bridge with synthetic products: nine pointer
+refreshes each issue exactly one weather and one air-quality request. Independent
+failures/stale responses preserve the other valid product, idle expiry removes
+old values without another request, and the existing air-quality detail route
+opens without fetching again. The refresh control remains disabled while loading.
+Native timelines, missing observations/AQI, area and attribution are verified.
+Browser and fixture processes exit, the private profile is removed and the host
+network namespace is unchanged. The report at
+`volparossa-weather/.git/codex-weather-overmorrow/build/overmorrow-browser-06/report.json`
+has SHA-256 `d718fc9d8f6364fae6134a944f01cca3af8932ebe73e33224fdffcb3a40e5996`.
+This proves browser interaction, not peer delivery, native mobile execution or
+forecast accuracy. A shorter client timeout can still race the bridge's cleanup
+and make the next product temporarily busy; real cold delivery must cover that
+case. The existing frozen Drizz.li bundle remains valid, but new joined inputs
+must bind fresh proof to their actual bridge and preparer sources.
+Before merge, three CodeQL file-race findings were corrected: NOAA now inspects
+and reads one no-follow descriptor and executes its pinned bytes from private
+scratch; the preparation test also inspects and reads the same opened file.
+All 139 focused JavaScript tests and the PR's component/security checks pass.
+The relocated real ecCodes binary starts under the existing limits; that check
+does not replace a new origin/field-decode trial. Historical source receipts
+retain their original revisions and the frozen bundle is not rewritten.
 
 After each milestone, or when a substantive blocker changes, reassess the next
 shared dependency against the existing evidence and application worktrees.
