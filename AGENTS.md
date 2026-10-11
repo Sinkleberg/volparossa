@@ -53,7 +53,7 @@ These instructions apply to the entire repository and must remain in force in fu
 - Never alter the development host's active DNS, routes, firewall, VPN, sysctls, or network configuration. Network tests run only in disposable Linux network namespaces using veth devices and temporary nftables rules.
 - Any script requiring root must print its exact intended changes, request confirmation where appropriate, trap interruption, and implement idempotent full cleanup. Verify original host routes, DNS, and firewall remain unchanged.
 - Do not install or permanently modify anything outside this workspace without explicit user approval. Never use `curl | sh`, untagged containers, unpinned Git dependencies, or silently downloaded binaries.
-- Do not commit or push unless the user explicitly requests it.
+- User revision 2026-10-11, applicable across all VOLPAROSSA repositories: independently decide when scoped, verified changes are ready to commit and push; no separate user approval is required. Keep unrelated or unfinished work separate, preserve unpublished changes, and respect branch protections and required checks. This replaces the earlier per-operation commit/push approval requirement; it does not expand host, release-signing, or installation permissions.
 
 ## Quality workflow
 
