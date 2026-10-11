@@ -5,6 +5,7 @@ These instructions apply to the entire repository and must remain in force in fu
 ## Mission and truthfulness
 
 - Build VOLPAROSSA v1 as an open-source, decentralised VPN overlay for Debian 13 amd64.
+- This is the required network baseline, not a limit on the agreed DICN services or application integrations. Develop the shared cache, storage, compute and transaction layers alongside their applications; support additional platforms where feasible without treating an untested port as complete.
 - The normal data path is always `client -> exactly one relay -> exit -> destination`; every parallel path uses a different relay between the same client and exit.
 - Never describe ordinary TCP or single-path QUIC as MPTCP or Multipath QUIC. A feature is complete only when tests prove that its real datapath and required number of paths carry data.
 - Keep `docs/IMPLEMENTATION_STATUS.md` current. Checked items must be supported by passing tests or explicit evidence; incomplete work stays unchecked.
@@ -28,8 +29,9 @@ These instructions apply to the entire repository and must remain in force in fu
 - TCP: transparent proxy framing over TLS 1.3 over a Linux `IPPROTO_MPTCP` connection whose subflows are bound to selected WireGuard relay paths; no silent ordinary-TCP fallback.
 - General UDP: datagrams over a protected single-path QUIC MASQUE CONNECT-IP/CONNECT-UDP association through exactly one relay; destination tuple is pinned.
 - Browser QUIC/HTTP/3: original QUIC datagrams inside MASQUE CONNECT-IP over genuine Multipath QUIC with at least two active WireGuard relay paths. Default is fail closed when multipath is required and unavailable.
-- Do not add v1 cover traffic, cells, artificial delay, batching, packet duplication, FEC, erasure coding, adaptive path equalisation, payments, tokens, blockchain, automatic exit enablement, or a GUI. Keep scheduler interfaces extensible for later policies.
-- User extension 2026-10-04: research a separate reusable Transaction-layer for VOLPAROSSA Bank. Isolated simulations and protocol research are authorized; they do not enable real-money services, introduce fees/tokens into overlay participation, or grant model workers financial authority. Keep securities ownership, payment authorization, internal accounting and external settlement distinct. Do not represent reversible simulations as distributed settlement, legal ownership or guaranteed recovery of externally transferred funds.
+- Do not add cover traffic, cells, artificial delay, batching, packet duplication, FEC, erasure coding or adaptive path equalisation to the v1 network datapaths. Keep scheduler interfaces extensible for later policies. This transport restriction does not prohibit the agreed investigation of erasure coding for the separate Storage-layer's uniform redundancy policy.
+- Do not add payments, tokens or blockchain as conditions of overlay participation, automatically enable exit service, or add a GUI to the core daemon. These boundaries do not prohibit the agreed Transaction-layer or application user interfaces.
+- User extension 2026-10-04 and subsequent clarification: research and implement a separate reusable Transaction-layer connected to VOLPAROSSA Bank; research alone is not the endpoint. Isolated single-node and multi-node integration tests with fictitious assets/test units are authorized. They do not enable real-money services, introduce fees/tokens into overlay participation, or grant model workers financial authority. Keep securities ownership, payment authorization, internal accounting and external settlement distinct. Do not represent reversible simulations as distributed settlement, legal ownership or guaranteed recovery of externally transferred funds.
 
 ## Architecture and implementation choices
 
