@@ -37,23 +37,19 @@ The original bounded log, both pipeline exit statuses and compiler-version
 outputs are retained separately. Log overflow fails the trial; an earlier
 success receipt cannot be overwritten by a new execution.
 
-At introduction, the fourteen inert harness tests pass locally. They use
+Fifteen inert harness tests pass locally and on the hosted runner. They use
 synthetic output and harmless shell functions, not a native build or hardware.
-The [first hosted attempt](https://github.com/VOLPAROSSA/volparossa/actions/runs/38321426228)
-at `65decfc3` passes those tests, compiler installation and exact source/fixture
-verification, then fails dependency acquisition: Cargo treats the nested checkout
-as an undeclared member of the core workspace. Compilation is not reached.
-The [second attempt](https://github.com/VOLPAROSSA/volparossa/actions/runs/38321719271)
-at `e547c066` fails before any job starts: the separate checkout path uses the
-`runner` context in job-level `env`, where GitHub does not allow it. The run has
-no jobs, logs or artifacts. The pending correction defines the same path in the
-three consuming steps' `env` blocks, where that context is supported; it does not
-change either manifest or the pinned lockfile. Fifteen inert tests pass, including
-rejection of the old job-level binding and a missing step binding. The actual
-upstream build and cryptographic fixture result remain pending. Passing would
-establish only compatibility with these public fixtures, not a trustworthy worker
-or confidential task. See GitHub's
-[context availability rules](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability).
+The [current hosted attempt](https://github.com/VOLPAROSSA/volparossa/actions/runs/38322166464)
+at `7bbe0950` verifies the original source and fixtures, then stops before
+compilation: Cargo 1.85.0 refuses dependency acquisition because the pinned
+upstream lockfile would require an update. No cryptographic test has run.
+The workflow retains `--locked`; resolving this requires a separately reviewed
+dependency-resolution or source-pin correction, not silently fetching different
+versions. The earlier workspace/context failures are recorded in the
+[implementation ledger](../IMPLEMENTATION_STATUS.md#protected-compute-verifier-preparation).
+
+Even a future passing run would establish only compatibility with these public
+fixtures, not a trustworthy worker or confidential task.
 
 ## What is still needed before private tasks can run remotely
 

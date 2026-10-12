@@ -59,11 +59,20 @@ at `65decfc3` passes source/fixture verification, then stops before compilation
 because Cargo finds the parent core workspace. The second attempt
 [`38321719271`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38321719271)
 at `e547c066` fails before job creation: `runner.temp` is not supported in
-job-level `env`. No job, compiler run or artifact exists for that attempt. The
-pending correction moves the same external checkout-path binding to the three
-consuming steps; both manifests and the lockfile remain unchanged. Fifteen inert
-harness checks pass, including the context-placement regression; the real
-upstream build and cryptographic fixture result are still pending.
+job-level `env`. No job, compiler run or artifact exists for that attempt.
+
+The third attempt
+[`38322166464`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38322166464)
+at `7bbe0950` uses the same external checkout path in the three permitted step
+contexts. All fifteen inert tests and exact source/fixture checks pass. Cargo
+1.85.0 then refuses dependency acquisition with `--locked`, reporting that the
+original upstream lockfile needs updating. No compilation or cryptographic test
+has run. Both source manifests and the lockfile remain unchanged; dependency
+resolution needs separate diagnosis rather than an unlocked retry.
+The original artifact contains only `rustc.txt` and `cargo.txt` (630-byte ZIP,
+SHA-256 `cd425ab034d7b27117f66998322850c2018f091af2bdf69361b233587eea1ba7`,
+matching the API digest); the original eleven-member log ZIP is retained with
+SHA-256 `770c4589980f587f8c0975103b8bff2fea38ebf4b05f514e04253d356091539c`.
 No protected worker, remote private-task release or B04 completion is claimed.
 Public peer tasks and the current local private service remain unchanged.
 See [the bounded trial and missing admission checks](development/PROTECTED_COMPUTE_VERIFIER.md).
