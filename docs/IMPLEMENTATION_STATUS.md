@@ -29,8 +29,8 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Integrate the verified provider sequence, then resume joined Weather delivery. | The full sequence passes on `0f391c77`, including real CPU-pressure contraction and useful serial continuation. Independent raw-evidence reconstruction passes; the earlier failed result remains unchanged. Join the pressure fixture to PR227 and complete its integration checks. |
-| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined attempt on `9441b451` stops during the guest build because of development-host memory pressure, before any Weather request. Prepare execution away from the development host without uploading private inputs or bypassing source limits. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover joined delivery. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Use the integrated provider sequence for joined Weather delivery. | PR227 is merged at `a3747109`, with passing Quality and CodeQL on its exact head `c48fba8c`. The full protected sequence passes on `0f391c77`, including real CPU-pressure contraction and useful serial continuation; `c48fba8c` adds only its status record. Independent raw-evidence reconstruction passes. Joined Weather delivery remains open. |
+| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | Weather PR14 is merged. Its public runtime verification, isolated decoder build, seven libaec tests and CCSDS probe pass on the disposable hosted runner. Exact outputs are independently hashed; Debian 13 compatibility, a new admitted runtime profile and fresh browser evidence are next. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover joined delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR13 are merged with passing CI. Exact table extraction and a fresh full browser trial pass with synthetic products. A new immutable bundle with the corrected verifier passes capture, runtime and extracted-tree checks; the old bundle remains unchanged. Joined core delivery and native Android/iOS execution remain unverified. |
 
 The corrected standalone provider proof passes without weather downloads. The
@@ -48,6 +48,45 @@ bundle remain intact; Overmorrow's core delivery and native execution are still 
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
+
+### Hosted Weather preparation
+
+[Core PR227](https://github.com/VOLPAROSSA/volparossa/pull/227) integrates the
+provider milestone. [Weather PR14](https://github.com/VOLPAROSSA/volparossa-weather/pull/14)
+is merged at `ba006104` and prepares public, verifiable inputs for the next joined trial without uploading
+the developer's private bundle or starting another heavy build locally.
+
+[Hosted run `38212945994`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38212945994)
+on Weather `910cdf568ad46d9dcf2f96613e491193fc986806` verifies the pinned Node and
+Firefox archives, passes the actual decoder sandbox preflight and captures the
+runner's toolchain. Libaec compiles and six of its seven upstream tests pass.
+The remaining `sampledata.sh` test fails with `awk: not found`; dependent
+`dd` and `cmp` failures follow. The run remains failed and never builds ecCodes.
+The artifact does not establish whether the runner lacked `awk` or its alias
+required the deliberately hidden `/etc/alternatives` directory.
+
+The sandbox keeps the build unprivileged, without network access or host-private
+paths, with a read-only toolchain and zero effective/permitted capabilities.
+Cleanup confirms that owned processes drained, temporary AppArmor profiles and
+staging were removed, and the user-namespace restriction was unchanged. This is
+runner evidence, not a development-host network-state comparison.
+
+Correction `7d61077aa415de8f46f79384a1dd08f403c4898c` supplies the recorded canonical
+`mawk` through a private `awk` alias without exposing `/etc` or skipping tests.
+[Hosted run `38214736539`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38214736539)
+passes all seven libaec tests, compiles ecCodes 2.44.0 and encodes/decodes the
+nonconstant 496-point CCSDS probe with expected values 0 and 495. Sandbox and
+cleanup checks pass. Independent inspection rehashes all 29 step logs, the three
+binaries, probe and eight notices. The receipt's `libaec.a` was not exported and
+is not independently rehashed.
+
+The exact new `grib_ls` is 31,383,992 bytes, SHA-256
+`d99425a1b44fe11b9ff77918310bc1b1a2114957558481bd705851e314a59930`.
+The separate `weather-decoder-abi` trial admits these bytes only for an offline,
+unprivileged Debian 13 compatibility test. It does not change production decoder
+authority or historical bundle profiles. Actual Debian 13 execution, fresh
+browser evidence and joined real-source delivery remain required. The historical
+decoder, private bundle and failed trial results remain unchanged.
 
 ### Named fetch failure and route preservation
 
