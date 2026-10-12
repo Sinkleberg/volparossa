@@ -41,6 +41,7 @@ EXPORT_NAMES = tuple(name for name in F['EXPORT_NAMES'] if name not in
     'private-storage-maintenance-lifecycle-failure.json',
     'private-storage-maintenance-route-diagnostic.json',
     'private-storage-maintenance-inventory.json',
+    'private-storage-maintenance-supervisor.json',
     'private-storage-fragments-lifecycle-live-selection.json',
     'private-storage-fragments-lifecycle-gates.json',
     'content-provider-adaptive-private-storage-fragments-lifecycle-control.json',
@@ -57,6 +58,9 @@ REPAIR_DIAGNOSTIC = None
 REPAIR_TURNS = []
 SAMPLER_DIAGNOSTIC = {}
 LIFECYCLE_DIAGNOSTIC = None
+SUPERVISOR_STAGES = ('bind_slots', 'control_query', 'control_match', 'route_scope',
+    'start_observers', 'ready_payload', 'publish_ready', 'join_owner',
+    'lifecycle_receipt', 'finish_observers', 'coordinator_cleanup')
 LIFECYCLE_STAGES = ('checkpoint_before', 'spawn_owner', 'await_working', 'await_core_loss',
     'verify_retained', 'await_coordinator', 'validate_coordinator', 'start_sampler',
     'await_resumed_turn', 'stop_owner', 'verify_pause', 'fresh_owner_turn',
@@ -249,6 +253,40 @@ def inventory_file(path, status):
     return value
 
 
+def validate_supervisor(value):
+    require(type(value) is dict and set(value) == {'version', 'kind', 'stage', 'outcome',
+        'exit_status', 'control_relay_relation', 'acceptance_evidence'}
+        and type(value['version']) is int and value['version'] == 1
+        and value['kind'] == 'private-storage-maintenance-supervisor'
+        and value['stage'] in SUPERVISOR_STAGES
+        and value['control_relay_relation'] in ('same', 'different', 'empty', 'unobserved')
+        and value['acceptance_evidence'] is False, 'invalid supervisor diagnostic')
+    status = value['exit_status']
+    require(value['outcome'] == 'pending' and status is None
+        or value['outcome'] == 'failed' and type(status) is int and 1 <= status <= 255
+        or value['outcome'] == 'complete' and type(status) is int and status == 0
+            and value['stage'] == 'coordinator_cleanup', 'invalid supervisor outcome')
+    return value
+
+
+def supervisor_record(stage, outcome, status, relation):
+    require(status == 'null' or re.fullmatch(r'0|[1-9][0-9]{0,2}', status) is not None,
+        'invalid supervisor exit status')
+    return validate_supervisor(dict(version=1, kind='private-storage-maintenance-supervisor',
+        stage=stage, outcome=outcome, exit_status=None if status == 'null' else int(status),
+        control_relay_relation=relation, acceptance_evidence=False))
+
+
+def supervisor_file(path):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, 'duplicate supervisor key')
+            result[key] = value
+        return result
+    return validate_supervisor(json.loads(closed_diagnostic_text(path, 1024), object_pairs_hook=unique))
+
+
 def closed_preselection_events(path, baseline_path, end_path):
     # Reuse the closed cooperative-browser event-ring grammar, but exclude all
     # records outside this selection's private start/end wall-clock bounds. These
@@ -330,8 +368,18 @@ def closed_preselection_events(path, baseline_path, end_path):
     return value
 
 
+class FixtureInterrupted(InterruptedError):
+    """The fixture's own TERM handler, not an arbitrary OS read/write failure."""
+
+
+def interrupted(_signal, _frame):
+    raise FixtureInterrupted('fixture interrupted')
+
+
 def failure_code(error):
     # Exact fixed messages only; never export arbitrary exception strings or CLI output.
+    if isinstance(error, FixtureInterrupted):
+        return 'termination_signal'
     if isinstance(error, subprocess.TimeoutExpired):
         return 'cli_timeout'
     if isinstance(error, subprocess.SubprocessError):
@@ -451,7 +499,8 @@ def validate_lifecycle_failure(value):
     if value['version'] == 2:
         fields.add('retained_status')
     require(set(value) == fields, 'invalid lifecycle failure')
-    codes = set(FAILURE_CODES.values()) | {'cli_timeout', 'cli_process', 'local_io', 'unclassified', 'sampler_failure'}
+    codes = set(FAILURE_CODES.values()) | {'cli_timeout', 'cli_process', 'local_io', 'unclassified',
+        'sampler_failure', 'termination_signal'}
     require(value['success'] is False
         and value['kind'] == 'private-storage-maintenance-lifecycle-failure'
         and value['stage'] in LIFECYCLE_STAGES and value['code'] in codes, 'invalid lifecycle failure')
@@ -1460,6 +1509,10 @@ def validate_report(report, revision, *, historical=False):
 
 
 def main(args):
+    if len(args) == 5 and args[0] == 'supervisor-record':
+        print(json.dumps(supervisor_record(*args[1:]), sort_keys=True)); return
+    if len(args) == 2 and args[0] == 'supervisor-check':
+        supervisor_file(Path(args[1])); return
     if len(args) == 3 and args[0] == 'inventory-check':
         inventory_file(Path(args[1]), args[2]); return
     if len(args) == 2 and args[0] == 'route-diagnostic':
@@ -1519,8 +1572,6 @@ def main(args):
 
 
 if __name__ == '__main__':
-    def interrupted(_signal, _frame):
-        raise InterruptedError('fixture interrupted')
     signal.signal(signal.SIGTERM, interrupted)
     try:
         main(sys.argv[1:])

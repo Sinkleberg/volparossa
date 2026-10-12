@@ -41,6 +41,85 @@ private_storage_maintenance_wait_marker() {
     return 1
 }
 
+private_storage_maintenance_supervisor_record() {
+    # Fixed metadata only, written before owner cleanup can emit a secondary
+    # cancellation. Diagnostic failure never changes the operation's outcome.
+    if (umask 077
+        python3 -B "$WORK/bin/private-storage-maintenance-smoke.py" supervisor-record \
+            "$maintenance_supervisor_stage" "$1" "$2" "$maintenance_control_relation" \
+            >"$WORK/maintenance-supervisor.part") \
+        && mv -- "$WORK/maintenance-supervisor.part" "$WORK/private-storage-maintenance-supervisor.json"; then
+        return 0
+    fi
+    rm -f -- "$WORK/maintenance-supervisor.part" || true
+    return 0
+}
+
+private_storage_maintenance_supervisor_stage() {
+    maintenance_supervisor_stage=$1
+    private_storage_maintenance_supervisor_record pending null
+}
+
+private_storage_maintenance_post_reconnect() {
+    maintenance_control_relation=unobserved
+    private_storage_maintenance_supervisor_stage bind_slots
+    benchmark_bind_slots "$WORK/private-storage-maintenance-reconnect-selection.json" || {
+        private_storage_maintenance_supervisor_record failed "$?"; return 1;
+    }
+    # The existing restricted broker links are not silently widened by this trial.
+    private_storage_maintenance_supervisor_stage control_query
+    maintenance_control_peer=$(content_custody_cli client content status | jq -er '.control_relay_peer_id') || {
+        # This is the original pipeline's status, not a claimed CLI-only status.
+        private_storage_maintenance_supervisor_record failed "$?"; return 1;
+    }
+    if [ -z "$maintenance_control_peer" ]; then maintenance_control_relation=empty
+    elif [ "$maintenance_control_peer" = "$provider_control_peer" ]; then maintenance_control_relation=same
+    else maintenance_control_relation=different; fi
+    private_storage_maintenance_supervisor_stage control_match
+    [ "$maintenance_control_peer" = "$provider_control_peer" ] || {
+        private_storage_maintenance_supervisor_record failed "$?"; return 1;
+    }
+    private_storage_maintenance_supervisor_stage route_scope
+    storage_route_scope=$(jq -ce '{exit_peer_id:.exact_selected_exit,paths:[.paths[]|{path_id,relay_peer_id}]}' \
+        "$WORK/private-storage-maintenance-reconnect-selection.json") || {
+        private_storage_maintenance_supervisor_record failed "$?"; return 1;
+    }
+    private_storage_maintenance_supervisor_stage start_observers
+    private_storage_fragments_phase_start lifecycle || {
+        private_storage_maintenance_supervisor_record failed "$?"; return 1;
+    }
+    private_storage_maintenance_supervisor_stage ready_payload
+    jq -cn --argjson baseline "$provider_baseline_ms" --argjson scope "$storage_route_scope" \
+        '{baseline:$baseline,scope:$scope}' >"$WORK/maintenance-coordinator-ready.private" || {
+        private_storage_maintenance_supervisor_record failed "$?"; return 1;
+    }
+    private_storage_maintenance_supervisor_stage publish_ready
+    private_storage_maintenance_publish_ready || {
+        private_storage_maintenance_supervisor_record failed "$?"; return 1;
+    }
+    private_storage_maintenance_supervisor_stage join_owner
+    maintenance_status=0
+    wait "$MAINTENANCE_OWNER_PID" || maintenance_status=$?
+    MAINTENANCE_OWNER_PID=
+    if [ "$maintenance_status" -ne 0 ]; then
+        private_storage_maintenance_supervisor_record failed "$maintenance_status"; return 1
+    fi
+    private_storage_maintenance_supervisor_stage lifecycle_receipt
+    jq -ce '. + {guest_core_pid_changed:true,guest_core_namespace_preserved:true}' \
+        "$WORK/maintenance-owner-lifecycle.private" >"$WORK/private-storage-maintenance-lifecycle.json" || {
+        private_storage_maintenance_supervisor_record failed "$?"; return 1;
+    }
+    private_storage_maintenance_supervisor_stage finish_observers
+    private_storage_fragments_phase_finish 1 || {
+        private_storage_maintenance_supervisor_record failed "$?"; return 1;
+    }
+    private_storage_maintenance_supervisor_stage coordinator_cleanup
+    private_storage_maintenance_join || {
+        private_storage_maintenance_supervisor_record failed "$?"; return 1;
+    }
+    private_storage_maintenance_supervisor_record complete 0
+}
+
 private_storage_maintenance_lifecycle() {
     PHASE=private-storage-maintenance-core-restart
     [ ! -e "$WORK/maintenance-coordinator" ] && [ ! -L "$WORK/maintenance-coordinator" ] || return 1
@@ -84,24 +163,7 @@ private_storage_maintenance_lifecycle() {
     python3 -I -B "$WORK/bin/content-provider-readiness.py" "$WORK" \
         >"$WORK/maintenance-inventory.private" || return 1
     benchmark_select_route private-storage-maintenance-reconnect mptcp || return 1
-    benchmark_bind_slots "$WORK/private-storage-maintenance-reconnect-selection.json" || return 1
-    # The existing restricted broker links are not silently widened by this trial.
-    maintenance_control_peer=$(content_custody_cli client content status | jq -er '.control_relay_peer_id') || return 1
-    [ "$maintenance_control_peer" = "$provider_control_peer" ] || return 1
-    storage_route_scope=$(jq -ce '{exit_peer_id:.exact_selected_exit,paths:[.paths[]|{path_id,relay_peer_id}]}' \
-        "$WORK/private-storage-maintenance-reconnect-selection.json") || return 1
-    private_storage_fragments_phase_start lifecycle
-    jq -cn --argjson baseline "$provider_baseline_ms" --argjson scope "$storage_route_scope" \
-        '{baseline:$baseline,scope:$scope}' >"$WORK/maintenance-coordinator-ready.private" || return 1
-    private_storage_maintenance_publish_ready || return 1
-    maintenance_status=0
-    wait "$MAINTENANCE_OWNER_PID" || maintenance_status=$?
-    MAINTENANCE_OWNER_PID=
-    [ "$maintenance_status" -eq 0 ] || return 1
-    jq -ce '. + {guest_core_pid_changed:true,guest_core_namespace_preserved:true}' \
-        "$WORK/maintenance-owner-lifecycle.private" >"$WORK/private-storage-maintenance-lifecycle.json" || return 1
-    private_storage_fragments_phase_finish 1
-    private_storage_maintenance_join
+    private_storage_maintenance_post_reconnect
 }
 
 private_storage_maintenance_initial_inventory() {
@@ -137,6 +199,15 @@ private_storage_maintenance_run() {
 
 private_storage_maintenance_finalize_report() {
     maintenance_status=$1
+    # Already published at the original supervisor gate, before TERM/cleanup.
+    # Reject malformed private metadata rather than exporting it as evidence.
+    if [ -e "$WORK/private-storage-maintenance-supervisor.json" ] \
+        || [ -L "$WORK/private-storage-maintenance-supervisor.json" ]; then
+        if ! python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" supervisor-check \
+            "$WORK/private-storage-maintenance-supervisor.json" >/dev/null 2>&1; then
+            rm -f -- "$WORK/private-storage-maintenance-supervisor.json" || return 1
+        fi
+    fi
     # Cleanup has already captured the bounded client event ring before stopping
     # agents. Export only closed categories/counts; diagnostic failure is not a
     # replacement for the original outcome and never changes acceptance.
