@@ -368,7 +368,11 @@ async fn live_turn_loss_reconnects_and_reconciles_original_journals_without_new_
             .unwrap();
         stop.send(()).unwrap();
     };
-    let ((), observed) = timeout(Duration::from_secs(10), async {
+    // Four resumed signed/SQLite turns need twice the two-turn fixture's
+    // envelope, including reconnect and EOF joins. Hosted run 38254373355
+    // completed only three resumed turns in 9.2 s before the old 10 s bound.
+    // This bounds the test, not a production turn or authorization lifetime.
+    let ((), observed) = timeout(Duration::from_secs(20), async {
         tokio::join!(owner_loop, server)
     })
     .await

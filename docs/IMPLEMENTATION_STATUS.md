@@ -30,16 +30,19 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. All required Android platforms and the real Gradle repository/descriptor-limit fixture now pass. Flutter compilation exceeds the 3 GiB process-memory cap; the correction reduces app-build workers and JVM heap without raising the cap. The APK, offline rebuild, app launch, refresh, expiry and complete cleanup still need proof. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 reuses the existing owner-maintenance candidate with finite authorization and durable state. Its reviewed network harness covers core restart, owner stop/resume, repair and reconstruction. The first trial stops before VM startup on an outdated wiring assertion; both affected assertions are corrected and all 158 preflight commands pass locally. Hosted Quality still stops at a test-only Clippy diagnostic, now narrowly corrected. Rust execution and the protected trial remain required. Consumer supervision and reciprocal capacity accounting remain open. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Required platforms and the real Gradle repository/descriptor-limit fixture pass. Even one worker and a smaller JVM heap exceed the 3 GiB process-memory cap. The next candidate gives only the two app-build steps 4 GiB, requiring 6 GiB available at admission and retaining the 2 GiB reserve. APK, offline rebuild, app launch, refresh, expiry and complete cleanup still need proof. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 retains finite authorization and durable state. The protected restart/repair trial has passed preflight and is running. Hosted Quality now passes strict Clippy but one multi-turn fixture exceeds its 10-second test envelope; a test-only correction preserves all custody, charge and reconnect assertions. Image supervision and Cloud same-adapter foreground coordination are being integrated alongside it. Full Rust, protected consumer maintenance and reciprocal capacity proof remain open. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
 
-The latest [Android attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38251506516)
+The latest failed [Android attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38254164363)
 retains its failed result: process drain could not be confirmed after the memory
 stop, so the policy and staging remain retained. KVM access restoration and an
 unchanged host network namespace pass separately; they are not complete cleanup.
-All 51 hosted-preparation tests and 11 native-preparer tests pass for the smaller
-build profile, which still needs actual hosted execution.
+Weather `0dbc2d05481fb793f1398398091b57ecc030d86c` explicitly changes only the
+app-build budget and adds closed Java/Dart/other memory diagnostics; the memory
+reserve and other process budgets are unchanged. Its 97 targeted checks pass.
+[Hosted execution](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38256253721)
+is pending; the changed budget is not proof that the app fits or runs.
 
 The first [maintenance trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38251889540)
 produces no topology artifact because preflight fails before the VM or Rust
@@ -47,6 +50,15 @@ tests. The separate [Quality run](https://github.com/VOLPAROSSA/volparossa/actio
 rejects one unnecessary qualification in the new future-size test. The correction
 preserves that assertion and changes no production code. These failed runs remain
 part of the evidence; passing lightweight checks do not replace runtime proof.
+
+The next [Quality run](https://github.com/VOLPAROSSA/volparossa/actions/runs/38254373355)
+passes strict Clippy. Its CLI tests report 613 passed and one failed: a test-wide
+10-second timeout interrupts the fourth resumed signed/SQLite turn after actual
+reconnect progress. The final custody assertions were not reached, so that test
+remains failed. The correction gives this four-turn fixture 20 seconds, without
+changing production deadlines, authority, turn count or final assertions. The
+separate [protected trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38254422045)
+continues on its original revision; it is not restarted or treated as passed.
 
 The successful hosted Drizz.li trial supersedes neither the earlier failed route
 trial nor the local build aborted for host memory pressure; both remain recorded
