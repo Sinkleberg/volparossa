@@ -26,6 +26,38 @@ BYTES = 2097275
 SHA = hashlib.sha256(b"".join(bytes([16+i])*262144 for i in range(8)) + bytes([25])*123).hexdigest()
 EVENTS = ("CONTENT_DISCOVERY_COMPLETED", "CONTENT_DISCOVERY_RECEIVED_OFFERS", "CONTENT_DISCOVERY_RECEIVED_EMPTY",
     "CONTENT_PROVIDER_QUERY_STARTED", "CONTENT_PROVIDER_OFFER_VERIFIED")
+FAILURE_STAGES = ("gate-install", "gate-inspect", "fetch-start", "first-snapshot", "activate-b",
+    "gate-release", "fetch-wait", "final-snapshot", "output")
+FAILURE_CATEGORIES = ("command-failed", "timeout", "interrupted", "os-error", "invalid-evidence")
+
+
+class FixtureCommandError(ValueError):
+    def __init__(self, returncode):
+        super().__init__("bounded fixture command failed")
+        self.returncode = returncode
+
+
+def failure_evidence(stage, error):
+    category, code = "invalid-evidence", None
+    if isinstance(error, FixtureCommandError): category, code = "command-failed", error.returncode
+    elif isinstance(error, subprocess.TimeoutExpired): category = "timeout"
+    elif isinstance(error, InterruptedError): category = "interrupted"
+    elif isinstance(error, OSError): category = "os-error"
+    value = dict(schema_version=1, kind="content-provider-late-recovery-failure", success=False,
+        stage=stage, category=category, command_exit_code=code)
+    validate_failure(value)
+    return value
+
+
+def validate_failure(value):
+    require(set(value) == {"schema_version", "kind", "success", "stage", "category", "command_exit_code"}
+        and type(value["schema_version"]) is int and value["schema_version"] == 1
+        and value["kind"] == "content-provider-late-recovery-failure" and value["success"] is False
+        and value["stage"] in FAILURE_STAGES and value["category"] in FAILURE_CATEGORIES,
+        "invalid fixture failure diagnostic")
+    code = value["command_exit_code"]
+    require((value["category"] == "command-failed" and type(code) is int and -255 <= code <= 255 and code != 0)
+        or (value["category"] != "command-failed" and code is None), "invalid command failure status")
 
 
 def path(work, suffix, extension="json"):
@@ -72,13 +104,14 @@ def command(args, deadline, input_data=None):
     require(remaining > 0, "fixture deadline exceeded")
     result = subprocess.run(args, input=input_data, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         timeout=min(remaining, 2), check=False)
-    require(result.returncode == 0 and len(result.stdout) <= LIMIT, "bounded fixture command failed")
+    if result.returncode != 0: raise FixtureCommandError(result.returncode)
+    require(len(result.stdout) <= LIMIT, "bounded fixture command output too large")
     return result.stdout
 
 
 def gate_rules():
     return (f"table inet {TABLE} {{ chain input {{ type filter hook input priority -30; policy accept; "
-        'iifname "r4x" ip saddr 46.162.3.1 ip daddr 49.165.5.1 tcp dport 18080 counter drop; } }\n').encode()
+        'iifname "r4x" ip saddr 46.162.3.1 ip daddr 49.165.5.1 tcp dport 18080 counter drop; }\n}\n').encode()
 
 
 def validate_gate(value):
@@ -200,12 +233,15 @@ def run(work, binary, provider_namespace):
     gate_start = time.monotonic_ns(); deadline = gate_start + GATE_NS
     write(path(work, "gate", "state"), dict(namespace=ns))
     process, success = None, False
+    stage = "gate-install"
     def interrupted(_signal, _frame): raise InterruptedError("fixture interrupted")
     handlers = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
     try:
         command(["ip", "netns", "exec", ns["name"], "nft", "-f", "-"], deadline, gate_rules())
+        stage = "gate-inspect"
         installed = json.loads(command(["ip", "netns", "exec", ns["name"], "nft", "-j", "list", "table", "inet", TABLE], deadline))
         validate_gate(installed); write(path(work, "gate-installed"), installed)
+        stage = "fetch-start"
         started = time.monotonic_ns()
         with path(work, "fetch").open("xb") as stdout, path(work, "fetch", "err").open("xb") as stderr:
             os.fchmod(stdout.fileno(), 0o600); os.fchmod(stderr.fileno(), 0o600)
@@ -213,6 +249,7 @@ def run(work, binary, provider_namespace):
                 "--publisher-key", publication["publisher_hex"], "--cache", str(native / "cache"),
                 "--output", str(native / "object.bin")), stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr)
             write(path(work, "fetch", "state"), process_identity(process.pid))
+            stage = "first-snapshot"
             while True:
                 require(process.poll() is None, "fetch ended before late activation")
                 initial = snapshot(baseline, deadline)
@@ -222,6 +259,7 @@ def run(work, binary, provider_namespace):
                 time.sleep(0.02)
             observed = time.monotonic_ns()
             write(path(work, "first-snapshot"), initial)
+            stage = "activate-b"
             activated = time.monotonic_ns()
             serve = json.loads(command(cli("relay5", "content", "serve", "--manifest", str(native / "manifest.bin"),
                 "--publisher-key", publication["publisher_hex"], "--cache", str(work / "state-relay5/content-late-recovery/cache"),
@@ -229,13 +267,17 @@ def run(work, binary, provider_namespace):
             require(serve["serving"] is True and serve["publications"] == 1 and serve["replication_enabled"] is False,
                 "late service did not acknowledge registration")
             acknowledged = time.monotonic_ns(); write(path(work, "relay5-serve"), serve)
+            stage = "gate-release"
             command(["ip", "netns", "exec", ns["name"], "nft", "delete", "table", "inet", TABLE], deadline)
             released = time.monotonic_ns(); require(released <= deadline, "gate exceeded six seconds")
-            require(process.wait(timeout=max(0.001, (started+300_000_000_000-time.monotonic_ns())/1e9)) == 0,
-                "native late recovery failed")
+            stage = "fetch-wait"
+            status = process.wait(timeout=max(0.001, (started+300_000_000_000-time.monotonic_ns())/1e9))
+            if status != 0: raise FixtureCommandError(status)
         completed = time.monotonic_ns()
+        stage = "final-snapshot"
         final = snapshot(baseline, time.monotonic_ns()+5_000_000_000)
         write(path(work, "final-snapshot"), final)
+        stage = "output"
         output = native / "object.bin"
         require(output.is_file() and not output.is_symlink() and output.stat().st_size == BYTES, "wrong output")
         write(path(work, "object"), dict(bytes=output.stat().st_size, sha256=hashlib.sha256(output.read_bytes()).hexdigest(),
@@ -244,6 +286,11 @@ def run(work, binary, provider_namespace):
             late_activation_acknowledged_ns=acknowledged, gate_released_ns=released, fetch_completed_ns=completed,
             cold_cache=True, consumer_provider_hints=False, origin_fallback=False))
         success = True
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        # Retain only fixed classifications before cleanup can raise a second error.
+        # No arbitrary command, path, exception text or child stderr is exported.
+        write(path(work, "failure"), failure_evidence(stage, error))
+        raise
     finally:
         gate_removed = False
         try:

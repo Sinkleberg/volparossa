@@ -29,14 +29,14 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Exercise late complementary-provider recovery after the now-proven concurrent three-provider transfers. | The standalone run on `a5e698cc` passes native and HTTPS bulk-overlap checks after bounded readiness, without overriding resource protection. It then stops because the control observer rejects the new late-provider test interfaces before fetching. The narrow fixture correction is in `c2fbcd8c` and a new standalone trial is running; late recovery and requester cancellation remain unproven. The separate CI primary-Exit failure remains unresolved. |
-| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
-| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9 is merged with passing CI. The closed bundle profile 3 reuses the two-product acquisition/transfer path and checks exact ordered Flutter rows; an exact immutable input archive passes capture and verification. Actual joined core delivery, runtime table extraction and native Android/iOS execution remain unverified. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Exercise late complementary-provider recovery after the now-proven concurrent three-provider transfers. | The latest standalone run on `c2fbcd8c` again passes native and HTTPS bulk-overlap checks without overriding resource protection. It reaches the corrected control observer, then fails before starting the late fetch: the temporary gate has invalid nftables syntax. The gate separator and failure-stage retention are now corrected and pass targeted checks; repeat the actual trial. Late recovery and requester cancellation remain unproven; the earlier hosted-CI primary-Exit failure has not been revalidated on current source. |
+| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Weather PR10 fixes cleanup of rejected HTTP responses without retries or relaxed validation. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
+| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR11 are merged with passing CI. The closed bundle profile 3 reuses the two-product acquisition/transfer path and checks exact ordered Flutter rows. Browser08 passes actual synthetic UI checks with the corrected ECMWF module, and a new immutable archive verifies against that proof. Actual joined core delivery, runtime table extraction and native Android/iOS execution remain unverified. |
 
 Respect the observed source rate limit instead of repeatedly relaunching the
 joined trial or routing requests through other peers. Continue the standalone
 provider proof, which needs no weather downloads, after correcting the late-phase
-capture setup; successful concurrent reconstruction does not prove late discovery
+gate setup; successful concurrent reconstruction does not prove late discovery
 convergence. The Drizz.li/Weather candidate and frozen input
 bundle remain intact; Overmorrow's core delivery and native execution are still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
@@ -141,11 +141,40 @@ provider checks, ten inert cancellation checks, seven late-recovery checks and
 eleven observer checks pass. This fixture correction still needs a new live
 late-recovery result; it changes neither production admission nor privacy policy.
 
-A new standalone trial uses clean source
-`c2fbcd8c7f14a4c917c2c7bfe721a0650e8d20c9`, with evidence reserved at
-`.git/ci-evidence/content-provider-late-02.2GyayM`. It retains the four-GiB guest,
-two-GiB host reserve and all existing acceptance gates, and makes no weather
-source requests. Its result is pending; do not restart an active run.
+The next standalone trial on clean source
+`c2fbcd8c7f14a4c917c2c7bfe721a0650e8d20c9` also passes the separate adaptive
+validator: each transfer reconstructs 15,728,640 bytes in sixty chunks from three
+providers without origin body bytes or range requests. Native bulk overlap is
+4,424,226,702 ns; cooperative-HTTPS overlap is 4,574,166,917 ns. The corrected
+late-provider observer starts, but the run then fails at
+`content-provider-late-recovery-fetch` with `CONTENT_PROVIDER_LATE_FETCH_FAILED`.
+No late fetch process or gate-installed receipt is produced. The exact generated
+gate is rejected by the nftables parser: the chain's closing brace has no
+separator before the table's closing brace. This is a fixture setup failure,
+not evidence that late rediscovery succeeded or failed during transfer.
+
+Evidence is retained under `.git/ci-evidence/content-provider-late-02.2GyayM/output/`.
+The separate adaptive report has SHA-256
+`c54d9aac85194fa6a3894978c368e39e7ad7114056596766e7d8e46a8ed468a9`;
+the failed aggregate report has SHA-256
+`ba0104fcf4c84387bc3695fb72c3a640298f62be5da19506c32b250c20e9aa6f`.
+Cleanup leaves zero owned objects and unchanged guest-root network state.
+The runner, VM and owned scratch overlay are gone; development-host DNS and
+IPv4/IPv6 route hashes match their baseline. Host-firewall comparison remains
+unavailable. No weather source was queried. Late recovery and requester
+cancellation remain open.
+
+The gate now separates the nested closing braces. Its exact old bytes fail the
+real nftables userspace parser; the corrected bytes pass parsing, then encounter
+the expected unprivileged netlink refusal. That check installs no rule and does
+not prove the live gate. Nine focused coordinator tests pass. Failures retain a
+closed stage/category and bounded exit code before cleanup, never raw exception
+text, commands or child stderr. The emergency collector also prioritizes that
+one fixed JSON filename within its unchanged size and privacy limits. Nineteen
+provider checks and ten inert cancellation checks pass, including bounded
+retention and rejected oversized/foreign-scenario evidence. The six-second gate,
+three-hundred-second transfer, gate-first cleanup and production behavior are
+unchanged; the actual late-provider trial is still required.
 
 The late-provider fixture uses a fresh publication, route and consumer cache.
 It registers the second complementary provider only after observing the first
@@ -208,6 +237,24 @@ the thirty-minute validity limit by one millisecond. Its corrected single-clock
 fixture retains both strict expiry rejection and stale-result rejection; no
 production freshness rule changes.
 
+Weather [PR10](https://github.com/VOLPAROSSA/volparossa-weather/pull/10) is merged
+at `88e5405e0fdd23a22a0e69999f6926d177a0b84e`. ECMWF now aborts its owned request
+and cancels unread response bodies after rejected status or headers; a stalled
+stream-cancellation promise cannot prolong the request deadline. Exact status,
+range and size checks, source permissions and the thirty-second deadline remain
+unchanged. Fifty-two focused ECMWF, wind and precipitation tests pass, alongside
+independent review and all PR checks. No new source request was made to test this
+cleanup correction.
+
+The actual synthetic Overmorrow browser trial now also passes with that updated
+module. `build/overmorrow-browser-08/report.json` has SHA-256
+`b5efb8726a4e0215b08958f65f214a475b303d1b2ebf19bd8a49a47d14c41875`.
+It retains the same sixty-one deployed files and exercises ten requests per
+product, pointer refresh, independent missing/stale/expiry states and complete
+browser/fixture cleanup. This is a new UI proof using the existing release build,
+not a new SDK build, real-origin acquisition, core-cache delivery or native-mobile
+result. Browser07 and its historical proof remain intact.
+
 The actual profile-three archive is retained at
 `.git/ci-evidence/weather-overmorrow-inputs-v3.2mYCGu/inputs.tar`:
 176 files, 455,024,116 payload bytes and 455,191,552 archive bytes.
@@ -219,6 +266,24 @@ Capture, runtime eligibility, unpacking and exact-tree verification pass against
 private, byte-verified source copies and the existing pinned decoder. No runtime
 or origin executes during capture. This establishes reproducible trial inputs,
 not successful joined delivery or mobile execution.
+This archive predates PR10 and binds Browser07's older ECMWF module. Do not
+rewrite it or reuse its proof as evidence for the corrected module; a new capture
+must bind Browser08 and the corresponding current verification record.
+
+That updated record is merged in Weather
+[PR11](https://github.com/VOLPAROSSA/volparossa-weather/pull/11), at
+`513e01c641f988b6c3a5d9879acdad7e7ca7e309`, after passing all CI checks.
+It changes only the report and two semantic hashes from the actual Browser08
+trial; original build facts and unproven-delivery flags remain unchanged.
+The new immutable archive is
+`.git/ci-evidence/weather-overmorrow-inputs-v3-cleanup.b8FXQv/inputs.tar`:
+176 files, 455,024,391 payload bytes and 455,192,064 archive bytes.
+Its manifest SHA-256 is
+`b724a30c21f3a3915d44841b1baa7f19f48e05e7e46acbc4f443bd6ac1676148`;
+archive SHA-256 is
+`a7fa0c2bf4f179babc77adefb650a4d0b9b3da4f354428598106e6350ed705b9`.
+Capture, runtime eligibility, unpacking and exact-tree verification all pass;
+none executes the runtime or establishes new origin or joined delivery evidence.
 
 Weather [PR8](https://github.com/VOLPAROSSA/volparossa-weather/pull/8) is merged into
 `main` at `ce1e28696d47808bd2908242325d1da478cbf0a1`. Each Overmorrow product now
@@ -743,6 +808,9 @@ provider-index propagation. Neither a longer readiness wait nor substituting
 the second Exit is an established fix. The previous pre-VM fixture failure
 in [run 38162824767](https://github.com/VOLPAROSSA/volparossa/actions/runs/38162824767)
 is fixed by `c8b57d94`; that correction does not resolve either live failure.
+This is a historical hosted result on `c8b57d94`, not a check of the current
+branch head. Later local runs reach the provider inventory, but do not establish
+that the hosted environment now passes it.
 
 The candidate now retries completed capability snapshots when verified chunks
 are missing: at most three generic discovery rounds and sixteen unique provider

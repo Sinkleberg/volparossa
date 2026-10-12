@@ -1115,7 +1115,7 @@ WEATHER_PRODUCTS_FAILURE_NAMES = {f"weather-products-delivery-{suffix}.json" for
     "acquisition-failure", "export-status", "tree-before", "input-cleanup")}
 WEATHER_PRODUCTS_HELPERS = ("weather-products-delivery.py", *WEATHER_CLIENT_HELPERS)
 LATE_PROVIDER_NAMES = {f"content-provider-late-recovery-{suffix}.json" for suffix in (
-    "first-snapshot", "final-snapshot", "object", "run-cleanup", "cleanup", "evidence")}
+    "first-snapshot", "final-snapshot", "object", "run-cleanup", "cleanup", "evidence", "failure")}
 
 
 def joined_client_helper(work, names, entrypoint):

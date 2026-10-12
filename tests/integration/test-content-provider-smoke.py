@@ -257,8 +257,8 @@ class ContentProviderContract(unittest.TestCase):
         api = {"__name__": "inert_late_collector"}
         exec(compile(embedded, "late-collector", "exec"), api)
         self.assertEqual(api["LATE_PROVIDER_NAMES"], {f"content-provider-late-recovery-{suffix}.json"
-            for suffix in ("first-snapshot", "final-snapshot", "object", "run-cleanup", "cleanup", "evidence")})
-        for scenario in ("content-provider", "content"):
+            for suffix in ("first-snapshot", "final-snapshot", "object", "run-cleanup", "cleanup", "evidence", "failure")})
+        for scenario, oversized_failure in (("content-provider", False), ("content-provider", True), ("content", False)):
             with tempfile.TemporaryDirectory() as directory:
                 base = Path(directory)
                 home, opt, proc, cgroups = (base / name for name in ("home", "opt", "proc", "cgroups"))
@@ -270,6 +270,10 @@ class ContentProviderContract(unittest.TestCase):
                 # scan before the later-named recovery proof was reached.
                 for index in range(60): (work / f"content-before-{index:02}.json").write_text("{}")
                 for name in api["LATE_PROVIDER_NAMES"]: (work / name).write_text('{"observed":true}')
+                failure_name = "content-provider-late-recovery-failure.json"
+                failure_raw = json.dumps(dict(schema_version=1, kind="content-provider-late-recovery-failure",
+                    success=False, stage="gate-install", category="command-failed", command_exit_code=2)).encode()
+                (work / failure_name).write_bytes(b" " * (api["FILE_LIMIT"] + 1) if oversized_failure else failure_raw)
                 oversized = "content-provider-late-recovery-evidence.json"
                 (work / oversized).write_bytes(b" " * (api["FILE_LIMIT"] + 1))
                 alias = "content-provider-late-recovery-cleanup.json"
@@ -283,7 +287,10 @@ class ContentProviderContract(unittest.TestCase):
                     files = {member.name: bundle.extractfile(member).read() for member in bundle.getmembers()}
                 selected = {name.rsplit("/", 1)[-1] for name in files if "late-recovery" in name}
                 expected = api["LATE_PROVIDER_NAMES"] - {oversized, alias} if scenario == "content-provider" else set()
+                if oversized_failure: expected.discard(failure_name)
                 self.assertEqual(selected, expected)
+                if failure_name in selected:
+                    self.assertEqual(files[f"work-1/{failure_name}"], failure_raw)
                 self.assertFalse(any(b"PRIVATE" in value for value in files.values()))
                 summary = json.loads(files["vm-incomplete.json"])
                 self.assertIs(summary["success"], False)

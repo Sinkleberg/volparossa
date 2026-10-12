@@ -5,7 +5,10 @@ import copy
 import json
 from pathlib import Path
 import runpy
+import shutil
+import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -134,6 +137,47 @@ class LateRecovery(unittest.TestCase):
             target[keys[-1]] = changed
             with self.assertRaises(ValueError): CHECK["validate_gate"](value)
 
+    def test_gate_rules_separate_nested_blocks_and_pass_read_only_nft_parser(self):
+        rules = CHECK["gate_rules"]()
+        self.assertTrue(rules.endswith(b"counter drop; }\n}\n"))
+        nft = shutil.which("nft", path="/usr/sbin:/usr/bin:/sbin:/bin")
+        if nft is None: self.skipTest("nft userspace parser is not installed")
+        broken = rules.replace(b"counter drop; }\n}\n", b"counter drop; } }\n")
+        def parse(raw):
+            # Check-only never commits a rule. An unprivileged host may refuse
+            # netlink initialization after parsing; that is not installed-gate proof.
+            return subprocess.run([nft, "--check", "--file", "-"], input=raw,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3, check=False,
+                env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"})
+        before, after = parse(broken), parse(rules)
+        self.assertNotEqual(before.returncode, 0)
+        self.assertIn(b"syntax error", before.stderr)
+        self.assertNotIn(b"syntax error", after.stderr)
+        if after.returncode:
+            self.assertEqual(after.stderr.strip(), b"netlink: Error: cache initialization failed: Operation not permitted")
+
+    def test_failure_evidence_is_closed_and_never_exports_exception_or_command_text(self):
+        cases = ((CHECK["FixtureCommandError"](2), "command-failed", 2),
+            (subprocess.TimeoutExpired(["private-command"], 2, stderr=b"secret"), "timeout", None),
+            (InterruptedError("secret"), "interrupted", None), (OSError("secret"), "os-error", None),
+            (ValueError("secret"), "invalid-evidence", None))
+        for error, category, code in cases:
+            value = CHECK["failure_evidence"]("gate-install", error)
+            self.assertEqual(value, dict(schema_version=1, kind="content-provider-late-recovery-failure",
+                success=False, stage="gate-install", category=category, command_exit_code=code))
+            self.assertNotIn("secret", json.dumps(value)); self.assertNotIn("private-command", json.dumps(value))
+        original = CHECK["failure_evidence"]("gate-install", CHECK["FixtureCommandError"](2))
+        for field, changed in (("schema_version", True), ("success", True), ("stage", "arbitrary-path"),
+                ("category", "raw-error"), ("command_exit_code", True), ("command_exit_code", 0),
+                ("command_exit_code", 256), ("command_exit_code", -256), ("stderr", "secret")):
+            value = {**original, field: changed}
+            with self.assertRaises(ValueError): CHECK["validate_failure"](value)
+        with patch.object(CHECK["subprocess"], "run", return_value=SimpleNamespace(returncode=2, stdout=b"secret")):
+            with self.assertRaises(CHECK["FixtureCommandError"]) as caught:
+                CHECK["command"](["unused-inert-command"], CHECK["time"].monotonic_ns() + 1_000_000_000)
+        self.assertEqual(caught.exception.returncode, 2)
+        self.assertNotIn("secret", str(caught.exception))
+
     def test_log_snapshots_are_bounded_and_ignore_preexisting_or_noncontent_events(self):
         raw = b"1000 INFO event=CONTENT_DISCOVERY_COMPLETED\n1001 INFO event=CONTENT_DISCOVERY_RECEIVED_OFFERS\n"
         self.assertEqual(CHECK["event_rows"](raw, 1000), [dict(unix_ms=1001, event="CONTENT_DISCOVERY_RECEIVED_OFFERS")])
@@ -155,7 +199,7 @@ class LateRecovery(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary: CHECK["cleanup"](Path(temporary))
 
     def test_coordinator_activates_b_only_after_snapshot_and_always_releases_owned_gate(self):
-        for failure in (None, "snapshot", "activation"):
+        for failure in (None, "gate-install", "gate-inspect", "snapshot", "activation"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
                 work = Path(temporary); native = work / "state-client/content-late-recovery"; native.mkdir(parents=True)
                 binary = work / "volparossa"; binary.touch()
@@ -185,8 +229,13 @@ class LateRecovery(unittest.TestCase):
                 def now(): clock[0] += 100_000_000; return clock[0]
                 def execute(args, deadline, input_data=None):
                     if args[-2:] == ["list", "tables"]: return b'{"nftables":[]}'
-                    if args[-2:] == ["-f", "-"]: calls.append("gate-install"); return b""
-                    if "list" in args and "table" in args: return json.dumps(gate_fixture()).encode()
+                    if args[-2:] == ["-f", "-"]:
+                        calls.append("gate-install")
+                        if failure == "gate-install": raise CHECK["FixtureCommandError"](2)
+                        return b""
+                    if "list" in args and "table" in args:
+                        if failure == "gate-inspect": raise ValueError("secret malformed gate")
+                        return json.dumps(gate_fixture()).encode()
                     if "delete" in args: calls.append("gate-release"); return b""
                     if "logs" in args:
                         label = "client" if "runtime-client" in args[2] else "broker"
@@ -201,10 +250,20 @@ class LateRecovery(unittest.TestCase):
                         if failure == "activation": raise ValueError("registration failed")
                         return json.dumps(value["providers"]["relay5"]["serve"]).encode()
                     self.fail(f"unexpected command {args}")
+                def release(_work, **_kwargs):
+                    calls.append("cleanup-gate")
+                    diagnostic = CHECK["path"](work, "failure")
+                    self.assertEqual(diagnostic.exists(), failure is not None)
+                    if failure:
+                        record = CHECK["read"](diagnostic); CHECK["validate_failure"](record)
+                        stage = {"snapshot": "first-snapshot", "activation": "activate-b"}.get(failure, failure)
+                        self.assertEqual(record["stage"], stage)
+                        self.assertEqual(record["command_exit_code"], 2 if failure == "gate-install" else None)
+                        self.assertNotIn("secret", diagnostic.read_text())
                 with patch.dict(CHECK["run"].__globals__, guest=lambda work: None,
                         namespace=lambda work: dict(name="va-00000000-r4", identity="1:2"), command=execute,
                         process_identity=lambda pid: dict(pid=pid, start_ticks=100),
-                        remove_gate=lambda work, **kwargs: calls.append("cleanup-gate")), \
+                        remove_gate=release), \
                         patch.object(CHECK["subprocess"], "Popen", side_effect=spawn), \
                         patch.object(CHECK["time"], "monotonic_ns", side_effect=now), \
                         patch.object(CHECK["time"], "time_ns", return_value=1_000_000_000), \
@@ -213,14 +272,17 @@ class LateRecovery(unittest.TestCase):
                         with self.assertRaises(ValueError): CHECK["run"](work, binary, "va-00000000-r4")
                     else: CHECK["run"](work, binary, "va-00000000-r4")
                 self.assertIn("cleanup-gate", calls)
-                self.assertIsNotNone(process.returncode)
+                if failure in ("gate-install", "gate-inspect"):
+                    self.assertNotIn("fetch-start", calls)
+                else: self.assertIsNotNone(process.returncode)
                 cleanup = CHECK["read"](CHECK["path"](work, "run-cleanup"))
                 self.assertEqual(cleanup, dict(fetch_reaped=True, gate_removed=True, operation_completed=failure is None))
                 if failure == "snapshot": self.assertNotIn("activate-b", calls)
                 elif failure is None:
                     self.assertLess(calls.index("activate-b"), calls.index("gate-release"))
                     self.assertLess(calls.index("gate-release"), calls.index("fetch-wait"))
-                if failure: self.assertLess(calls.index("cleanup-gate"), calls.index("fetch-terminate"))
+                if failure in ("snapshot", "activation"):
+                    self.assertLess(calls.index("cleanup-gate"), calls.index("fetch-terminate"))
 
     def test_builder_requires_exact_original_snapshots_and_disconnected_route(self):
         with tempfile.TemporaryDirectory() as temporary:
