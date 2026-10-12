@@ -118,11 +118,11 @@ weather_client_delivery_run() {
     # legacy profile must keep its original driver and evidence contract.
     weather_profile=$(weather_client_runtime_profile) || fail WEATHER_CLIENT_PROFILE_INVALID
     weather_profile_version=$(printf '%s\n' "$weather_profile" | \
-        jq -er '.bundle_version | select(type == "number" and (. == 1 or . == 2 or . == 3 or . == 4))') \
+        jq -er '.bundle_version | select(type == "number" and (. == 1 or . == 2 or . == 3 or . == 4 or . == 5))') \
         || fail WEATHER_CLIENT_PROFILE_INVALID
     case $weather_profile_version in
         1) ;;
-        2|3|4)
+        2|3|4|5)
             . "$source_directory/tests/integration/weather-products-delivery.sh"
             weather_products_delivery_run
             return ;;

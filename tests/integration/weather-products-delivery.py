@@ -107,7 +107,7 @@ def source_response(root, key, started_at, finished_at):
 
 def ui_profile(version):
     # A version selects a fixed consumer, never a caller-supplied executable.
-    require(type(version) is int and version in (2, 3, 4))
+    require(type(version) is int and version in (2, 3, 4, 5))
     if version in (2, 4):
         return dict(ui="actual_drizzli_ui", static=B["STATIC"],
             preparer="integrations/drizzli/prepare-core-browser.mjs",
@@ -297,7 +297,7 @@ def acquisition(source, manifest_sha, root, parent, client, group):
             write_new(root / p["filename"], raw)
         stage = "final-validation"
         active_product, started_at, finished_at = None, None, None
-        result = dict(schema=4 if version == 4 else 2, success=True, origin_https=True, acquisition_outside_overlay=True,
+        result = dict(schema=4 if version in (4, 5) else 2, success=True, origin_https=True, acquisition_outside_overlay=True,
             upstream_signature_attested=False, synthetic_weather=False, synthetic_air_quality=False,
             independent_product_runs=True, decoder_sha256=decoder, products=products)
         validate_acquisition(result, version)
@@ -397,8 +397,8 @@ def prepare(source, viewer, binary, control, weather_cache, air_quality_cache, v
         "--forecast", str(viewer / "forecast.json"), "--receipt", str(viewer / "cold-receipt.json"),
         "--air-quality", str(viewer / "air-quality.json"), "--air-quality-receipt", str(viewer / "air-quality-cold-receipt.json"),
         "--config", str(viewer / "config.json"), "--core-sha256", core_sha, "--output", str(viewer / "expected.json")]
-    if version == 4:
-        command += ["--bundle-version", "4"]
+    if version in (4, 5):
+        command += ["--bundle-version", str(version)]
     raw = run(command, viewer, 4096, 30)
     result = json.loads(raw, object_pairs_hook=B["B"]["unique_pairs"])
     same(set(result), {"prepared", "expected_sha256", "display_sha256"})
@@ -475,7 +475,7 @@ def acquisition_profile(value, version=None):
     require(type(value) is dict and type(value.get("schema")) is int and value["schema"] in (2, 4))
     if version is not None:
         ui_profile(version)
-        same(value["schema"], 4 if version == 4 else 2)
+        same(value["schema"], 4 if version in (4, 5) else 2)
     return value["schema"]
 
 
@@ -506,14 +506,20 @@ def closed_report(report):
     require(report["phase"] in {"inputs", "sandbox", "bridge_start", "provider", "browser_start", "hydration", "refresh", "shutdown", "complete"})
     if "failure" in report: require(report["failure"] in ("interrupted", "check_or_runtime_failed"))
     source = report["source"]
-    extra_source = {"synthetic_ui_proof"} if report["schema"] == 4 else set()
+    extra_source = ({"synthetic_ui_proof", "synthetic_table_proof"} if report["schema"] == 5
+        else {"synthetic_ui_proof"} if report["schema"] == 4 else set())
     require(set(source) == {"bundle_manifest_sha256", "driver_sha256", "preparer_sha256", "built_tree_sha256", "node_sha256", "bridge_modules"} | extra_source
-        and all(hex64(v) for k, v in source.items() if k not in {"bridge_modules", "synthetic_ui_proof"})
+        and all(hex64(v) for k, v in source.items() if k not in {"bridge_modules"} | extra_source)
         and set(source["bridge_modules"]) == BRIDGE_MODULES and all(hex64(v) for v in source["bridge_modules"].values()))
     if extra_source:
         proof = source["synthetic_ui_proof"]
         require(type(proof) is dict and set(proof) == {"sha256", "driver_sha256", "core_executed", "overlay_proven"}
             and hex64(proof["sha256"]) and hex64(proof["driver_sha256"])
+            and proof["core_executed"] is False and proof["overlay_proven"] is False)
+    if report["schema"] == 5:
+        proof = source["synthetic_table_proof"]
+        require(type(proof) is dict and set(proof) == {"sha256", "driver_sha256", "verifier_sha256", "core_executed", "overlay_proven"}
+            and all(hex64(proof[key]) for key in ("sha256", "driver_sha256", "verifier_sha256"))
             and proof["core_executed"] is False and proof["overlay_proven"] is False)
     require(set(report["expected"]) == {"expected_sha256", "core_sha256", "display_sha256"}
         and all(hex64(v) or k == "expected_sha256" and v is None for k, v in report["expected"].items()))
@@ -612,7 +618,7 @@ def cold_summary(selected, acquired, colds, manifest_sha, binary_sha, version=2)
             manifest_id=publication["manifest_id"], cold_receipt_sha256=cold["cold_receipt_sha256"],
             acquired_fields=len(acquired["products"][key]["fields"]), protected_cold=dict(peer_bytes=cold["receipt"]["peer_bytes"],
                 providers_used=cold["receipt"]["providers_used"], origin_body_bytes=0, origin_range_requests=0, privacy_captures_validated=True))
-    result = dict(schema=4 if version == 4 else 2, success=True, kind="volparossa-weather-products-protected-cold", bundle_manifest_sha256=manifest_sha,
+    result = dict(schema=4 if version in (4, 5) else 2, success=True, kind="volparossa-weather-products-protected-cold", bundle_manifest_sha256=manifest_sha,
         core_sha256=binary_sha, decoder_sha256=B["decoder_sha"](version), products=products,
         scope=dict(actual_acquisition=True, acquisition_outside_overlay=True, same_publications_joined=True,
             independent_product_captures=True, protected_cold_transfer=True, actual_drizzli_ui=False, actual_http_bridge=False,
@@ -681,6 +687,15 @@ def evidence(work, manifest_sha, binary_sha):
         proof = report["source"]["synthetic_ui_proof"]
         same(proof["sha256"], manifest["files"][B["WEATHER"] + "integrations/drizzli/hosted-browser-proof.json"]["sha256"])
         same(proof["driver_sha256"], manifest["files"][B["WEATHER"] + "integrations/drizzli/smoke_browser.py"]["sha256"])
+    if version == 5:
+        for key, retained_name, driver in (("synthetic_ui_proof", "hosted-browser-proof.json", "smoke_browser.py"),
+                                     ("synthetic_table_proof", "hosted-table-proof.json", "smoke_table_browser.py")):
+            proof = report["source"][key]
+            prefix = B["WEATHER"] + "integrations/overmorrow/"
+            same(proof["sha256"], manifest["files"][prefix + retained_name]["sha256"])
+            same(proof["driver_sha256"], manifest["files"][prefix + driver]["sha256"])
+        same(report["source"]["synthetic_table_proof"]["verifier_sha256"],
+             manifest["files"][prefix + "hosted-proof/historical-smoke_core_browser_v3.py"]["sha256"])
     for relative, digest in report["source"]["bridge_modules"].items(): require(digest == manifest["files"][B["WEATHER"] + relative]["sha256"])
     require(report["source"]["node_sha256"] == B["NODE_SHA"])
     static = {name[len(profile["static"]):]: item["sha256"] for name, item in manifest["files"].items()
@@ -727,7 +742,7 @@ def validate_evidence_export(value):
     profile = ui_profile(value["schema"])
     require(hex64(value["browser_report_sha256"]) and hex64(value["display_sha256"]))
     cold = {k: v for k, v in value.items() if k not in {"browser_report_sha256", "display_sha256", "scope", "cleanup"}}
-    cold.update(schema=4 if value["schema"] == 4 else 2, kind="volparossa-weather-products-protected-cold", scope=dict(actual_acquisition=True,
+    cold.update(schema=4 if value["schema"] in (4, 5) else 2, kind="volparossa-weather-products-protected-cold", scope=dict(actual_acquisition=True,
         acquisition_outside_overlay=True, same_publications_joined=True, independent_product_captures=True,
         protected_cold_transfer=True, actual_drizzli_ui=False, actual_http_bridge=False, actual_ui_refresh=False,
         end_to_end_proven=False, browser_triggered_cold_fetch=False, two_subflow_bulk_aggregation=False,

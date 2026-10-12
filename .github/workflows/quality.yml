@@ -84,6 +84,8 @@ jobs:
           node -e 'if (Number(process.versions.node.split(".")[0]) < 22) process.exit(1)'
           node --test tests/integration/test-weather-source-observer.mjs
           python3 -B tests/integration/test-weather-products-delivery.py
+          python3 -B tests/integration/test-weather-products-hosted-wiring.py
+          python3 -B tests/integration/test-weather-overmorrow-hosted-wiring.py
           python3 -B tests/integration/test-weather-products-delivery-shell.py
           python3 -B tests/integration/test-weather-client-runner.py
 

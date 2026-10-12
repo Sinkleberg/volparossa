@@ -35,15 +35,36 @@ class ProductsShell(unittest.TestCase):
         source = SOURCE.read_text()
         staging = "    for weather_script in " + source.split("    for weather_script in ", 1)[1].split(
             "    install -o root -g root -m 0600", 1)[0]
-        result = self.call('''
+        for version in (2, 3, 4, 5):
+            result = self.call('''
 source_directory=/verified-core
+weather_profile_version=VERSION
 install() { printf '%s\\n' "$*"; }
 fail() { exit 99; }
-''' + staging)
-        self.ok(result)
-        expected = f"-o root -g root -m 0555 /verified-core/tests/integration/weather-source-observer.mjs {self.root}/bin/weather-source-observer.mjs"
-        self.assertEqual(result.stdout.splitlines().count(expected), 1)
+'''.replace("VERSION", str(version)) + staging)
+            self.ok(result)
+            expected = f"-o root -g root -m 0555 /verified-core/tests/integration/weather-source-observer.mjs {self.root}/bin/weather-source-observer.mjs"
+            self.assertEqual(result.stdout.splitlines().count(expected), 1)
+            admission = "weather-public-overmorrow-v5.json"
+            calls = [line for line in result.stdout.splitlines() if admission in line]
+            self.assertEqual(calls, [f"-o root -g root -m 0555 /verified-core/tests/integration/{admission} {self.root}/bin/{admission}"]
+                if version == 5 else [])
         self.assertLess(source.index(staging), source.index("PHASE=weather-products-delivery-acquire"))
+
+    def test_missing_v5_admission_fails_before_unpack_without_blocking_older_profiles(self):
+        source = SOURCE.read_text()
+        staging = "    for weather_script in " + source.split("    for weather_script in ", 1)[1].split(
+            "    install -o root -g root -m 0600", 1)[0]
+        for version in (2, 3, 4, 5):
+            result = self.call('''
+source_directory=/verified-core
+weather_profile_version=VERSION
+install() { case "$*" in *weather-public-overmorrow-v5.json*) return 1;; *) return 0;; esac; }
+fail() { printf '%s\n' "$1" >&2; exit 77; }
+'''.replace("VERSION", str(version)) + staging + "\nprintf 'unpack-next\\n'\n")
+            self.assertEqual(result.returncode, 77 if version == 5 else 0, result.stderr)
+            self.assertEqual(result.stdout, "" if version == 5 else "unpack-next\n")
+            self.assertEqual(result.stderr, "WEATHER_PRODUCTS_DRIVER_UNAVAILABLE\n" if version == 5 else "")
 
     def test_closed_independent_product_mapping(self):
         result = self.call('''
@@ -175,7 +196,7 @@ if weather_client_delivery_copy_artifacts; then exit 90; fi
         helper_root.mkdir(parents=True)
         (helper_root / "weather-products-delivery.sh").write_text(
             'weather_products_delivery_run() { printf "v%s\\n" "$weather_profile_version"; }\n')
-        for version in (1, 2, 3, 4, 5, "2", "3", "4", True):
+        for version in (1, 2, 3, 4, 5, 6, "2", "3", "4", "5", True):
             with self.subTest(version=version, value_type=type(version)):
                 import json
                 value = json.dumps({"bundle_version": version})
@@ -188,7 +209,7 @@ python3() { printf '%s\n' 'JSON'; }
 fail() { exit 77; }
 run_selected
 '''.replace("JSON", value), source=source + "\nrun_selected() {\n" + head + '\nprintf "v1\\n"\n}\n')
-                self.assertEqual(result.returncode, 0 if type(version) is int and version in (1, 2, 3, 4) else 77)
+                self.assertEqual(result.returncode, 0 if type(version) is int and version in (1, 2, 3, 4, 5) else 77)
                 if result.returncode == 0: self.assertEqual(result.stdout, f"v{version}\n")
         self.assertLess(head.index("weather_client_runtime_profile"), head.index(".bundle_version"))
         self.assertLess(head.index(".bundle_version"), head.index('            . "$source_directory'))
@@ -204,7 +225,7 @@ run_selected
                      ("stat-failure", 1000, 0, 77), ("missing-account", 1000, 0, 77),
                      ("runuser-failure", 1000, 0, 77), ("helper-failure", 0, 1, 77),
                      ("helper-failure", 1000, 1, 77))
-        for version in (1, 2, 3, 4):
+        for version in (1, 2, 3, 4, 5):
             for scenario, owner, helper_status, expected_status in scenarios:
                 with self.subTest(version=version, scenario=scenario, owner=owner):
                     result = self.call('''
@@ -266,7 +287,7 @@ run_selected
         source = SOURCE.read_text()
         head = source.split("weather_products_delivery_run() {", 1)[1].split(
             "    PHASE=weather-products-delivery-prepare", 1)[0]
-        for version in ("2", "3", "4", "1", "5", "", "../../../arbitrary"):
+        for version in ("2", "3", "4", "5", "1", "6", "", "../../../arbitrary"):
             with self.subTest(version=version):
                 result = self.call('''
 weather_client_bundle=inert
@@ -276,14 +297,50 @@ fail() { exit 77; }
 run_selected
 '''.replace("VERSION", version), source=source + "\nrun_selected() {\n" + head +
                     '\nprintf "%s\\n" "$weather_products_driver"\n}\n')
-                if version in ("2", "3", "4"):
+                if version in ("2", "3", "4", "5"):
                     self.ok(result)
-                    consumer = "overmorrow" if version == "3" else "drizzli"
+                    consumer = "overmorrow" if version in ("3", "5") else "drizzli"
                     self.assertEqual(result.stdout.strip(), f"integrations/{consumer}/smoke_core_browser.py")
                 else: self.assertEqual(result.returncode, 77)
         self.assertIn('"$WORK/state-client/air-quality-cache" "$weather_profile_version"', source)
         self.assertIn('python3 -B "$weather_client_directory/volparossa-weather/$weather_products_driver"', source)
         self.assertEqual(source.count('weather_products_remaining 270'), 1)
+
+    def test_browser_version_argument_is_fixed_and_only_added_for_v5(self):
+        source = SOURCE.read_text()
+        browser = "    PHASE=weather-products-delivery-browser\n" + source.split(
+            "    PHASE=weather-products-delivery-browser\n", 1)[1].split(
+            "    PHASE=weather-products-delivery-verify\n", 1)[0]
+        for version in (2, 3, 4, 5):
+            result = self.call('''
+weather_profile_version=VERSION
+weather_client_directory=/verified-client
+weather_client_manifest_sha256=inert
+weather_products_driver=integrations/CONSUMER/smoke_core_browser.py
+weather_viewer=/private-viewer
+site_parent_ns=net:[1]
+site_client_ns=net:[2]
+WORKER_UID=985
+CLIENT=isolated-client
+weather_products_remaining() { printf '270\n'; }
+timeout() { printf '%s\n' "$@" > "$WORK/browser-args"; }
+fail() { exit 99; }
+set -- --bundle-version 999 arbitrary-caller-argument
+'''.replace("VERSION", str(version)).replace("CONSUMER", "overmorrow" if version in (3, 5) else "drizzli") + browser)
+            self.ok(result)
+            args = (self.root / "browser-args").read_text().splitlines()
+            self.assertEqual(args[:3], ["--signal=TERM", "--kill-after=30s", "270s"])
+            self.assertIn("--clear-groups", args)
+            self.assertIn("--bounding-set=-all", args)
+            self.assertIn("--no-new-privs", args)
+            self.assertNotIn("arbitrary-caller-argument", args)
+            self.assertNotIn("999", args)
+            if version == 5:
+                self.assertEqual(args[-2:], ["--bundle-version", "5"])
+                self.assertEqual(args.count("--bundle-version"), 1)
+            else:
+                self.assertNotIn("--bundle-version", args)
+                self.assertEqual(args[-2:], ["--control-gid", "987"])
 
     def test_publication_cleanup_independent_captures_and_retained_proof_order(self):
         source = SOURCE.read_text()
