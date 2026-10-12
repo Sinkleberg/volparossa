@@ -59,7 +59,8 @@ REPAIR_DIAGNOSTIC = None
 REPAIR_TURNS = []
 SAMPLER_DIAGNOSTIC = {}
 LIFECYCLE_DIAGNOSTIC = None
-SUPERVISOR_STAGES = ('bind_slots', 'control_query', 'control_match', 'broker_validated', 'control_rebind',
+SUPERVISOR_STAGES = ('bind_slots', 'control_query', 'control_match', 'broker_validated',
+    'control_snapshot', 'control_validate_before', 'control_rebind',
     'control_verified', 'route_scope',
     'start_observers', 'ready_payload', 'publish_ready', 'join_owner',
     'lifecycle_receipt', 'finish_observers', 'coordinator_cleanup')

@@ -12,7 +12,7 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-12
+Last updated: 2026-10-13
 
 ## Current integration and active work
 
@@ -30,14 +30,48 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Earlier runs prove matching APK build/offline-rebuild hashes within each run. Trial `38312147795` identifies failed SDK discovery of the emulator package. Candidate `6fb0114c` adds only the verified emulator descriptor, with original licenses and unchanged binary pins/permissions. All 128 targeted Android and 303 shared hosted tests pass. Component CI `38314304745` passes; actual Android trial `38314299583` is pending. Installation, launch, refresh, expiry and iOS remain unproved. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's previous trial `38307755528` passes upload and reconnect, then the fixture rejects a changed ordinary control relay. Candidate `fd0e245e` rebinds only owned UDP control links and binds subsequent captures to the new broker, preserving original upload evidence and authority. Its 98 targeted tests and independent review pass; actual trial `38313487736` is pending. Current schema 4 requires the actual transition proof. Image PR6 and Cloud PR13 retain their original pins and acceptance checks. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38314299583` on `6fb0114c` passes isolated AVD creation and both APK builds, then stops the installed-app phase at its 3 GiB aggregate memory cap; process drain and full cleanup are not confirmed. Candidate `cdf604e` gives only that phase 4 GiB, retaining its existing resource reserves and other limits. Actual trial `38316868986` has failed; its original reports are being inspected. Separate component CI passes 305 tests. Installation, launch, refresh, expiry and iOS remain unproved. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's trial `38313487736` on `fd0e245e` passes inventory, upload and reconnect, then fails at `broker_validated` with the same ordinary control relay. A deterministic validator mismatch is confirmed: the original topology supplies eleven peer roles, but the current validator expected eight. The correction requires exactly the original eleven and separates snapshot/validation diagnostics; it preserves upload evidence, route rules and authority. Actual transition, repair and consumer acceptance remain required. Image PR6 and Cloud PR13 retain their original pins and checks. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
 
 ### Current corrections awaiting hosted proof
 
-The previous [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38307755528)
+The latest [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38313487736)
+on `fd0e245e` fails at `broker_validated`, with control-relay relation `same`
+and exit status 1. The original artifact contains no transition record or
+intermediate control snapshot, so the exact failing command within that stage
+is not established. The later owner `termination_signal` is cleanup, not the
+primary error. All 13 owner, six agent and ten wire tests pass. Initial upload
+retains eight copies and 74 completed protected flows over two used relay paths;
+the original network validator passes. All 25 original proof files and the
+artifact's matching GitHub digest are retained. Cleanup leaves zero owned objects
+and byte-identical guest-root network snapshots, without proving successful repair.
+
+Inspection and a failing-then-passing actual Python CLI regression identify a
+concrete validator incompatibility: the original topology emits eleven peer
+roles, while the current transition and consumer validators expected eight.
+Both now require exactly the original eleven, including bootstrap contacts and
+the secondary exit; all identities must remain unique and bounded. Those extra
+roles do not become permitted custody brokers. Historical schema 1 explicitly
+retains its old eight-role shape. Two closed supervisor stages now distinguish
+the initial snapshot operation from its before-transition validation. No route,
+grant, retry, deadline or evidence-acceptance requirement is weakened.
+
+All 23 consumer-evidence, 37 maintenance and 34 full wiring tests pass on the
+stable corrected tree, with independent review. The CLI and shell tests use
+synthetic kernel snapshots, not actual kernel execution. A new disposable trial
+must still prove the transition, repair and both consumer restores before the
+longer Cloud upload/repair/restore continuation can proceed.
+
+[Quality 38313456210](https://github.com/VOLPAROSSA/volparossa/actions/runs/38313456210)
+passes on actual PR merge `dc770f19` of main `3dcdffa0` and `fd0e245e`:
+3,588 workspace tests pass, none fail and seven are ignored, including all
+614 passing CLI tests. Original logs are retained and integrity checked.
+Three namespace checks and one optional real-CLI Python check explicitly skip;
+this Quality result is not protected-network acceptance for the correction.
+
+The preceding [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38307755528)
 fails specifically at `control_match`, with `control_relay_relation=different`.
 The owner's later `termination_signal` is cleanup, not the primary I/O cause.
 All 13 owner, six agent and ten wire tests pass; eight copies are uploaded over
@@ -62,20 +96,38 @@ the shared 8 MiB limit are unchanged. No truncated JSON is accepted.
 Separate [Quality](https://github.com/VOLPAROSSA/volparossa/actions/runs/38307715713)
 passes for `910ae86e` through PR merge `c117bbad`, including all 614 CLI tests.
 Three namespace checks explicitly skip and provide no live datapath evidence.
-The controlled rebinding is published as `fd0e245e`;
-[trial 38313487736](https://github.com/VOLPAROSSA/volparossa/actions/runs/38313487736)
-and [Quality 38313456210](https://github.com/VOLPAROSSA/volparossa/actions/runs/38313456210)
-are pending. Actual maintenance acceptance is still required before the longer
-Cloud upload/repair/restore continuation can proceed.
+The controlled rebinding still needs a successful real disposable trial before the
+longer Cloud upload/repair/restore continuation can proceed.
 
-The [previous Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38312147795)
+The [Android trial on `6fb0114c`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38314299583)
+passes the actual isolated AVD-create preflight after adding only the pinned
+official emulator-package descriptor. Acquisition and clean strict-offline APK
+build receipts match within the run. The subsequent installed-app phase stops
+after 34.075 seconds with `CHILD_MEMORY_BOUND`: sampled aggregate RSS is
+3,240,882,176 bytes against the 3 GiB cap. No inner boot/install/UI result is
+retained. Process drain, policy removal and staging removal remain unconfirmed;
+restored KVM access and an unchanged host network namespace are separate checks.
+Original proof/log bytes and all fifteen step-log hashes are retained and checked.
+
+Candidate `cdf604e` gives only the fixed installed-emulator phase a 4 GiB budget;
+preflights, guest RAM, CPU/time limits, sandbox and cleanup requirements are
+unchanged, including the shared runner's existing launch and continuous reserves.
+All 130 inert Android and 40 shared-helper tests pass. Independent review passes.
+[Actual trial 38316868986](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38316868986)
+has failed; its original reports are being inspected without inferring the cause
+from the preceding run. Separate [component CI](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38316872807)
+passes 305 tests on the actual PR merge; neither result yet proves installed-app
+operation or successful cleanup after emulator execution.
+
+The earlier [Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38312147795)
 uses the corrected exact SDK prompt boundary and observes
 `emulator_package_missing`, after repository loading, ABI selection and the
 hardware question. Its bounded diagnostic exports no variable message content.
 All 123 targeted inert Android tests pass; the runtime failure and separate
 [Git-fixture component failure](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38312152639)
-remain open. Neither diagnostic coverage nor prior APK builds prove installed
-app behavior.
+were open at that revision. The descriptor and isolated Git fixture are corrected
+in the later candidate above. Neither diagnostic coverage nor prior APK builds
+prove installed app behavior.
 
 ### Earlier trial evidence
 

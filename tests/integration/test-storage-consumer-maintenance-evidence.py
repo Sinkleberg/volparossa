@@ -74,6 +74,10 @@ def snapshot_fixture(broker, *, routed=False):
 
 def attach_transition(value, *, changed=True, consumer=True):
     peers, layout = value['expected_peers'], value['layout']
+    # Current a01-expected-peers.json retains all eleven initialized roles,
+    # including contacts/secondary exit that are never custody brokers.
+    for node in ('bootstrap1', 'bootstrap2', 'exit2'):
+        peers.setdefault(node, f'fixture-{node}')
     previous = next(node for node in M['CONTROL_NODES'][:3] if peers[node] == layout['control_relay_peer_id'])
     current = next(node for node in M['CONTROL_NODES'][:3] if node != previous) if changed else previous
     transition = dict(schema_version=1, kind='storage-maintenance-control-transition',
@@ -193,6 +197,55 @@ def write_evidence(root, value):
 
 
 class ControlTransition(unittest.TestCase):
+    def test_current_topology_has_exact_eleven_roles_and_bounded_unique_identities(self):
+        value = fixture()
+        peers, transition = value['expected_peers'], value['control_transition']
+        self.assertEqual(set(peers), {'client', 'bootstrap1', 'bootstrap2', 'exit', 'exit2',
+            'relay0', 'relay1', 'relay2', 'relay3', 'relay4', 'relay5'})
+        M['validate_control_transition'](transition, peers, value['layout'])
+        for mutate in (
+                *(lambda p, node=node: p.pop(node) for node in peers),
+                lambda p: p.update(extra='fixture-extra'),
+                lambda p: p.update(bootstrap1=p['client']),
+                lambda p: p.update(exit2=p['bootstrap2']),
+                lambda p: p.update(bootstrap2=''),
+                lambda p: p.update(exit2='x' * 129),
+                lambda p: p.update(bootstrap1='not/a/peer'),
+                lambda p: p.update(exit2=True)):
+            invalid = copy.deepcopy(peers)
+            mutate(invalid)
+            with self.subTest(peers=invalid), self.assertRaises(ValueError):
+                M['validate_control_transition'](transition, invalid, value['layout'])
+        for node in ('bootstrap1', 'bootstrap2', 'exit2'):
+            invalid = copy.deepcopy(transition)
+            invalid['current_control_relay_peer_id'] = peers[node]
+            with self.subTest(broker=node), self.assertRaisesRegex(ValueError, 'control_broker_identity'):
+                M['validate_control_transition'](invalid, peers, value['layout'])
+
+    def test_real_before_cli_accepts_original_role_geometry_not_kernel_execution(self):
+        # Real Python CLI, synthetic kernel snapshots. The original hosted
+        # receipt did not retain its intermediate snapshot, so this does not
+        # establish which command within broker_validated failed in that run.
+        for changed in (False, True):
+            value = fixture()
+            attach_transition(value, changed=changed)
+            partial = copy.deepcopy(value['control_transition'])
+            partial.update(detached=None, after=None)
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                write_evidence(root, value)
+                path = root / M['TRANSITION_NAME']
+                path.write_bytes(M['encoded'](partial))
+                command = [sys.executable, '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                    'control-transition-check', str(root), str(path), 'before']
+                result = subprocess.run(command, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                peers_path = root / 'a01-expected-peers.json'
+                invalid = dict(value['expected_peers'], extra='fixture-extra')
+                peers_path.write_bytes(M['encoded'](invalid))
+                result = subprocess.run(command, capture_output=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0)
+
     def test_same_and_changed_only_pass_after_exact_detach_routes_and_filters(self):
         for changed in (False, True):
             value = fixture()
@@ -301,9 +354,18 @@ class ControlTransition(unittest.TestCase):
 
     def test_previous_schema_is_explicit_and_never_current_acceptance(self):
         previous = fixture(previous=True)
+        self.assertEqual(len(previous['expected_peers']), 8)
         M['validate_evidence'](previous, previous=True)
         with self.assertRaises(ValueError): M['validate_evidence'](previous)
         with self.assertRaises(ValueError): M['validate_evidence'](fixture(), previous=True)
+        previous['expected_peers'].update({node: f'fixture-{node}' for node in ('bootstrap1', 'bootstrap2', 'exit2')})
+        with self.assertRaisesRegex(ValueError, 'consumer_closed_fields'):
+            M['validate_evidence'](previous, previous=True)
+        current = fixture()
+        for node in ('bootstrap1', 'bootstrap2', 'exit2'):
+            current['expected_peers'].pop(node)
+        with self.assertRaisesRegex(ValueError, 'consumer_closed_fields'):
+            M['validate_evidence'](current)
 
 
 class ConsumerEvidence(unittest.TestCase):

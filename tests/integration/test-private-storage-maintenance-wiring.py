@@ -373,6 +373,17 @@ private_storage_maintenance_control_transition
         self.assertFalse(any(s.startswith(('ip:', 'filter:')) for s in events))
         self.assertEqual([s for s in events if s.startswith('check:')], ['check:before', 'check:complete'])
 
+    def test_original_before_snapshot_and_validator_failures_have_distinct_closed_stages(self):
+        for failure, stage in (('snapshot:before', 'control_snapshot'),
+                ('check:before', 'control_validate_before')):
+            with self.subTest(failure=failure):
+                result, events, value = self.trial(same=True, failure=failure)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIsNone(value)
+                self.assertEqual([s for s in events if s.startswith('stage:')][-1], 'stage:' + stage)
+                self.assertFalse(any(s.startswith(('ip:', 'filter:')) for s in events))
+                self.assertNotIn('stage:control_rebind', events)
+
     def test_rejected_readback_or_partial_mutation_never_publishes_success(self):
         for failure in ('snapshot:before', 'check:before', 'ip:-n ns0 link delete ac1',
                 'ip:netns exec ns0 nft delete table inet vpa_content_control_adaptive_1',
@@ -585,6 +596,10 @@ private_storage_maintenance_control_transition() {
     private_storage_maintenance_supervisor_stage broker_validated
     [ -n "$maintenance_control_peer" ] || return 1
     gate broker_validated || return "$?"
+    private_storage_maintenance_supervisor_stage control_snapshot
+    gate control_snapshot || return "$?"
+    private_storage_maintenance_supervisor_stage control_validate_before
+    gate control_validate_before || return "$?"
     private_storage_maintenance_supervisor_stage control_rebind
     gate control_rebind || return "$?"
     provider_control_peer=$maintenance_control_peer
