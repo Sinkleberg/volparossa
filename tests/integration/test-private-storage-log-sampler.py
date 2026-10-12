@@ -252,6 +252,31 @@ class CoveredExitLogs(unittest.TestCase):
             coverage.route(paths('9' * 32))
         self.assertEqual(failure.exception.code, 'context_limit')
 
+    def test_relay_comparisons_distinguish_permutations_without_accepting_them(self):
+        original_context, next_context = 'a' * 32, 'b' * 32
+        for previous in (None, original_context):
+            for current in (original_context, next_context):
+                for same_peers in (True, False):
+                    with self.subTest(previous=previous, current=current, same_peers=same_peers):
+                        changed = paths(current)
+                        if same_peers:
+                            changed = changed.replace(b'relay=one', b'relay=TEMP').replace(
+                                b'relay=two', b'relay=one').replace(b'relay=TEMP', b'relay=two')
+                        else:
+                            changed = changed.replace(b'relay=one', b'relay=SECRET_RELAY')
+                        coverage = S['Coverage'](10, SCOPE)
+                        if previous is not None:
+                            coverage.route(paths(previous))
+                        with self.assertRaises(S['RouteMismatch']) as failure:
+                            coverage.route(changed)
+                        self.assertEqual(failure.exception.code, 'relays_changed')
+                        self.assertEqual(failure.exception.comparison, dict(
+                            context_relation=('unobserved' if previous is None else
+                                'same' if previous == current else 'changed'),
+                            relay_set_relation='same' if same_peers else 'changed'))
+                        self.assertEqual(coverage.current_context, previous)
+                        self.assertNotIn('SECRET', repr(failure.exception.comparison))
+
     def test_primary_owner_failure_keeps_separate_first_route_mismatch(self):
         diagnostic = {}
         primary = ValueError('synthetic primary owner failure')
@@ -263,7 +288,8 @@ class CoveredExitLogs(unittest.TestCase):
                     raise primary
         self.assertIs(failure.exception, primary)
         self.assertEqual(diagnostic, dict(phase='final_drain', operation='route_scope',
-            code='invalid', route_mismatch='relays_changed', samples=1, completed=0, failed=0))
+            code='invalid', route_mismatch='relays_changed', samples=1, completed=0, failed=0,
+            route_comparison=dict(context_relation='changed', relay_set_relation='changed')))
         self.assertNotIn('SECRET', repr(diagnostic))
 
     def test_sampler_finally_preserves_owner_error_and_separately_records_observation_failure(self):

@@ -51,6 +51,8 @@ STAGE = 'not_started'
 TURN_DIAGNOSTIC = None
 RETIREMENT_DIAGNOSTIC = None
 RETIREMENT_TURNS = []
+REPAIR_DIAGNOSTIC = None
+REPAIR_TURNS = []
 SAMPLER_DIAGNOSTIC = {}
 LIFECYCLE_DIAGNOSTIC = None
 LIFECYCLE_STAGES = ('checkpoint_before', 'spawn_owner', 'await_working', 'await_core_loss',
@@ -90,6 +92,20 @@ FAILURE_CODES = {
     'resume cursor changed': 'lifecycle_cursor_changed',
     'restart charge reconciliation': 'lifecycle_reconciliation',
     'owner output not drained': 'owner_output_not_drained',
+    'pre-withdrawal custody not reconciled': 'baseline_custody',
+    'pre-withdrawal replacement binding': 'baseline_identity',
+    'pre-withdrawal repair exhausted withdrawal case': 'baseline_no_live_a',
+    'signed replacement identities changed after withdrawal': 'repair_identity',
+    'bounded repair turns incomplete': 'repair_turns_exhausted',
+    'new replacement readbacks incomplete': 'repair_readbacks',
+    'durable scan cursor did not rotate': 'repair_cursor',
+    'unbounded replacements per turn': 'repair_turn_bound',
+    'offline original charge lost or enrollment exceeded': 'repair_charge',
+    'replacement custody or accounting incomplete': 'repair_custody',
+    'fragment reconstruction geometry changed': 'repair_geometry',
+    'effective replacement placement': 'repair_placement',
+    'replacement identity projection': 'repair_identity',
+    'replacement scope changed': 'repair_scope',
 }
 PRESELECTION_REASON_CODES = (
     'PRESELECTION_SAMPLE_NO_EXIT', 'PRESELECTION_SAMPLE_INSUFFICIENT_RELAYS',
@@ -259,9 +275,10 @@ def handoff_outcomes(value):
     return result
 
 
-def retirement_turn(value, turn):
+def retirement_turn(value, turn, *, target=None, maximum=4):
     """Project existing owner checkpoint fields, never the private checkpoint itself."""
-    if type(turn) is not int or not 1 <= turn <= 4 or len(RETIREMENT_TURNS) >= 4:
+    target = RETIREMENT_TURNS if target is None else target
+    if type(turn) is not int or not 1 <= turn <= maximum or len(target) >= maximum:
         return
     value = value if isinstance(value, dict) else {}
     detail = value.get('detail')
@@ -270,7 +287,7 @@ def retirement_turn(value, turn):
     refresh = refresh if isinstance(refresh, dict) else {}
     stage = detail.get('repair_stage')
     maintenance = detail.get('maintenance_stage')
-    RETIREMENT_TURNS.append(dict(turn=turn, cursor=bounded_count(value.get('turns'), MAX_CURSOR),
+    target.append(dict(turn=turn, cursor=bounded_count(value.get('turns'), MAX_CURSOR),
         maintenance_stage=maintenance if maintenance in (
             'observed', 'maintained', 'charge_limit', 'grant_refresh_required') else None,
         repair_stage=stage if stage in ('complete', 'repair_pending', 'pass_limit',
@@ -294,10 +311,10 @@ def failure_receipt(error):
         return dict(version=2, success=False, kind='private-storage-maintenance-lifecycle-failure',
             code='sampler_failure' if isinstance(error, SAMPLER['SamplerFailure']) else failure_code(error),
             **LIFECYCLE_DIAGNOSTIC, sampler=SAMPLER_DIAGNOSTIC or None)
-    return dict(version=1, success=False, kind='private-storage-maintenance-failure', stage=STAGE,
+    return dict(version=2, success=False, kind='private-storage-maintenance-failure', stage=STAGE,
         code='sampler_failure' if isinstance(error, SAMPLER['SamplerFailure']) else failure_code(error),
         turn=TURN_DIAGNOSTIC, retirement=RETIREMENT_DIAGNOSTIC,
-        retirement_turns=RETIREMENT_TURNS,
+        retirement_turns=RETIREMENT_TURNS, repair=REPAIR_DIAGNOSTIC, repair_turns=REPAIR_TURNS,
         sampler=SAMPLER_DIAGNOSTIC or None)
 
 
@@ -330,7 +347,7 @@ def validate_lifecycle_failure(value):
     if sampler is not None:
         fields = {'phase', 'operation', 'code', 'samples', 'completed', 'failed'}
         require(isinstance(sampler, dict) and fields <= set(sampler)
-            and set(sampler) <= fields | {'route_mismatch', 'paths_process'}, 'invalid lifecycle sampler')
+            and set(sampler) <= fields | {'route_mismatch', 'paths_process', 'route_comparison'}, 'invalid lifecycle sampler')
         require(sampler['phase'] in ('initial', 'sampling', 'final_drain')
             and sampler['operation'] in ('route_query', 'route_scope', 'exit_log_query', 'coverage', 'completion')
             and sampler['code'] in ('timeout', 'process', 'local_io', 'invalid', 'deadline'), 'invalid lifecycle sampler')
@@ -347,6 +364,14 @@ def validate_lifecycle_failure(value):
                 and (paths['exit_status'] is None or type(paths['exit_status']) is int and -128 <= paths['exit_status'] <= 255)
                 and paths['diagnostic'] in ('UNRECOGNIZED', 'CLIENT_ROUTE_BUSY', 'MPQUIC_PATH_STATUS_UNAVAILABLE')
                 and paths['stderr_state'] in ('unavailable', 'oversize', 'bounded'), 'invalid lifecycle sampler')
+        if 'route_comparison' in sampler:
+            comparison = sampler['route_comparison']
+            require(sampler['operation'] == 'route_scope' and sampler['code'] == 'invalid'
+                and sampler.get('route_mismatch') == 'relays_changed'
+                and isinstance(comparison, dict)
+                and set(comparison) == {'context_relation', 'relay_set_relation'}
+                and comparison['context_relation'] in ('same', 'changed', 'unobserved')
+                and comparison['relay_set_relation'] in ('same', 'changed'), 'invalid lifecycle sampler')
     return value
 
 
@@ -736,9 +761,8 @@ def lifecycle(root, binary, client, keys):
             LIFECYCLE_DIAGNOSTIC['stage'] = 'reconcile_progress'
             current = invoke(binary, client, ['storage', 'fragments', 'progress', *existing(root)],
                 deadline=budget.remaining(180))
-            require(current['physical_payload_charge_upper_bound'] == 2 * BYTES
-                and current['uncertain_payload_bytes'] == 0, 'restart charge reconciliation')
             F['check_identity'](root)
+            baseline = pre_withdrawal(root, current, keys)
             LIFECYCLE_DIAGNOSTIC['stage'] = 'validate_flow_coverage'
         gates = coverage.report(joined=coverage.joined)
         SAMPLER['validate_summary'](gates, control['baseline'], 1)
@@ -751,7 +775,7 @@ def lifecycle(root, binary, client, keys):
             sigterm_exit_zero=True, paused_checkpoint_retained=True,
             new_owner_process_resumed=True, enrollment_unchanged=True,
             original_identities_retained=True, physical_payload_charge=2 * BYTES,
-            uncertainty_reconciled=True, owner_process_joined=True)
+            uncertainty_reconciled=True, owner_process_joined=True, pre_withdrawal=baseline)
         # Sampler finalization can consume time after the last owner operation;
         # it must not turn an expired trial into a successful lifecycle receipt.
         budget.remaining(LIFECYCLE_SECONDS)
@@ -855,40 +879,145 @@ def upload(root, binary, client, keys):
         cursor_before_restart=2, cursor_after_restart=3, cancelled_turns_reconciled=True, enrollment_owner_private=True)
 
 
-def validate_repaired(value, keys):
-    require(value['owner_signature_verified'] is True and value['report_version'] == 2
+def identity_sha(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def replacement_identities(root, value, keys, retired, *, withdrawn):
+    """Hash exact core-validated signed intents and acknowledged target identities.
+
+    The preceding real CLI status/progress verifies parent signatures and child
+    binding. This read-only projection neither signs nor substitutes that check.
+    """
+    expected = (0, 2, 3) if withdrawn else retired
+    path = root / 'fragment-set/placement-authorizations.json'
+    entries = json.loads(closed_diagnostic_text(path, 1048576))['authority']['placements'] if path.exists() else []
+    require(isinstance(entries, list) and len(entries) == len(expected)
+        and sorted(entry['fragment'] for entry in entries) == list(expected), 'pre-withdrawal replacement binding')
+    result = []
+    identity_fields = ('provider_key', 'owner_key', 'grant_hex', 'archive_id', 'ciphertext_bytes', 'sha256')
+    for entry in sorted(entries, key=lambda item: item['fragment']):
+        index, intent = entry['fragment'], entry['handoff']
+        directory = root / f'fragment-set/fragment-{index:04}'
+        child = json.loads(closed_diagnostic_text(directory / 'replicas.json', 32768))['handoff']
+        journal = json.loads(closed_diagnostic_text(directory / 'copy-2/archive.json', 16384))
+        phase = 'complete' if index in retired else 'delete_pending'
+        require(intent['phase'] == 'copying' and intent['from'] == (0 if index in (0, 3) else 1)
+            and intent['to'] == 2 and child == dict(intent, phase=phase)
+            and all(journal[key] == intent['initial_journal'][key] for key in identity_fields)
+            and bytes(journal['provider_key']).hex() == keys[2 if index in (0, 3) else 1]
+            and journal['ciphertext_bytes'] == LENGTHS[index] and journal['lease'] is not None,
+            'pre-withdrawal replacement binding')
+        result.append(dict(fragment=index, authorization_sha256=identity_sha(entry),
+            copy_identity_sha256=identity_sha({key: journal[key] for key in (*identity_fields, 'lease')})))
+    return result
+
+
+def validate_identity_projection(value, indexes):
+    require(isinstance(value, list) and len(value) == len(indexes), 'replacement identity projection')
+    for item, index in zip(value, indexes):
+        require(isinstance(item, dict) and set(item) == {'fragment', 'authorization_sha256', 'copy_identity_sha256'}
+            and type(item['fragment']) is int and item['fragment'] == index
+            and all(isinstance(item[key], str) and re.fullmatch('[0-9a-f]{64}', item[key])
+                for key in ('authorization_sha256', 'copy_identity_sha256')), 'replacement identity projection')
+
+
+def validate_baseline(value):
+    require(isinstance(value, dict) and set(value) == {'version', 'retired_original_a', 'replacement_identities',
+        'physical_payload_charge', 'pending_retirements', 'retained_copy_records'}, 'pre-withdrawal custody not reconciled')
+    retired = value['retired_original_a']
+    require(isinstance(retired, list) and len(retired) <= 2
+        and all(type(index) is int and index in (0, 2, 3) for index in retired)
+        and retired == sorted(set(retired)), 'pre-withdrawal repair exhausted withdrawal case')
+    require(type(value['version']) is int and value['version'] == 1
+        and type(value['physical_payload_charge']) is int and value['physical_payload_charge'] == 2 * BYTES
+        and type(value['pending_retirements']) is int and value['pending_retirements'] == 0
+        and type(value['retained_copy_records']) is int and value['retained_copy_records'] == 8 + len(retired),
+        'pre-withdrawal custody not reconciled')
+    validate_identity_projection(value['replacement_identities'], retired)
+    return retired
+
+
+def custody_usage(retired, *, withdrawn):
+    result = [dict(reserved_bytes=0, committed_bytes=0, leases=0) for _ in range(3)]
+    for index, size in enumerate(LENGTHS):
+        providers = [(index + copy) % 3 for copy in range(2)]
+        if index in retired:
+            providers.remove(0)
+        if index in retired or withdrawn and index != 1:
+            providers.append(2 if index in (0, 3) else 1)
+        for provider in providers:
+            result[provider]['committed_bytes'] += size
+            result[provider]['leases'] += 1
+    result[1]['committed_bytes'] += len(FG)
+    result[1]['leases'] += 1
+    return result
+
+
+def validate_custody(value, keys, retired, *, withdrawn):
+    replacements = 3 if withdrawn else len(retired)
+    uncertain_bytes = sum(LENGTHS[index] for index in (0, 2, 3) if index not in retired) if withdrawn else 0
+    usage = custody_usage(retired, withdrawn=withdrawn)
+    require(value['owner_signature_verified'] is True and value.get('report_version', 2 if not replacements else None) == 2
         and value['logical_ciphertext_bytes'] == BYTES and value['fragment_count'] == 4
-        and value['copies_per_fragment'] == value['desired_copies_per_fragment'] == 2
-        and value['placement_authorizations'] == 3 and value['retained_copy_records'] == 11
-        and value['pending_retirements'] == 3 and value['replacement_overhead_included'] is True
-        and value['uncertain_payload_bytes'] == A_BYTES and value['committed_payload_bytes'] == 2 * BYTES
-        and value['reserved_payload_bytes'] == 0 and value['physical_payload_charge_upper_bound'] == MAX_CHARGE
+        and value['copies_per_fragment'] == value.get('desired_copies_per_fragment', 2 if not replacements else None) == 2
+        and value.get('placement_authorizations', 0) == replacements and value.get('retained_copy_records', 8) == 8 + replacements
+        and value.get('pending_retirements', 0) == (3 - len(retired) if withdrawn else 0)
+        and value.get('replacement_overhead_included', not replacements) is True
+        and value['uncertain_payload_bytes'] == uncertain_bytes and value['committed_payload_bytes'] == 2 * BYTES
+        and value['reserved_payload_bytes'] == 0 and value['physical_payload_charge_upper_bound'] == 2 * BYTES + uncertain_bytes
         and value['fully_redundant_from_retained_receipts'] is True
         and value['fragments_with_confirmed_unexpired_copy'] == 4
         and value['providers'] == [dict(provider_key=key, physical_payload_charge_upper_bound=size)
-            for key, size in zip(keys, (A_BYTES, BYTES, BYTES))], 'replacement custody or accounting incomplete')
+            for key, size in zip(keys, (usage[0]['committed_bytes'], usage[1]['committed_bytes'] - len(FG),
+                usage[2]['committed_bytes']))], 'replacement custody or accounting incomplete')
     require(all(value[key] is False for key in ('read_consumes_archive', 'metadata_overhead_measured',
         'current_remote_availability_proven', 'independent_failure_domains_proven',
         'network_contribution_credit', 'erasure_coding')), 'replacement scope changed')
+    require(len(value['fragments']) == 4, 'fragment reconstruction geometry changed')
     for index, fragment in enumerate(value['fragments']):
         require(fragment['index'] == index and fragment['offset'] == sum(LENGTHS[:index])
             and fragment['ciphertext_bytes'] == LENGTHS[index] and fragment['confirmed_unexpired_copies'] == 2,
             'fragment reconstruction geometry changed')
-        committed = [copy for copy in fragment['copies'] if copy['charge'] == 'committed']
-        uncertain = [copy for copy in fragment['copies'] if copy['charge'] == 'uncertain']
-        require(len(committed) == 2 and {copy['provider_key'] for copy in committed} == set(keys[1:])
-            and len(uncertain) == (0 if index == 1 else 1)
-            and all(copy['provider_key'] == keys[0] for copy in uncertain)
-            and len(fragment['copies']) == len(committed) + len(uncertain), 'effective replacement placement')
+        providers = [(index + copy) % 3 for copy in range(2)]
+        if index in retired or withdrawn and index != 1:
+            providers.append(2 if index in (0, 3) else 1)
+        require(len(fragment['copies']) == len(providers), 'effective replacement placement')
+        for copy, provider in zip(fragment['copies'], providers):
+            charge = ('deleted' if index in retired else 'uncertain' if withdrawn else 'committed') if provider == 0 else 'committed'
+            require(copy['provider_key'] == keys[provider] and copy['charge'] == charge
+                and copy['last_confirmed_state'] == ('Deleted' if charge == 'deleted' else 'Committed')
+                and copy['last_confirmed_stored_bytes'] == (0 if charge == 'deleted' else LENGTHS[index])
+                and (copy['last_confirmed_expiry'] == 0 if charge == 'deleted'
+                    else copy['last_confirmed_expiry'] > int(time.time())), 'effective replacement placement')
 
 
-def repaired(value, keys):
+def pre_withdrawal(root, value, keys):
+    retired = [fragment['index'] for fragment in value['fragments']
+        if any(copy['provider_key'] == keys[0] and copy['charge'] == 'deleted' for copy in fragment['copies'])]
+    require(len(retired) <= 2, 'pre-withdrawal repair exhausted withdrawal case')
+    try:
+        validate_custody(value, keys, retired, withdrawn=False)
+    except (ValueError, KeyError, TypeError) as error:
+        raise ValueError('pre-withdrawal custody not reconciled') from error
+    result = dict(version=1, retired_original_a=retired,
+        replacement_identities=replacement_identities(root, value, keys, retired, withdrawn=False),
+        physical_payload_charge=2 * BYTES, pending_retirements=0, retained_copy_records=8 + len(retired))
+    validate_baseline(result)
+    return result
+
+
+def validate_repaired(value, keys, baseline):
+    validate_custody(value, keys, validate_baseline(baseline), withdrawn=True)
+
+
+def repaired(value, keys, baseline):
     # Retained healthy receipts alone do not prove every withdrawn A copy has a
     # replacement. Three explicit signed intents must reach verified retirement.
-    if not (value.get('placement_authorizations') == 3 and value.get('pending_retirements') == 3
+    if not (value.get('placement_authorizations') == 3 and value.get('pending_retirements') == 3 - len(baseline['retired_original_a'])
             and value.get('retained_copy_records') == 11 and value['fully_redundant_from_retained_receipts']):
         return False
-    validate_repaired(value, keys)
+    validate_repaired(value, keys, baseline)
     return True
 
 
@@ -899,53 +1028,80 @@ def staged_files_absent(root):
 
 
 def restore(root, binary, client, keys):
-    global STAGE
+    global STAGE, REPAIR_DIAGNOSTIC, REPAIR_TURNS
     STAGE = 'repair'
+    REPAIR_TURNS = []
     require(not (root / 'input.bin').exists(), 'original bytes still present')
     begin = checkpoint(root, binary, client)['turns']
-    require(begin == read(root / 'lifecycle-result.json')['cursor_after_resume'],
+    lifecycle_result = read(root / 'lifecycle-result.json')
+    baseline = lifecycle_result['pre_withdrawal']
+    retired = validate_baseline(baseline)
+    require(begin == lifecycle_result['cursor_after_resume'],
         'cursor lost before provider withdrawal')
-    fresh, turns = 0, 0
+    fresh, turns = set(), 0
+    REPAIR_DIAGNOSTIC = dict(pre_withdrawal=baseline, latest_status=None, verified_new_fragment_indexes=[])
     for _ in range(12):
         previous = status(root, binary, client)
+        REPAIR_DIAGNOSTIC['latest_status'] = retained_status_diagnostic(previous, int(time.time()))
         previous_charge = previous['physical_payload_charge_upper_bound']
         turn = run_turn(root, binary, client, keys[1])
         turns += 1
+        retirement_turn(turn, turns, target=REPAIR_TURNS, maximum=12)
         detail = turn['detail']
         require(detail['refresh']['fragment_index'] == (turn['turns'] - 1) % 4,
             'durable scan cursor did not rotate')
         replacement = detail.get('freshly_verified_replacements', 0)
         require(type(replacement) is int and 0 <= replacement <= 1, 'unbounded replacements per turn')
-        fresh += replacement
+        if 'fragment_outcomes' not in detail:
+            require(detail.get('maintenance_stage') == 'observed' and replacement == 0,
+                'new replacement readbacks incomplete')
+        outcomes = handoff_outcomes(detail.get('fragment_outcomes', []))
+        require(outcomes is not None and sum(item['replacement_verified_this_pass'] is True
+            for item in outcomes) == replacement, 'new replacement readbacks incomplete')
+        for item in outcomes:
+            if item['replacement_verified_this_pass'] is True:
+                require(item['index'] in (0, 2, 3) and item['index'] not in retired,
+                    'new replacement readbacks incomplete')
+                fresh.add(item['index'])
+        REPAIR_DIAGNOSTIC['verified_new_fragment_indexes'] = sorted(fresh)
         value = status(root, binary, client)
+        REPAIR_DIAGNOSTIC['latest_status'] = retained_status_diagnostic(value, int(time.time()))
         require(previous_charge <= value['physical_payload_charge_upper_bound'] <= MAX_CHARGE,
             'offline original charge lost or enrollment exceeded')
         F['check_identity'](root)
-        if repaired(value, keys):
+        if repaired(value, keys, baseline):
             break
     else:
         raise ValueError('bounded repair turns incomplete')
-    require(fresh == 3, 'three fresh replacement readbacks not observed')
+    require(fresh == set((0, 2, 3)) - set(retired), 'new replacement readbacks incomplete')
+    identities = replacement_identities(root, value, keys, retired, withdrawn=True)
+    require(all(entry in identities for entry in baseline['replacement_identities']),
+        'signed replacement identities changed after withdrawal')
     # A fresh CLI process reloads the same journals before each restore: no parent
     # holds an archive or a hidden in-memory replacement map on behalf of these reads.
     STAGE = 'restore'
     for number in (1, 2):
         path = root / f'restore-{number}.bin'
         value = invoke(binary, client, ['storage', 'fragments', 'restore', *existing(root), '--output', path], deadline=900)
-        validate_repaired(value, keys)
+        validate_repaired(value, keys, baseline)
         require(value['restored'] is True and value['whole_archive_sha256_verified'] is True
             and all(entry['restored'] is True and entry['provider_key'] in keys[1:]
                 for entry in value['fragment_outcomes']), 'replacement-only reconstruction failed')
         require(private_file(path).st_size == BYTES and hashlib.sha256(path.read_bytes()).hexdigest() == SHA,
             'restored bytes differ')
         F['check_identity'](root)
+        require(replacement_identities(root, value, keys, retired, withdrawn=True) == identities,
+            'signed replacement identities changed after withdrawal')
     invoke(binary, client, ['storage', 'fragments', 'restore', *existing(root), '--output', root / 'restore-1.bin'], expected=1)
     require(hashlib.sha256((root / 'restore-1.bin').read_bytes()).hexdigest() == SHA, 'restore clobbered output')
     staged_files_absent(root)
     return dict(restores=2, source_absent=True, owner_worker_starts=turns, scan_cursor_before=begin,
-        scan_cursor_after=checkpoint(root, binary, client)['turns'], fresh_verified_replacements=fresh,
-        retained_copy_records=11, pending_retirements=3, physical_payload_charge=MAX_CHARGE,
-        uncertain_payload_charge=A_BYTES, survivor_provider_indexes=[1, 2], uniform_target_copies=2,
+        scan_cursor_after=checkpoint(root, binary, client)['turns'], fresh_verified_replacements=len(fresh),
+        pre_withdrawal_verified_replacements=len(retired), post_withdrawal_verified_fragment_indexes=sorted(fresh),
+        replacement_identities=identities,
+        retained_copy_records=11, pending_retirements=3 - len(retired),
+        physical_payload_charge=2 * BYTES + sum(LENGTHS[index] for index in fresh),
+        uncertain_payload_charge=sum(LENGTHS[index] for index in fresh), survivor_provider_indexes=[1, 2], uniform_target_copies=2,
         whole_archive_sha256_verified=True, reads_nonconsuming=True, existing_output_preserved=True,
         original_identities_retained=True, staging_removed=True)
 
@@ -989,6 +1145,8 @@ def finish(root, binary, client, keys):
     for _ in range(2):
         deleted = invoke(binary, client, ['storage', 'fragments', 'delete', *existing(root)], deadline=900)
         require(deleted['operation_complete'] is True and deleted['physical_payload_charge_upper_bound'] == 0
+            and deleted['placement_authorizations'] == 3 and deleted['retained_copy_records'] == 11
+            and sum(len(fragment['copies']) for fragment in deleted['fragments']) == 11
             and all(copy['charge'] == 'deleted' for fragment in deleted['fragments'] for copy in fragment['copies']),
             'all retained copies must be explicitly deleted')
         F['check_identity'](root)
@@ -1050,7 +1208,7 @@ def cleanup(path):
         enrollment_checkpoint_removed=True, foreground_journal_removed=True, user_directory_removed=True)
 
 
-def validate_lifecycle(value):
+def validate_lifecycle(value, *, historical=False):
     cursor_keys = ('cursor_before', 'cursor_at_core_loss', 'cursor_after_reconnect',
         'cursor_at_pause', 'cursor_after_resume')
     flags = ('same_owner_survived_core_loss', 'core_unavailable_observed', 'fresh_core_turn_completed',
@@ -1058,7 +1216,11 @@ def validate_lifecycle(value):
         'sigterm_exit_zero', 'paused_checkpoint_retained', 'new_owner_process_resumed',
         'enrollment_unchanged', 'original_identities_retained', 'uncertainty_reconciled',
         'owner_process_joined', 'guest_core_pid_changed', 'guest_core_namespace_preserved')
-    require(set(value) == {*cursor_keys, *flags, 'physical_payload_charge'},
+    fields = {*cursor_keys, *flags, 'physical_payload_charge'}
+    if not historical:
+        fields.add('pre_withdrawal')
+        validate_baseline(value.get('pre_withdrawal'))
+    require(set(value) == fields,
         'lifecycle receipt fields')
     require(all(type(value[key]) is int for key in cursor_keys)
         and value['cursor_before'] == 3
@@ -1070,7 +1232,7 @@ def validate_lifecycle(value):
         and value['physical_payload_charge'] == 2 * BYTES, 'lifecycle evidence incomplete')
 
 
-def validate_evidence(value):
+def validate_evidence(value, *, historical=False):
     require(value['success'] is True and all(value[key] is False for key in SCOPE_FALSE), 'scope overstated')
     require(value['prepare'] == dict(synthetic_opaque_bytes=True, ciphertext_bytes=BYTES, fragment_lengths=list(LENGTHS),
         providers=3, copies_per_fragment=2, grant_payload_bytes=[BYTES] * 3, grant_max_leases=[4] * 3,
@@ -1085,16 +1247,27 @@ def validate_evidence(value):
         foreground_turn_revoked=True, cursor_before_restart=2, cursor_after_restart=3,
         cancelled_turns_reconciled=True, enrollment_owner_private=True)
     require(value['upload'] == expected_upload, 'core renewal/revocation/restart proof missing')
-    validate_lifecycle(value['lifecycle'])
+    validate_lifecycle(value['lifecycle'], historical=historical)
+    baseline = value['lifecycle'].get('pre_withdrawal')
+    retired = [] if historical else validate_baseline(baseline)
+    remaining = sorted(set((0, 2, 3)) - set(retired))
+    uncertain = sum(LENGTHS[index] for index in remaining)
     resume_cursor = value['lifecycle']['cursor_after_resume']
     restored = value['restore']
+    extra = {}
+    if not historical:
+        validate_identity_projection(restored.get('replacement_identities'), (0, 2, 3))
+        require(all(entry in restored['replacement_identities'] for entry in baseline['replacement_identities']),
+            'signed replacement identities changed after withdrawal')
+        extra = dict(pre_withdrawal_verified_replacements=len(retired),
+            post_withdrawal_verified_fragment_indexes=remaining, replacement_identities=restored['replacement_identities'])
     require(type(restored['owner_worker_starts']) is int and 1 <= restored['owner_worker_starts'] <= 12
         and restored == dict(restores=2, source_absent=True, owner_worker_starts=restored['owner_worker_starts'],
-            scan_cursor_before=resume_cursor, scan_cursor_after=resume_cursor + restored['owner_worker_starts'], fresh_verified_replacements=3,
-            retained_copy_records=11, pending_retirements=3, physical_payload_charge=MAX_CHARGE,
-            uncertain_payload_charge=A_BYTES, survivor_provider_indexes=[1, 2], uniform_target_copies=2,
+            scan_cursor_before=resume_cursor, scan_cursor_after=resume_cursor + restored['owner_worker_starts'], fresh_verified_replacements=len(remaining),
+            retained_copy_records=11, pending_retirements=len(remaining), physical_payload_charge=2 * BYTES + uncertain,
+            uncertain_payload_charge=uncertain, survivor_provider_indexes=[1, 2], uniform_target_copies=2,
             whole_archive_sha256_verified=True, reads_nonconsuming=True, existing_output_preserved=True,
-            original_identities_retained=True, staging_removed=True), 'actual repair and restored custody missing')
+            original_identities_retained=True, staging_removed=True, **extra), 'actual repair and restored custody missing')
     finished = value['finish']
     require(type(finished['owner_worker_starts']) is int and 1 <= finished['owner_worker_starts'] <= 4
         and finished == dict(owner_worker_starts=finished['owner_worker_starts'], pending_retirements=0,
@@ -1104,10 +1277,8 @@ def validate_evidence(value):
     require(value['withdrawal'] == dict(first_provider_stopped_before_restore=True, first_store_retained=True,
         other_two_providers_serving=True, same_three_stores_reopened=True, all_usage_snapshots_with_services_stopped=True,
         all_three_store_inodes_preserved=True, agent_restart_claimed=False), 'provider withdrawal not observed')
-    require(value['uploaded_usage'] == [dict(reserved_bytes=0, committed_bytes=size, leases=count)
-        for size, count in zip((A_BYTES, F['PROVIDER_BYTES'][1] + len(FG), F['PROVIDER_BYTES'][2]), (3, 4, 2))]
-        and value['restored_usage'] == [dict(reserved_bytes=0, committed_bytes=size, leases=count)
-        for size, count in zip((A_BYTES, BYTES + len(FG), BYTES), (3, 5, 4))]
+    require(value['uploaded_usage'] == custody_usage(retired, withdrawn=False)
+        and value['restored_usage'] == custody_usage(retired, withdrawn=True)
         and value['deleted_usage'] == [dict(reserved_bytes=0, committed_bytes=0, leases=0)] * 3,
         'actual provider store accounting differs')
     require(value['private_cleanup'] == dict(owner_identity_removed=True, passphrase_removed=True, grants_removed=True,
@@ -1156,7 +1327,7 @@ def validate_report(report, revision, *, historical=False):
         and report['phase'] == 'private-storage-maintenance-complete' and report['observed_blocker'] is None
         and report['cleanup'] == dict(complete=True, remaining_owned_objects=0)
         and report['host_state']['unchanged'] is True, 'source-bound cleanup missing')
-    validate_evidence(report['maintenance'])
+    validate_evidence(report['maintenance'], historical=historical)
     if not historical:
         CONSUMERS['validate_evidence'](report['consumers'])
         require(all(report['maintenance'][name] == report['consumers'][name]

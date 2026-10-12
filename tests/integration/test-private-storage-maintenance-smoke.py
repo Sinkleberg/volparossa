@@ -18,7 +18,63 @@ CHECK = runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))
 OLD = runpy.run_path(str(HERE / 'test-private-storage-fragments-smoke.py'))
 
 
-def fixture():
+def identity_projection(indexes):
+    return [dict(fragment=index, authorization_sha256=str(index + 1) * 64,
+        copy_identity_sha256=str(index + 4) * 64) for index in indexes]
+
+
+def baseline_fixture(retired=()):
+    return dict(version=1, retired_original_a=list(retired), replacement_identities=identity_projection(retired),
+        physical_payload_charge=2 * CHECK['BYTES'], pending_retirements=0, retained_copy_records=8 + len(retired))
+
+
+def custody_fixture(retired=(), *, withdrawn=False):
+    value, _, keys = OLD['cli_fixture']('committed')
+    for index, fragment in enumerate(value['fragments']):
+        if index in retired or withdrawn and index != 1:
+            replacement = copy.deepcopy(fragment['copies'][0])
+            replacement['provider_key'] = keys[2 if index in (0, 3) else 1]
+            fragment['copies'].append(replacement)
+        for item in fragment['copies']:
+            if item['provider_key'] == keys[0]:
+                if index in retired:
+                    item.update(charge='deleted', last_confirmed_state='Deleted',
+                        last_confirmed_expiry=0, last_confirmed_stored_bytes=0)
+                elif withdrawn:
+                    item['charge'] = 'uncertain'
+    count = 3 if withdrawn else len(retired)
+    if count:
+        value.update(report_version=2, desired_copies_per_fragment=2, placement_authorizations=count,
+            retained_copy_records=8 + count, pending_retirements=3 - len(retired) if withdrawn else 0,
+            replacement_overhead_included=True)
+    uncertain = sum(CHECK['LENGTHS'][i] for i in (0, 2, 3) if i not in retired) if withdrawn else 0
+    value.update(uncertain_payload_bytes=uncertain, physical_payload_charge_upper_bound=2 * CHECK['BYTES'] + uncertain)
+    usage = CHECK['custody_usage'](retired, withdrawn=withdrawn)
+    value['providers'] = [dict(provider_key=key, physical_payload_charge_upper_bound=item['committed_bytes']
+        - (len(CHECK['FG']) if index == 1 else 0)) for index, (key, item) in enumerate(zip(keys, usage))]
+    return value, keys
+
+
+def private_replacements(root, indexes, retired):
+    """Synthetic text-only identity fixture, never signed/provider evidence."""
+    entries = []
+    for index in indexes:
+        directory = root / f'fragment-set/fragment-{index:04}'
+        (directory / 'copy-2').mkdir(parents=True, mode=0o700)
+        journal = dict(provider_key=list(bytes.fromhex(str(3 if index in (0, 3) else 2) * 64)),
+            owner_key=[4] * 32, grant_hex='12', archive_id=[index + 5] * 32,
+            ciphertext_bytes=CHECK['LENGTHS'][index], sha256=[index] * 32)
+        intent = {'from': 0 if index in (0, 3) else 1, 'to': 2, 'phase': 'copying', 'initial_journal': journal}
+        entries.append(dict(fragment=index, handoff=intent))
+        CHECK['create'](directory / 'replicas.json', json.dumps(dict(handoff=dict(intent,
+            phase='complete' if index in retired else 'delete_pending'))).encode())
+        CHECK['create'](directory / 'copy-2/archive.json', json.dumps(dict(journal, lease=[9] * 16)).encode())
+    if entries:
+        CHECK['create'](root / 'fragment-set/placement-authorizations.json',
+            json.dumps(dict(authority=dict(placements=entries))).encode())
+
+
+def fixture(*, historical=False, retired=()):
     value = OLD['fixture']()
     for name in CHECK['F']['SCOPE_FALSE']:
         value.pop(name, None)
@@ -53,6 +109,16 @@ def fixture():
         original_identities_retained=True, physical_payload_charge=2 * size,
         uncertainty_reconciled=True, owner_process_joined=True, guest_core_pid_changed=True,
         guest_core_namespace_preserved=True)
+    if not historical:
+        value['lifecycle']['pre_withdrawal'] = baseline_fixture(retired)
+        remaining = sorted(set((0, 2, 3)) - set(retired))
+        uncertain = sum(CHECK['LENGTHS'][i] for i in remaining)
+        value['restore'].update(fresh_verified_replacements=len(remaining),
+            pre_withdrawal_verified_replacements=len(retired), post_withdrawal_verified_fragment_indexes=remaining,
+            replacement_identities=identity_projection((0, 2, 3)), pending_retirements=len(remaining),
+            uncertain_payload_charge=uncertain, physical_payload_charge=2 * size + uncertain)
+        value['uploaded_usage'] = CHECK['custody_usage'](retired, withdrawn=False)
+        value['restored_usage'] = CHECK['custody_usage'](retired, withdrawn=True)
     value['network']['lifecycle'] = copy.deepcopy(value['network']['upload'])
     for phase in value['network'].values():
         selected = phase['selected_route']
@@ -226,7 +292,8 @@ class MaintenanceEvidence(unittest.TestCase):
                         wait_owner=lambda owner, predicate, seconds=180, **kwargs: predicate(),
                         status=Mock(return_value=retained), run_turn=Mock(return_value=dict(turns=7)),
                         invoke=Mock(return_value=dict(physical_payload_charge_upper_bound=2 * CHECK['BYTES'],
-                            uncertain_payload_bytes=0))), patch.dict(CHECK['F'], check_identity=Mock()), \
+                            uncertain_payload_bytes=0)), pre_withdrawal=Mock(return_value=baseline_fixture())), \
+                        patch.dict(CHECK['F'], check_identity=Mock()), \
                         patch.dict(CHECK['SAMPLER'], capture=capture):
                     if expired:
                         with self.assertRaisesRegex(ValueError, '^owner lifecycle deadline$'):
@@ -574,7 +641,9 @@ class MaintenanceEvidence(unittest.TestCase):
     def test_closed_source_bound_bundle_reuses_actual_network_proof_contracts(self):
         value = fixture()
         CHECK['validate_evidence'](value)
-        CHECK['validate_report'](report(value), '1' * 40, historical=True)
+        CHECK['validate_report'](report(fixture(historical=True)), '1' * 40, historical=True)
+        with self.assertRaises(ValueError):
+            CHECK['validate_report'](report(value), '1' * 40, historical=True)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             OLD['write_evidence'](root, value)
@@ -665,10 +734,172 @@ class MaintenanceEvidence(unittest.TestCase):
         value = dict(fully_redundant_from_retained_receipts=True)
         for count in range(3):
             value.update(placement_authorizations=count, pending_retirements=count, retained_copy_records=8 + count)
-            self.assertFalse(CHECK['repaired'](value, keys))
+            self.assertFalse(CHECK['repaired'](value, keys, baseline_fixture()))
         # A third Copying intent, not yet a verified replacement, still stays pending.
         value.update(placement_authorizations=3, pending_retirements=2, retained_copy_records=11)
-        self.assertFalse(CHECK['repaired'](value, keys))
+        self.assertFalse(CHECK['repaired'](value, keys, baseline_fixture()))
+
+    def test_completed_early_handoffs_are_bound_to_actual_status_and_private_identities(self):
+        for retired in ((), (0,), (2,), (3,), (0, 2), (0, 3), (2, 3)):
+            with self.subTest(retired=retired), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                value, keys = custody_fixture(retired)
+                private_replacements(root, retired, retired)
+                baseline = CHECK['pre_withdrawal'](root, value, keys)
+                self.assertEqual(CHECK['validate_baseline'](baseline), list(retired))
+                self.assertEqual(baseline['retained_copy_records'], 8 + len(retired))
+                for private in (str(root), keys[0], 'grant_hex', 'archive_id', 'lease'):
+                    self.assertNotIn(private, json.dumps(baseline))
+                CHECK['validate_evidence'](fixture(retired=retired))
+                after, _ = custody_fixture(retired, withdrawn=True)
+                CHECK['validate_repaired'](after, keys, baseline)
+                self.assertTrue(CHECK['repaired'](after, keys, baseline))
+        # The actual d3 aggregate shift, not its own proof of authorization.
+        self.assertEqual(CHECK['custody_usage']((0,), withdrawn=False), [
+            dict(reserved_bytes=0, committed_bytes=262217, leases=2),
+            dict(reserved_bytes=0, committed_bytes=524425, leases=4),
+            dict(reserved_bytes=0, committed_bytes=786432, leases=3)])
+
+    def test_early_custody_cannot_erase_live_source_or_invent_verified_replacement(self):
+        mutations = (
+            lambda v: v['fragments'][0]['copies'][0].update(charge='committed'),
+            lambda v: v['fragments'][0]['copies'][0].update(last_confirmed_state='Committed'),
+            lambda v: v['fragments'][0]['copies'][2].update(charge='reserved'),
+            lambda v: v['fragments'][0]['copies'][2].update(last_confirmed_expiry=1),
+            lambda v: v['fragments'][0]['copies'][2].update(provider_key='9' * 64),
+            lambda v: v.update(uncertain_payload_bytes=1),
+            lambda v: v.update(pending_retirements=1),
+            lambda v: v.update(placement_authorizations=2),
+            lambda v: v.update(retained_copy_records=8),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate), tempfile.TemporaryDirectory() as temporary:
+                value, keys = custody_fixture((0,))
+                private_replacements(Path(temporary), (0,), (0,))
+                mutate(value)
+                with self.assertRaises(ValueError):
+                    CHECK['pre_withdrawal'](Path(temporary), value, keys)
+        for field, replacement in (('phase', 'delete_pending'), ('from', 1), ('to', 3)):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                value, keys = custody_fixture((0,))
+                private_replacements(root, (0,), (0,))
+                path = root / 'fragment-set/fragment-0000/replicas.json'
+                child = json.loads(path.read_text())
+                child['handoff'][field] = replacement
+                path.write_text(json.dumps(child))
+                with self.assertRaisesRegex(ValueError, 'pre-withdrawal replacement binding'):
+                    CHECK['pre_withdrawal'](root, value, keys)
+        value, keys = custody_fixture((0, 2, 3))
+        with self.assertRaisesRegex(ValueError, 'exhausted withdrawal case'):
+            CHECK['pre_withdrawal'](Path('/not-read'), value, keys)
+
+    def test_current_exact_baseline_and_history_cannot_be_cross_labelled(self):
+        for mutate in (
+            lambda v: v['lifecycle'].pop('pre_withdrawal'),
+            lambda v: v['lifecycle']['pre_withdrawal'].update(retired_original_a=[0, 0]),
+            lambda v: v['lifecycle']['pre_withdrawal'].update(retired_original_a=[0, 2, 3]),
+            lambda v: v['lifecycle']['pre_withdrawal'].update(pending_retirements=1),
+            lambda v: v['lifecycle']['pre_withdrawal']['replacement_identities'][0].update(authorization_sha256='f' * 64),
+            lambda v: v['restore'].update(pre_withdrawal_verified_replacements=0),
+            lambda v: v['restore'].update(post_withdrawal_verified_fragment_indexes=[0, 2]),
+            lambda v: v['restore'].update(fresh_verified_replacements=3),
+            lambda v: v['restore'].update(pending_retirements=3),
+            lambda v: v['restored_usage'][0].update(committed_bytes=0),
+            lambda v: v['uploaded_usage'][2].update(leases=2),
+        ):
+            with self.subTest(mutation=mutate):
+                value = fixture(retired=(0,))
+                mutate(value)
+                with self.assertRaises((ValueError, KeyError)):
+                    CHECK['validate_evidence'](value)
+        CHECK['validate_evidence'](fixture(historical=True), historical=True)
+        with self.assertRaises(ValueError):
+            CHECK['validate_evidence'](fixture(historical=True))
+
+    def test_actual_restore_loop_preserves_early_identities_and_requires_complement_readbacks(self):
+        for retired in ((), (0,), (0, 2)):
+            with self.subTest(retired=retired), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                remaining = sorted(set((0, 2, 3)) - set(retired))
+                initial, keys = custody_fixture(retired)
+                final, _ = custody_fixture(retired, withdrawn=True)
+                private_replacements(root, (0, 2, 3), retired)
+                identities = CHECK['replacement_identities'](root, final, keys, retired, withdrawn=True)
+                baseline = baseline_fixture(retired)
+                baseline['replacement_identities'] = [v for v in identities if v['fragment'] in retired]
+                CHECK['create'](root / 'lifecycle-result.json', json.dumps(dict(cursor_after_resume=9,
+                    pre_withdrawal=baseline)).encode())
+                # The first real post-withdrawal scan can touch only B/C. That
+                # observed turn has no repair report and is not a new readback.
+                states = [initial, initial]
+                turns = [dict(turns=10, detail=dict(maintenance_stage='observed',
+                    refresh=dict(fragment_index=1)))]
+                for count, index in enumerate(remaining, 1):
+                    states.extend([initial, final if count == len(remaining) else initial])
+                    turns.append(dict(turns=10 + count, detail=dict(refresh=dict(fragment_index=(9 + count) % 4),
+                        freshly_verified_replacements=1, fragment_outcomes=[dict(index=index,
+                            replacement_verified_this_pass=True)])))
+                def invoke(_binary, _client, arguments, **kwargs):
+                    if kwargs.get('expected') == 1:
+                        return {}
+                    CHECK['create'](arguments[-1], CHECK['F']['FIXTURE'])
+                    return dict(final, restored=True, whole_archive_sha256_verified=True,
+                        fragment_outcomes=[dict(restored=True, provider_key=keys[1])] * 4)
+                namespace = CHECK['restore'].__globals__
+                with patch.dict(namespace, checkpoint=Mock(side_effect=[dict(turns=9), dict(turns=10 + len(remaining))]),
+                        status=Mock(side_effect=states), run_turn=Mock(side_effect=turns), invoke=invoke,
+                        staged_files_absent=Mock(), REPAIR_DIAGNOSTIC=None, REPAIR_TURNS=[]), \
+                        patch.dict(CHECK['F'], check_identity=Mock()):
+                    actual = CHECK['restore'](root, 'inert-cli', 'inert-socket', keys)
+                    self.assertEqual(actual['fresh_verified_replacements'], len(remaining))
+                    self.assertEqual(actual['owner_worker_starts'], 1 + len(remaining))
+                    self.assertEqual(actual['pending_retirements'], len(remaining))
+                    self.assertEqual(actual['post_withdrawal_verified_fragment_indexes'], remaining)
+                    self.assertEqual(actual['replacement_identities'], identities)
+                    self.assertEqual(actual['uncertain_payload_charge'], sum(CHECK['LENGTHS'][i] for i in remaining))
+
+    def test_twelve_incomplete_turns_retain_primary_code_and_closed_actual_outcomes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            CHECK['create'](root / 'lifecycle-result.json', json.dumps(dict(cursor_after_resume=9,
+                pre_withdrawal=baseline_fixture((0,)))).encode())
+            initial, keys = custody_fixture((0,))
+            turns = [dict(turns=10 + index, detail=dict(maintenance_stage='maintained', repair_stage='pending_handoff',
+                refresh=dict(fragment_index=(9 + index) % 4), freshly_verified_replacements=0,
+                fragment_outcomes=[dict(index=2, handoff_stage='survivor_unavailable',
+                    replacement_verified_this_pass=False, private_key='SECRET')])) for index in range(12)]
+            namespace = CHECK['restore'].__globals__
+            with patch.dict(namespace, checkpoint=Mock(return_value=dict(turns=9)), status=Mock(return_value=initial),
+                    run_turn=Mock(side_effect=turns), REPAIR_DIAGNOSTIC=None, REPAIR_TURNS=[],
+                    LIFECYCLE_DIAGNOSTIC=None, SAMPLER_DIAGNOSTIC={}), patch.dict(CHECK['F'], check_identity=Mock()):
+                with self.assertRaisesRegex(ValueError, '^bounded repair turns incomplete$') as error:
+                    CHECK['restore'](root, 'inert-cli', 'inert-socket', keys)
+                receipt = CHECK['failure_receipt'](error.exception)
+                self.assertEqual(receipt['version'], 2)
+                self.assertEqual(receipt['code'], 'repair_turns_exhausted')
+                self.assertEqual(len(receipt['repair_turns']), 12)
+                self.assertEqual(receipt['repair']['latest_status']['copy_counts'], [3, 2, 2, 2])
+                self.assertEqual(receipt['repair_turns'][-1]['cursor'], 21)
+                self.assertEqual(receipt['repair_turns'][-1]['fragment_outcomes'][0]['handoff_stage'], 'survivor_unavailable')
+                self.assertNotIn('SECRET', json.dumps(receipt))
+                self.assertLess(len(json.dumps(receipt)), 16384)
+
+    def test_missing_maintained_outcomes_are_not_an_observed_turn(self):
+        for detail in (dict(maintenance_stage='maintained'),
+                dict(maintenance_stage='observed', freshly_verified_replacements=1),
+                dict(maintenance_stage='observed', fragment_outcomes=None)):
+            with self.subTest(detail=detail), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                CHECK['create'](root / 'lifecycle-result.json', json.dumps(dict(cursor_after_resume=9,
+                    pre_withdrawal=baseline_fixture())).encode())
+                value, keys = custody_fixture()
+                with patch.dict(CHECK['restore'].__globals__, checkpoint=Mock(return_value=dict(turns=9)),
+                        status=Mock(return_value=value), run_turn=Mock(return_value=dict(turns=10,
+                            detail=dict(refresh=dict(fragment_index=1), **detail))),
+                        REPAIR_DIAGNOSTIC=None, REPAIR_TURNS=[]):
+                    with self.assertRaisesRegex(ValueError, 'new replacement readbacks incomplete'):
+                        CHECK['restore'](root, 'inert-cli', 'inert-socket', keys)
 
     def test_cleanup_removes_only_exact_private_owner_tree_and_crash_staging(self):
         with tempfile.TemporaryDirectory() as temporary:

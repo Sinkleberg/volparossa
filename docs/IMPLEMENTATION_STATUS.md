@@ -30,8 +30,8 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. The scoped CPU-budget trial reaches the 900-second build deadline at dex merging; process drain and policy/staging cleanup are unconfirmed. Investigate task timing and the pinned D8 implementation before another resource change. APK, offline rebuild, launch, refresh and expiry still need proof. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 retains finite authorization and durable state. The latest protected trial fails a retained-custody assertion at core loss; its combined failure code does not distinguish byte accounting from fragment/copy/placement changes. Separate those observations before changing acceptance or production behavior. Image PR6 and Cloud PR13 add shared owner supervision and foreground coordination with passing local checks; real consumer maintenance and reciprocal capacity proof remain open. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. The last native build confirms the shared Kotlin setting, then fails with Java heap exhaustion during dex merging; cleanup passes. The follow-up gives only the app builds a 1,536 MiB heap within unchanged aggregate, reserve and time limits, but its trial stops at a download-integrity check before native execution. Identify the rejected input without weakening pins. APK, offline rebuild, launch, refresh and expiry still need proof; iOS remains open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 now has actual core-loss, reconnect and owner-resume evidence. The following repair phase still fails: custody has already moved before the deliberate provider withdrawal, while the fixture expects the original allocation. Bind the measured pre-withdrawal state to the remaining repairs; keep the separate relay-mapping failure visible. Image PR6 and Cloud PR13 have reviewed consumer bindings; real consumer maintenance and reciprocal capacity proof remain open. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
 
 The seventh [Android attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38254164363)
@@ -90,6 +90,26 @@ policy removal and staging removal remain unconfirmed; unchanged host network
 namespace and restored KVM access are separate results, not complete cleanup.
 No APK, offline rebuild or installed-app behavior has been proved. The next
 step is bounded task/implementation analysis, not a blind retry or limit increase.
+
+Weather `809cc44e` applies the existing Kotlin in-process setting to the app and
+Flutter's included Gradle build using their shared, private Gradle home. The
+[thirteenth trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38288008577)
+confirms both scopes in the actual offline repository fixture. The app build
+still fails during dex merging after 663.058 seconds, now with explicit Java
+heap-exhaustion messages. Peak aggregate RSS is 3,299,090,432 bytes and maximum
+sampled individual Java CPU is 1,257.580 seconds under its 1,800-second limit.
+All nine original log hashes match; process drain, policy/staging cleanup and
+KVM restoration pass. The scoped follow-up raises only the app-build heap from
+1,024 to 1,536 MiB. Aggregate memory, host reserve, concurrency and time limits
+remain unchanged; actual build fit and installed-app operation remain unproved.
+
+The [fourteenth trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38290352014)
+on `7f071b2b` stops earlier, during pinned public-input preparation, with
+`ARCHIVE_DIGEST`. That check combines byte length and digest without naming the
+failed package; the retained traceback cannot identify which pin failed. No KVM,
+Gradle or APK trial runs, so this is not a test of the larger app heap. Original
+logs and the three preparation-artifact files are retained. Source pins and
+integrity checks remain unchanged while the rejected input is investigated.
 
 The first [maintenance trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38251889540)
 produces no topology artifact because preflight fails before the VM or Rust
@@ -167,12 +187,53 @@ keys, leases, paths or raw journals or weakening any assertion.
 All 62 targeted smoke, wiring and sampler tests pass, with independent review;
 historical schema-1 receipts remain readable without rewriting their contents.
 
+The [diagnostic protected trial on `d3c8add2`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38283604570)
+passes the core-loss and reconnect lifecycle. The original owner observes cursor
+3 before loss, 4 at loss and 8 after reconnect; a fresh owner resumes at 9.
+Enrollment and original identities remain unchanged, reconciled payload charge
+is 1,573,010 bytes, and 32 completed protected flows support this lifecycle phase.
+The subsequent repair phase still fails before successful reconstruction or
+acknowledged provider deletion. Its primary error is unclassified after turn 21;
+the separate sampler also rejects a changed path-ID-to-relay mapping. The retained
+receipt does not identify whether that mapping change is a slot permutation or
+different relay peers, and cannot establish the primary repair error by itself.
+
+Actual provider usage, measured after reconnect and before withdrawal, already
+differs from the fixture's original allocation: A holds 262,217 bytes in two
+leases, B holds 524,425 bytes in four and C holds 786,432 bytes in three.
+That is a net 262,144-byte lease moved from A to C, with unchanged total charge;
+the fixed expectation of three still-outstanding A copies no longer describes
+this run. The corrected fixture binds the measured custody before withdrawal to
+the original signed placement intentions and completed replacements. At least one
+original A copy must remain live, requiring a new read-back-verified replacement
+after withdrawal. It still requires all three replacement identities, eleven
+retained records, honest remaining A charges, two complete surviving-provider
+restores and acknowledged deletion of all copies followed by zero provider usage.
+It does not reset journals, grant fresh authority or relax the route check.
+Historical receipts remain readable but cannot satisfy current acceptance without
+the new baseline. All 74 targeted maintenance, fragment and consumer-evidence
+checks pass; 23 sampler checks separately exercise bounded mapping diagnostics.
+Independent source review passes. Actual execution of the corrected combined
+trial remains required. The failed trial's private cleanup passes, no owned objects
+remain, and guest-root network state is unchanged. This is not a completed
+maintenance or consumer-storage proof.
+
 [Quality run 38277482349](https://github.com/VOLPAROSSA/volparossa/actions/runs/38277482349)
 passes for that head, actually testing PR merge `2c807c7a` into `3dcdffa0`.
 All 614 CLI tests pass, including reconnect and the five expiry cases; seven
 workspace tests remain explicitly ignored. The three separate namespace
 checks skip under the runner's user-namespace policy. This is not a substitute
 for the failed protected lifecycle trial.
+
+[Quality run 38286762674](https://github.com/VOLPAROSSA/volparossa/actions/runs/38286762674)
+on `747b0fd7` fails a separate public-code fixture: the agent binary reports
+686 passing tests and one `Authentication` error. The fixture samples the clock
+separately for a source manifest and its enclosing dataset. At a second boundary,
+the enclosing expiry can exceed the source expiry, which production validation
+correctly rejects. Test-only correction `7e5a5ecd` shares one validity interval
+and adds a deterministic signed-manifest boundary regression, retaining rejection
+of an enclosing expiry one second too late. Formatter and source review pass;
+hosted compilation and execution of the corrected test remain required.
 
 [Image PR6](https://github.com/VOLPAROSSA/volparossa-image/pull/6) at `aade424c`
 adds finite maintenance supervision and same-adapter foreground stop/join/resume;
@@ -204,6 +265,12 @@ live trial has not yet passed. Earlier Image/Cloud pins and browser
 proofs are unchanged, and this is not a running Immich or OpenCloud account server.
 New Cloud uploads are not automatically enrolled by this first read-focused
 slice and must not be presented as maintained uploads.
+The maintenance fixture now explicitly gives each disposable provider 2 MiB,
+so each surviving store can hold both application ciphertexts, each bounded to
+1 MiB. Other profiles retain 1 MiB, reopen keeps the existing store capacity,
+and the 256 MiB free-space reserve is unchanged. This changes neither production
+contribution policy nor the signed owner grants. Seven inert shell checks pass;
+actual combined consumer execution remains required.
 
 The successful hosted Drizz.li trial supersedes neither the earlier failed route
 trial nor the local build aborted for host memory pressure; both remain recorded

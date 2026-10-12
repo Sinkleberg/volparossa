@@ -11,6 +11,33 @@ TEXT = SCRIPT.read_text()
 
 
 class ConsumerShell(unittest.TestCase):
+    def test_joined_consumer_capacity_fits_both_objects_without_changing_other_profiles(self):
+        script = '''
+. "$1"
+WORK=/synthetic/fixture
+content_custody_endpoint() { custody_address=192.0.2.1; custody_hostname=synthetic.invalid; }
+content_custody_cli() { printf '%s\\n' "$@" >&2; }
+if [ "$2" != unset ]; then private_storage_maintenance=$2; fi
+private_storage_replicas_serve relay4 "$3"
+'''
+        for profile in ('unset', 'no', 'yes'):
+            for reuse in ('no', 'yes'):
+                with self.subTest(profile=profile, reuse=reuse):
+                    result = subprocess.run(['sh', '-eu', '-c', script, 'inert',
+                        str(HERE / 'private-storage-replicas-smoke.sh'), profile, reuse],
+                        check=True, capture_output=True, text=True, timeout=5)
+                    arguments = result.stderr.splitlines()
+                    self.assertEqual(arguments[:4], ['relay4', 'storage', 'peer', 'serve'])
+                    self.assertIn('/synthetic/fixture/state-relay4/private-store', arguments)
+                    if reuse == 'yes':
+                        self.assertEqual(arguments[-1], '--reuse-store')
+                        self.assertNotIn('--capacity-bytes', arguments)
+                    else:
+                        capacity = 2 * 1048576 if profile == 'yes' else 1048576
+                        self.assertEqual(arguments[-4:], ['--capacity-bytes', str(capacity),
+                            '--min-free-bytes', '268435456'])
+                    self.assertEqual(result.stdout, '')
+
     def test_parses_and_sourcing_does_not_start_or_provision_anything(self):
         subprocess.run(['sh', '-n', str(SCRIPT)], check=True, capture_output=True, timeout=5)
         result = subprocess.run(['sh', '-eu', '-c', '. "$1"', 'inert', str(SCRIPT)],

@@ -77,9 +77,10 @@ class SamplerFailure(ValueError):
 
 class RouteMismatch(ValueError):
     """Closed first failed comparison, without route tokens or peer identities."""
-    def __init__(self, code):
+    def __init__(self, code, comparison=None):
         super().__init__('private storage route comparison failed')
         self.code = code
+        self.comparison = comparison
 
 
 def route_require(condition, code):
@@ -120,7 +121,7 @@ def validate_route_scope(scope):
         for peer in [scope['exit_peer_id'], *(p['relay_peer_id'] for p in scope['paths'])]))
 
 
-def selected_context(raw, scope):
+def selected_context(raw, scope, previous_context=None):
     route_require(isinstance(raw, bytes) and len(raw) <= 65536, 'reply_bound')
     if not raw.strip():
         return None  # A retirement gap authorizes/counts no context.
@@ -140,7 +141,15 @@ def selected_context(raw, scope):
     ordered = sorted(paths, key=lambda p: p['path_id'])
     route_require(len(ordered) == len(scope['paths']), 'path_count')
     route_require([p['path_id'] for p in ordered] == [p['path_id'] for p in scope['paths']], 'path_ids_changed')
-    route_require(ordered == scope['paths'], 'relays_changed')
+    if ordered != scope['paths']:
+        # Keep rejecting every changed mapping. These closed comparisons only
+        # distinguish a new-context slot permutation from changed relay peers;
+        # they do not authorize either or export context/peer identifiers.
+        raise RouteMismatch('relays_changed', dict(
+            context_relation=('unobserved' if previous_context is None else
+                'same' if previous_context in contexts else 'changed'),
+            relay_set_relation=('same' if {p['relay_peer_id'] for p in ordered} ==
+                {p['relay_peer_id'] for p in scope['paths']} else 'changed')))
     return contexts.pop()
 
 
@@ -175,7 +184,7 @@ class Coverage:
 
     def route(self, raw):
         require(self.scope is not None)
-        context = selected_context(raw, self.scope)
+        context = selected_context(raw, self.scope, self.current_context)
         self.current_context = context
         if context is not None:
             self.observed_contexts.add(context)
@@ -296,7 +305,7 @@ def capture(binary, socket, baseline, minimum, *, client=None, scope=None, diagn
     stopped = threading.Event()
     failures = []
 
-    def failed(phase, operation, code, route_mismatch=None, paths_process=None):
+    def failed(phase, operation, code, route_mismatch=None, paths_process=None, route_comparison=None):
         if diagnostic is not None and not diagnostic:
             diagnostic.update(phase=phase, operation=operation, code=code,
                 samples=coverage.samples, completed=coverage.completed, failed=coverage.failed)
@@ -304,6 +313,8 @@ def capture(binary, socket, baseline, minimum, *, client=None, scope=None, diagn
                 diagnostic['route_mismatch'] = route_mismatch
             if paths_process is not None:
                 diagnostic['paths_process'] = paths_process
+            if route_comparison is not None:
+                diagnostic['route_comparison'] = route_comparison
         return SamplerFailure('private storage sampler failed')
 
     def sample(timeout=3, phase='initial'):
@@ -334,7 +345,8 @@ def capture(binary, socket, baseline, minimum, *, client=None, scope=None, diagn
                 error.code if isinstance(error, RouteMismatch) else None,
                 paths_process_diagnostic(error.returncode, error.output, captured_stderr.get('data'))
                     if operation == 'route_query' and isinstance(error, subprocess.CalledProcessError)
-                    else None) from None
+                    else None,
+                error.comparison if isinstance(error, RouteMismatch) else None) from None
 
     sample()  # Establish coverage before starting any owner operation.
 

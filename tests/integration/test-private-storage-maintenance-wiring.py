@@ -352,6 +352,31 @@ with target.open('xb') as stream:
             with self.assertRaises(ValueError):
                 M['retained_during_core_loss'](invalid)
 
+    def test_route_comparison_is_closed_and_only_valid_for_relay_scope_failure(self):
+        value = dict(version=2, success=False, kind='private-storage-maintenance-lifecycle-failure',
+            stage='start_sampler', code='sampler_failure', cursor_before=3, cursor_last=5,
+            checkpoint_stage='waiting_for_core', owner_exit_status=0, owner_joined=True, cleanup_error=None,
+            retained_status=None, sampler=dict(phase='sampling', operation='route_scope', code='invalid',
+                samples=2, completed=1, failed=0, route_mismatch='relays_changed'))
+        for context in ('same', 'changed', 'unobserved'):
+            for relay in ('same', 'changed'):
+                value['sampler']['route_comparison'] = dict(context_relation=context, relay_set_relation=relay)
+                M['validate_lifecycle_failure'](value)
+        for mutate in (
+            lambda v: v['sampler'].update(operation='route_query'),
+            lambda v: v['sampler'].update(code='process'),
+            lambda v: v['sampler'].update(route_mismatch='path_ids_changed'),
+            lambda v: v['sampler'].update(route_comparison=None),
+            lambda v: v['sampler']['route_comparison'].update(context_relation='SECRET'),
+            lambda v: v['sampler']['route_comparison'].update(relay_set_relation='unobserved'),
+            lambda v: v['sampler']['route_comparison'].update(raw_ids=['SECRET']),
+            lambda v: v['sampler']['route_comparison'].pop('relay_set_relation'),
+        ):
+            invalid = copy.deepcopy(value)
+            mutate(invalid)
+            with self.assertRaises(ValueError):
+                M['validate_lifecycle_failure'](invalid)
+
     def test_retained_failure_codes_distinguish_each_unchanged_predicate(self):
         value, _, _ = FIXTURE['OLD']['cli_fixture']('committed')
         mutations = (
