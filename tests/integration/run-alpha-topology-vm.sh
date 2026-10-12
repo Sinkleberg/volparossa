@@ -1171,6 +1171,7 @@ WEATHER_PRODUCTS_FAILURE_NAMES = {f"weather-products-delivery-{suffix}.json" for
     "acquisition-failure", "export-status", "tree-before", "input-cleanup")}
 WEATHER_PRODUCTS_HELPERS = ("weather-products-delivery.py", "weather-source-observer.mjs",
     "weather-public-drizzli-v4.json", *WEATHER_CLIENT_HELPERS)
+WEATHER_PRODUCTS_V5_ADMISSION = "weather-public-overmorrow-v5.json"
 LATE_PROVIDER_NAMES = {f"content-provider-late-recovery-{suffix}.json" for suffix in (
     "first-snapshot", "final-snapshot", "object", "run-cleanup", "cleanup", "evidence", "failure", "readiness")}
 PRESSURE_PROVIDER_NAMES = {f"content-provider-pressure-{suffix}.json" for suffix in (
@@ -1219,7 +1220,19 @@ def weather_client_helper(work):
         return joined_client_helper(work, WEATHER_CLIENT_HELPERS, "weather-client-delivery.py")
     except OSError:
         return None
-    return joined_client_helper(work, WEATHER_PRODUCTS_HELPERS, "weather-products-delivery.py")
+    names = WEATHER_PRODUCTS_HELPERS
+    # A v5 run stages its extra authority beside the immutable helpers. Check
+    # it when present (including unsafe links), without requiring it for v1-4.
+    # The evidence helper still requires the exact admission for a v5 manifest.
+    try:
+        (work / "bin" / WEATHER_PRODUCTS_V5_ADMISSION).lstat()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return None
+    else:
+        names = (*names, WEATHER_PRODUCTS_V5_ADMISSION)
+    return joined_client_helper(work, names, "weather-products-delivery.py")
 
 
 def weather_client_candidates(root, label, helper, target):

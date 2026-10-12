@@ -44,10 +44,10 @@ def forecast(key, model_run=None, acquired_at=None, version=2):
         area=dict(latitude=52.52, longitude=13.41, sharing="public-community"), samples=samples)
 
 
-def prepare_fixture(viewer):
+def prepare_fixture(viewer, version=2):
     selection, forecasts = selected(), {}
     for key, p in A["PRODUCTS"].items():
-        forecasts[key] = forecast(key)
+        forecasts[key] = forecast(key, version=version)
         raw = A["B"]["encode"](forecasts[key]); A["write_new"](viewer / p["filename"], raw)
         selection["products"][key]["publication"].update(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
     save(viewer / "selection.json", selection, 0o400)
@@ -67,7 +67,7 @@ def selected():
 
 def acquisition(version=2):
     selection = selected()
-    return dict(schema=4 if version == 4 else 2, success=True, origin_https=True, acquisition_outside_overlay=True,
+    return dict(schema=4 if version in (4, 5) else 2, success=True, origin_https=True, acquisition_outside_overlay=True,
         upstream_signature_attested=False, synthetic_weather=False, synthetic_air_quality=False,
         independent_product_runs=True, decoder_sha256=A["B"]["decoder_sha"](version), products={
             key: dict(forecast_sha256=selection["products"][key]["publication"]["sha256"],
@@ -104,15 +104,18 @@ def report(version=2):
             initial_dom_display_sha256=SHA, refresh_dom_display_sha256=SHA),
         cleanup=legacy["cleanup"], outer_cleanup=legacy["outer_cleanup"])
     result["source"]["bridge_modules"] = {name: SHA for name in A["BRIDGE_MODULES"]}
-    if version == 4:
+    if version in (4, 5):
         result["source"]["synthetic_ui_proof"] = dict(sha256=SHA, driver_sha256=SHA,
             core_executed=False, overlay_proven=False)
+    if version == 5:
+        result["source"]["synthetic_ui_proof"].update(sha256="1"*64, driver_sha256="2"*64)
+        result["source"]["synthetic_table_proof"] = dict(sha256="3"*64, driver_sha256="4"*64,
+            verifier_sha256="5"*64, core_executed=False, overlay_proven=False)
     for key in A["PRODUCTS"]:
         publication = selected()["products"][key]["publication"]
         result["products"][key] = dict(expected=dict(cold_receipt_sha256=SHA, display_sha256=SHA,
             forecast_sha256=publication["sha256"], manifest_id=publication["manifest_id"]), checks=copy.deepcopy(legacy["checks"]))
-    if version == 3:
-        result["schema"] = 3
+    if version in (3, 5):
         result["scope"]["actual_overmorrow_ui"] = result["scope"].pop("actual_drizzli_ui")
     return result
 
@@ -156,14 +159,20 @@ def joined_fixture(work, version=2):
         for suffix, value in files.items(): save(A["artifact"](work, suffix, key), value)
     B = A["B"]
     profile = A["ui_profile"](version)
-    fixed = {2: B["FIXED_V2"], 3: B["FIXED_V3"], 4: B["FIXED_V4"]}[version]
-    static_files = B["STATIC_REQUIRED_V3"] if version == 3 else {"index.html"}
+    fixed = {2: B["FIXED_V2"], 3: B["FIXED_V3"], 4: B["FIXED_V4"], 5: B["FIXED_V5"]}[version]
+    static_files = B["STATIC_REQUIRED_V3"] if version in (3, 5) else {"index.html"}
     items = {name: dict(bytes=1, mode=B["mode"](name), sha256=SHA)
         for name in fixed | {profile["static"] + name for name in static_files}}
     for name, digest in (("runtime/node", B["NODE_SHA"]), ("decoder/grib_ls", B["decoder_sha"](version)),
             (B["WEATHER"]+"third_party/eccodes-sources.json", B["pin_sha"](version)),
             (B["WEATHER"]+B["build_source"](version), B["build_sha"](version))):
         items[name]["sha256"] = digest
+    if version == 5:
+        prefix = B["WEATHER"] + "integrations/overmorrow/"
+        for name, value in (("hosted-browser-proof.json", "1"), ("smoke_browser.py", "2"),
+                ("hosted-table-proof.json", "3"), ("smoke_table_browser.py", "4"),
+                ("hosted-proof/historical-smoke_core_browser_v3.py", "5")):
+            items[prefix + name]["sha256"] = value*64
     manifest = B["encode"](dict(version=version, kind=B["KIND"], files=items)); digest = hashlib.sha256(manifest).hexdigest()
     A["write_new"](A["artifact"](work, "manifest"), manifest, 0o400)
     for phase in ("before", "after"):
@@ -183,12 +192,13 @@ def joined_fixture(work, version=2):
 
 
 def fixture_admission(work, version):
-    if version != 4: return nullcontext()
+    if version not in (4, 5): return nullcontext()
     # This suite tests joining evidence, not actual public artifact admission.
     # Bundle tests separately reject unreviewed inventory and modified receipts.
     files = json.loads(A["artifact"](work, "manifest").read_text())["files"]
     admitted = {name: {key: value[key] for key in ("bytes", "sha256")} for name, value in files.items()}
-    return patch.dict(A["B"]["manifest"].__globals__, public_admission=lambda: dict(files=admitted))
+    accessor = "public_admission" if version == 4 else "public_overmorrow_admission"
+    return patch.dict(A["B"]["manifest"].__globals__, {accessor: lambda: dict(files=admitted)})
 
 
 class Products(unittest.TestCase):
@@ -198,24 +208,24 @@ class Products(unittest.TestCase):
         clock.start(); self.addCleanup(clock.stop)
 
     def test_profiles_and_browser_exports_never_accept_other_consumers(self):
-        for version, consumer in ((2, "drizzli"), (3, "overmorrow"), (4, "drizzli")):
+        for version, consumer in ((2, "drizzli"), (3, "overmorrow"), (4, "drizzli"), (5, "overmorrow")):
             good = report(version)
             A["closed_report"](good)
             self.assertEqual(A["ui_profile"](version)["ui"], "actual_"+consumer+"_ui")
-            for other in (1, 5, "3", "4", True, 2 if version == 3 else 3):
+            for other in (1, 6, "3", "4", "5", True, *({2, 3, 4, 5} - {version})):
                 bad = copy.deepcopy(good); bad["schema"] = other
                 with self.subTest(version=version, other=other), self.assertRaises(ValueError): A["closed_report"](bad)
             bad = copy.deepcopy(good); bad["scope"]["arbitrary_ui"] = True
             with self.assertRaises(ValueError): A["closed_report"](bad)
-        for version in (1, 5, "3", "4", True, None):
+        for version in (1, 6, "3", "4", "5", True, None):
             with self.assertRaises(ValueError): A["ui_profile"](version)
 
     def test_acquisition_receipt_requires_exact_decoder_and_manifest_profile(self):
-        for version in (2, 3, 4):
+        for version in (2, 3, 4, 5):
             good = acquisition(version)
             A["validate_acquisition"](good)
             A["validate_acquisition"](good, version)
-            other = 2 if version == 4 else 4
+            other = 2 if version in (4, 5) else 4
             with self.subTest(version=version), self.assertRaises(ValueError):
                 A["validate_acquisition"](good, other)
             bad = copy.deepcopy(good); bad["decoder_sha256"] = A["B"]["decoder_sha"](other)
@@ -253,6 +263,91 @@ class Products(unittest.TestCase):
                         self.assertFalse(proof["scope"]["browser_triggered_cold_fetch"])
                         bad = copy.deepcopy(proof); bad["schema"] = 2
                         with self.assertRaises(ValueError): A["validate_evidence_export"](bad)
+
+    def test_v5_full_join_binds_both_original_proofs_without_upgrading_synthetic_scope(self):
+        mutations = [(None, (), None),
+            ("acquisition", ("schema",), 2), ("cold-evidence", ("schema",), 5),
+            ("acquisition", ("decoder_sha256",), A["B"]["DECODER_SHA"]),
+            ("cold-evidence", ("decoder_sha256",), A["B"]["DECODER_SHA"]),
+            ("original-report", ("schema",), 3),
+            ("original-report", ("products", "weather", "checks", "exact_native_times_and_values"), False),
+            ("original-report", ("products", "air_quality", "checks", "refresh_dom_display_sha256"), "f"*64),
+            ("original-report", ("products", "air_quality", "expected", "cold_receipt_sha256"), "f"*64),
+            ("original-report", ("source", "synthetic_ui_proof", "sha256"), "3"*64),
+            ("original-report", ("source", "synthetic_table_proof", "sha256"), "1"*64)]
+        for proof in ("synthetic_ui_proof", "synthetic_table_proof"):
+            fields = ("sha256", "driver_sha256", "verifier_sha256") if proof == "synthetic_table_proof" else ("sha256", "driver_sha256")
+            mutations.extend(("original-report", ("source", proof, field), "f"*64) for field in fields)
+            mutations.extend(("original-report", ("source", proof, field), True)
+                for field in ("core_executed", "overlay_proven"))
+            mutations.append(("original-report", ("source", proof, "unexpected"), "not admitted"))
+        for suffix, fields, replacement in mutations:
+            with self.subTest(suffix=suffix, fields=fields, replacement=replacement), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary); digest, caches = joined_fixture(work, 5)
+                if suffix:
+                    path = A["artifact"](work, suffix); value = A["read"](path); target = value
+                    for field in fields[:-1]: target = target[field]
+                    target[fields[-1]] = replacement
+                    path.unlink(); save(path, value)
+                with fixture_admission(work, 5), patch.dict(A["evidence"].__globals__, cache_state=lambda key, *args: caches[key]):
+                    if suffix:
+                        with self.assertRaises(ValueError): A["evidence"](work, digest, SHA)
+                    else:
+                        cold = A["read"](A["artifact"](work, "cold-evidence"))
+                        self.assertEqual(cold["schema"], 4)
+                        self.assertFalse(cold["scope"]["end_to_end_proven"])
+                        proof = A["evidence"](work, digest, SHA); A["validate_evidence_export"](proof)
+                        self.assertEqual(proof["schema"], 5)
+                        self.assertEqual(proof["decoder_sha256"], A["B"]["decoder_sha"](5))
+                        self.assertTrue(proof["scope"]["actual_overmorrow_ui"])
+                        self.assertNotIn("actual_drizzli_ui", proof["scope"])
+                        self.assertFalse(proof["scope"]["browser_triggered_cold_fetch"])
+                        for wrong in (2, 3, 4, "5", True):
+                            bad = copy.deepcopy(proof); bad["schema"] = wrong
+                            with self.assertRaises(ValueError): A["validate_evidence_export"](bad)
+
+    def test_v5_acquisition_keeps_public_decoder_schema_four_and_independent_deadline(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary); root = base / "weather-publisher"; root.mkdir(mode=0o700)
+            source = base / "inputs"; source.mkdir(mode=0o700)
+            A["initialize"](root); A["write_new"](source / "INPUTS.json", b"fixture", 0o400)
+            calls = []
+            def execute(command, cwd, maximum, timeout):
+                calls.append((command, timeout))
+                if command[-1] == "-V": return b"ecCodes Version 2.44.0\n"
+                key = "weather" if command[4].endswith("/forecast.mjs") else "air_quality"
+                self.assertEqual(command[command.index("--decoder-sha256")+1], A["B"]["decoder_sha"](5))
+                return json.dumps(forecast(key, command[command.index("--run")+1], version=5)).encode()
+            with patch.dict(A["acquisition"].__globals__, run=execute, boundary=lambda *args: None), \
+                    patch.dict(A["B"], verify_tree=lambda *args: None, manifest=lambda *args: {"version": 5}), \
+                    patch.object(A["time"], "time", return_value=CLOCK/1000), \
+                    patch.object(A["time"], "monotonic", side_effect=[100, 120, 480]):
+                value = A["acquisition"](source, SHA, root, "net:[1]", "net:[2]", 1000)
+            A["validate_acquisition"](value, 5)
+            self.assertEqual(value["schema"], 4)
+            self.assertEqual([timeout for _, timeout in calls], [10, 360, 340])
+            self.assertNotEqual(value["products"]["weather"]["forecast_sha256"], value["products"]["air_quality"]["forecast_sha256"])
+
+    def test_v5_preparer_requires_explicit_profile_and_exact_new_expected_schema(self):
+        for expected_version in (2, 3, 4, 5, True, "5"):
+            with self.subTest(expected_version=expected_version), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary); viewer = base / "weather-viewer"; viewer.mkdir(mode=0o700)
+                selection, forecasts = prepare_fixture(viewer, 5)
+                def execute(command, cwd, maximum, timeout):
+                    self.assertTrue(command[2].endswith("integrations/overmorrow/prepare_core_browser.mjs"))
+                    self.assertEqual(command[-2:], ["--bundle-version", "5"])
+                    expected = dict(schema=expected_version, core_sha256=SHA, display_sha256=SHA,
+                        products={key: dict(publication=value["publication"], forecast=forecasts[key])
+                            for key, value in selection["products"].items()})
+                    raw = A["B"]["encode"](expected); A["write_new"](viewer / "expected.json", raw, 0o400)
+                    return json.dumps(dict(prepared=True, expected_sha256=hashlib.sha256(raw).hexdigest(), display_sha256=SHA)).encode()
+                with patch.dict(A["prepare"].__globals__, run=execute), patch.dict(A["B"], fingerprint=lambda *args: {"sha256": SHA}):
+                    args = (base / "source", viewer, base / "binary", base / "agent.sock",
+                        base / "state-client/weather-cache", base / "state-client/air-quality-cache", 5)
+                    if type(expected_version) is int and expected_version == 5:
+                        self.assertTrue(A["prepare"](*args)["prepared"])
+                    else:
+                        with self.assertRaises(ValueError): A["prepare"](*args)
 
     def test_v4_acquisition_uses_new_decoder_and_keeps_two_product_deadline(self):
         with tempfile.TemporaryDirectory() as temporary:
