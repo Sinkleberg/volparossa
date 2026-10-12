@@ -10,6 +10,9 @@ mod adaptive;
 #[path = "content-acceptance-fixture/repair.rs"]
 mod repair;
 
+#[path = "content-acceptance-fixture/readiness.rs"]
+mod readiness;
+
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
@@ -37,6 +40,9 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.as_slice() {
+        [mode, socket, manifest, publisher] if mode == "discover-providers" => {
+            readiness::discover(Path::new(socket), Path::new(manifest), publisher).await
+        }
         [mode, root] if mode == "seed" => seed(Path::new(root), None),
         [mode, root, first, second] if mode == "seed-providers" => {
             seed_replicas(Path::new(root), None, Path::new(first), Path::new(second), false)

@@ -29,9 +29,9 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Complete late-provider recovery and requester cancellation in one protected run, then join Weather delivery to the verified cache path. | Run `38195177153` on `c63ddf36` passes native and HTTPS three-provider reconstruction, but its first late-provider query returns empty through a newly selected broker. The six-second fixture correction cannot repair that unmet first-snapshot condition. Establish genuine signed-service readiness before the measured late-publication phase; do not inject provider hints or widen product deadlines. Cancellation and protected pressure-retirement recovery remain unproved. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Complete late-provider recovery and requester cancellation in one protected run, then join Weather delivery to the verified cache path. | Run `38195177153` on `c63ddf36` passes native and HTTPS three-provider reconstruction, but its first late-provider query returns empty through a newly selected broker. A separate signed-service readiness prerequisite is now implemented and component-tested, without provider hints or longer product deadlines. Its live execution, cancellation and protected pressure-retirement recovery remain unproved. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost; a separate exact-source probe encounters ECMWF HTTP 429. Closed retention now includes bounded Retry-After diagnostics and passes eighty focused checks, without extra requests, retries or relaxed validation. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
-| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR11 are merged with passing CI. Browser08 and its immutable input bundle retain their synthetic UI proof. A separate actual-browser test of the exact ordered Flutter tables fails at the initial table assertion; its browser, fixture and private profile are cleaned up. Diagnose the mismatch without weakening row checks or changing the frozen bundle. Joined core delivery and native Android/iOS execution remain unverified. |
+| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR11 are merged with passing CI. Browser08 and its immutable input bundle retain their synthetic UI proof. The exact table verifier is corrected and passes a separate actual-browser trial with synthetic products, before and after pointer refresh. Rebuild a new immutable bundle with that verifier; do not change the old bundle. Joined core delivery and native Android/iOS execution remain unverified. |
 
 Respect the observed source rate limit instead of repeatedly relaunching the
 joined trial or routing requests through other peers. Finish the standalone
@@ -55,11 +55,39 @@ offer cannot then be established. No B activation or requester-cancellation
 proof follows. The logs establish the failed connections, not their exact cause
 or which bounded polling command timed out.
 
-A separate, bounded signed-service readiness phase is the next fixture
-candidate. It must retain its own evidence, preserve the cold content cache,
-and explicitly distinguish prepared control connectivity from cold discovery.
-The measured first-one-offer and later-B-publication assertions stay intact.
-No production address fix or longer deadline is justified by these logs alone.
+A separate signed-service readiness prerequisite is now implemented in the
+fixture. It uses the existing typed `ContentCustodyDiscover` request, at most
+twice within one thirty-second deadline. No desired provider or address is sent;
+the fixture checks the returned signed A offer only afterward. It retains all
+attempts and separate real broker/client events, verifies unchanged routes and
+broker, keeps B off and leaves the content cache cold. Real owner-first interface
+accounting remains enabled; the role-isolated client adds no contribution queues.
+
+The measured first-one-offer and later-B-publication assertions start after
+preparation and retain the original six-second gate and 300-second fetch limits.
+The receipt explicitly says **warm control plane, cold content cache**, not cold
+discovery. Owned helper termination closes its typed socket and is reaped;
+preparation/setup time consumes the original deadline. Two Rust socket tests,
+seventeen late-provider tests, nineteen aggregate checks and ten existing inert
+cancellation checks pass, with an independent review. Current aggregate schema 3
+requires late-component schema 2 and its readiness evidence; historical schemas
+remain explicitly separate. Live readiness and the complete sequence are still
+unproved. No production address fix is claimed.
+
+The separate Overmorrow table trial now passes in the actual isolated Firefox
+CanvasKit UI using synthetic products. Earlier extraction assigned both tables
+to the last preceding title; Flutter can combine the metadata labels before the
+table children. The corrected verifier identifies tables by exact static ordered
+headers, then checks all original row/cell values and title-grouped metadata.
+It does not assert separate product DOM containers. Four weather and five
+particulate rows match before and after a real pointer refresh, with exactly two
+requests per product. Browser, fixture, profile and namespace cleanup pass.
+The retained report at Weather's `build/overmorrow-table-browser-04/report.json`
+has SHA-256 `3ed8ceeaf89aa22bb2c9fd656c9b4228dd5f75b12e87424820bd430dc9dc214d`.
+Five pure DOM regressions accompany the existing exact-value checks. This proves
+the corrected UI verifier, not core, origin, cold or native-mobile delivery.
+Old reports and the frozen bundle are unchanged; a future joined trial needs a
+new bundle with the corrected driver.
 
 Independent reconstruction of the same run validates native and cooperative
 HTTPS delivery of 15,728,640 bytes in sixty chunks from three providers. Their

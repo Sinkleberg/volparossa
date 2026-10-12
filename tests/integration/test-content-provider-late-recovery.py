@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Synthetic late-recovery gates, not a live DHT/datapath proof."""
 import copy
+import io
 import json
 from pathlib import Path
 import runpy
@@ -32,7 +33,7 @@ def gate_fixture():
 def fixture(control_node="relay2"):
     value = ADAPTIVE["fixture"](control_node)
     for key in ("https", "control_filter", "provider_payload_overlap_ns"): value.pop(key)
-    value.update(schema_version=1, concurrent_provider_overlap_claimed=False, previous_context="b"*32, gate=gate_fixture())
+    value.update(schema_version=2, concurrent_provider_overlap_claimed=False, previous_context="b"*32, gate=gate_fixture())
     value["publication"] = dict(report_kind="volparossa-content-late-provider-seed", bytes=CHECK["BYTES"], chunks=9,
         object_sha256=CHECK["SHA"], name="disposable-late-native-publication", publisher_hex="3"*64, manifest_id="f"*64,
         publisher_removed=True, publisher_private_key_persisted=False, recipient_encrypted=False,
@@ -77,6 +78,16 @@ def fixture(control_node="relay2"):
     value["run_cleanup"] = dict(fetch_reaped=True, gate_removed=True, operation_completed=True)
     value["cleanup"] = dict(route_disconnected=True, active_contexts=0, paths_empty=True,
         client_output_removed=True, client_manifest_removed=True, client_mount_isolated=True)
+    value["readiness"] = dict(schema_version=1, kind="content-provider-late-readiness", success=True,
+        scope="warm-control-plane-cold-content-cache", started_ns=100_000_000, completed_ns=500_000_000,
+        event_baseline_unix_ms=800, completed_unix_ms=999, route_context_id="c"*32,
+        manifest_id=value["publication"]["manifest_id"], control_relay_peer_id=value["layout"]["control_relay_peer_id"],
+        attempts=[dict(started_ns=200_000_000, completed_ns=400_000_000, failure=None,
+            response=dict(schema_version=1, kind="content-provider-discovery-readiness",
+                control_relay_peer_id=value["layout"]["control_relay_peer_id"],
+                providers=[dict(peer_id=peers["relay4"], offer_expires_unix_seconds=4600)]))],
+        checks=dict(route_unchanged=True, b_not_serving=True, cold_cache=True, children_reaped=True), failure=None,
+        events=dict(client=[row(events[1], 900), row(events[0], 900)], broker=[row(events[3], 850), row(events[4], 899)]))
     return value
 
 
@@ -86,7 +97,7 @@ def raw_files(value):
         ("status_before", "status-before"), ("status_after", "status-after"), ("fetch", "fetch"), ("output", "object"),
         ("selected_before", "selection"), ("selected_route", "live-selection"), ("cleanup", "cleanup"),
         ("first_snapshot", "first-snapshot"), ("final_snapshot", "final-snapshot"), ("gate", "gate-installed"),
-        ("run_cleanup", "run-cleanup"))}
+        ("run_cleanup", "run-cleanup"), ("readiness", "readiness"))}
     files["a01-expected-peers.json"] = value["expected_peers"]
     broker = next(node for node in ("relay0", "relay1", "relay2")
         if value["expected_peers"][node] == value["layout"]["control_relay_peer_id"])
@@ -112,6 +123,133 @@ def disjoint_snapshot_fixture():
 
 
 class LateRecovery(unittest.TestCase):
+    def test_configuration_is_client_only_and_preparation_precedes_unchanged_gate(self):
+        root = HERE.joinpath('kvm-alpha-topology.sh').read_text()
+        block = root.split('if [ "$scenario" = content-provider ] && [ "$node" = client ]; then', 1)[1].split('\n        fi', 1)[0]
+        self.assertIn('interface: cr0', block); self.assertIn('interface: cr2', block)
+        self.assertNotIn('content_contribution:', block)
+        self.assertIn('write_config client null false false', root)
+        shell = HERE.joinpath('content-provider-late-recovery.sh').read_text()
+        self.assertLess(shell.index('wait_observer "$PROVIDER_CONTROL_PID"'), shell.index('.py" prepare'))
+        self.assertLess(shell.index('.py" prepare'), shell.index('.py" run'))
+        self.assertEqual(CHECK['GATE_NS'], 6_000_000_000)
+        self.assertEqual(CHECK['PREPARE_NS'], 30_000_000_000)
+
+    def test_readiness_is_current_only_and_cannot_be_claimed_from_old_evidence(self):
+        current = fixture(); CHECK["validate"](current)
+        historical = copy.deepcopy(current); historical["schema_version"] = 1; historical.pop("readiness")
+        CHECK["validate"](historical, historical=True)
+        with self.assertRaises(ValueError): CHECK["validate"](historical)
+        with self.assertRaises(ValueError): CHECK["validate"](current, historical=True)
+        mutations = [(('readiness', 'success'), False), (('readiness', 'events'), dict(client=[], broker=[])),
+            (('readiness', 'attempts'), current['readiness']['attempts']*3),
+            (('readiness', 'completed_unix_ms'), current['output']['event_baseline_unix_ms']),
+            (('readiness', 'checks', 'cold_cache'), False), (('readiness', 'checks', 'children_reaped'), False),
+            (('readiness', 'route_context_id'), '0'*32), (('readiness', 'manifest_id'), '0'*64),
+            (('readiness', 'attempts', 0, 'response', 'providers', 0, 'peer_id'), 'wrong-provider'),
+            (('readiness', 'attempts', 0, 'response', 'providers', 0, 'offer_expires_unix_seconds'), 0)]
+        for keys, changed in mutations:
+            with self.subTest(keys=keys):
+                value = copy.deepcopy(current); target = value
+                for key in keys[:-1]: target = target[key]
+                target[keys[-1]] = changed
+                with self.assertRaises(ValueError): CHECK['validate'](value)
+
+    def test_actual_preparation_is_bounded_separate_cold_and_retains_failed_rounds(self):
+        for case in ('ready', 'empty-then-ready', 'both-empty', 'timeout', 'second-error', 'wrong-broker',
+                     'wrong-provider', 'early-b', 'changed-route', 'warm-cache'):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary); value = fixture(); clock = [1_000_000_000]
+                value['selected_before']['exact_selected_exit'] = value['expected_peers']['exit']
+                binary = work/'volparossa'; binary.touch()
+                executable = work/'content-acceptance-fixture'; executable.touch()
+                native = work/'state-client/content-late-recovery'; native.mkdir(parents=True)
+                for name, item in (("publication", value["publication"]), ("layout", value["layout"]),
+                        ("selection", value["selected_before"]), ("peers", value["expected_peers"])):
+                    CHECK['write'](CHECK['path'](work, name), item)
+                calls, responses, deadlines = [], [], []
+                def request(_work, tool, args, deadline):
+                    self.assertEqual(tool, executable); self.assertEqual(len(args), 3)
+                    self.assertEqual(args[-1], value['publication']['publisher_hex'])
+                    self.assertNotIn(value['expected_peers']['relay4'], args)
+                    calls.append('discover'); deadlines.append(deadline); clock[0] += 1_000_000_000
+                    if case == 'timeout':
+                        clock[0] = deadline; raise subprocess.TimeoutExpired(['private-socket'], 30)
+                    if case == 'second-error' and len(calls) == 2: raise CHECK['FixtureCommandError'](1)
+                    reply = copy.deepcopy(value['readiness']['attempts'][0]['response'])
+                    if case in ('both-empty', 'empty-then-ready', 'second-error') and (len(calls) == 1 or case == 'both-empty'):
+                        reply['providers'] = []
+                    if case == 'wrong-broker': reply['control_relay_peer_id'] = 'wrong'
+                    if case == 'wrong-provider': reply['providers'][0]['peer_id'] = 'wrong'
+                    responses.append(reply)
+                    return reply
+                def command(args, deadline, _input=None):
+                    deadlines.append(deadline); clock[0] += 1_000_000
+                    self.assertLess(clock[0], deadline)
+                    if args[-1] == 'paths':
+                        context = '0'*32 if case == 'changed-route' else value['selected_before']['route_context_id']
+                        return ''.join(f"context={context} path={p['path_id']} relay={p['relay_peer_id']} "
+                            f"exit={value['selected_before']['exact_selected_exit']} state=1 rtt_us=1 bytes=0 acked_transport_bytes=0\n"
+                            for p in value['selected_before']['paths']).encode()
+                    if args[-2:] == ['content', 'status']:
+                        if 'runtime-relay5' in args[2]: return json.dumps(dict(serving=case == 'early-b', publications=0)).encode()
+                        return json.dumps(dict(control_relay_peer_id=value['layout']['control_relay_peer_id'])).encode()
+                    self.assertEqual(args[-3:], ['logs', '--limit', '400'])
+                    codes = []
+                    for reply in responses:
+                        if 'runtime-client' in args[2]:
+                            codes.extend([CHECK['EVENTS'][1] if reply['providers'] else CHECK['EVENTS'][2], CHECK['EVENTS'][0]])
+                        else:
+                            codes.append(CHECK['EVENTS'][3])
+                            if reply['providers']: codes.append(CHECK['EVENTS'][4])
+                    return ''.join(f"{2001+i} INFO event={code}\n" for i, code in enumerate(codes)).encode()
+                if case == 'warm-cache': (native/'cache').mkdir()
+                with patch.dict(CHECK['prepare'].__globals__, guest=lambda work: None, readiness_request=request, command=command), \
+                        patch.object(CHECK['time'], 'monotonic_ns', side_effect=lambda: clock[0]), \
+                        patch.object(CHECK['time'], 'time_ns', side_effect=lambda: 1_000_000_000+clock[0]), \
+                        patch.object(CHECK['time'], 'sleep', side_effect=lambda seconds: clock.__setitem__(0, clock[0]+int(seconds*1e9))):
+                    if case in ('ready', 'empty-then-ready'): CHECK['prepare'](work, binary, executable)
+                    else:
+                        with self.assertRaises((ValueError, subprocess.TimeoutExpired)): CHECK['prepare'](work, binary, executable)
+                record = CHECK['read'](CHECK['path'](work, 'readiness'))
+                CHECK['validate_readiness'](record, value['publication'], value['layout'], value['selected_before'],
+                    value['expected_peers'], successful=False)
+                self.assertLessEqual(len(calls), 2); self.assertEqual(set(deadlines), {31_000_000_000})
+                self.assertEqual(record['success'], case in ('ready', 'empty-then-ready'))
+                self.assertNotIn('private-socket', json.dumps(record))
+                self.assertFalse(CHECK['path'](work, 'gate', 'state').exists())
+                if case == 'empty-then-ready':
+                    self.assertEqual(record['attempts'][0]['response']['providers'], [])
+                    self.assertEqual(CHECK['count'](record['events']['client'], CHECK['EVENTS'][2]), 1)
+                if case == 'second-error':
+                    self.assertEqual(len(record['attempts']), 2)
+                    self.assertEqual(record['attempts'][1]['failure']['category'], 'command-failed')
+                    self.assertEqual(CHECK['count'](record['events']['client'], CHECK['EVENTS'][2]), 1)
+
+    def test_readiness_timeout_kills_reaps_and_closes_exact_child_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary); calls = []; clock = [1_000_000_000]
+            class Process:
+                pid = 1234
+                returncode = None
+                stdout = io.BytesIO()
+                def communicate(self, timeout):
+                    self.timeout = timeout; raise subprocess.TimeoutExpired(['private'], timeout)
+                def poll(self): return self.returncode
+                def kill(self): calls.append('kill')
+                def wait(self, timeout): calls.append('reap'); self.returncode = -9
+            process = Process()
+            def identity(pid):
+                clock[0] += 10_000_000_000
+                return dict(pid=pid, start_ticks=2)
+            with patch.object(CHECK['subprocess'], 'Popen', return_value=process), \
+                    patch.object(CHECK['time'], 'monotonic_ns', side_effect=lambda: clock[0]), \
+                    patch.dict(CHECK['readiness_request'].__globals__, process_identity=identity):
+                with self.assertRaises(subprocess.TimeoutExpired): CHECK['readiness_request'](work, Path('/inert'), [],
+                    CHECK['time'].monotonic_ns()+30_000_000_000)
+            self.assertEqual(calls, ['kill', 'reap']); self.assertTrue(process.stdout.closed)
+            self.assertEqual(process.timeout, 20, 'setup time cannot extend the original deadline')
+
     def test_exact_late_phase_is_independent_of_payload_overlap(self):
         for broker in ("relay0", "relay1", "relay2"):
             value = fixture(broker)
@@ -228,15 +366,15 @@ class LateRecovery(unittest.TestCase):
 
     def test_cleanup_releases_gate_before_process_ownership_check_and_attempts_both(self):
         events = []
-        def process(_work): events.append("process"); raise ValueError("replaced")
+        def process(_work, suffix="fetch"): events.append(suffix); raise ValueError("replaced")
         with patch.dict(CHECK["cleanup"].__globals__, stop_fetch=process, remove_gate=lambda work: events.append("gate")):
             with self.assertRaises(ValueError): CHECK["cleanup"](Path("/not-an-actual-guest"))
-        self.assertEqual(events, ["gate", "process"])
+        self.assertEqual(events, ["gate", "fetch", "readiness-process"])
         events.clear()
         def gate(_work): events.append("gate"); raise ValueError("gate failed")
-        with patch.dict(CHECK["cleanup"].__globals__, stop_fetch=lambda work: events.append("process"), remove_gate=gate):
+        with patch.dict(CHECK["cleanup"].__globals__, stop_fetch=lambda work, suffix="fetch": events.append(suffix), remove_gate=gate):
             with self.assertRaises(ValueError): CHECK["cleanup"](Path("/not-an-actual-guest"))
-        self.assertEqual(events, ["gate", "process"])
+        self.assertEqual(events, ["gate", "fetch", "readiness-process"])
         with tempfile.TemporaryDirectory() as temporary: CHECK["cleanup"](Path(temporary))
 
     def test_coordinator_activates_b_only_after_snapshot_and_always_releases_owned_gate(self):
@@ -302,6 +440,7 @@ class LateRecovery(unittest.TestCase):
                         self.assertEqual(record["command_exit_code"], 2 if failure == "gate-install" else None)
                         self.assertNotIn("secret", diagnostic.read_text())
                 with patch.dict(CHECK["run"].__globals__, guest=lambda work: None,
+                        checked_readiness=lambda *args: value["readiness"],
                         namespace=lambda work: dict(name="va-00000000-r4", identity="1:2"), command=execute,
                         process_identity=lambda pid: dict(pid=pid, start_ticks=100),
                         remove_gate=release), \
@@ -395,6 +534,7 @@ class LateRecovery(unittest.TestCase):
                     self.assertLessEqual(clock[0], gate_started[0]+CHECK["GATE_NS"]+20_000_000)
                     if case != "discovery-5.09s": self.assertTrue(CHECK["path"](work, "failure").exists())
                 with patch.dict(CHECK["run"].__globals__, guest=lambda work: None,
+                        checked_readiness=lambda *args: value["readiness"],
                         namespace=lambda work: dict(name="va-00000000-r4", identity="1:2"),
                         process_identity=lambda pid: dict(pid=pid, start_ticks=100), remove_gate=release), \
                         patch.object(CHECK["subprocess"], "run", side_effect=execute), \

@@ -22,11 +22,12 @@ NODES = ("relay4", "relay5")
 TABLE = "vpa_content_late_gate"
 LIMIT = 262144
 GATE_NS = 6_000_000_000
+PREPARE_NS = 30_000_000_000
 BYTES = 2097275
 SHA = hashlib.sha256(b"".join(bytes([16+i])*262144 for i in range(8)) + bytes([25])*123).hexdigest()
 EVENTS = ("CONTENT_DISCOVERY_COMPLETED", "CONTENT_DISCOVERY_RECEIVED_OFFERS", "CONTENT_DISCOVERY_RECEIVED_EMPTY",
     "CONTENT_PROVIDER_QUERY_STARTED", "CONTENT_PROVIDER_OFFER_VERIFIED")
-FAILURE_STAGES = ("gate-install", "gate-inspect", "fetch-start", "first-snapshot", "activate-b",
+FAILURE_STAGES = ("readiness", "gate-install", "gate-inspect", "fetch-start", "first-snapshot", "activate-b",
     "gate-release", "fetch-wait", "final-snapshot", "output")
 FAILURE_CATEGORIES = ("command-failed", "timeout", "interrupted", "os-error", "invalid-evidence")
 
@@ -35,6 +36,10 @@ class FixtureCommandError(ValueError):
     def __init__(self, returncode):
         super().__init__("bounded fixture command failed")
         self.returncode = returncode
+
+
+class ReadinessCleanupError(OSError):
+    pass
 
 
 def failure_evidence(stage, error):
@@ -160,8 +165,8 @@ def process_identity(pid):
     return dict(pid=pid, start_ticks=int(fields[19]))
 
 
-def stop_fetch(work):
-    record = path(work, "fetch", "state")
+def stop_fetch(work, suffix="fetch"):
+    record = path(work, suffix, "state")
     if not record.exists() and not record.is_symlink(): return
     guest(work); identity = private_read(record)
     require(set(identity) == {"pid", "start_ticks"} and all(type(v) is int and v > 1 for v in identity.values()),
@@ -182,7 +187,9 @@ def stop_fetch(work):
 def cleanup(work):
     # Gate release must not wait for child termination near the connect deadline.
     try: remove_gate(work)
-    finally: stop_fetch(work)
+    finally:
+        try: stop_fetch(work)
+        finally: stop_fetch(work, "readiness-process")
 
 
 def event_rows(raw, baseline):
@@ -205,6 +212,193 @@ def event_rows(raw, baseline):
 def count(rows, code): return sum(row["event"] == code for row in rows)
 
 
+def discovery_reply(value):
+    require(type(value) is dict and set(value) == {"schema_version", "kind", "control_relay_peer_id", "providers"}
+        and type(value["schema_version"]) is int and value["schema_version"] == 1
+        and value["kind"] == "content-provider-discovery-readiness"
+        and type(value["control_relay_peer_id"]) is str and 0 < len(value["control_relay_peer_id"]) <= 128
+        and type(value["providers"]) is list and len(value["providers"]) <= 16, "invalid readiness reply")
+    peers = set()
+    for offer in value["providers"]:
+        require(type(offer) is dict and set(offer) == {"peer_id", "offer_expires_unix_seconds"}
+            and type(offer["peer_id"]) is str and 0 < len(offer["peer_id"]) <= 128
+            and offer["peer_id"] not in peers and type(offer["offer_expires_unix_seconds"]) is int
+            and 0 < offer["offer_expires_unix_seconds"] < 2**64, "invalid readiness offer")
+        peers.add(offer["peer_id"])
+    return value
+
+
+def readiness_paths(raw, selected):
+    rows = raw.decode("ascii").splitlines()
+    require(0 < len(rows) <= 8, "wrong readiness paths")
+    observed = []
+    for row in rows:
+        match = re.fullmatch(r"context=([0-9a-f]{32}) path=([1-8]) relay=(\S+) exit=(\S+) "
+            r"state=[0-9]+ rtt_us=[0-9]+ bytes=[0-9]+ acked_transport_bytes=[0-9]+", row)
+        require(match is not None, "invalid readiness path row")
+        context, ident, relay, exit_peer = match.groups()
+        require(context == selected["route_context_id"] and exit_peer == selected["exact_selected_exit"], "readiness route changed")
+        observed.append((int(ident), relay))
+    expected = [(row["path_id"], row["relay_peer_id"]) for row in selected["paths"]]
+    require(sorted(observed) == sorted(expected), "readiness path selection changed")
+
+
+def readiness_request(work, executable, args, deadline):
+    """One owned typed helper; termination closes its actual agent socket (EOF)."""
+    remaining = (deadline-time.monotonic_ns()) / 1e9
+    require(remaining > 0, "readiness deadline exceeded")
+    process = subprocess.Popen([str(executable), "discover-providers", *args], stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        # Replaced only after the previous owned child has been reaped.
+        record = path(work, "readiness-process", "state")
+        if record.exists():
+            private_read(record); record.unlink()
+        write(record, process_identity(process.pid))
+        remaining = (deadline-time.monotonic_ns()) / 1e9
+        if remaining <= 0: raise subprocess.TimeoutExpired("readiness", 0)
+        stdout, _ = process.communicate(timeout=remaining)
+        if process.returncode: raise FixtureCommandError(process.returncode)
+        require(len(stdout) <= 8192, "oversized readiness reply")
+        return discovery_reply(json.loads(stdout))
+    finally:
+        try:
+            if process.poll() is None:
+                try: process.kill(); process.wait(timeout=2)
+                except (OSError, subprocess.SubprocessError) as error:
+                    raise ReadinessCleanupError("readiness child cleanup unconfirmed") from error
+        finally:
+            if process.stdout is not None: process.stdout.close()
+
+
+def validate_readiness(value, publication, layout, selected, peers, *, successful=True):
+    require(type(value) is dict and set(value) == {"schema_version", "kind", "success", "scope", "started_ns",
+        "completed_ns", "event_baseline_unix_ms", "completed_unix_ms", "route_context_id", "manifest_id",
+        "control_relay_peer_id", "attempts", "checks", "failure", "events"}
+        and type(value["schema_version"]) is int and value["schema_version"] == 1
+        and value["kind"] == "content-provider-late-readiness"
+        and value["scope"] == "warm-control-plane-cold-content-cache" and type(value["success"]) is bool,
+        "invalid readiness record")
+    require(all(type(value[k]) is int and value[k] > 0 for k in
+        ("started_ns", "completed_ns", "event_baseline_unix_ms", "completed_unix_ms"))
+        and value["completed_ns"] >= value["started_ns"]
+        and value["completed_unix_ms"] >= value["event_baseline_unix_ms"]
+        and value["route_context_id"] == selected["route_context_id"]
+        and value["manifest_id"] == publication["manifest_id"]
+        and value["control_relay_peer_id"] == layout["control_relay_peer_id"], "readiness binding changed")
+    attempts = value["attempts"]
+    require(type(attempts) is list and len(attempts) <= 2, "readiness request count exceeded")
+    previous = value["started_ns"]
+    for attempt in attempts:
+        require(set(attempt) == {"started_ns", "completed_ns", "response", "failure"}
+            and all(type(attempt[k]) is int for k in ("started_ns", "completed_ns"))
+            and previous <= attempt["started_ns"] <= attempt["completed_ns"] <= value["completed_ns"], "readiness attempt ordering")
+        previous = attempt["completed_ns"]
+        require((attempt["response"] is None) != (attempt["failure"] is None), "ambiguous readiness attempt")
+        if attempt["response"] is not None: discovery_reply(attempt["response"])
+        else: validate_failure(attempt["failure"])
+    require(set(value["checks"]) == {"route_unchanged", "b_not_serving", "cold_cache", "children_reaped"}
+        and all(type(item) is bool for item in value["checks"].values()), "invalid readiness checks")
+    if value["failure"] is not None: validate_failure(value["failure"])
+    events = value["events"]
+    require(events is None or type(events) is dict and set(events) == {"client", "broker"}, "invalid readiness events")
+    if events is not None:
+        for rows in events.values():
+            require(type(rows) is list and len(rows) <= 400 and all(set(row) == {"unix_ms", "event"}
+                and type(row["unix_ms"]) is int and row["unix_ms"] > value["event_baseline_unix_ms"]
+                and row["unix_ms"] <= value["completed_unix_ms"]
+                and row["event"] in EVENTS for row in rows), "invalid preparation event")
+    if successful or value["success"]:
+        require(value["success"] and value["failure"] is None and 1 <= len(attempts) <= 2
+            and all(value["checks"].values()) and value["completed_ns"]-value["started_ns"] <= PREPARE_NS
+            and events is not None, "readiness prerequisite failed")
+        found = discovery_reply(attempts[-1]["response"])
+        require(found["control_relay_peer_id"] == layout["control_relay_peer_id"]
+            and len(found["providers"]) == 1 and found["providers"][0]["peer_id"] == peers["relay4"]
+            and found["providers"][0]["offer_expires_unix_seconds"]*1000 > value["completed_unix_ms"],
+            "A signed offer not ready through selected broker")
+        require(all(item["failure"] is None for item in attempts)
+            and all(item["response"]["control_relay_peer_id"] == layout["control_relay_peer_id"] for item in attempts)
+            and all(not item["response"]["providers"] for item in attempts[:-1])
+            and count(events["client"], EVENTS[0]) == count(events["broker"], EVENTS[3]) == len(attempts)
+            and count(events["client"], EVENTS[1]) == 1
+            and count(events["client"], EVENTS[2]) == len(attempts)-1
+            and 1 <= count(events["broker"], EVENTS[4]) <= 16*len(attempts),
+            "preparation did not retain real completed discovery")
+
+
+def prepare(work, binary, executable):
+    guest(work)
+    require(executable.resolve() == executable and executable.is_file() and binary.resolve() == binary
+        and binary.is_file(), "unsafe readiness executable")
+    publication, layout, selected, peers = (read(path(work, name)) for name in ("publication", "layout", "selection", "peers"))
+    broker = next(node for node in ("relay0", "relay1", "relay2") if peers[node] == layout["control_relay_peer_id"])
+    native = work / "state-client/content-late-recovery"
+    started = time.monotonic_ns(); deadline = started + PREPARE_NS
+    value = dict(schema_version=1, kind="content-provider-late-readiness", success=False,
+        scope="warm-control-plane-cold-content-cache", started_ns=started, completed_ns=started,
+        event_baseline_unix_ms=time.time_ns()//1000000, completed_unix_ms=time.time_ns()//1000000,
+        route_context_id=selected["route_context_id"], manifest_id=publication["manifest_id"],
+        control_relay_peer_id=layout["control_relay_peer_id"], attempts=[], events=None, failure=None,
+        checks=dict(route_unchanged=False, b_not_serving=False, cold_cache=False, children_reaped=True))
+    def cli(node, *args): return [str(binary), "--control-socket", str(work / f"runtime-{node}/control/agent.sock"), *args]
+    def check_scope():
+        readiness_paths(command(cli("client", "paths"), deadline), selected)
+        status = json.loads(command(cli("client", "content", "status"), deadline))
+        require(status["control_relay_peer_id"] == layout["control_relay_peer_id"], "readiness broker changed")
+        status = json.loads(command(cli("relay5", "content", "status"), deadline))
+        require(status["serving"] is False and status["publications"] == 0, "B served before late activation")
+        require(all(not (native / name).exists() and not (native / name).is_symlink() for name in ("cache", "object.bin")), "readiness warmed cache")
+    def snapshot():
+        return {label: event_rows(command(cli(node, "logs", "--limit", "400"), deadline), value["event_baseline_unix_ms"])
+            for label, node in (("client", "client"), ("broker", broker))}
+    def interrupted(_signal, _frame): raise InterruptedError("preparation interrupted")
+    handlers = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
+    try:
+        time.sleep(0.002)  # Cross only the event clock tick, not a readiness delay.
+        check_scope()
+        for _ in range(2):
+            attempt = dict(started_ns=time.monotonic_ns(), completed_ns=0, response=None, failure=None)
+            value["attempts"].append(attempt)
+            try:
+                attempt["response"] = readiness_request(work, executable, [str(work / "runtime-client/control/agent.sock"),
+                    str(native / "manifest.bin"), publication["publisher_hex"]], deadline)
+            except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+                attempt["failure"] = failure_evidence("readiness", error)
+                raise
+            finally: attempt["completed_ns"] = time.monotonic_ns()
+            found = attempt["response"]
+            require(found["control_relay_peer_id"] == layout["control_relay_peer_id"], "readiness broker changed")
+            value["events"] = snapshot()
+            if found["providers"]: break
+        check_scope()
+        value["checks"].update(route_unchanged=True, b_not_serving=True, cold_cache=True)
+        value["events"] = snapshot()
+        value.update(success=True, completed_ns=time.monotonic_ns(), completed_unix_ms=time.time_ns()//1000000)
+        validate_readiness(value, publication, layout, selected, peers)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        value.update(success=False, failure=failure_evidence("readiness", error))
+        if isinstance(error, ReadinessCleanupError): value["checks"]["children_reaped"] = False
+        if time.monotonic_ns() < deadline:
+            try: value["events"] = snapshot()
+            except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError): pass
+        raise
+    finally:
+        # Preserve the exact successful decision time already checked against
+        # the deadline. Disk retention is not another discovery attempt.
+        if not value["success"]:
+            value.update(completed_ns=time.monotonic_ns(), completed_unix_ms=time.time_ns()//1000000)
+        try: write(path(work, "readiness"), value)
+        finally:
+            for sig, handler in handlers.items(): signal.signal(sig, handler)
+
+
+def checked_readiness(work, publication, layout, peers):
+    value = private_read(path(work, "readiness"))
+    validate_readiness(value, publication, layout, read(path(work, "selection")), peers)
+    return value
+
+
 def first_snapshot(snapshot):
     return (count(snapshot["client"], EVENTS[0]) == count(snapshot["client"], EVENTS[1]) == 1
         and count(snapshot["client"], EVENTS[2]) == 0
@@ -215,6 +409,7 @@ def run(work, binary, provider_namespace):
     guest(work); ns = namespace(work)
     require(ns["name"] == provider_namespace and binary.resolve() == binary and binary.is_file(), "wrong executable/namespace")
     layout, peers, publication = (read(path(work, name)) for name in ("layout", "peers", "publication"))
+    preparation = checked_readiness(work, publication, layout, peers)
     control = [node for node in ("relay0", "relay1", "relay2") if peers[node] == layout["control_relay_peer_id"]]
     require(len(control) == 1 and layout["provider_nodes"] == list(NODES), "wrong control/provider layout")
     native = work / "state-client/content-late-recovery"
@@ -225,6 +420,9 @@ def run(work, binary, provider_namespace):
         return {label: event_rows(command(cli(node, "logs", "--limit", "400"), deadline), baseline)
             for label, node in (("client", "client"), ("broker", control[0]))}
     baseline = time.time_ns() // 1000000
+    if baseline <= preparation["completed_unix_ms"]:
+        time.sleep(0.002); baseline = time.time_ns() // 1000000
+    require(baseline > preparation["completed_unix_ms"], "preparation overlaps measured interval")
     time.sleep(0.002)  # Only cross the event clock tick, never wait for provider readiness.
     tables = json.loads(command(["ip", "netns", "exec", ns["name"], "nft", "-j", "list", "tables"],
         time.monotonic_ns()+2_000_000_000))
@@ -312,8 +510,9 @@ def run(work, binary, provider_namespace):
                 for sig, handler in handlers.items(): signal.signal(sig, handler)
 
 
-def validate(value):
-    require(value["success"] is True and value["schema_version"] == 1
+def validate(value, *, historical=False):
+    require(value["success"] is True and type(value["schema_version"]) is int
+        and value["schema_version"] == (1 if historical else 2)
         and value["concurrent_provider_overlap_claimed"] is False, "wrong late-recovery scope")
     publication, output, fetch = (value[k] for k in ("publication", "output", "fetch"))
     require(publication["report_kind"] == "volparossa-content-late-provider-seed"
@@ -336,6 +535,13 @@ def validate(value):
     before, live = value["selected_before"], value["selected_route"]
     require(before["route_context_id"] == live["route_context_id"] != value["previous_context"]
         and before["benchmark_slots"] == live["benchmark_slots"] and before["transport"] == "mptcp", "route changed or not fresh")
+    if historical:
+        require("readiness" not in value, "historical recovery cannot claim readiness")
+    else:
+        validate_readiness(value["readiness"], publication, layout, before, peers)
+        require(value["readiness"]["completed_ns"] <= output["gate_started_ns"]
+            and value["readiness"]["completed_unix_ms"] < output["event_baseline_unix_ms"],
+            "readiness overlaps measured recovery")
     BASE["validate_path"](value, peers, list(NODES), False)
     for node, size in zip(NODES, (1048699, 1048576)):
         require(size <= value["privacy"]["exit"]["provider_application"][node]["response_payload_bytes"] <= size+131072,
@@ -395,8 +601,9 @@ def build_evidence(work):
     value = {key: read(path(work, suffix)) for key, suffix in (("publication", "publication"), ("layout", "layout"),
         ("status_before", "status-before"), ("status_after", "status-after"), ("fetch", "fetch"), ("output", "object"),
         ("selected_before", "selection"), ("selected_route", "live-selection"), ("cleanup", "cleanup"),
-        ("first_snapshot", "first-snapshot"), ("final_snapshot", "final-snapshot"), ("gate", "gate-installed"), ("run_cleanup", "run-cleanup"))}
-    value.update(schema_version=1, success=True, concurrent_provider_overlap_claimed=False,
+        ("first_snapshot", "first-snapshot"), ("final_snapshot", "final-snapshot"), ("gate", "gate-installed"), ("run_cleanup", "run-cleanup"),
+        ("readiness", "readiness"))}
+    value.update(schema_version=2, success=True, concurrent_provider_overlap_claimed=False,
         expected_peers=read(work / "a01-expected-peers.json"),
         previous_context=read(work / "content-provider-adaptive-selection.json")["route_context_id"],
         providers={node: {op: read(path(work, f"{node}-{op}")) for op in ("before", "serve", "stop")} for node in NODES},
@@ -412,6 +619,7 @@ def build_evidence(work):
 def main():
     action, *args = sys.argv[1:]
     if action == "run" and len(args) == 3: run(Path(args[0]), Path(args[1]), args[2])
+    elif action == "prepare" and len(args) == 3: prepare(*(Path(arg) for arg in args))
     elif action == "cleanup" and len(args) == 1: cleanup(Path(args[0]))
     elif action == "evidence" and len(args) == 2: write(Path(args[1]), build_evidence(Path(args[0])))
     else: raise ValueError("invalid late recovery action")

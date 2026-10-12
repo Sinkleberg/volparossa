@@ -164,7 +164,7 @@ def build_named_publication(work, nodes):
                 serves={node: read(work / f"content-provider-named-{node}-serve.json") for node in nodes})
 
 
-def validate_transfer(evidence, *, historical=False):
+def validate_transfer(evidence, *, historical=False, historical_late=False):
     publication, output, fetch = evidence["publication"], evidence["output"], evidence["fetch"]
     require(publication["bytes"] == output["bytes"] == fetch["bytes"] == BYTES
             and publication["object_sha256"] == output["sha256"] == SHA
@@ -305,12 +305,12 @@ def validate_transfer(evidence, *, historical=False):
             and adaptive["publication"]["publisher_hex"] != publication["publisher_hex"]
             and adaptive["publication"]["manifest_id"] != publication["manifest_id"],
             "adaptive proof substituted the topology or reused the earlier route/publication")
-    # Historical component evidence predates this phase; only new aggregate v2
+    # Historical component evidence predates this phase; only current aggregates
     # acceptance requires it. If supplied, it must validate and bind to this run.
     if "late_provider_recovery" in evidence:
         late_check = runpy.run_path(str(Path(__file__).with_name("content-provider-late-recovery.py")))
         late = evidence["late_provider_recovery"]
-        late_check["validate"](late)
+        late_check["validate"](late, historical=historical_late)
         require(late["expected_peers"] == peers
                 and late["previous_context"] == adaptive["selected_route"]["route_context_id"]
                 and late["selected_route"]["route_context_id"] not in {
@@ -430,11 +430,11 @@ def validate_control_underlay(evidence, control_node, provider_nodes):
 
 
 def validate_report(report, revision, *, historical=False):
-    expected_version = 1 if historical else 2
     require(type(report.get("schema_version")) is int
-            and report["schema_version"] == expected_version,
+            and report["schema_version"] in ((1, 2) if historical else (3,)),
             "wrong aggregate report version for current or historical validation")
-    if historical:
+    legacy_without_late = historical and report["schema_version"] == 1
+    if legacy_without_late:
         require("late_provider_recovery" not in report
                 and "late_provider_recovery" not in report["transfer"],
                 "historical v1 report must not claim the later recovery phase")
@@ -458,7 +458,8 @@ def validate_report(report, revision, *, historical=False):
             and report["host_state"]["before_sha256"] == report["host_state"]["after_sha256"]
             and re.fullmatch(r"[0-9a-f]{64}", report["host_state"]["before_sha256"])
             and all(report[flag] is False for flag in SCOPE), "wrong source, cleanup, host state or scope")
-    validate_transfer(report["transfer"], historical=historical)
+    validate_transfer(report["transfer"], historical=legacy_without_late,
+                      historical_late=historical and report["schema_version"] == 2)
 
 
 if __name__ == "__main__":

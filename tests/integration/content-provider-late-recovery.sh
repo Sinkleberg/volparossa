@@ -94,6 +94,9 @@ content_provider_late_recovery_run() {
     PROVIDER_CONTROL_PID=$!
     wait_observer "$PROVIDER_CONTROL_PID" "$WORK/$late_prefix-control-privacy.ready" \
         || fail CONTENT_PROVIDER_LATE_CONTROL_CAPTURE_FAILED
+    PHASE=content-provider-late-recovery-readiness
+    python3 -B "$WORK/bin/content-provider-late-recovery.py" prepare "$WORK" "$binary_directory/volparossa" \
+        "$binary_directory/examples/content-acceptance-fixture" || fail CONTENT_PROVIDER_LATE_READINESS_FAILED
     PHASE=content-provider-late-recovery-fetch
     python3 -B "$WORK/bin/content-provider-late-recovery.py" run "$WORK" "$binary_directory/volparossa" "$R4" \
         || fail CONTENT_PROVIDER_LATE_FETCH_FAILED

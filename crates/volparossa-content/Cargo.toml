@@ -33,8 +33,10 @@ url.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+libp2p-identity.workspace = true
 rand_core.workspace = true
 rcgen.workspace = true
+volparossa-local-control = { path = "../volparossa-local-control" }
 
 [lints]
 workspace = true

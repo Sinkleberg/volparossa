@@ -565,8 +565,9 @@ print_plan() {
             '  grant only control-group traversal and remove the exact temporary publisher identity/passphrase;' \
             '  pack/publish a normal signed static site, import two replicas, remove original publisher files;' \
             '  open by publisher/name in the Client, verify HTTP assets/ranges and SIGTERM spool cleanup (no browser engine);' \
-            '  after existing phases, create three separate control-only broker links to R3/R4/R5 and fetch 15 disjoint chunks on a fresh route;' \
+            '  after existing phases, create three separate control-only broker links to R3/R4/R5 and fetch 60 disjoint chunks on a fresh route;' \
             '  require real triple provider payload overlap, exact reconstruction and normal service/route teardown;' \
+            '  prepare the selected late broker using at most two guarded signed-offer queries within 30s; keep content cold;' \
             '  then admit a complementary provider only after one real one-offer discovery snapshot on another fresh route;' \
             '  bound the disposable provider gate below the unchanged Exit connect timeout; require real rediscovery or fail;' \
             '  pause only the exact guest Client helper via pidfd, cancel a pending named download and require independent cached delivery;' \
@@ -3580,6 +3581,15 @@ write_config() {
             printf 'sharing:\n  enabled: true\n  interface: ar0\n'
             printf '  total_upload_mbps: 100\n  contribution_upload_ceiling_mbps: 1\n'
             printf 'download_sharing:\n  enabled: true\n  interface: ar2\n'
+            printf '  total_download_mbps: 100\n  contribution_download_ceiling_mbps: 1\n'
+        fi
+        if [ "$scenario" = content-provider ] && [ "$node" = client ]; then
+            # Real owner-first interface accounting for the bounded discovery prerequisite.
+            # This disposable Client has neither Relay nor Exit enabled, so these
+            # flags do not install contribution queues or receive-accounting rules.
+            printf 'sharing:\n  enabled: true\n  interface: cr0\n'
+            printf '  total_upload_mbps: 100\n  contribution_upload_ceiling_mbps: 1\n'
+            printf 'download_sharing:\n  enabled: true\n  interface: cr2\n'
             printf '  total_download_mbps: 100\n  contribution_download_ceiling_mbps: 1\n'
         fi
         [ "$wifi_link" != yes ] || wifi_link_config

@@ -213,7 +213,7 @@ class ContentProviderContract(unittest.TestCase):
         self.assertIn("content_provider_adaptive_run\n    content_provider_late_recovery_run\n"
                       "    content_provider_cancellation_run", runtime)
         self.assertIn("$evidence.late_provider_recovery.success == true", runtime)
-        self.assertIn("{schema_version:2,report_kind:", runtime)
+        self.assertIn("{schema_version:3,report_kind:", runtime)
         preflight = source.split('for provider_fixture in ', 1)[1].split('; do', 1)[0]
         for name in ("content-provider-late-recovery.sh", "content-provider-late-recovery.py"):
             self.assertIn(name, preflight)
@@ -257,7 +257,7 @@ class ContentProviderContract(unittest.TestCase):
         api = {"__name__": "inert_late_collector"}
         exec(compile(embedded, "late-collector", "exec"), api)
         self.assertEqual(api["LATE_PROVIDER_NAMES"], {f"content-provider-late-recovery-{suffix}.json"
-            for suffix in ("first-snapshot", "final-snapshot", "object", "run-cleanup", "cleanup", "evidence", "failure")})
+            for suffix in ("first-snapshot", "final-snapshot", "object", "run-cleanup", "cleanup", "evidence", "failure", "readiness")})
         for scenario, oversized_failure in (("content-provider", False), ("content-provider", True), ("content", False)):
             with tempfile.TemporaryDirectory() as directory:
                 base = Path(directory)
@@ -590,7 +590,7 @@ class ContentProviderContract(unittest.TestCase):
         self.assertEqual(fixture("relay4")["layout"]["provider_nodes"], ["relay5", "relay3"])
 
     def test_exact_scoped_report(self):
-        report = dict(schema_version=2, report_kind="volparossa-native-content-providers", source_revision="a" * 40,
+        report = dict(schema_version=3, report_kind="volparossa-native-content-providers", source_revision="a" * 40,
                       explicit_origin_authenticated_https=True, normal_user_publication=True, native_name_retrieval=True,
                       native_static_site=True, public_filter_snapshot=True,
                       adaptive_provider_workers=True, late_provider_recovery=True, requester_cancellation=True,
@@ -634,6 +634,13 @@ class ContentProviderContract(unittest.TestCase):
             CHECK["validate_report"](historical, "a" * 40)
         with self.assertRaises(ValueError):
             CHECK["validate_report"](report, "a" * 40, historical=True)
+        older_late = copy.deepcopy(report)
+        older_late["schema_version"] = 2
+        older_late["transfer"]["late_provider_recovery"]["schema_version"] = 1
+        older_late["transfer"]["late_provider_recovery"].pop("readiness")
+        CHECK["validate_report"](older_late, "a" * 40, historical=True)
+        with self.assertRaises(ValueError): CHECK["validate_report"](older_late, "a" * 40)
+        with self.assertRaises(ValueError): CHECK["validate_report"]({**report, "schema_version": 2}, "a" * 40, historical=True)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "historical.json"
             path.write_text(json.dumps(historical), encoding="ascii")

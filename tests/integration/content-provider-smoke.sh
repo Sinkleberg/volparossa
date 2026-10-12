@@ -356,7 +356,7 @@ content_provider_finalize_report() {
         --argjson complete "$CLEANUP_COMPLETE" \
         --argjson remaining "$REMAINING_OWNED_OBJECTS" '
       $evidence_input[0] as $evidence | $host_input[0] as $host |
-      {schema_version:2,report_kind:"volparossa-native-content-providers",
+      {schema_version:3,report_kind:"volparossa-native-content-providers",
        source_revision:$revision,run_id:$run_id,phase:$phase,
        success:($status == 0 and $evidence.success == true and
          $evidence.ordinary_publication.success == true and $evidence.site_publication.success == true and
