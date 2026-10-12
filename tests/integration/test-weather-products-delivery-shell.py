@@ -175,7 +175,7 @@ if weather_client_delivery_copy_artifacts; then exit 90; fi
         helper_root.mkdir(parents=True)
         (helper_root / "weather-products-delivery.sh").write_text(
             'weather_products_delivery_run() { printf "v%s\\n" "$weather_profile_version"; }\n')
-        for version in (1, 2, 3, 4, "2", "3", True):
+        for version in (1, 2, 3, 4, 5, "2", "3", "4", True):
             with self.subTest(version=version, value_type=type(version)):
                 import json
                 value = json.dumps({"bundle_version": version})
@@ -188,7 +188,7 @@ python3() { printf '%s\n' 'JSON'; }
 fail() { exit 77; }
 run_selected
 '''.replace("JSON", value), source=source + "\nrun_selected() {\n" + head + '\nprintf "v1\\n"\n}\n')
-                self.assertEqual(result.returncode, 0 if type(version) is int and version in (1, 2, 3) else 77)
+                self.assertEqual(result.returncode, 0 if type(version) is int and version in (1, 2, 3, 4) else 77)
                 if result.returncode == 0: self.assertEqual(result.stdout, f"v{version}\n")
         self.assertLess(head.index("weather_client_runtime_profile"), head.index(".bundle_version"))
         self.assertLess(head.index(".bundle_version"), head.index('            . "$source_directory'))
@@ -204,7 +204,7 @@ run_selected
                      ("stat-failure", 1000, 0, 77), ("missing-account", 1000, 0, 77),
                      ("runuser-failure", 1000, 0, 77), ("helper-failure", 0, 1, 77),
                      ("helper-failure", 1000, 1, 77))
-        for version in (1, 2, 3):
+        for version in (1, 2, 3, 4):
             for scenario, owner, helper_status, expected_status in scenarios:
                 with self.subTest(version=version, scenario=scenario, owner=owner):
                     result = self.call('''
@@ -266,7 +266,7 @@ run_selected
         source = SOURCE.read_text()
         head = source.split("weather_products_delivery_run() {", 1)[1].split(
             "    PHASE=weather-products-delivery-prepare", 1)[0]
-        for version in ("2", "3", "1", "4", "", "../../../arbitrary"):
+        for version in ("2", "3", "4", "1", "5", "", "../../../arbitrary"):
             with self.subTest(version=version):
                 result = self.call('''
 weather_client_bundle=inert
@@ -276,9 +276,9 @@ fail() { exit 77; }
 run_selected
 '''.replace("VERSION", version), source=source + "\nrun_selected() {\n" + head +
                     '\nprintf "%s\\n" "$weather_products_driver"\n}\n')
-                if version in ("2", "3"):
+                if version in ("2", "3", "4"):
                     self.ok(result)
-                    consumer = "drizzli" if version == "2" else "overmorrow"
+                    consumer = "overmorrow" if version == "3" else "drizzli"
                     self.assertEqual(result.stdout.strip(), f"integrations/{consumer}/smoke_core_browser.py")
                 else: self.assertEqual(result.returncode, 77)
         self.assertIn('"$WORK/state-client/air-quality-cache" "$weather_profile_version"', source)

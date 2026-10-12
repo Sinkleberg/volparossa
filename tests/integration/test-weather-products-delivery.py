@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Synthetic adversarial evidence tests, not an origin/overlay/UI proof."""
 import copy
+from contextlib import nullcontext
 import datetime
 import hashlib
 import json
@@ -27,11 +28,11 @@ def iso(milliseconds):
         + datetime.timedelta(milliseconds=milliseconds)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def forecast(key, model_run=None, acquired_at=None):
+def forecast(key, model_run=None, acquired_at=None, version=2):
     p = A["PRODUCTS"][key]
     model_run = model_run or selected()["products"][key]["query"]["run"]
     def field(parameter):
-        return dict(parameter=parameter, decoder_sha256=A["B"]["DECODER_SHA"], index_sha256=SHA, field_sha256=SHA)
+        return dict(parameter=parameter, decoder_sha256=A["B"]["decoder_sha"](version), index_sha256=SHA, field_sha256=SHA)
     samples = []
     for step in p["steps"]:
         samples.append(dict(lead_hours=step, valid_at=iso(A["stamp"](model_run) + step * 3600000),
@@ -64,11 +65,11 @@ def selected():
     return result
 
 
-def acquisition():
+def acquisition(version=2):
     selection = selected()
-    return dict(schema=2, success=True, origin_https=True, acquisition_outside_overlay=True,
+    return dict(schema=4 if version == 4 else 2, success=True, origin_https=True, acquisition_outside_overlay=True,
         upstream_signature_attested=False, synthetic_weather=False, synthetic_air_quality=False,
-        independent_product_runs=True, decoder_sha256=A["B"]["DECODER_SHA"], products={
+        independent_product_runs=True, decoder_sha256=A["B"]["decoder_sha"](version), products={
             key: dict(forecast_sha256=selection["products"][key]["publication"]["sha256"],
                 forecast_bytes=selection["products"][key]["publication"]["bytes"],
                 fields=[dict(lead_hours=step, parameter=parameter, index_sha256=SHA, field_sha256=SHA)
@@ -96,13 +97,16 @@ def failure_fixture(work, raw=None):
 
 def report(version=2):
     legacy = OLD["report"](); expected = legacy["expected"]
-    result = dict(schema=2, passed=True, phase="complete", source=legacy["source"],
+    result = dict(schema=version, passed=True, phase="complete", source=legacy["source"],
         expected={key: expected[key] for key in ("expected_sha256", "core_sha256", "display_sha256")},
         products={}, scope=dict(legacy["scope"], synthetic_air_quality=False, separate_native_runs=True),
         checks=dict(no_external_resources=True, provider_requests_checked=2, browser_api_requests=4,
             initial_dom_display_sha256=SHA, refresh_dom_display_sha256=SHA),
         cleanup=legacy["cleanup"], outer_cleanup=legacy["outer_cleanup"])
     result["source"]["bridge_modules"] = {name: SHA for name in A["BRIDGE_MODULES"]}
+    if version == 4:
+        result["source"]["synthetic_ui_proof"] = dict(sha256=SHA, driver_sha256=SHA,
+            core_executed=False, overlay_proven=False)
     for key in A["PRODUCTS"]:
         publication = selected()["products"][key]["publication"]
         result["products"][key] = dict(expected=dict(cold_receipt_sha256=SHA, display_sha256=SHA,
@@ -120,7 +124,7 @@ def save(path, value, mode=0o600):
 def joined_fixture(work, version=2):
     f = OLD["FILTER"]["fixture"]()
     selection = selected()
-    common = {"input": selection, "acquisition": acquisition(),
+    common = {"input": selection, "acquisition": acquisition(version),
         "publisher-cleanup": dict(directory_removed=True, files_removed=True),
         "input-cleanup": dict(directory_removed=True, files_removed=True),
         "prepared": dict(prepared=True, expected_sha256=SHA, display_sha256=SHA)}
@@ -152,12 +156,13 @@ def joined_fixture(work, version=2):
         for suffix, value in files.items(): save(A["artifact"](work, suffix, key), value)
     B = A["B"]
     profile = A["ui_profile"](version)
-    fixed = B["FIXED_V2"] if version == 2 else B["FIXED_V3"]
-    static_files = {"index.html"} if version == 2 else B["STATIC_REQUIRED_V3"]
+    fixed = {2: B["FIXED_V2"], 3: B["FIXED_V3"], 4: B["FIXED_V4"]}[version]
+    static_files = B["STATIC_REQUIRED_V3"] if version == 3 else {"index.html"}
     items = {name: dict(bytes=1, mode=B["mode"](name), sha256=SHA)
         for name in fixed | {profile["static"] + name for name in static_files}}
-    for name, digest in (("runtime/node", B["NODE_SHA"]), ("decoder/grib_ls", B["DECODER_SHA"]),
-            (B["WEATHER"]+"third_party/eccodes-sources.json", B["PIN_SHA"]), (B["WEATHER"]+"scripts/build_eccodes.py", B["BUILD_SHA"])):
+    for name, digest in (("runtime/node", B["NODE_SHA"]), ("decoder/grib_ls", B["decoder_sha"](version)),
+            (B["WEATHER"]+"third_party/eccodes-sources.json", B["pin_sha"](version)),
+            (B["WEATHER"]+B["build_source"](version), B["build_sha"](version))):
         items[name]["sha256"] = digest
     manifest = B["encode"](dict(version=version, kind=B["KIND"], files=items)); digest = hashlib.sha256(manifest).hexdigest()
     A["write_new"](A["artifact"](work, "manifest"), manifest, 0o400)
@@ -172,9 +177,18 @@ def joined_fixture(work, version=2):
     socket = work / "runtime-client/control/agent.sock"; socket.parent.mkdir(parents=True)
     A["write_new"](socket, b"inert stat-only fixture")
     for suffix, value in common.items(): save(A["artifact"](work, suffix), value)
-    with patch.dict(A["cold_evidence"].__globals__, cache_state=lambda key, *args: caches[key]):
+    with fixture_admission(work, version), patch.dict(A["cold_evidence"].__globals__, cache_state=lambda key, *args: caches[key]):
         save(A["artifact"](work, "cold-evidence"), A["cold_evidence"](work, digest, SHA))
     return digest, caches
+
+
+def fixture_admission(work, version):
+    if version != 4: return nullcontext()
+    # This suite tests joining evidence, not actual public artifact admission.
+    # Bundle tests separately reject unreviewed inventory and modified receipts.
+    files = json.loads(A["artifact"](work, "manifest").read_text())["files"]
+    admitted = {name: {key: value[key] for key in ("bytes", "sha256")} for name, value in files.items()}
+    return patch.dict(A["B"]["manifest"].__globals__, public_admission=lambda: dict(files=admitted))
 
 
 class Products(unittest.TestCase):
@@ -184,17 +198,103 @@ class Products(unittest.TestCase):
         clock.start(); self.addCleanup(clock.stop)
 
     def test_profiles_and_browser_exports_never_accept_other_consumers(self):
-        for version, consumer in ((2, "drizzli"), (3, "overmorrow")):
+        for version, consumer in ((2, "drizzli"), (3, "overmorrow"), (4, "drizzli")):
             good = report(version)
             A["closed_report"](good)
             self.assertEqual(A["ui_profile"](version)["ui"], "actual_"+consumer+"_ui")
-            for other in (1, 5, "3", True, 5-version):
+            for other in (1, 5, "3", "4", True, 2 if version == 3 else 3):
                 bad = copy.deepcopy(good); bad["schema"] = other
                 with self.subTest(version=version, other=other), self.assertRaises(ValueError): A["closed_report"](bad)
             bad = copy.deepcopy(good); bad["scope"]["arbitrary_ui"] = True
             with self.assertRaises(ValueError): A["closed_report"](bad)
-        for version in (1, 4, "3", True, None):
+        for version in (1, 5, "3", "4", True, None):
             with self.assertRaises(ValueError): A["ui_profile"](version)
+
+    def test_acquisition_receipt_requires_exact_decoder_and_manifest_profile(self):
+        for version in (2, 3, 4):
+            good = acquisition(version)
+            A["validate_acquisition"](good)
+            A["validate_acquisition"](good, version)
+            other = 2 if version == 4 else 4
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                A["validate_acquisition"](good, other)
+            bad = copy.deepcopy(good); bad["decoder_sha256"] = A["B"]["decoder_sha"](other)
+            with self.assertRaises(ValueError): A["validate_acquisition"](bad)
+        for schema in (1, 3, 5, True, "4", None):
+            bad = acquisition(4); bad["schema"] = schema
+            with self.subTest(schema=schema), self.assertRaises(ValueError): A["validate_acquisition"](bad)
+
+    def test_v4_full_join_binds_new_decoder_original_ui_proof_and_actual_products(self):
+        for mutation in (None, "acquisition-schema", "acquisition-decoder", "cold-schema",
+                "cold-decoder", "browser-schema", "proof-hash", "proof-driver", "proof-core",
+                "weather-value", "air-quality-refresh"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary); digest, caches = joined_fixture(work, 4)
+                if mutation:
+                    suffix = "acquisition" if mutation.startswith("acquisition-") else \
+                        "cold-evidence" if mutation.startswith("cold-") else "original-report"
+                    path = A["artifact"](work, suffix); value = A["read"](path)
+                    if mutation.endswith("schema"): value["schema"] = 2
+                    elif mutation.endswith("decoder"): value["decoder_sha256"] = A["B"]["DECODER_SHA"]
+                    elif mutation == "proof-hash": value["source"]["synthetic_ui_proof"]["sha256"] = "f"*64
+                    elif mutation == "proof-driver": value["source"]["synthetic_ui_proof"]["driver_sha256"] = "f"*64
+                    elif mutation == "proof-core": value["source"]["synthetic_ui_proof"]["core_executed"] = True
+                    elif mutation == "weather-value": value["products"]["weather"]["checks"]["exact_native_times_and_values"] = False
+                    else: value["products"]["air_quality"]["checks"]["refresh_dom_display_sha256"] = "f"*64
+                    path.unlink(); save(path, value)
+                with fixture_admission(work, 4), patch.dict(A["evidence"].__globals__, cache_state=lambda key, *args: caches[key]):
+                    if mutation:
+                        with self.assertRaises(ValueError): A["evidence"](work, digest, SHA)
+                    else:
+                        proof = A["evidence"](work, digest, SHA); A["validate_evidence_export"](proof)
+                        self.assertEqual(proof["schema"], 4)
+                        self.assertEqual(proof["decoder_sha256"], A["B"]["decoder_sha"](4))
+                        self.assertTrue(proof["scope"]["actual_drizzli_ui"])
+                        self.assertFalse(proof["scope"]["browser_triggered_cold_fetch"])
+                        bad = copy.deepcopy(proof); bad["schema"] = 2
+                        with self.assertRaises(ValueError): A["validate_evidence_export"](bad)
+
+    def test_v4_acquisition_uses_new_decoder_and_keeps_two_product_deadline(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary); root = base / "weather-publisher"; root.mkdir(mode=0o700)
+            source = base / "inputs"; source.mkdir(mode=0o700)
+            A["initialize"](root); A["write_new"](source / "INPUTS.json", b"fixture", 0o400)
+            calls = []
+            def execute(command, cwd, maximum, timeout):
+                calls.append((command, timeout))
+                if command[-1] == "-V": return b"ecCodes Version 2.44.0\n"
+                key = "weather" if command[4].endswith("/forecast.mjs") else "air_quality"
+                self.assertEqual(command[command.index("--decoder-sha256")+1], A["B"]["decoder_sha"](4))
+                return json.dumps(forecast(key, command[command.index("--run")+1], version=4)).encode()
+            with patch.dict(A["acquisition"].__globals__, run=execute, boundary=lambda *args: None), \
+                    patch.dict(A["B"], verify_tree=lambda *args: None, manifest=lambda *args: {"version": 4}), \
+                    patch.object(A["time"], "time", return_value=CLOCK/1000), \
+                    patch.object(A["time"], "monotonic", side_effect=[100, 120, 480]):
+                value = A["acquisition"](source, SHA, root, "net:[1]", "net:[2]", 1000)
+            A["validate_acquisition"](value, 4)
+            self.assertEqual(value["schema"], 4)
+            self.assertEqual([timeout for _, timeout in calls], [10, 360, 340])
+
+    def test_v4_preparer_passes_explicit_profile_and_rejects_legacy_result(self):
+        for expected_version in (2, 3, 4, True, "4"):
+            with self.subTest(expected_version=expected_version), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary); viewer = base / "weather-viewer"; viewer.mkdir(mode=0o700)
+                selection, forecasts = prepare_fixture(viewer)
+                def execute(command, cwd, maximum, timeout):
+                    self.assertTrue(command[2].endswith("integrations/drizzli/prepare-core-browser.mjs"))
+                    self.assertEqual(command[-2:], ["--bundle-version", "4"])
+                    expected = dict(schema=expected_version, core_sha256=SHA, display_sha256=SHA,
+                        products={key: dict(publication=value["publication"], forecast=forecasts[key])
+                            for key, value in selection["products"].items()})
+                    raw = A["B"]["encode"](expected); A["write_new"](viewer / "expected.json", raw, 0o400)
+                    return json.dumps(dict(prepared=True, expected_sha256=hashlib.sha256(raw).hexdigest(), display_sha256=SHA)).encode()
+                with patch.dict(A["prepare"].__globals__, run=execute), patch.dict(A["B"], fingerprint=lambda *args: {"sha256": SHA}):
+                    args = (base / "source", viewer, base / "binary", base / "agent.sock",
+                        base / "state-client/weather-cache", base / "state-client/air-quality-cache", 4)
+                    if type(expected_version) is int and expected_version == 4:
+                        self.assertTrue(A["prepare"](*args)["prepared"])
+                    else:
+                        with self.assertRaises(ValueError): A["prepare"](*args)
 
     def test_overmorrow_full_join_is_bound_to_profile_three_and_cold_products(self):
         mutations = [None, ("schema",), ("scope", "actual_overmorrow_ui"),

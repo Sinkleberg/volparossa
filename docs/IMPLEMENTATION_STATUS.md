@@ -30,7 +30,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Continue shared cache delivery — `volparossa`, `volparossa-weather` | Use the integrated provider sequence for joined Weather delivery. | PR227 is merged at `a3747109`, with passing Quality and CodeQL on its exact head `c48fba8c`. The full protected sequence passes on `0f391c77`, including real CPU-pressure contraction and useful serial continuation; `c48fba8c` adds only its status record. Independent raw-evidence reconstruction passes. Joined Weather delivery remains open. |
-| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | Weather PR14 is merged. Its isolated decoder build, seven libaec tests and CCSDS probe pass; the exact source-admitted decoder also passes the standalone Debian 13 trial on `be2977ac`. A new public runtime profile and fresh browser evidence are next. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover joined delivery. |
+| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | Weather PR14 and PR15 are merged. The exact decoder passes its isolated build and Debian 13 probe; the public Drizz.li build and real Firefox synthetic two-product trial also pass. Integrate the source-bound public v4 bundle with the core consumer, then run the existing full provider sequence with actual acquisition and browser refresh on a disposable hosted VM. Separate source, decoder and synthetic UI results do not yet prove joined delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR13 are merged with passing CI. Exact table extraction and a fresh full browser trial pass with synthetic products. A new immutable bundle with the corrected verifier passes capture, runtime and extracted-tree checks; the old bundle remains unchanged. Joined core delivery and native Android/iOS execution remain unverified. |
 
 The corrected standalone provider proof passes without weather downloads. The
@@ -97,9 +97,29 @@ probe files are removed. Its SHA-256 is
 The outer driver exits successfully after guest shutdown and rechecking the
 pinned base image; this is not a development-host network-state comparison.
 
-Fresh browser evidence, the new integrated runtime profile and joined real-source
-delivery remain required. The historical decoder, private bundle and failed trial
-results remain unchanged.
+[Weather PR15](https://github.com/VOLPAROSSA/volparossa-weather/pull/15) is merged
+at `d042bf60`. [Hosted run `38224151028`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38224151028)
+on exact source `397693c4` passes the production Drizz.li build, all 21 client and
+render tests, and the real Firefox two-product trial. The synthetic trial checks
+native times and values, precipitation windows, missing values, refresh and
+independent failures and expiry, with 11 requests per product. Independent review
+checks all 13 step logs, the source bindings and all 139 exported files. Normal
+browser and fixture exits, private-state removal and temporary policy cleanup
+pass. The original browser report SHA-256 is
+`2dd5f4ed905e11d966e376ada263f30e00066c5f3fb3a2b845188f8a9b8f9211`.
+
+The next joined trial uses a separate public v4 bundle and explicit two-product
+core consumer. Its admission binds the unchanged synthetic report, separate
+outer cleanup, source-built decoder, Debian compatibility receipt and new core
+consumer sources; none of those receipts alone proves joined delivery. The
+historical profiles, private bundle and failed trial results remain unchanged.
+
+[Weather PR16](https://github.com/VOLPAROSSA/volparossa-weather/pull/16) is merged
+at `f496569b`. Its explicit v4 consumer preserves the old profile behavior;
+component checks on `3c8d7080` pass 147 provider tests, 22 Drizz.li tests including
+the nine preparer cases, and 16 inert Python core-consumer tests. The core v4
+candidate captures and revalidates 216 exact public/source files without running
+their binaries. The complete hosted provider-and-browser trial remains required.
 
 ### Named fetch failure and route preservation
 
