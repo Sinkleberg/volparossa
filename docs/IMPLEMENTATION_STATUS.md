@@ -30,7 +30,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Continue shared cache delivery — `volparossa`, `volparossa-weather` | Use the integrated provider sequence for joined Weather delivery. | PR227 is merged at `a3747109`, with passing Quality and CodeQL on its exact head `c48fba8c`. The full protected sequence passes on `0f391c77`, including real CPU-pressure contraction and useful serial continuation; `c48fba8c` adds only its status record. Independent raw-evidence reconstruction passes. Joined Weather delivery remains open. |
-| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | Weather PR14 is merged. Its public runtime verification, isolated decoder build, seven libaec tests and CCSDS probe pass on the disposable hosted runner. Exact outputs are independently hashed; Debian 13 compatibility, a new admitted runtime profile and fresh browser evidence are next. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover joined delivery. |
+| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | Weather PR14 is merged. Its isolated decoder build, seven libaec tests and CCSDS probe pass; the exact source-admitted decoder also passes the standalone Debian 13 trial on `be2977ac`. A new public runtime profile and fresh browser evidence are next. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover joined delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR13 are merged with passing CI. Exact table extraction and a fresh full browser trial pass with synthetic products. A new immutable bundle with the corrected verifier passes capture, runtime and extracted-tree checks; the old bundle remains unchanged. Joined core delivery and native Android/iOS execution remain unverified. |
 
 The corrected standalone provider proof passes without weather downloads. The
@@ -84,9 +84,22 @@ The exact new `grib_ls` is 31,383,992 bytes, SHA-256
 `d99425a1b44fe11b9ff77918310bc1b1a2114957558481bd705851e314a59930`.
 The separate `weather-decoder-abi` trial admits these bytes only for an offline,
 unprivileged Debian 13 compatibility test. It does not change production decoder
-authority or historical bundle profiles. Actual Debian 13 execution, fresh
-browser evidence and joined real-source delivery remain required. The historical
-decoder, private bundle and failed trial results remain unchanged.
+authority or historical bundle profiles.
+
+[Debian 13 run `38216142236`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38216142236)
+passes on core `be2977ac6d1d520caea29c96df759ea2d90c943c`. The relocated decoder runs
+unprivileged in a separate network namespace with no adjacent libraries or
+definitions. Its version and both expected CCSDS values pass on Debian 13 with
+glibc `2.41-12+deb13u4` and libstdc++ `14.2.0-19`. The original report binds the
+admitted inputs and all five logs; owned probe processes drain and temporary
+probe files are removed. Its SHA-256 is
+`0712bb183f490bf17068bb87b1017a591966cc1c96771ca5ff085a8fbed640d2`.
+The outer driver exits successfully after guest shutdown and rechecking the
+pinned base image; this is not a development-host network-state comparison.
+
+Fresh browser evidence, the new integrated runtime profile and joined real-source
+delivery remain required. The historical decoder, private bundle and failed trial
+results remain unchanged.
 
 ### Named fetch failure and route preservation
 
