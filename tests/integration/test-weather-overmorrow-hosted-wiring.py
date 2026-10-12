@@ -246,6 +246,27 @@ class HostedOvermorrowWiring(unittest.TestCase):
             ("hosted-proof/historical-smoke_core_browser_v3.py", "7"),
             ("smoke_core_browser.py", "8"), ("prepare_core_browser.mjs", "9"))}
 
+    def test_joined_guard_loads_real_admission_from_repository_cwd(self):
+        # Exercise the workflow's actual import chain, not the mocked checker
+        # used by the cross-receipt fixtures below. A relative __file__ reaches
+        # the admission reader and must still be rejected by its path policy.
+        source = embedded("JOINED_EVIDENCE").split("values, raw = {}, {}", 1)[0]
+        source += '\nadmission = checker["B"]["public_overmorrow_admission"]()\n'
+        source += 'assert admission["files"]\n'
+        result = subprocess.run([sys.executable, "-B", "-", str(ROOT), "a" * 64],
+                                input=source, cwd=ROOT, text=True, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_real_admission_reader_still_rejects_relative_paths(self):
+        source = '''import runpy
+checker = runpy.run_path("tests/integration/weather-products-delivery.py")
+checker["B"]["public_overmorrow_admission"]()
+'''
+        result = subprocess.run([sys.executable, "-B", "-"], input=source, cwd=ROOT,
+                                text=True, capture_output=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("browser_filter_bundle_rejected", result.stderr)
+
     def check_joined_links(self, values):
         # The real helper separately owns closed-schema tests. Mock only that
         # validator here to exercise this workflow's cross-receipt bindings.

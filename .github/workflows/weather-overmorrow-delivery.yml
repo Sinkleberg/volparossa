@@ -232,7 +232,7 @@ jobs:
           import hashlib, json, os, runpy, stat, sys
           from pathlib import Path
           output, manifest = Path(sys.argv[1]), sys.argv[2]
-          checker = runpy.run_path("tests/integration/weather-products-delivery.py")
+          checker = runpy.run_path(str(Path("tests/integration/weather-products-delivery.py").resolve()))
           values, raw = {}, {}
           for suffix in ("cold-evidence", "evidence", "acquisition", "original-report", "tree-before",
                          "tree-after", "cache-before", "cache-after", "input-cleanup"):

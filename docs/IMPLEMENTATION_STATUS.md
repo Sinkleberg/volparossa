@@ -31,7 +31,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrate shared cache delivery — `volparossa`, `volparossa-weather` | Retain the proved provider sequence and integrate its actual Weather consumer. | PR227 is merged with the protected sequence, CPU-pressure contraction and useful serial continuation. The complete sequence also passes with joined Weather delivery on `15415fad`; PR229 is merged at `88973908` with the evidence and status update. |
 | Integrate weather field delivery — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing capabilities and refresh. | Weather PR14–PR16 are merged. Hosted run `38228710535` on core `15415fad` passes actual acquisition, independent protected cold transfers and exact initial/refresh UI checks for both products. Independent evidence reconstruction, Quality and CodeQL also pass on that source. The synthetic failure/expiry tests retain their separate scope. Automatic acquisition, browser-initiated cold retrieval and a complete weather service remain open. |
-| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | Weather PR17 is merged at `88981717` with the successful public build and original synthetic browser trials. PR18 adds the explicit v5 consumer. The reviewed core v5 inputs pass nonexecuting capture and verification; the separate hosted workflow will test actual delivery. Joined core delivery and native Android/iOS execution remain unverified. |
+| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Integrate the actual core-cache delivery, then verify native packaging. | Weather PR17 is merged at `88981717`; PR18 and core PR230 carry the joined consumer. Run `38238280753` passes real acquisition, both protected cold transfers and exact Overmorrow initial/refresh checks, independently reconstructed from the original reports. Its final workflow check fails on a relative Python import; the narrow correction and real-import regressions pass, but the corrected hosted run is still required. Android app and hosted-emulator preparation proceed in parallel; native Android/iOS execution remains unverified. |
 
 The successful hosted Drizz.li trial supersedes neither the earlier failed route
 trial nor the local build aborted for host memory pressure; both remain recorded
@@ -40,13 +40,14 @@ peers to evade a source limit. The earlier ECMWF HTTP 429 and its bounded
 Retry-After diagnostics remain relevant to future acquisition.
 Pressure retirement and useful serial continuation pass in their separate phase;
 this does not prove pressure recovery or improved owner-task performance.
-Historical input bundles remain intact; Overmorrow's core delivery and native
-execution are still required. Keep shared interface
+Historical input bundles remain intact. Overmorrow's corrected hosted workflow
+must pass before integration; native execution is the next separate milestone.
+Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
 
-### Public Overmorrow build and joined delivery preparation
+### Public Overmorrow build and joined delivery
 
 [Weather PR17](https://github.com/VOLPAROSSA/volparossa-weather/pull/17), merged at
 `88981717`, builds the pinned Overmorrow source using an authenticated Flutter SDK on a
@@ -99,11 +100,36 @@ Nonexecuting capture and verification pass for all 208 files (455,721,597 archiv
 bytes), manifest `b5486b16bc24ce0013d170e7b558b2ae3b8bb7a6953fbaef9fdfa554acd53ab1`.
 No SDK, dependency cache, private profile or legacy private bundle is included.
 
-The new hosted workflow keeps the existing real content-provider topology and
-requires current-source acquisition, two protected cold transfers and exact
-initial/refresh tables for both Overmorrow products. Source acquisition remains
-outside the overlay. Historical UI/table trials are not relabeled as core
-delivery; preparation and input verification do not yet prove the joined path.
+The first [joined hosted run](https://github.com/VOLPAROSSA/volparossa/actions/runs/38238280753)
+on core `f3d00aac` completes the real content-provider topology and guest trial,
+then fails the final workflow check on a relative Python import. Its original
+workflow result remains failed. Independent reconstruction of the original
+aggregate and all nine Weather reports confirms:
+
+- Actual acquisition supplies 16 ECMWF fields and ten NOAA particulate fields.
+- The two independent cold transfers deliver all 12,353 weather bytes and 8,773
+  air-quality bytes from peers, with no origin body/range fallback and with the
+  publisher removed before retrieval.
+- The actual Overmorrow UI initially and after refresh matches both publications,
+  including values, native times, precipitation windows, missing capabilities
+  and attribution. Four browser API requests cover the two products.
+- Input/cache identities remain unchanged; viewer, publisher, browser and guest
+  cleanup pass. The guest-root network state is identical before and after the
+  trial; this is not a development-host network-state comparison.
+
+The original browser report SHA-256 is
+`ae8540d05b627ed3d11cbeec4b12f4927cc080024d5ecf12fbfd65975f4d8c15`.
+The correction resolves the workflow's verifier path before loading it, without
+relaxing canonical-path checks. The new regression reproduces the original
+failure; all 16 workflow tests pass after the fix. The unchanged final assertions
+also pass against byte-identical retained reports with their required private
+file modes. A corrected hosted run is still required before merging this slice.
+
+Source acquisition remains outside the overlay. These results do not prove
+browser-initiated cold retrieval, automatic acquisition, native Android/iOS
+execution or a complete weather service. The separate Android candidate reuses
+the provider interface and prepares real app/emulator checks with synthetic
+products; preparation alone is not mobile runtime or mobile core evidence.
 
 ### Hosted Weather preparation
 
