@@ -11,7 +11,8 @@ The disposable public-fixture workflow selects
 `a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5`, tree
 `636379a232b75ad3c0f2a079acc1788dc13a920f`. The upstream Apache-2.0
 [license](third_party/licenses/virtee-sev-8.0.0-Apache-2.0.txt) is retained
-unchanged. One explicit lockfile-only correction is applied as described below. This is a source-built CI probe,
+unchanged. One explicit lockfile-only correction is applied as described below.
+This is a source-built CI probe,
 not a production dependency, prebuilt worker or task-release authority.
 
 The [exact pinset](tests/integration/protected-compute-verifier-pins.json)

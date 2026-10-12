@@ -1,6 +1,7 @@
 # Protected compute: public verifier fixtures
 
-This is a preparatory compatibility test, **not protected remote execution**.
+The four public cryptographic fixtures pass. This is a preparatory compatibility
+test, **not protected remote execution**.
 The core must eventually verify another node's execution environment before
 releasing private task context. No suitable confidential-computing server is
 currently available for that end-to-end test. The existing local private service
@@ -11,7 +12,8 @@ and public peer-task admission remain unchanged.
 The [hosted workflow](../../.github/workflows/protected-compute-verifier.yml)
 builds the upstream Rust `virtee/sev` library at exact commit
 `a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5`, using Rust 1.85.0 and the
-explicit lockfile correction below. It enables only `snp,crypto_nossl`, with default features disabled.
+explicit lockfile correction below. It enables only `snp,crypto_nossl`, with
+default features disabled.
 The selected upstream test target executes four public Milan fixtures:
 
 - Verify the supplied AMD SNP certificate chain.
@@ -60,18 +62,23 @@ The original bounded log, both pipeline exit statuses and compiler-version
 outputs are retained separately. Log overflow fails the trial; an earlier
 success receipt cannot be overwritten by a new execution.
 
-Twenty-two inert harness tests pass locally. They use synthetic output, small
-text-only Git repositories and harmless shell functions, not a native build or hardware.
-The [current hosted attempt](https://github.com/VOLPAROSSA/volparossa/actions/runs/38322166464)
-at `7bbe0950` verifies the original source and fixtures, then stops before
-compilation: Cargo 1.85.0 refuses dependency acquisition because the inconsistent
-upstream lockfile requires an update. That run passes the previous fifteen inert
-checks; it does not test this correction. No cryptographic test has run, and the
-corrected lock still needs a successful hosted acquisition and build. The earlier workspace/context failures are recorded in the
+[Hosted run 38324431627](https://github.com/VOLPAROSSA/volparossa/actions/runs/38324431627)
+at exact core revision `5c4ecba25700ef75dacbddae920c8c819a496ef4` passes
+source verification, locked acquisition, offline compilation and all four named
+fixtures. None are failed, ignored or filtered; both pipeline exit codes are
+zero. Its original six-file artifact and schema-two receipt have been
+independently validated against the source and effective-lock pins. Compilation
+took 12.99 seconds and the four tests took 0.21 seconds on that hosted runner;
+these are not remote-task performance measurements.
+
+Twenty-two inert harness tests also pass locally and on that runner. They use
+synthetic output, small text-only Git repositories and harmless shell functions;
+they do not substitute for the four actual cryptographic tests. Earlier failed
+workspace, context and original-lock attempts remain recorded in the
 [implementation ledger](../IMPLEMENTATION_STATUS.md#protected-compute-verifier-preparation).
 
-Even a future passing run would establish only compatibility with these public
-fixtures, not a trustworthy worker or confidential task.
+This passing run establishes compatibility with the selected public fixtures,
+not a trustworthy worker or confidential task.
 
 ## What is still needed before private tasks can run remotely
 
