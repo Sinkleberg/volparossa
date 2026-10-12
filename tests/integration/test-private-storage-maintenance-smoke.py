@@ -77,6 +77,45 @@ def report(value):
 
 
 class MaintenanceEvidence(unittest.TestCase):
+    def test_lifecycle_failure_retains_primary_stage_cursor_and_secondary_cleanup_error(self):
+        namespace = CHECK['lifecycle'].__globals__
+        retained, _, _ = OLD['cli_fixture']('committed')
+        for cleanup_error in (None, subprocess.TimeoutExpired('PRIVATE_COMMAND', 10)):
+            with self.subTest(cleanup_error=cleanup_error is not None), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / 'maintenance').mkdir()
+                (root / 'maintenance/enrollment.json').write_bytes(b'same private enrollment')
+                owner = Mock()
+                owner.process.poll.return_value = 0 if cleanup_error is None else None
+                owner.close.side_effect = cleanup_error
+                calls = []
+
+                def wait(_owner, predicate, seconds=180):
+                    calls.append(seconds)
+                    if len(calls) == 3:
+                        raise ValueError('owner lifecycle deadline')
+                    return predicate()
+
+                with patch.dict(namespace, LIFECYCLE_DIAGNOSTIC=None, SAMPLER_DIAGNOSTIC={},
+                        checkpoint=Mock(side_effect=[dict(stage='paused', turns=3),
+                            dict(stage='working', turns=4), dict(stage='core_unavailable', turns=4)]),
+                        OwnerProcess=Mock(return_value=owner), wait_owner=wait,
+                        status=Mock(return_value=retained), create=Mock(), unlock=lambda root: []), \
+                        patch.dict(CHECK['F'], check_identity=Mock()):
+                    with self.assertRaisesRegex(ValueError, '^owner lifecycle deadline$') as caught:
+                        CHECK['lifecycle'](root, '/PRIVATE/binary', '/PRIVATE/runtime-client/control/agent.sock', ['a', 'b', 'c'])
+                    receipt = CHECK['failure_receipt'](caught.exception)
+                    CHECK['validate_lifecycle_failure'](receipt)
+                    self.assertEqual(receipt['stage'], 'await_coordinator')
+                    self.assertEqual(receipt['code'], 'lifecycle_deadline')
+                    self.assertEqual(receipt['cursor_before'], 3)
+                    self.assertEqual(receipt['cursor_last'], 4)
+                    self.assertEqual(receipt['checkpoint_stage'], 'core_unavailable')
+                    self.assertEqual(receipt['owner_joined'], cleanup_error is None)
+                    self.assertEqual(receipt['cleanup_error'], 'cli_timeout' if cleanup_error else None)
+                    self.assertNotIn('PRIVATE', json.dumps(receipt))
+                    owner.close.assert_called_once()
+
     def test_initial_renewal_accepts_current_receipt_without_weakening_fields(self):
         # Exercise the actual upload guard, not an independent schema replica.
         # CLI/provider calls are doubles; this is not live renewal evidence.
@@ -420,7 +459,8 @@ class MaintenanceEvidence(unittest.TestCase):
             (root / 'private-storage-maintenance-lifecycle.json').write_text(json.dumps(value['lifecycle']))
             self.assertEqual(CHECK['evidence'](root), value)
             self.assertEqual(set(CHECK['EXPORT_NAMES']) - {
-                'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json'},
+                'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json',
+                'private-storage-maintenance-lifecycle-failure.json'},
                 {p.name for p in root.iterdir()})
             (root / 'private-storage-fragments-restored_usage.json').write_text('{}')
             with self.assertRaises(ValueError):

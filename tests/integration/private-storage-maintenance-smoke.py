@@ -28,6 +28,7 @@ EXPORT_NAMES = tuple(name for name in F['EXPORT_NAMES'] if name not in
     ('private-storage-fragments-smoke.json', 'private-storage-fragments-evidence.json')) + (
     'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json',
     'private-storage-maintenance-lifecycle.json',
+    'private-storage-maintenance-lifecycle-failure.json',
     'private-storage-fragments-lifecycle-live-selection.json',
     'private-storage-fragments-lifecycle-gates.json',
     'content-provider-adaptive-private-storage-fragments-lifecycle-control.json',
@@ -40,6 +41,13 @@ TURN_DIAGNOSTIC = None
 RETIREMENT_DIAGNOSTIC = None
 RETIREMENT_TURNS = []
 SAMPLER_DIAGNOSTIC = {}
+LIFECYCLE_DIAGNOSTIC = None
+LIFECYCLE_STAGES = ('checkpoint_before', 'spawn_owner', 'await_working', 'await_core_loss',
+    'verify_retained', 'await_coordinator', 'validate_coordinator', 'start_sampler',
+    'await_resumed_turn', 'stop_owner', 'verify_pause', 'fresh_owner_turn',
+    'reconcile_progress', 'validate_flow_coverage', 'publish_result')
+CHECKPOINT_STAGES = ('enrolled', 'owner_locked', 'waiting_for_core', 'working', 'paused',
+    'enrollment_expired', 'core_unavailable', 'core_turn_revoked', 'turn_completed', 'retry_pending')
 FAILURE_CODES = {
     'maintenance checkpoint scope': 'checkpoint_scope',
     'core turn not observed': 'turn_not_observed',
@@ -58,6 +66,16 @@ FAILURE_CODES = {
     'source retirement unconfirmed': 'retirement_pending_or_charge',
     'private replica CLI operation failed': 'cli_exit',
     'replica diagnostics exceeded fixture bound': 'cli_output_bound',
+    'owner lifecycle deadline': 'lifecycle_deadline',
+    'lifecycle initial cursor': 'lifecycle_initial_cursor',
+    'core loss changed charged custody': 'lifecycle_charge_changed',
+    'core loss changed enrollment': 'lifecycle_enrollment_changed',
+    'invalid fixture coordinator reply': 'lifecycle_coordinator_invalid',
+    'SIGTERM did not persist pause': 'lifecycle_pause_missing',
+    'enrollment changed across core restart': 'lifecycle_enrollment_changed',
+    'resume cursor changed': 'lifecycle_cursor_changed',
+    'restart charge reconciliation': 'lifecycle_reconciliation',
+    'owner output not drained': 'owner_output_not_drained',
 }
 PRESELECTION_REASON_CODES = (
     'PRESELECTION_SAMPLE_NO_EXIT', 'PRESELECTION_SAMPLE_INSUFFICIENT_RELAYS',
@@ -258,11 +276,101 @@ def retirement_turn(value, turn):
 
 
 def failure_receipt(error):
+    if LIFECYCLE_DIAGNOSTIC is not None:
+        return dict(version=1, success=False, kind='private-storage-maintenance-lifecycle-failure',
+            code='sampler_failure' if isinstance(error, SAMPLER['SamplerFailure']) else failure_code(error),
+            **LIFECYCLE_DIAGNOSTIC, sampler=SAMPLER_DIAGNOSTIC or None)
     return dict(version=1, success=False, kind='private-storage-maintenance-failure', stage=STAGE,
         code='sampler_failure' if isinstance(error, SAMPLER['SamplerFailure']) else failure_code(error),
         turn=TURN_DIAGNOSTIC, retirement=RETIREMENT_DIAGNOSTIC,
         retirement_turns=RETIREMENT_TURNS,
         sampler=SAMPLER_DIAGNOSTIC or None)
+
+
+def validate_lifecycle_failure(value):
+    """Reject rather than copy unknown fields from even fixture-owned output."""
+    require(isinstance(value, dict) and set(value) == {'version', 'success', 'kind', 'code', 'stage',
+        'cursor_before', 'cursor_last', 'checkpoint_stage', 'owner_exit_status', 'owner_joined',
+        'cleanup_error', 'sampler'}, 'invalid lifecycle failure')
+    codes = set(FAILURE_CODES.values()) | {'cli_timeout', 'cli_process', 'local_io', 'unclassified', 'sampler_failure'}
+    require(type(value['version']) is int and value['version'] == 1 and value['success'] is False
+        and value['kind'] == 'private-storage-maintenance-lifecycle-failure'
+        and value['stage'] in LIFECYCLE_STAGES and value['code'] in codes, 'invalid lifecycle failure')
+    for key in ('cursor_before', 'cursor_last'):
+        require(value[key] is None or type(value[key]) is int and 0 <= value[key] <= 32, 'invalid lifecycle failure')
+    require(value['checkpoint_stage'] is None or value['checkpoint_stage'] in CHECKPOINT_STAGES,
+        'invalid lifecycle failure')
+    require(value['owner_exit_status'] is None or type(value['owner_exit_status']) is int
+        and -128 <= value['owner_exit_status'] <= 255, 'invalid lifecycle failure')
+    require(type(value['owner_joined']) is bool and (value['cleanup_error'] is None
+        or value['cleanup_error'] in codes), 'invalid lifecycle failure')
+    sampler = value['sampler']
+    if sampler is not None:
+        fields = {'phase', 'operation', 'code', 'samples', 'completed', 'failed'}
+        require(isinstance(sampler, dict) and fields <= set(sampler)
+            and set(sampler) <= fields | {'route_mismatch', 'paths_process'}, 'invalid lifecycle sampler')
+        require(sampler['phase'] in ('initial', 'sampling', 'final_drain')
+            and sampler['operation'] in ('route_query', 'route_scope', 'exit_log_query', 'coverage', 'completion')
+            and sampler['code'] in ('timeout', 'process', 'local_io', 'invalid', 'deadline'), 'invalid lifecycle sampler')
+        for name, maximum in (('samples', SAMPLER['MAX_SAMPLES']),
+                ('completed', SAMPLER['MAX_SAMPLES'] * SAMPLER['LIMIT']),
+                ('failed', SAMPLER['MAX_SAMPLES'] * SAMPLER['LIMIT'])):
+            require(type(sampler[name]) is int and 0 <= sampler[name] <= maximum, 'invalid lifecycle sampler')
+        if 'route_mismatch' in sampler:
+            require(sampler['route_mismatch'] in ('reply_bound', 'line_format', 'path_state', 'zero_context',
+                'exit_changed', 'context_count', 'path_count', 'path_ids_changed', 'relays_changed'), 'invalid lifecycle sampler')
+        if 'paths_process' in sampler:
+            paths = sampler['paths_process']
+            require(isinstance(paths, dict) and set(paths) == {'exit_status', 'diagnostic', 'stderr_state'}
+                and (paths['exit_status'] is None or type(paths['exit_status']) is int and -128 <= paths['exit_status'] <= 255)
+                and paths['diagnostic'] in ('UNRECOGNIZED', 'CLIENT_ROUTE_BUSY', 'MPQUIC_PATH_STATUS_UNAVAILABLE')
+                and paths['stderr_state'] in ('unavailable', 'oversize', 'bounded'), 'invalid lifecycle sampler')
+    return value
+
+
+def lifecycle_failure_file(path):
+    return validate_lifecycle_failure(json.loads(closed_diagnostic_text(path, 8192)))
+
+
+OWNER_TEST_PREFIX = 'storage::peer::replicas::fragments::maintenance::tests::'
+OWNER_REQUIRED_TESTS = {
+    'enrollment_signature_private_mode_and_restart_cursor_are_retained',
+    'owner_maintenance_renews_repairs_one_copy_and_retains_uncertain_charge_across_restart',
+    'three_provider_maintenance_retires_all_originals_with_exact_candidate_grants',
+    'service::owner_loop_reconnects_without_reenrollment_and_preserves_restart_cursor',
+    'service::shutdown_during_reconnect_keeps_authority_and_retained_charge_for_restart',
+    'service::expired_enrollment_never_reconnects_or_advances_work',
+    'service::live_turn_loss_reconnects_and_reconciles_original_journals_without_new_leases',
+    'service::finite_authority_expires_while_waiting_for_core_response_and_closes_connection',
+    'expiry::expired_cap_cannot_plan_and_foreground_expiry_is_unchanged',
+    'expiry::expired_during_challenge_does_not_sign_any_new_operation',
+    'expiry::signing_does_not_rewrite_over_cap_retained_reserve_or_renew',
+    'expiry::delayed_progress_renewal_keeps_original_signed_enrollment_expiry',
+    'expiry::repair_after_delayed_refresh_keeps_original_signed_enrollment_expiry',
+}
+
+
+def owner_test_output(stream, diagnostic=None):
+    """Bound actual libtest stdout; require executed named passes, not a --list."""
+    data = stream.read(65537)
+    if diagnostic is not None:
+        # Preserve ordinary synthetic unit-test diagnostics, never owner runtime
+        # output. This is bounded CI logging, not an artifact or passing receipt.
+        suffix = b'\nOWNER_TEST_OUTPUT_LIMIT_EXCEEDED\n' if len(data) > 65536 else b''
+        diagnostic.write(data[:65536 - len(suffix)] + suffix)
+        diagnostic.flush()
+    require(len(data) <= 65536, 'owner test output bound')
+    text = data.decode('utf-8')
+    rows = re.findall(r'^test ([a-zA-Z0-9_:]+) \.\.\. (ok|FAILED|ignored)$', text, re.M)
+    require(0 < len(rows) <= 256 and len({name for name, _ in rows}) == len(rows)
+        and all(name.startswith(OWNER_TEST_PREFIX) and result == 'ok' for name, result in rows)
+        and {OWNER_TEST_PREFIX + name for name in OWNER_REQUIRED_TESTS} <= {name for name, _ in rows},
+        'required owner tests did not execute')
+    summaries = re.findall(r'^test result: ok\. ([0-9]+) passed; 0 failed; 0 ignored; 0 measured; '
+        r'[0-9]+ filtered out; finished in [0-9.]+s$', text, re.M)
+    require(summaries == [str(len(rows))], 'owner test result mismatch')
+    return dict(version=1, kind='executed-owner-maintenance-tests', passed=len(rows),
+        required_passed=len(OWNER_REQUIRED_TESTS), failed=0, ignored=0)
 
 
 def private_json(path, maximum=32768):
@@ -446,18 +554,35 @@ def retained_during_core_loss(retained):
 
 def lifecycle(root, binary, client, keys):
     """A fixed external VM supervisor alone controls the core service."""
-    before = checkpoint(root, binary, client)['turns']
+    global LIFECYCLE_DIAGNOSTIC
+    LIFECYCLE_DIAGNOSTIC = dict(stage='checkpoint_before', cursor_before=None, cursor_last=None,
+        checkpoint_stage=None, owner_exit_status=None, owner_joined=False, cleanup_error=None)
+
+    def observed_checkpoint():
+        value = checkpoint(root, binary, client)
+        LIFECYCLE_DIAGNOSTIC['cursor_last'] = bounded_count(value.get('turns'), 32)
+        stage = value.get('stage')
+        LIFECYCLE_DIAGNOSTIC['checkpoint_stage'] = stage if stage in CHECKPOINT_STAGES else None
+        return value
+
+    before = observed_checkpoint()['turns']
+    LIFECYCLE_DIAGNOSTIC['cursor_before'] = before
     require(before == 3, 'lifecycle initial cursor')
     enrollment = (root / 'maintenance/enrollment.json').read_bytes()
+    LIFECYCLE_DIAGNOSTIC['stage'] = 'spawn_owner'
     owner = OwnerProcess([binary, '--control-socket', client, 'storage', 'fragments',
         'maintenance', 'serve', '--enrollment', str(root / 'maintenance'),
         '--maximum-turns', '8', *map(str, unlock(root))])
+    owner_failed = False
     try:
-        working = wait_owner(owner, lambda: (v if (v := checkpoint(root, binary, client))['stage'] == 'working'
+        LIFECYCLE_DIAGNOSTIC['stage'] = 'await_working'
+        working = wait_owner(owner, lambda: (v if (v := observed_checkpoint())['stage'] == 'working'
             and v['turns'] > before else None))
         create(root / 'lifecycle-working.json', b'{"ready":true}')
-        lost = wait_owner(owner, lambda: (v if (v := checkpoint(root, binary, client))['stage'] == 'core_unavailable'
+        LIFECYCLE_DIAGNOSTIC['stage'] = 'await_core_loss'
+        lost = wait_owner(owner, lambda: (v if (v := observed_checkpoint())['stage'] == 'core_unavailable'
             and v['turns'] >= working['turns'] else None))
+        LIFECYCLE_DIAGNOSTIC['stage'] = 'verify_retained'
         retained = status(root, binary, client)
         retained_during_core_loss(retained)
         F['check_identity'](root)
@@ -468,7 +593,9 @@ def lifecycle(root, binary, client, keys):
         # root-owned reply binds only the actual new fixture route and baseline.
         coordinator = Path(client).parents[2] / 'maintenance-coordinator'
         ready = coordinator / 'ready.json'
+        LIFECYCLE_DIAGNOSTIC['stage'] = 'await_coordinator'
         wait_owner(owner, ready.exists)
+        LIFECYCLE_DIAGNOSTIC['stage'] = 'validate_coordinator'
         info = ready.lstat()
         require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid == 0
             and stat.S_IMODE(info.st_mode) == 0o640 and info.st_size <= 8192,
@@ -477,24 +604,31 @@ def lifecycle(root, binary, client, keys):
         require(set(control) == {'baseline', 'scope'}, 'invalid fixture coordinator reply')
         SAMPLER['validate_route_scope'](control['scope'])
         exit_socket = Path(client).parents[2] / 'runtime-exit/control/agent.sock'
-        after_ready = checkpoint(root, binary, client)['turns']
+        after_ready = observed_checkpoint()['turns']
+        LIFECYCLE_DIAGNOSTIC['stage'] = 'start_sampler'
         with SAMPLER['capture'](binary, exit_socket, control['baseline'], 1,
-                client=Path(client), scope=control['scope']) as coverage:
+                client=Path(client), scope=control['scope'], diagnostic=SAMPLER_DIAGNOSTIC) as coverage:
+            LIFECYCLE_DIAGNOSTIC['stage'] = 'await_resumed_turn'
             resumed = wait_owner(owner, lambda: next((v for v in owner.reports()
                 if v['stage'] == 'turn_completed' and v['turns'] > after_ready), None), 650)
+            LIFECYCLE_DIAGNOSTIC['stage'] = 'stop_owner'
             owner.stop()
-            paused = checkpoint(root, binary, client)
+            LIFECYCLE_DIAGNOSTIC['stage'] = 'verify_pause'
+            paused = observed_checkpoint()
             require(paused['stage'] == 'paused' and paused['turns'] >= resumed['turns'],
                 'SIGTERM did not persist pause')
             require((root / 'maintenance/enrollment.json').read_bytes() == enrollment,
                 'enrollment changed across core restart')
             # Fresh process reconciles the original journals; no new enrollment.
+            LIFECYCLE_DIAGNOSTIC['stage'] = 'fresh_owner_turn'
             restarted = run_turn(root, binary, client, keys[1])
             require(restarted['turns'] == paused['turns'] + 1, 'resume cursor changed')
+            LIFECYCLE_DIAGNOSTIC['stage'] = 'reconcile_progress'
             current = invoke(binary, client, ['storage', 'fragments', 'progress', *existing(root)])
             require(current['physical_payload_charge_upper_bound'] == 2 * BYTES
                 and current['uncertain_payload_bytes'] == 0, 'restart charge reconciliation')
             F['check_identity'](root)
+            LIFECYCLE_DIAGNOSTIC['stage'] = 'validate_flow_coverage'
         gates = coverage.report(joined=coverage.joined)
         SAMPLER['validate_summary'](gates, control['baseline'], 1)
         create(root / 'flow-lifecycle.json', json.dumps(gates, sort_keys=True).encode())
@@ -507,10 +641,23 @@ def lifecycle(root, binary, client, keys):
             new_owner_process_resumed=True, enrollment_unchanged=True,
             original_identities_retained=True, physical_payload_charge=2 * BYTES,
             uncertainty_reconciled=True, owner_process_joined=True)
+        LIFECYCLE_DIAGNOSTIC['stage'] = 'publish_result'
         create(root / 'lifecycle-result.json', json.dumps(result, sort_keys=True).encode())
         return result
+    except BaseException:
+        owner_failed = True
+        raise
     finally:
-        owner.close()
+        try:
+            owner.close()
+            LIFECYCLE_DIAGNOSTIC['owner_joined'] = owner.process.poll() is not None
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            LIFECYCLE_DIAGNOSTIC['cleanup_error'] = failure_code(error)
+            if not owner_failed:
+                raise
+        finally:
+            code = owner.process.poll()
+            LIFECYCLE_DIAGNOSTIC['owner_exit_status'] = code if type(code) is int and -128 <= code <= 255 else None
 
 
 def prepare(root, binary, client, provider_a, provider_b, provider_c, key_a, key_b, key_c):
@@ -895,6 +1042,12 @@ def validate_report(report, revision):
 
 
 def main(args):
+    if args == ['owner-test-output']:
+        print(json.dumps(owner_test_output(sys.stdin.buffer, sys.stderr.buffer), sort_keys=True))
+        return
+    if len(args) == 2 and args[0] == 'lifecycle-failure':
+        print(json.dumps(lifecycle_failure_file(Path(args[1])), sort_keys=True))
+        return
     if len(args) == 3 and args[0] == 'lifecycle-check':
         require(args[2] in ('working', 'unavailable'), 'unknown lifecycle marker')
         marker = private_root(args[1]) / f'lifecycle-{args[2]}.json'

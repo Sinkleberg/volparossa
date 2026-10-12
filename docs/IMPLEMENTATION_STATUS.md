@@ -30,19 +30,25 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Required platforms and the real Gradle repository/descriptor-limit fixture pass. Even one worker and a smaller JVM heap exceed the 3 GiB process-memory cap. The next candidate gives only the two app-build steps 4 GiB, requiring 6 GiB available at admission and retaining the 2 GiB reserve. APK, offline rebuild, app launch, refresh, expiry and complete cleanup still need proof. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 retains finite authorization and durable state. The protected restart/repair trial has passed preflight and is running. Hosted Quality now passes strict Clippy but one multi-turn fixture exceeds its 10-second test envelope; a test-only correction preserves all custody, charge and reconnect assertions. Image supervision and Cloud same-adapter foreground coordination are being integrated alongside it. Full Rust, protected consumer maintenance and reciprocal capacity proof remain open. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Required platforms and real Gradle admission checks pass. The 4 GiB app-build profile reaches Kotlin compilation but Jetifier exhausts its own Java heap on a native-only Flutter JAR. The next candidate skips only that exact pinned JAR's unnecessary transformation; embedding/plugins and all resource bounds are unchanged. APK, offline rebuild, launch, refresh and expiry still need proof. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 retains finite authorization and durable state. The real trial fails during core restart; guest cleanup passes, but the exact lifecycle failure was not exported. A separate guest owner-test filter ran zero tests. Correct that test gate and export bounded failure diagnostics before retrying. Image PR6 and Cloud PR13 add shared owner supervision and foreground coordination with passing local checks; real consumer maintenance and reciprocal capacity proof remain open. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
 
-The latest failed [Android attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38254164363)
+The seventh [Android attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38254164363)
 retains its failed result: process drain could not be confirmed after the memory
 stop, so the policy and staging remain retained. KVM access restoration and an
 unchanged host network namespace pass separately; they are not complete cleanup.
 Weather `0dbc2d05481fb793f1398398091b57ecc030d86c` explicitly changes only the
 app-build budget and adds closed Java/Dart/other memory diagnostics; the memory
 reserve and other process budgets are unchanged. Its 97 targeted checks pass.
-[Hosted execution](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38256253721)
-is pending; the changed budget is not proof that the app fits or runs.
+The [eighth attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38256253721)
+stays under the aggregate cap (4,012,879,872 bytes) but fails with Java heap
+exhaustion in Jetifier. Its process drain, policy/staging cleanup and KVM-access
+restoration pass. Weather `f40711e03b8be65de5556ddf4f0397c33ff65b81` skips only the
+exact native-only engine JAR, supported by the pinned Flutter and AGP sources.
+The 78 targeted root checks pass, with independent review; the
+[new actual build](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38259586563)
+is still required before claiming an APK or installed-app result.
 
 The first [maintenance trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38251889540)
 produces no topology artifact because preflight fails before the VM or Rust
@@ -56,9 +62,46 @@ passes strict Clippy. Its CLI tests report 613 passed and one failed: a test-wid
 10-second timeout interrupts the fourth resumed signed/SQLite turn after actual
 reconnect progress. The final custody assertions were not reached, so that test
 remains failed. The correction gives this four-turn fixture 20 seconds, without
-changing production deadlines, authority, turn count or final assertions. The
-separate [protected trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38254422045)
-continues on its original revision; it is not restarted or treated as passed.
+changing production deadlines, authority, turn count or final assertions.
+[Quality run 38257720027](https://github.com/VOLPAROSSA/volparossa/actions/runs/38257720027)
+passes strict Clippy, workspace tests and the inert integration harness. Its
+run head is `2321b964`; the actual checkout is PR merge `73a46fed` into main
+`3dcdffa0`. All 614 CLI tests pass, including the reconnect test and all five
+expiry regressions, with none ignored in that binary. Seven tests elsewhere
+in the workspace are explicitly ignored. The three separate namespace checks
+skip because user namespaces are denied; their green step is not live datapath
+or cleanup evidence. The inert harness also records one Python skip.
+
+The separate [protected trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38254422045)
+fails at `private-storage-maintenance-core-restart` with
+`MAINTENANCE_CORE_LIFECYCLE_FAILED`, after the initial upload and revocation
+checks. Its closed failure report has no completed maintenance aggregate.
+Cleanup leaves zero owned objects and unchanged guest-root network state;
+that does not claim development-host equality or a successful restart/repair.
+The owner Rust filter selected zero tests; six agent and ten wire tests passed
+separately. The runtime subcause remains unknown because its closed failure
+receipt was not exported. Preserve this failure and require a nonempty actual
+owner-test gate plus bounded diagnostic export, not a speculative runtime fix.
+The reviewed follow-up requires all 13 named owner-maintenance tests to execute
+successfully as well as a zero Cargo exit, and exports only a validated,
+8 KiB-bounded lifecycle failure receipt. All 53 targeted lightweight tests and
+shell syntax checks pass; the change adds diagnostics, not a runtime repair.
+
+[Image PR6](https://github.com/VOLPAROSSA/volparossa-image/pull/6) at `aade424c`
+adds finite maintenance supervision and same-adapter foreground stop/join/resume;
+53 targeted tests pass. [Cloud PR13](https://github.com/VOLPAROSSA/volparossa-cloud/pull/13)
+at `9cb94fbb` reuses those exact bytes for catalog/upload access; 101 tests pass
+and three explicitly staged SDK tests are skipped. Both are independently
+reviewed draft candidates. Their local process/contract checks, including
+synthetic GPG operations, do not prove real peer-backed consumer maintenance.
+After the current core-restart failure is understood and fixed, extend the same
+maintenance topology with separately pinned consumers: a real encrypted Image
+snapshot restore and an authenticated Cloud catalog DAV read, each through its
+maintained adapter with local ciphertext removed. Bind both new source revisions,
+protected flows, unchanged enrollment/charge and complete cleanup in new receipts;
+do not replace earlier Image/Cloud trial pins or repeat their browser builds.
+New Cloud uploads are not automatically enrolled by this first read-focused
+slice and must not be presented as maintained uploads.
 
 The successful hosted Drizz.li trial supersedes neither the earlier failed route
 trial nor the local build aborted for host memory pressure; both remain recorded

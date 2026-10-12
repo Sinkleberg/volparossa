@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Inert dispatch/export/child-lifecycle tests, never real core or network proof."""
 import copy
+import io
 import json
+import os
 from pathlib import Path
 import runpy
 import signal
@@ -75,7 +77,9 @@ class Wiring(unittest.TestCase):
     def test_current_scenario_bounds_tests_and_source_gate(self):
         driver = (HERE / 'run-alpha-topology-vm.sh').read_text()
         self.assertIn('[ "$scenario" != private-storage-maintenance ] || driver_time_bound=7200s', driver)
-        self.assertIn('cargo test --locked -p volparossa --bin volparossa storage::fragments_maintenance', driver)
+        self.assertIn('cargo test --locked -p volparossa --bin volparossa storage::peer::replicas::fragments::maintenance', driver)
+        self.assertIn('private-storage-maintenance-smoke.py owner-test-output', driver)
+        self.assertIn('test "$(cat /home/vpci/storage-maintenance-tests.status)" = 0', driver)
         self.assertIn('cargo test --locked -p volparossa-agent --lib maintenance', driver)
         self.assertIn('cargo test --locked -p volparossa-content --lib private_storage::wire', driver)
         self.assertIn('CARGO_BUILD_JOBS=1', driver)
@@ -129,6 +133,84 @@ class Wiring(unittest.TestCase):
 
 
 class OwnerLifecycle(unittest.TestCase):
+    @staticmethod
+    def owner_test_stdout():
+        names = sorted(M['OWNER_REQUIRED_TESTS'])
+        return ('\nrunning ' + str(len(names)) + ' tests\n' + ''.join(
+            f"test {M['OWNER_TEST_PREFIX']}{name} ... ok\n" for name in names)
+            + f'\ntest result: ok. {len(names)} passed; 0 failed; 0 ignored; 0 measured; 601 filtered out; finished in 2.00s\n\n').encode()
+
+    def test_owner_gate_requires_actual_named_passes_not_zero_listing_or_partial(self):
+        valid = self.owner_test_stdout()
+        self.assertEqual(M['owner_test_output'](io.BytesIO(valid))['required_passed'], 13)
+        for invalid in (b'\nrunning 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 614 filtered out; finished in 0.00s\n',
+                valid.replace(b' ... ok', b': test'), valid.replace(b' ... ok', b' ... ignored', 1),
+                valid.replace(b' ... ok', b' ... FAILED', 1), valid.replace(b'13 passed', b'12 passed'),
+                valid.replace(b'enrollment_signature_private_mode_and_restart_cursor_are_retained', b'wrong_test'),
+                valid + b'x' * 65537):
+            with self.subTest(invalid=invalid[:40]), self.assertRaises(ValueError):
+                M['owner_test_output'](io.BytesIO(invalid))
+        for invalid in (valid.replace(b' ... ok', b' ... FAILED', 1), b'x' * 65537):
+            diagnostic = io.BytesIO()
+            with self.assertRaises(ValueError):
+                M['owner_test_output'](io.BytesIO(invalid), diagnostic)
+            self.assertLessEqual(len(diagnostic.getvalue()), 65536)
+            self.assertIn(b'FAILED' if len(invalid) < 65536 else b'OWNER_TEST_OUTPUT_LIMIT_EXCEEDED', diagnostic.getvalue())
+
+    def test_actual_guest_gate_checks_cargo_exit_even_with_a_successful_output_parser(self):
+        source = (HERE / 'run-alpha-topology-vm.sh').read_text()
+        start = source.index('    test ! -e /home/vpci/storage-maintenance-tests.status')
+        end = source.index('    CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/vpci/target timeout --signal=TERM --kill-after=15s 900s', start)
+        block = source[start:end].replace('tests/integration/private-storage-maintenance-smoke.py',
+            str(HERE / 'private-storage-maintenance-smoke.py'))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / 'cargo'
+            executable.write_text('#!/usr/bin/python3\nimport os,sys\nfrom pathlib import Path\n'
+                'assert "storage::peer::replicas::fragments::maintenance" in sys.argv\n'
+                'sys.stdout.buffer.write(Path(os.environ["TEST_OUTPUT"]).read_bytes())\n'
+                'sys.exit(int(os.environ["TEST_EXIT"]))\n')
+            executable.chmod(0o700)
+            for index, (raw, exit_code, passed) in enumerate(((self.owner_test_stdout(), 0, True),
+                    (self.owner_test_stdout(), 7, False), (b'running 0 tests\n', 0, False), (b'x' * 65537, 0, False))):
+                output = root / f'output-{index}'
+                output.write_bytes(raw)
+                actual = block.replace('/home/vpci/storage-maintenance-tests.status', str(root / f'status-{index}'))
+                result = subprocess.run(['sh', '-eu', '-c', actual], capture_output=True, timeout=5,
+                    env={'PATH': f'{root}:/usr/bin:/bin', 'TEST_OUTPUT': str(output), 'TEST_EXIT': str(exit_code)})
+                self.assertEqual(result.returncode == 0, passed)
+                if passed:
+                    self.assertEqual(json.loads(result.stdout)['required_passed'], 13)
+
+    def test_failed_lifecycle_is_exported_only_through_exact_bounded_schema(self):
+        source = (HERE / 'private-storage-maintenance-smoke.sh').read_text()
+        start = source.index('    if [ "$maintenance_status" -ne 0 ]')
+        block = source[start:source.index('\n    optional_json_evidence', start)]
+        value = dict(version=1, success=False, kind='private-storage-maintenance-lifecycle-failure',
+            stage='start_sampler', code='sampler_failure', cursor_before=3, cursor_last=5,
+            checkpoint_stage='waiting_for_core', owner_exit_status=0, owner_joined=True, cleanup_error=None,
+            sampler=dict(phase='initial', operation='route_query', code='process', samples=0, completed=0, failed=0,
+                paths_process=dict(exit_status=1, diagnostic='CLIENT_ROUTE_BUSY', stderr_state='bounded')))
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            private = work / 'maintenance-owner-lifecycle.private'
+            exported = work / 'private-storage-maintenance-lifecycle-failure.json'
+            cases = (json.dumps(value), json.dumps(dict(value, private='SECRET')),
+                json.dumps(dict(value, code='SECRET_PATH')), json.dumps(dict(value, cursor_last=True)),
+                json.dumps(dict(value, sampler=dict(value['sampler'], raw_stderr='SECRET'))), 'x' * 8193)
+            for index, raw in enumerate(cases):
+                private.write_text(raw)
+                private.chmod(0o600)
+                subprocess.run(['sh', '-eu', '-c', block], check=True, capture_output=True, timeout=5,
+                    env={'PATH': '/usr/bin:/bin', 'WORK': str(work), 'source_directory': str(HERE.parents[1]),
+                        'maintenance_status': '1'})
+                if index == 0:
+                    self.assertEqual(json.loads(exported.read_text()), value)
+                    exported.unlink()
+                else:
+                    self.assertFalse(exported.exists())
+                self.assertFalse((work / 'maintenance-lifecycle-failure.part').exists())
+
     def test_retained_charge_accepts_original_v1_without_v2_history(self):
         value, _, _ = FIXTURE['OLD']['cli_fixture']('committed')
         self.assertNotIn('retained_copy_records', value)

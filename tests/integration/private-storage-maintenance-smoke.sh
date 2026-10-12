@@ -109,6 +109,16 @@ private_storage_maintenance_run() {
 
 private_storage_maintenance_finalize_report() {
     maintenance_status=$1
+    # The owner emits a closed failure receipt, not raw stderr. Preserve it only
+    # after strict bounded schema validation, including on lifecycle failure.
+    if [ "$maintenance_status" -ne 0 ] && [ -f "$WORK/maintenance-owner-lifecycle.private" ]; then
+        if python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" lifecycle-failure \
+            "$WORK/maintenance-owner-lifecycle.private" >"$WORK/maintenance-lifecycle-failure.part" 2>/dev/null; then
+            mv -- "$WORK/maintenance-lifecycle-failure.part" "$WORK/private-storage-maintenance-lifecycle-failure.json"
+        else
+            rm -f -- "$WORK/maintenance-lifecycle-failure.part"
+        fi
+    fi
     optional_json_evidence "$WORK/private-storage-maintenance-evidence.json" >"$WORK/handoff-report-evidence.part"
     optional_json_evidence "$WORK/a15-evidence.json" >"$WORK/handoff-report-host.part"
     jq -cn --arg revision "$expected_commit" --arg run "$RUN_ID" --arg phase "$PHASE" --arg blocker "$OBSERVED_BLOCKER" \

@@ -1095,6 +1095,7 @@ FRAGMENTS_NAMES = {"a01-expected-peers.json"} | {
 MAINTENANCE_NAMES = (FRAGMENTS_NAMES - {"private-storage-fragments-smoke.json", "private-storage-fragments-evidence.json"}) | {
     "private-storage-maintenance-smoke.json", "private-storage-maintenance-evidence.json",
     "private-storage-maintenance-lifecycle.json",
+    "private-storage-maintenance-lifecycle-failure.json",
     "private-storage-fragments-lifecycle-live-selection.json",
     "private-storage-fragments-lifecycle-gates.json",
     "content-provider-adaptive-private-storage-fragments-lifecycle-control.json",
@@ -2013,8 +2014,18 @@ fi
 guest_phase build
 if [ "$scenario" = private-storage-maintenance ]; then
     guest_phase storage-maintenance-targeted-tests
-    CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/vpci/target timeout --signal=TERM --kill-after=15s 1200s \
-        cargo test --locked -p volparossa --bin volparossa storage::fragments_maintenance
+    # Both the actual cargo exit and bounded executed-test output must pass.
+    # A stale libtest filter otherwise exits successfully with zero tests.
+    test ! -e /home/vpci/storage-maintenance-tests.status
+    (
+        maintenance_tests_status=0
+        CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/vpci/target timeout --signal=TERM --kill-after=15s 1200s \
+            cargo test --locked -p volparossa --bin volparossa storage::peer::replicas::fragments::maintenance \
+            -- --color never || maintenance_tests_status=$?
+        printf '%s\n' "$maintenance_tests_status" >/home/vpci/storage-maintenance-tests.status
+        exit "$maintenance_tests_status"
+    ) | python3 -B tests/integration/private-storage-maintenance-smoke.py owner-test-output
+    test "$(cat /home/vpci/storage-maintenance-tests.status)" = 0
     CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/vpci/target timeout --signal=TERM --kill-after=15s 900s \
         cargo test --locked -p volparossa-agent --lib maintenance
     CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/home/vpci/target timeout --signal=TERM --kill-after=15s 600s \
