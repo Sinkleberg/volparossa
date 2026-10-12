@@ -43,11 +43,17 @@ The [first hosted attempt](https://github.com/VOLPAROSSA/volparossa/actions/runs
 at `65decfc3` passes those tests, compiler installation and exact source/fixture
 verification, then fails dependency acquisition: Cargo treats the nested checkout
 as an undeclared member of the core workspace. Compilation is not reached.
-The correction checks out upstream in the disposable runner's separate temporary
-directory, without changing either manifest or the pinned lockfile. Fifteen inert
-tests now pass. The actual upstream build and cryptographic fixture result remain
-pending. Passing would establish only compatibility with these public fixtures,
-not a trustworthy worker or confidential task.
+The [second attempt](https://github.com/VOLPAROSSA/volparossa/actions/runs/38321719271)
+at `e547c066` fails before any job starts: the separate checkout path uses the
+`runner` context in job-level `env`, where GitHub does not allow it. The run has
+no jobs, logs or artifacts. The pending correction defines the same path in the
+three consuming steps' `env` blocks, where that context is supported; it does not
+change either manifest or the pinned lockfile. Fifteen inert tests pass, including
+rejection of the old job-level binding and a missing step binding. The actual
+upstream build and cryptographic fixture result remain pending. Passing would
+establish only compatibility with these public fixtures, not a trustworthy worker
+or confidential task. See GitHub's
+[context availability rules](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability).
 
 ## What is still needed before private tasks can run remotely
 

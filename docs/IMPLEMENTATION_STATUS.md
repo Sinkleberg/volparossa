@@ -56,10 +56,14 @@ or software preparation. A separate public-fixture CI candidate now pins
 lockfile and four SNP chain/report tests. The first hosted attempt
 [`38321426228`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38321426228)
 at `65decfc3` passes source/fixture verification, then stops before compilation
-because Cargo finds the parent core workspace. The corrected checkout uses the
-disposable runner's separate temporary directory; both manifests and the lockfile
-remain unchanged. Fifteen inert harness checks pass; the real upstream build and
-cryptographic fixture result are still pending.
+because Cargo finds the parent core workspace. The second attempt
+[`38321719271`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38321719271)
+at `e547c066` fails before job creation: `runner.temp` is not supported in
+job-level `env`. No job, compiler run or artifact exists for that attempt. The
+pending correction moves the same external checkout-path binding to the three
+consuming steps; both manifests and the lockfile remain unchanged. Fifteen inert
+harness checks pass, including the context-placement regression; the real
+upstream build and cryptographic fixture result are still pending.
 No protected worker, remote private-task release or B04 completion is claimed.
 Public peer tasks and the current local private service remain unchanged.
 See [the bounded trial and missing admission checks](development/PROTECTED_COMPUTE_VERIFIER.md).

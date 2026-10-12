@@ -187,7 +187,29 @@ python3() {
 
     def test_upstream_is_outside_parent_cargo_workspace(self):
         text = WORKFLOW.read_text()
-        self.assertIn('VERIFIER_SOURCE: ${{ runner.temp }}/volparossa-protected-compute-verifier-source', text)
+        binding = '          VERIFIER_SOURCE: ${{ runner.temp }}/volparossa-protected-compute-verifier-source\n'
+        names = ('Fetch exact upstream source and verify public fixtures',
+            'Fetch locked upstream dependencies without running tests',
+            'Execute only four public cryptographic fixtures')
+
+        def assert_step_bindings(value):
+            before_steps, steps = value.split('    steps:\n', 1)
+            # runner is unavailable in job-level env, even when the YAML parses.
+            self.assertNotIn('runner.temp', before_steps)
+            self.assertNotIn('VERIFIER_SOURCE', before_steps)
+            self.assertEqual(value.count(binding), 3)
+            for name in names:
+                step = steps.split('      - name: ' + name + '\n', 1)[1].split('      - name:', 1)[0]
+                header = step.split('        run: |\n', 1)[0]
+                self.assertIn('        env:\n', header)
+                self.assertIn(binding, header)
+
+        assert_step_bindings(text)
+        old_job_binding = text.replace(binding, '').replace('    steps:\n',
+            '    env:\n' + binding[4:] + '    steps:\n', 1)
+        for invalid in (old_job_binding, text.replace(binding, '', 1)):
+            with self.assertRaises(AssertionError):
+                assert_step_bindings(invalid)
         self.assertIn('test ! -e "$VERIFIER_SOURCE"', text)
         self.assertEqual(text.count('--manifest-path "$VERIFIER_SOURCE/Cargo.toml"'), 2)
         self.assertNotIn('build/protected-compute-verifier/source', text)
