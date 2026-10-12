@@ -31,7 +31,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Continue shared cache delivery — `volparossa`, `volparossa-weather` | Complete late-provider recovery and requester cancellation in one protected run, then join Weather delivery to the verified cache path. | Run `38195177153` on `c63ddf36` passes native and HTTPS three-provider reconstruction, but its first late-provider query returns empty through a newly selected broker. A separate signed-service readiness prerequisite is now implemented and component-tested, without provider hints or longer product deadlines. Its live execution, cancellation and protected pressure-retirement recovery remain unproved. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost; a separate exact-source probe encounters ECMWF HTTP 429. Closed retention now includes bounded Retry-After diagnostics and passes eighty focused checks, without extra requests, retries or relaxed validation. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
-| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR11 are merged with passing CI. Browser08 and its immutable input bundle retain their synthetic UI proof. The exact table verifier is corrected and passes a separate actual-browser trial with synthetic products, before and after pointer refresh. Rebuild a new immutable bundle with that verifier; do not change the old bundle. Joined core delivery and native Android/iOS execution remain unverified. |
+| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR12 are merged with passing CI. Exact table extraction and a fresh full browser trial pass with synthetic products. A new immutable bundle with the corrected verifier passes capture, runtime and extracted-tree checks; the old bundle remains unchanged. Joined core delivery and native Android/iOS execution remain unverified. |
 
 Respect the observed source rate limit instead of repeatedly relaunching the
 joined trial or routing requests through other peers. Finish the standalone
@@ -88,6 +88,25 @@ Five pure DOM regressions accompany the existing exact-value checks. This proves
 the corrected UI verifier, not core, origin, cold or native-mobile delivery.
 Old reports and the frozen bundle are unchanged; a future joined trial needs a
 new bundle with the corrected driver.
+
+The table correction is merged in Weather
+[PR12](https://github.com/VOLPAROSSA/volparossa-weather/pull/12), with passing
+component and CodeQL checks. A fresh full synthetic browser trial also passes
+on the current shared harness: ten requests per product, nine pointer refreshes,
+independent failures/expiry, detail navigation and complete cleanup. Its report
+SHA-256 is `48be438ea5fc932314648a6fd81b6b104b4b7b84734e8efaebccf6c20383f10b`.
+This full trial and the exact-table trial remain separate evidence.
+
+A new immutable version-three bundle is retained at
+`.git/ci-evidence/weather-overmorrow-inputs-v3-tables.JRK0OK/inputs.tar`:
+176 files, 455,025,966 payload bytes, archive SHA-256
+`2b896fde7cc6575dc809438c6fa0bf8f0f97d6362337f31d761156fedfbc3039`, manifest
+`0a9f81a54eb594af9884aebcdf79c03d8efb767447973f7ad40acb92844bf645`.
+Capture, runtime verification, extraction and tree verification pass without
+executing the bundled runtime or contacting weather sources. Only the full
+browser proof, build record, shared harness and corrected table driver differ
+from the previous bundle. The old archive hash is unchanged before and after
+capture. This prepares the joined trial; it does not prove its delivery path.
 
 Independent reconstruction of the same run validates native and cooperative
 HTTPS delivery of 15,728,640 bytes in sixty chunks from three providers. Their

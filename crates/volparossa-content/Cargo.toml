@@ -36,7 +36,7 @@ zeroize.workspace = true
 libp2p-identity.workspace = true
 rand_core.workspace = true
 rcgen.workspace = true
-volparossa-local-control = { path = "../volparossa-local-control" }
+volparossa-local-control = { path = "../volparossa-local-control", version = "=0.1.0" }
 
 [lints]
 workspace = true
