@@ -1157,9 +1157,9 @@ CLOUD_UPLOAD_OUTCOME_NAMES = {
     "private-storage-fragments-cloud_upload_deleted_usage.json",
     "host-state-before.json", "host-state-after.json", "guest-exit-status", "current-phase",
 }
-# 129 exact old/new receipt names + five recovery names = 134 slots.
+# 130 exact old/new receipt names + five recovery names = 135 slots.
 # The old scenario stays at 128; byte-identical copies share only one slot.
-CLOUD_UPLOAD_FILE_COUNT_LIMIT = 134
+CLOUD_UPLOAD_FILE_COUNT_LIMIT = 135
 
 SIGNAL_FRAGMENT_NAMES = {"a01-expected-peers.json", "signal-backup-provision.json",
     "signal-backup-private_cleanup.json", "host-state-before.json", "host-state-after.json",

@@ -108,9 +108,9 @@ private_cloud_upload_cleanup
 
     def test_exact_static_proof_union_is_measured_before_runner_wiring(self):
         previous = runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))['EXPORT_NAMES']
-        self.assertEqual(len(set(previous)), 89)
+        self.assertEqual(len(set(previous)), 90)
         self.assertEqual(len(set(E['EXPORT_NAMES']) - set(previous)), 40)
-        self.assertEqual(len(set(E['EXPORT_NAMES']) | set(previous)), 129)
+        self.assertEqual(len(set(E['EXPORT_NAMES']) | set(previous)), 130)
         # This deliberately excludes emergency driver/current-phase/duplicate
         # receipts; it is NOT a claim that all recovery files fit that cap.
         self.assertNotIn('guest-phase.txt', E['EXPORT_NAMES'])

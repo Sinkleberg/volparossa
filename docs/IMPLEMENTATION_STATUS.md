@@ -30,8 +30,8 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38298489504` proves matching APK build/offline-rebuild hashes within that run, but fails at AVD creation. A short preflight now exercises this same step before costly builds. Trials `38303294983` and `38305241688` confirm all eight launcher helpers are available, but `avdmanager` still exits 1 with an unclassified cause. Cleanup passes. Investigate the retained inputs and CLI boundary before another probe; installation, launch, refresh and expiry still need proof, and iOS remains open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's readiness correction advances trial `38301596867` beyond initial selection: inventory, upload and reconnect succeed. The trial then fails at `await_coordinator` with `local_io`; its exact cause remains under investigation. Cleanup passes. Image PR6 and Cloud PR13 have reviewed consumer bindings, but real consumer maintenance and reciprocal capacity proof remain open. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38298489504` proves matching APK build/offline-rebuild hashes within that run, but fails at AVD creation. The short preflight confirms all eight helpers are available. `b9055256` fixes a reproduced parser defect around SDK carriage returns, with 114 passing inert tests; actual trial `38307570998` still fails with the same unclassified AVD result. Cleanup passes. Inspect the exact SDK fatal-exit paths before another change; installation, launch, refresh and expiry still need proof, and iOS remains open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 advances trial `38301596867` through inventory, upload and reconnect, then fails before coordinator readiness. The recorded `local_io` may represent cleanup cancellation rather than the primary error. `910ae86e` adds closed supervisor-stage diagnostics and separates the fixture's termination signal, with 62 passing targeted tests. Actual trial `38307755528` must identify the next outcome. Image PR6 and Cloud PR13 retain reviewed consumer bindings; real consumer maintenance and reciprocal capacity proof remain open. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
 
@@ -172,6 +172,22 @@ still fails at AVD creation with complete 1,275-byte output and no recognized
 SDK, Java or filesystem indication. Those absent markers do not establish or
 rule out the cause. The next investigation must use the retained exact inputs
 and command-line boundary, not treat this diagnostic change as an emulator fix.
+
+Exact command-line-tools 19.0 inspection identifies a parser defect: the progress
+renderer can write a carriage return immediately before a known `Error:` line.
+The old newline-only matcher misses that line. Weather `b9055256` normalizes
+CR/CRLF only within the existing bounded prefix, retaining original byte counts,
+unknown/ambiguous outcomes and receipt limits. SDK inputs, arguments, environment,
+permissions and resources are unchanged. All 114 inert Android tests and
+independent review pass. [Trial 38307570998](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38307570998)
+on that exact revision still fails after 433 ms at AVD creation, with complete
+1,275-byte output and the same unknown diagnostic. Its input and diagnostic
+receipts are byte-identical to the previous run. The proof archive matches
+GitHub's digest; all 24 members, six step logs, eleven input pins and three
+provenance bindings are checked. Private-state, process, policy/staging and KVM
+cleanup pass, with unchanged host network namespace. No Gradle/APK/app phase is
+reached. The parser defect is fixed, but the primary cause remains unknown;
+inspect the exact SDK's fatal-exit paths before another change or trial.
 
 The first [maintenance trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38251889540)
 produces no topology artifact because preflight fails before the VM or Rust
@@ -357,6 +373,17 @@ an unchanged disposable guest-root network baseline. Diagnose the local
 coordination boundary before running the longer Cloud continuation; neither
 consumer repair nor the full lifecycle is proved by this failed trial.
 
+Candidate `910ae86e` records the eleven fixed supervisor stages after reconnect,
+their exit status and a closed control-relay relation before cleanup can mask
+the original failure. Atomic receipts are limited to 1 KiB and contain no raw
+identifiers or output. The fixture's own SIGTERM is now `termination_signal`;
+ordinary OS errors remain `local_io`. Original route selection, relay checks,
+authority and deadlines remain unchanged. All 35 smoke and 27 wiring tests pass,
+including every gate failure, a real lightweight child termination and strict
+export validation. Independent review, shell syntax and ShellCheck pass.
+[Trial 38307755528](https://github.com/VOLPAROSSA/volparossa/actions/runs/38307755528)
+must supply the next actual result; these diagnostics are not acceptance proof.
+
 [Image PR6](https://github.com/VOLPAROSSA/volparossa-image/pull/6) at `aade424c`
 adds finite maintenance supervision and same-adapter foreground stop/join/resume;
 53 targeted tests pass. [Cloud PR13](https://github.com/VOLPAROSSA/volparossa-cloud/pull/13)
@@ -430,7 +457,8 @@ Its own captures, bounded reports and cleanup checks are wired into the
 disposable VM runner. The compact final report binds the complete original
 maintenance and new upload evidence, rather than treating a hash or a component
 test as proof of the full chain. Only this longer scenario has a 14,400-second
-driver ceiling and 134 exact emergency-export slots; the old scenario and the
+driver ceiling and 135 exact emergency-export slots, including the new closed
+maintenance-supervisor receipt; the old scenario and the
 shared 8 MiB export bound are unchanged. These are test-execution ceilings, not
 extensions of user authority. Protected execution remains required before this
 candidate can establish real automatic upload maintenance. All 62 new focused
