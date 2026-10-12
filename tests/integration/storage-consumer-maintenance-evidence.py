@@ -26,6 +26,9 @@ TRANSITION_NAME = 'private-storage-maintenance-control-transition.json'
 MAX_TRANSITION = 131072
 CONTROL_NODES = tuple(f'relay{i}' for i in range(6))
 CONTROL_PROVIDERS = ('relay3', 'relay4', 'relay5')
+# The root topology's original a01 file includes both bootstrap contacts and
+# the secondary exit. They are identities, not additional permitted brokers.
+TOPOLOGY_ROLES = (*ROLES, *NODES, 'bootstrap1', 'bootstrap2', 'exit2')
 SCOPE = dict(synthetic_inputs=True, automatic_grant_refresh=False, private_keys_exported=False,
     immich_running_proven=False, opencloud_account_server_proven=False,
     node_report_hash_independently_reconstructed=False, host_cleanup_proven=False)
@@ -192,7 +195,7 @@ def control_snapshot(value, broker, *, routed):
 
 
 def validate_control_transition(value, peers, layout, *, stage='complete', layout_raw=None):
-    keys(peers, (*ROLES, *NODES))
+    keys(peers, TOPOLOGY_ROLES)
     require(all(type(peer) is str and re.fullmatch('[A-Za-z0-9_-]{1,128}', peer) for peer in peers.values())
         and len(set(peers.values())) == len(peers), 'control_peer_identity')
     keys(layout, ('provider_nodes', 'control_relay_peer_id', 'route_context_id', 'route_scope'))
@@ -449,7 +452,9 @@ def validate_evidence(value, *, previous=False):
         and cleanup['remote_cleanup_confirmed'] is False and cleanup['provider_usage_proven'] is False,
         'consumer_private_cleanup')
     peers = value['expected_peers']
-    keys(peers, (*ROLES, *NODES))
+    # Preserve the explicitly requested historical schema-1 shape; current
+    # schema 2 binds the complete original topology file without projection.
+    keys(peers, (*ROLES, *NODES) if previous else TOPOLOGY_ROLES)
     require(all(type(p) is str and re.fullmatch('[A-Za-z0-9_-]{1,128}', p) for p in peers.values())
         and len(set(peers.values())) == len(peers), 'consumer_peer_identity')
     layout = value['layout']

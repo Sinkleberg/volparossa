@@ -150,6 +150,7 @@ private_storage_maintenance_control_transition() {
     private_storage_maintenance_supervisor_stage broker_validated
     jq -e --arg peer "$maintenance_control_peer" '[.relay0,.relay1,.relay2] | index($peer) != null' \
         "$WORK/a01-expected-peers.json" >/dev/null || return 1
+    private_storage_maintenance_supervisor_stage control_snapshot
     private_storage_maintenance_control_snapshot before || return 1
     maintenance_layout_sha=$(sha256sum "$WORK/private-storage-fragments-layout.json" | awk '{print $1}') || return 1
     maintenance_canonical_sha=$(jq -cSj '.' "$WORK/private-storage-fragments-layout.json" | sha256sum | awk '{print $1}') || return 1
@@ -160,6 +161,7 @@ private_storage_maintenance_control_transition() {
           original_layout_canonical_sha256:$canonical,previous_control_relay_peer_id:$previous,
           current_control_relay_peer_id:$current,relation:$relation,before:$before[0],detached:null,after:null}' \
         >"$WORK/maintenance-control-transition.private" || return 1
+    private_storage_maintenance_supervisor_stage control_validate_before
     python3 -B "$WORK/bin/private-storage-maintenance-smoke.py" control-transition-check \
         "$WORK" "$WORK/maintenance-control-transition.private" before || return 1
     private_storage_maintenance_supervisor_stage control_rebind
