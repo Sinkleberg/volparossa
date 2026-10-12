@@ -2,13 +2,16 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Pure maintenance receipt/cleanup contracts, not a running-core or peer proof."""
 from pathlib import Path
+from contextlib import contextmanager
 import copy
 import json
 import runpy
+import stat
 import subprocess
 import tempfile
+import time
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 HERE = Path(__file__).parent
 CHECK = runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))
@@ -84,14 +87,16 @@ class MaintenanceEvidence(unittest.TestCase):
             with self.subTest(cleanup_error=cleanup_error is not None), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 (root / 'maintenance').mkdir()
-                (root / 'maintenance/enrollment.json').write_bytes(b'same private enrollment')
+                (root / 'maintenance/enrollment.json').write_text(json.dumps(
+                    {'enrollment': {'expires': int(time.time()) + 6000}}))
                 owner = Mock()
                 owner.process.poll.return_value = 0 if cleanup_error is None else None
                 owner.close.side_effect = cleanup_error
                 calls = []
 
-                def wait(_owner, predicate, seconds=180):
+                def wait(_owner, predicate, seconds=180, *, budget=None):
                     calls.append(seconds)
+                    self.assertIsNotNone(budget)
                     if len(calls) == 3:
                         raise ValueError('owner lifecycle deadline')
                     return predicate()
@@ -115,6 +120,123 @@ class MaintenanceEvidence(unittest.TestCase):
                     self.assertEqual(receipt['cleanup_error'], 'cli_timeout' if cleanup_error else None)
                     self.assertNotIn('PRIVATE', json.dumps(receipt))
                     owner.close.assert_called_once()
+                    self.assertNotIn('--maximum-turns', namespace['OwnerProcess'].call_args.args[0])
+                    self.assertEqual(calls, [180, 180, CHECK['LIFECYCLE_SECONDS']])
+
+    def test_coordinator_wait_uses_one_lifecycle_budget_not_the_old_180s_window(self):
+        namespace = CHECK['wait_owner'].__globals__
+        clock = Mock()
+        elapsed = [0.0]
+        clock.monotonic.side_effect = lambda: elapsed[0]
+        clock.time.side_effect = lambda: 1000 + elapsed[0]
+        clock.sleep.side_effect = lambda _: elapsed.__setitem__(0, elapsed[0] + 30)
+        owner = Mock()
+        owner.process.poll.return_value = None
+        with patch.dict(namespace, time=clock):
+            budget = CHECK['LifecycleBudget'](7000)
+            ready = lambda: elapsed[0] >= 30 + 60 + 600
+            with self.assertRaisesRegex(ValueError, '^owner lifecycle deadline$'):
+                CHECK['wait_owner'](owner, ready)  # The actual old default fails.
+            self.assertEqual(elapsed[0], 180)
+            self.assertTrue(CHECK['wait_owner'](owner, ready, CHECK['LIFECYCLE_SECONDS'], budget=budget))
+            self.assertEqual(elapsed[0], 690)
+            self.assertEqual(budget.remaining(CHECK['LIFECYCLE_SECONDS']), 1110)
+            # Later waits share the initial deadline; no fresh 1800s allocation.
+            with self.assertRaisesRegex(ValueError, '^owner lifecycle deadline$'):
+                CHECK['wait_owner'](owner, lambda: False, CHECK['LIFECYCLE_SECONDS'], budget=budget)
+            self.assertEqual(elapsed[0], CHECK['LIFECYCLE_SECONDS'])
+
+    def test_lifecycle_wait_never_outlives_original_expiry_or_clock_rollback_cap(self):
+        namespace = CHECK['wait_owner'].__globals__
+        clock = Mock()
+        monotonic, wall = [0.0], [1000.0]
+        clock.monotonic.side_effect = lambda: monotonic[0]
+        clock.time.side_effect = lambda: wall[0]
+        def advance(_):
+            monotonic[0] += 1
+            wall[0] += 1
+        clock.sleep.side_effect = advance
+        owner = Mock()
+        owner.process.poll.return_value = None
+        with patch.dict(namespace, time=clock):
+            budget = CHECK['LifecycleBudget'](1005)
+            with self.assertRaisesRegex(ValueError, '^owner lifecycle deadline$'):
+                CHECK['wait_owner'](owner, lambda: False, CHECK['LIFECYCLE_SECONDS'], budget=budget)
+            self.assertEqual(monotonic[0], 5)
+            self.assertEqual(budget.expires, 1005)
+            monotonic[0], wall[0] = 0, 1000
+            budget = CHECK['LifecycleBudget'](1010)
+            wall[0] = 900  # Clock rollback does not grant another 110s.
+            self.assertEqual(budget.remaining(1800), 10)
+            wall[0] = 1011  # Forward clock movement stops further admission.
+            with self.assertRaisesRegex(ValueError, '^owner lifecycle deadline$'):
+                budget.remaining(1800)
+            for expires in (True, None, 0, -1, '7000'):
+                with self.subTest(expires=expires), self.assertRaises(ValueError):
+                    CHECK['LifecycleBudget'](expires)
+
+    def test_more_coordinator_turns_preserve_closed_cursor_and_lifecycle_requirements(self):
+        value = fixture()['lifecycle']
+        value.update(cursor_after_reconnect=34, cursor_at_pause=35, cursor_after_resume=36)
+        CHECK['validate_lifecycle'](value)
+        for changed in (dict(cursor_after_resume=CHECK['MAX_LIFECYCLE_CURSOR'] + 1),
+                dict(cursor_after_resume=35), dict(enrollment_unchanged=False),
+                dict(same_owner_survived_core_loss=False)):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                CHECK['validate_lifecycle'](dict(value, **changed))
+
+    def test_sampler_finalization_cannot_publish_success_after_original_expiry(self):
+        namespace = CHECK['lifecycle'].__globals__
+        retained, _, _ = OLD['cli_fixture']('committed')
+        gates = fixture()['network']['lifecycle']['gates']
+        for expired in (False, True):
+            with self.subTest(expired=expired), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / 'maintenance').mkdir()
+                (root / 'maintenance/enrollment.json').write_text(json.dumps({'enrollment': {'expires': 1010}}))
+                elapsed = [0]
+                clock = Mock()
+                clock.monotonic.side_effect = lambda: elapsed[0]
+                clock.time.side_effect = lambda: 1000 + elapsed[0]
+                # Inert path/uid and CLI doubles; no root metadata or actual core.
+                path = MagicMock()
+                path.parents = [None, None, path]
+                path.__truediv__.return_value = path
+                path.exists.return_value = True
+                path.lstat.return_value = Mock(st_mode=stat.S_IFREG | 0o640,
+                    st_nlink=1, st_uid=0, st_size=2)
+                owner = Mock()
+                owner.process.poll.return_value = 0
+                owner.reports.return_value = [dict(stage='turn_completed', turns=6)]
+                coverage = Mock(joined=True)
+                coverage.report.return_value = gates
+
+                @contextmanager
+                def capture(*args, **kwargs):
+                    yield coverage
+                    elapsed[0] = 11 if expired else 5
+
+                created = Mock()
+                with patch.dict(namespace, time=clock, Path=Mock(return_value=path),
+                        checkpoint=Mock(side_effect=[dict(stage='paused', turns=3),
+                            dict(stage='working', turns=4), dict(stage='core_unavailable', turns=4),
+                            dict(stage='waiting_for_core', turns=5), dict(stage='paused', turns=6)]),
+                        read=Mock(return_value=dict(baseline=gates['event_baseline_unix_ms'], scope=gates['exit_route_scope'])),
+                        OwnerProcess=Mock(return_value=owner), unlock=lambda root: [], create=created,
+                        wait_owner=lambda owner, predicate, seconds=180, **kwargs: predicate(),
+                        status=Mock(return_value=retained), run_turn=Mock(return_value=dict(turns=7)),
+                        invoke=Mock(return_value=dict(physical_payload_charge_upper_bound=2 * CHECK['BYTES'],
+                            uncertain_payload_bytes=0))), patch.dict(CHECK['F'], check_identity=Mock()), \
+                        patch.dict(CHECK['SAMPLER'], capture=capture):
+                    if expired:
+                        with self.assertRaisesRegex(ValueError, '^owner lifecycle deadline$'):
+                            CHECK['lifecycle'](root, '/synthetic/cli', '/synthetic/socket', ['a', 'b', 'c'])
+                    else:
+                        self.assertTrue(CHECK['lifecycle'](root, '/synthetic/cli', '/synthetic/socket',
+                            ['a', 'b', 'c'])['same_owner_survived_core_loss'])
+                published = [call.args[0] for call in created.call_args_list]
+                self.assertEqual(root / 'lifecycle-result.json' in published, not expired)
+                owner.close.assert_called_once()
 
     def test_initial_renewal_accepts_current_receipt_without_weakening_fields(self):
         # Exercise the actual upload guard, not an independent schema replica.
@@ -407,7 +529,7 @@ class MaintenanceEvidence(unittest.TestCase):
         process.communicate.side_effect = original
         process.poll.return_value = None
         process.send_signal.side_effect = OSError('SECRET_CLEANUP_PATH')
-        with patch.dict(namespace, checkpoint=lambda *args: dict(turns=6), unlock=lambda root: []), \
+        with patch.dict(namespace, checkpoint=lambda *args, **kwargs: dict(turns=6), unlock=lambda root: []), \
                 patch.object(CHECK['subprocess'], 'Popen', return_value=process):
             with self.assertRaises(subprocess.TimeoutExpired) as failure:
                 CHECK['run_turn'](Path('/synthetic'), '/synthetic/cli', '/synthetic/socket', 'key')

@@ -30,8 +30,8 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Required platforms and real Gradle admission checks pass. The 4 GiB app-build profile reaches Kotlin compilation but Jetifier exhausts its own Java heap on a native-only Flutter JAR. The next candidate skips only that exact pinned JAR's unnecessary transformation; embedding/plugins and all resource bounds are unchanged. APK, offline rebuild, launch, refresh and expiry still need proof. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 retains finite authorization and durable state. The real trial fails during core restart; guest cleanup passes, but the exact lifecycle failure was not exported. A separate guest owner-test filter ran zero tests. Correct that test gate and export bounded failure diagnostics before retrying. Image PR6 and Cloud PR13 add shared owner supervision and foreground coordination with passing local checks; real consumer maintenance and reciprocal capacity proof remain open. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. The latest diagnostic run observes Java heap exhaustion during dex merging and Java CPU time reaching its existing limit, below the aggregate memory cap. Cleanup passes. Investigate a targeted build correction without treating either observation as a complete exit-cause attribution. APK, offline rebuild, launch, refresh and expiry still need proof. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 retains finite authorization and durable state. The real trial now executes all 13 required owner tests and identifies a fixture timeout waiting for its restart coordinator. Align the fixture with its existing supervisor preparation budget while retaining the original signed expiry and real same-owner recovery. Image PR6 and Cloud PR13 add shared owner supervision and foreground coordination with passing local checks; real consumer maintenance and reciprocal capacity proof remain open. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
 
 The seventh [Android attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38254164363)
@@ -46,9 +46,26 @@ stays under the aggregate cap (4,012,879,872 bytes) but fails with Java heap
 exhaustion in Jetifier. Its process drain, policy/staging cleanup and KVM-access
 restoration pass. Weather `f40711e03b8be65de5556ddf4f0397c33ff65b81` skips only the
 exact native-only engine JAR, supported by the pinned Flutter and AGP sources.
-The 78 targeted root checks pass, with independent review; the
-[new actual build](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38259586563)
-is still required before claiming an APK or installed-app result.
+The 78 targeted root checks pass, with independent review. The
+[ninth actual build](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38259586563)
+passes Kotlin/Java compilation, then reports a disappeared Gradle daemon during
+dex merging. The measured peak is 4,060,364,800 bytes, below the cap; no monitor
+stop is recorded. Cleanup and all nine original step-log hashes pass. The
+underlying failure remains unknown: full daemon/JVM and CPU-limit observations
+were not retained. Bounded diagnostics are next, not an unsubstantiated resource
+increase. No APK, offline rebuild or installed-app result is claimed.
+Weather `29bf7c4beb13d4ba856ac113ef52a14a492068c3` adds only bounded diagnostic
+markers, shared memory-event deltas and sampled individual Java CPU usage/limits.
+All 119 targeted inert tests and independent review pass. The
+[tenth hosted Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38272739293)
+fails during dex merging and now retains actual `OutOfMemoryError: Java heap
+space` messages. One Java process reaches a sampled 902.140 CPU seconds against
+its 900-second soft/hard limits; the receipt does not identify the daemon or prove
+its final kill cause. Aggregate peak RSS is 3,969,150,976 bytes, below 4 GiB.
+Shared memory-event deltas are zero, without establishing child-level attribution.
+All nine original step-log hashes match; process, policy/staging and KVM cleanup
+pass. No APK or installed-app proof exists. Resource limits remain unchanged and
+no development-host native build ran.
 
 The first [maintenance trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38251889540)
 produces no topology artifact because preflight fails before the VM or Rust
@@ -86,6 +103,31 @@ The reviewed follow-up requires all 13 named owner-maintenance tests to execute
 successfully as well as a zero Cargo exit, and exports only a validated,
 8 KiB-bounded lifecycle failure receipt. All 53 targeted lightweight tests and
 shell syntax checks pass; the change adds diagnostics, not a runtime repair.
+The [next protected trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38262146653)
+uses exact source `0dcbaa2f14d5b9cefc0bab6ccc742a11d371404b` and fails at
+`await_coordinator` with `lifecycle_deadline`. All 13 named owner tests actually
+pass, as do the six agent and ten wire tests. The closed diagnostic retains
+cursor 3 before the lifecycle and the last observed cursor 4 at core loss;
+cleanup joins the owner and leaves zero owned objects. The guest-root network
+state is unchanged. The owner exit status is measured after cleanup, not proof
+that its artificial eight-turn allowance was exhausted.
+The fixture's coordinator wait is only 180 seconds, whereas its existing
+supervisor may spend 30 seconds starting the daemon, 60 on inventory and 600 on
+route selection. The corrected fixture shares one existing 1,800-second lifecycle
+budget across its waits, bounded also by the original signed enrollment expiry.
+Normal owner service continues through preparation without an artificial
+eight-turn cap; output remains limited to 256 KiB and 128 records. A final expiry
+check after sampler cleanup prevents late success publication. No production
+timeouts or signed authority change. The ready record is also published atomically
+after its bytes and metadata are complete; this separate publication correction
+is not the identified cause of the timeout. All 59 targeted lightweight tests,
+shell syntax and independent review pass. A new actual protected-network trial
+must still prove restart, subsequent repair and cleanup.
+[Quality run 38262056663](https://github.com/VOLPAROSSA/volparossa/actions/runs/38262056663)
+passes on PR merge `4f1caa46011d85843f61e0ae8b3bd7cfa19f98a5`: all 614 CLI
+tests, including reconnect and the five expiry cases, pass. The three separate
+namespace reports again skip; the failed protected topology remains a separate
+acceptance requirement.
 
 [Image PR6](https://github.com/VOLPAROSSA/volparossa-image/pull/6) at `aade424c`
 adds finite maintenance supervision and same-adapter foreground stop/join/resume;

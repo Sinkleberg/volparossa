@@ -7,7 +7,9 @@ import json
 import os
 from pathlib import Path
 import runpy
+import select
 import signal
+import stat
 import subprocess
 import sys
 import tarfile
@@ -133,6 +135,73 @@ class Wiring(unittest.TestCase):
 
 
 class OwnerLifecycle(unittest.TestCase):
+    def test_ready_publication_is_atomic_after_bytes_and_metadata_and_partial_cleanup(self):
+        # Execute the real publisher/cleanup functions with only install replaced:
+        # no root chown is attempted, but its exact arguments remain mandatory.
+        # Pause its writer after partial content and before the final mode change.
+        installer = '''import os,sys
+from pathlib import Path
+assert sys.argv[1:7] == ['-o', 'root', '-g', str(os.getgid()), '-m', '0640']
+source, target = map(Path, sys.argv[7:])
+data = source.read_bytes()
+with target.open('xb') as stream:
+    os.fchmod(stream.fileno(), 0o600)
+    stream.write(data[:len(data)//2])
+    stream.flush()
+    print('partial', flush=True)
+    assert sys.stdin.readline() == 'continue\\n'
+    if os.environ['INSTALL_FAIL'] == 'yes':
+        sys.exit(7)
+    stream.write(data[len(data)//2:])
+    stream.flush()
+    os.fchmod(stream.fileno(), 0o640)
+'''
+        for failed in (False, True):
+            with self.subTest(failed=failed), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary)
+                coordinator = work / 'maintenance-coordinator'
+                coordinator.mkdir(mode=0o750)
+                source = work / 'maintenance-coordinator-ready.private'
+                raw = b'{"baseline":123,"scope":{"synthetic":"closed fixture"}}\n'
+                source.write_bytes(raw)
+                script = work / 'install-fixture.py'
+                script.write_text(installer)
+                ready, part = coordinator / 'ready.json', coordinator / 'ready.part'
+                environment = dict(PATH='/usr/bin:/bin', WORK=str(work), WORKER_GID=str(os.getgid()),
+                    INSTALL_FAIL='yes' if failed else 'no')
+                command = ['sh', '-eu', '-c', '. "$1"; install() { python3 -B "$WORK/install-fixture.py" "$@"; }; '
+                    'private_storage_maintenance_publish_ready', 'test', str(HERE / (SCENARIO + '-smoke.sh'))]
+                process = subprocess.Popen(command, env=environment, stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                try:
+                    self.assertTrue(select.select([process.stdout], [], [], 5)[0], 'installer did not reach publication barrier')
+                    self.assertEqual(process.stdout.readline(), 'partial\n')
+                    self.assertEqual(part.read_bytes(), raw[:len(raw)//2])
+                    self.assertEqual(stat.S_IMODE(part.stat().st_mode), 0o600)
+                    self.assertFalse(ready.exists(), 'watcher saw unfinished bytes or metadata')
+                    stdout, stderr = process.communicate('continue\n', timeout=5)
+                    self.assertEqual(stdout, '')
+                    self.assertEqual(stderr, '')
+                    self.assertEqual(process.returncode, 1 if failed else 0)
+                    if failed:
+                        self.assertFalse(ready.exists())
+                        self.assertTrue(part.is_file())
+                    else:
+                        info = ready.stat()
+                        self.assertEqual(ready.read_bytes(), raw)
+                        self.assertEqual((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode), info.st_nlink),
+                            (os.getuid(), os.getgid(), 0o640, 1))
+                        self.assertFalse(part.exists())
+                finally:
+                    if process.poll() is None:
+                        # Release the finite fixture writer before joining the shell.
+                        process.communicate('continue\n', timeout=5)
+                subprocess.run(['sh', '-eu', '-c', '. "$1"; private_storage_maintenance_join',
+                    'test', str(HERE / (SCENARIO + '-smoke.sh'))], env=environment,
+                    check=True, capture_output=True, timeout=5)
+                self.assertFalse(coordinator.exists())
+                self.assertEqual(source.read_bytes(), raw)
+
     @staticmethod
     def owner_test_stdout():
         names = sorted(M['OWNER_REQUIRED_TESTS'])
@@ -274,6 +343,25 @@ class OwnerLifecycle(unittest.TestCase):
                 child.close()
             except ValueError:
                 pass
+
+    def test_regular_coordinator_turn_records_remain_count_and_byte_bounded(self):
+        for count, accepted in ((34, True), (M['MAX_LIFECYCLE_CURSOR'], True),
+                (M['MAX_LIFECYCLE_CURSOR'] + 1, False)):
+            with self.subTest(count=count):
+                child = M['OwnerProcess']([sys.executable, '-I', '-B', '-c',
+                    'import json,sys\nfor index in range(int(sys.argv[1])):\n'
+                    ' print(json.dumps(dict(stage="turn_completed",turns=index+1)),flush=True)\n', str(count)])
+                try:
+                    child.process.wait(timeout=5)
+                    child.join()
+                    self.assertLessEqual(len(child.buffers[0]), child.LIMIT)
+                    if accepted:
+                        self.assertEqual(len(child.reports()), count)
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'bounded owner output'):
+                            child.reports()
+                finally:
+                    child.close()
 
 
 if __name__ == '__main__':

@@ -24,6 +24,15 @@ BYTES, CHUNK, LENGTHS, SHA = (F[key] for key in ('BYTES', 'CHUNK', 'LENGTHS', 'S
 A_BYTES = F['PROVIDER_BYTES'][0]
 FG = b'VOLPAROSSA independent foreground fixture'.ljust(64, b'.')
 MAX_CHARGE = 2 * BYTES + A_BYTES
+# This is the existing enclosing timeout, not a new per-stage allowance. The
+# coordinator alone may spend 30s starting the daemon, 60s on inventory and
+# 600s selecting its protected route before it publishes ready.json.
+LIFECYCLE_SECONDS = 1800
+# Closed parsing limits, not grants or a prediction of daemon tick timing.
+# Keep the unchanged 256KiB owner-output bound while allowing ordinary turns
+# during coordinator preparation. Later repair/retirement adds at most 12+4.
+MAX_LIFECYCLE_CURSOR = 128
+MAX_CURSOR = MAX_LIFECYCLE_CURSOR + 12 + 4
 EXPORT_NAMES = tuple(name for name in F['EXPORT_NAMES'] if name not in
     ('private-storage-fragments-smoke.json', 'private-storage-fragments-evidence.json')) + (
     'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json',
@@ -194,7 +203,7 @@ def bounded_count(value, maximum):
 
 def turn_checkpoint(value):
     value = value if isinstance(value, dict) else {}
-    TURN_DIAGNOSTIC['cursor_after'] = bounded_count(value.get('turns'), 32)
+    TURN_DIAGNOSTIC['cursor_after'] = bounded_count(value.get('turns'), MAX_CURSOR)
     stage = value.get('stage')
     TURN_DIAGNOSTIC['checkpoint_stage'] = stage if stage in (
         'enrolled', 'owner_locked', 'working', 'paused', 'enrollment_expired',
@@ -256,7 +265,7 @@ def retirement_turn(value, turn):
     refresh = refresh if isinstance(refresh, dict) else {}
     stage = detail.get('repair_stage')
     maintenance = detail.get('maintenance_stage')
-    RETIREMENT_TURNS.append(dict(turn=turn, cursor=bounded_count(value.get('turns'), 32),
+    RETIREMENT_TURNS.append(dict(turn=turn, cursor=bounded_count(value.get('turns'), MAX_CURSOR),
         maintenance_stage=maintenance if maintenance in (
             'observed', 'maintained', 'charge_limit', 'grant_refresh_required') else None,
         repair_stage=stage if stage in ('complete', 'repair_pending', 'pass_limit',
@@ -297,7 +306,8 @@ def validate_lifecycle_failure(value):
         and value['kind'] == 'private-storage-maintenance-lifecycle-failure'
         and value['stage'] in LIFECYCLE_STAGES and value['code'] in codes, 'invalid lifecycle failure')
     for key in ('cursor_before', 'cursor_last'):
-        require(value[key] is None or type(value[key]) is int and 0 <= value[key] <= 32, 'invalid lifecycle failure')
+        require(value[key] is None or type(value[key]) is int and 0 <= value[key] <= MAX_LIFECYCLE_CURSOR,
+            'invalid lifecycle failure')
     require(value['checkpoint_stage'] is None or value['checkpoint_stage'] in CHECKPOINT_STAGES,
         'invalid lifecycle failure')
     require(value['owner_exit_status'] is None or type(value['owner_exit_status']) is int
@@ -382,15 +392,16 @@ def existing(root):
     return F['existing'](root)
 
 
-def status(root, binary, client):
-    return invoke(binary, client, ['storage', 'fragments', 'status', '--state', root / 'fragment-set'])
+def status(root, binary, client, *, budget=None):
+    return invoke(binary, client, ['storage', 'fragments', 'status', '--state', root / 'fragment-set'],
+        deadline=180 if budget is None else budget.remaining(180))
 
 
-def checkpoint(root, binary, client):
+def checkpoint(root, binary, client, *, budget=None):
     value = invoke(binary, client, ['storage', 'fragments', 'maintenance', 'status',
-        '--enrollment', root / 'maintenance'])
+        '--enrollment', root / 'maintenance'], deadline=180 if budget is None else budget.remaining(180))
     require(value['version'] == 1 and value['scope'] == 'owner-private-maintenance'
-        and type(value['turns']) is int and 0 <= value['turns'] <= 32
+        and type(value['turns']) is int and 0 <= value['turns'] <= MAX_CURSOR
         and value['core_coordinated'] is True and value['new_network_node'] is False
         and value['automatic_grant_refresh'] is False and value['private_key_exported'] is False,
         'maintenance checkpoint scope')
@@ -401,12 +412,12 @@ def peer_args(root, key):
     return ['--state', root / 'foreground', '--provider-key', key, *unlock(root)]
 
 
-def run_turn(root, binary, client, key_b, interrupt=None):
+def run_turn(root, binary, client, key_b, interrupt=None, *, budget=None):
     """One real daemon-issued turn; no owner-side scheduler or direct provider socket."""
     global TURN_DIAGNOSTIC
     TURN_DIAGNOSTIC = dict(substage='checkpoint_before', cursor_before=None, cursor_after=None,
         worker_exit_status=None, checkpoint_stage=None, maintenance_stage=None, cleanup_error=None)
-    before = checkpoint(root, binary, client)['turns']
+    before = checkpoint(root, binary, client, budget=budget)['turns']
     TURN_DIAGNOSTIC.update(cursor_before=before, substage='spawn_owner')
     process = subprocess.Popen([binary, '--control-socket', client, 'storage', 'fragments',
         'maintenance', 'serve', '--enrollment', str(root / 'maintenance'), '--maximum-turns', '1',
@@ -434,13 +445,13 @@ def run_turn(root, binary, client, key_b, interrupt=None):
                 require(foreground['committed'] is True and foreground['stored_bytes'] == len(FG),
                     'independent foreground operation not acknowledged')
         TURN_DIAGNOSTIC['substage'] = 'join_owner'
-        stdout, stderr = process.communicate(timeout=650)
+        stdout, stderr = process.communicate(timeout=650 if budget is None else budget.remaining(650))
         TURN_DIAGNOSTIC['worker_exit_status'] = process.returncode if -128 <= process.returncode <= 255 else None
         TURN_DIAGNOSTIC['substage'] = 'validate_owner_exit'
         require(len(stdout) <= 32768 and len(stderr) <= 16384, 'bounded owner output')
         require(process.returncode == (-signal.SIGKILL if interrupt == 'eof' else 0), 'owner process exit')
         TURN_DIAGNOSTIC['substage'] = 'checkpoint_after'
-        result = checkpoint(root, binary, client)
+        result = checkpoint(root, binary, client, budget=budget)
         turn_checkpoint(result)
         TURN_DIAGNOSTIC['substage'] = 'validate_cursor_and_stage'
         require(result['turns'] == before + 1, 'cursor did not resume exactly one turn')
@@ -471,7 +482,7 @@ def run_turn(root, binary, client, key_b, interrupt=None):
 
 
 class OwnerProcess:
-    """Own and drain the real bounded-turn CLI; never export its private output."""
+    """Own and drain the real finite-enrollment CLI; never export private output."""
     LIMIT = 262144
 
     def __init__(self, command):
@@ -506,7 +517,7 @@ class OwnerProcess:
             require(not any(self.overflow), 'bounded owner output')
             data = bytes(self.buffers[0])
         rows = data.split(b'\n')[:-1]
-        require(len(rows) <= 16, 'bounded owner output')
+        require(len(rows) <= MAX_LIFECYCLE_CURSOR, 'bounded owner output')
         return [json.loads(row) for row in rows if row]
 
     def stop(self):
@@ -531,12 +542,31 @@ class OwnerProcess:
         self.join()
 
 
-def wait_owner(owner, predicate, seconds=180):
-    deadline = time.monotonic() + seconds
+class LifecycleBudget:
+    """One original signed expiry and monotonic fixture deadline, never renewed."""
+    def __init__(self, expires):
+        require(type(expires) is int and expires > 0, 'invalid lifecycle enrollment expiry')
+        self.expires = expires
+        self.deadline = time.monotonic() + min(LIFECYCLE_SECONDS, max(0, expires - time.time()))
+
+    def remaining(self, maximum):
+        # Recheck wall time as well: a forward clock change cannot enlarge the
+        # original signed authorization; rollback cannot extend the monotonic cap.
+        remaining = min(maximum, self.deadline - time.monotonic(), self.expires - time.time())
+        require(remaining > 0, 'owner lifecycle deadline')
+        return remaining
+
+
+def wait_owner(owner, predicate, seconds=180, *, budget=None):
+    deadline = time.monotonic() + (seconds if budget is None else budget.remaining(seconds))
     while time.monotonic() < deadline:
+        if budget is not None:
+            budget.remaining(seconds)
         require(owner.process.poll() is None, 'owner process exit')
         value = predicate()
         if value:
+            if budget is not None:
+                budget.remaining(seconds)
             return value
         time.sleep(.05)
     raise ValueError('owner lifecycle deadline')
@@ -557,10 +587,12 @@ def lifecycle(root, binary, client, keys):
     global LIFECYCLE_DIAGNOSTIC
     LIFECYCLE_DIAGNOSTIC = dict(stage='checkpoint_before', cursor_before=None, cursor_last=None,
         checkpoint_stage=None, owner_exit_status=None, owner_joined=False, cleanup_error=None)
+    enrollment = (root / 'maintenance/enrollment.json').read_bytes()
+    budget = LifecycleBudget(json.loads(enrollment)['enrollment']['expires'])
 
     def observed_checkpoint():
-        value = checkpoint(root, binary, client)
-        LIFECYCLE_DIAGNOSTIC['cursor_last'] = bounded_count(value.get('turns'), 32)
+        value = checkpoint(root, binary, client, budget=budget)
+        LIFECYCLE_DIAGNOSTIC['cursor_last'] = bounded_count(value.get('turns'), MAX_LIFECYCLE_CURSOR)
         stage = value.get('stage')
         LIFECYCLE_DIAGNOSTIC['checkpoint_stage'] = stage if stage in CHECKPOINT_STAGES else None
         return value
@@ -568,22 +600,23 @@ def lifecycle(root, binary, client, keys):
     before = observed_checkpoint()['turns']
     LIFECYCLE_DIAGNOSTIC['cursor_before'] = before
     require(before == 3, 'lifecycle initial cursor')
-    enrollment = (root / 'maintenance/enrollment.json').read_bytes()
     LIFECYCLE_DIAGNOSTIC['stage'] = 'spawn_owner'
+    # Normal serve remains bounded by the same signed expiry and outer 1800s
+    # fixture. An eight-turn trial cap could expire before supervisor readiness.
     owner = OwnerProcess([binary, '--control-socket', client, 'storage', 'fragments',
         'maintenance', 'serve', '--enrollment', str(root / 'maintenance'),
-        '--maximum-turns', '8', *map(str, unlock(root))])
+        *map(str, unlock(root))])
     owner_failed = False
     try:
         LIFECYCLE_DIAGNOSTIC['stage'] = 'await_working'
         working = wait_owner(owner, lambda: (v if (v := observed_checkpoint())['stage'] == 'working'
-            and v['turns'] > before else None))
+            and v['turns'] > before else None), budget=budget)
         create(root / 'lifecycle-working.json', b'{"ready":true}')
         LIFECYCLE_DIAGNOSTIC['stage'] = 'await_core_loss'
         lost = wait_owner(owner, lambda: (v if (v := observed_checkpoint())['stage'] == 'core_unavailable'
-            and v['turns'] >= working['turns'] else None))
+            and v['turns'] >= working['turns'] else None), budget=budget)
         LIFECYCLE_DIAGNOSTIC['stage'] = 'verify_retained'
-        retained = status(root, binary, client)
+        retained = status(root, binary, client, budget=budget)
         retained_during_core_loss(retained)
         F['check_identity'](root)
         require((root / 'maintenance/enrollment.json').read_bytes() == enrollment,
@@ -594,7 +627,7 @@ def lifecycle(root, binary, client, keys):
         coordinator = Path(client).parents[2] / 'maintenance-coordinator'
         ready = coordinator / 'ready.json'
         LIFECYCLE_DIAGNOSTIC['stage'] = 'await_coordinator'
-        wait_owner(owner, ready.exists)
+        wait_owner(owner, ready.exists, LIFECYCLE_SECONDS, budget=budget)
         LIFECYCLE_DIAGNOSTIC['stage'] = 'validate_coordinator'
         info = ready.lstat()
         require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid == 0
@@ -610,7 +643,7 @@ def lifecycle(root, binary, client, keys):
                 client=Path(client), scope=control['scope'], diagnostic=SAMPLER_DIAGNOSTIC) as coverage:
             LIFECYCLE_DIAGNOSTIC['stage'] = 'await_resumed_turn'
             resumed = wait_owner(owner, lambda: next((v for v in owner.reports()
-                if v['stage'] == 'turn_completed' and v['turns'] > after_ready), None), 650)
+                if v['stage'] == 'turn_completed' and v['turns'] > after_ready), None), 650, budget=budget)
             LIFECYCLE_DIAGNOSTIC['stage'] = 'stop_owner'
             owner.stop()
             LIFECYCLE_DIAGNOSTIC['stage'] = 'verify_pause'
@@ -621,10 +654,11 @@ def lifecycle(root, binary, client, keys):
                 'enrollment changed across core restart')
             # Fresh process reconciles the original journals; no new enrollment.
             LIFECYCLE_DIAGNOSTIC['stage'] = 'fresh_owner_turn'
-            restarted = run_turn(root, binary, client, keys[1])
+            restarted = run_turn(root, binary, client, keys[1], budget=budget)
             require(restarted['turns'] == paused['turns'] + 1, 'resume cursor changed')
             LIFECYCLE_DIAGNOSTIC['stage'] = 'reconcile_progress'
-            current = invoke(binary, client, ['storage', 'fragments', 'progress', *existing(root)])
+            current = invoke(binary, client, ['storage', 'fragments', 'progress', *existing(root)],
+                deadline=budget.remaining(180))
             require(current['physical_payload_charge_upper_bound'] == 2 * BYTES
                 and current['uncertain_payload_bytes'] == 0, 'restart charge reconciliation')
             F['check_identity'](root)
@@ -641,6 +675,9 @@ def lifecycle(root, binary, client, keys):
             new_owner_process_resumed=True, enrollment_unchanged=True,
             original_identities_retained=True, physical_payload_charge=2 * BYTES,
             uncertainty_reconciled=True, owner_process_joined=True)
+        # Sampler finalization can consume time after the last owner operation;
+        # it must not turn an expired trial into a successful lifecycle receipt.
+        budget.remaining(LIFECYCLE_SECONDS)
         LIFECYCLE_DIAGNOSTIC['stage'] = 'publish_result'
         create(root / 'lifecycle-result.json', json.dumps(result, sort_keys=True).encode())
         return result
@@ -948,7 +985,7 @@ def validate_lifecycle(value):
     require(all(type(value[key]) is int for key in cursor_keys)
         and value['cursor_before'] == 3
         and 3 < value['cursor_at_core_loss'] < value['cursor_after_reconnect']
-        <= value['cursor_at_pause'] < value['cursor_after_resume'] <= 12
+        <= value['cursor_at_pause'] < value['cursor_after_resume'] <= MAX_LIFECYCLE_CURSOR
         and value['cursor_after_resume'] == value['cursor_at_pause'] + 1
         and all(value[key] is True for key in flags)
         and type(value['physical_payload_charge']) is int

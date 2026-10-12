@@ -15,9 +15,17 @@ private_storage_maintenance_join() {
         [ "$maintenance_join_status" -eq 0 ] || [ "$maintenance_join_status" -eq 143 ] || return 1
     fi
     if [ -d "$WORK/maintenance-coordinator" ] && [ ! -L "$WORK/maintenance-coordinator" ]; then
-        rm -f -- "$WORK/maintenance-coordinator/ready.json"
+        rm -f -- "$WORK/maintenance-coordinator/ready.json" "$WORK/maintenance-coordinator/ready.part"
         rmdir -- "$WORK/maintenance-coordinator" || return 1
     fi
+}
+
+private_storage_maintenance_publish_ready() {
+    # The fresh coordinator directory is root-owned and not worker-writable.
+    # Publish only after install has completed both bytes and final metadata.
+    install -o root -g "$WORKER_GID" -m 0640 "$WORK/maintenance-coordinator-ready.private" \
+        "$WORK/maintenance-coordinator/ready.part" || return 1
+    mv -- "$WORK/maintenance-coordinator/ready.part" "$WORK/maintenance-coordinator/ready.json"
 }
 
 private_storage_maintenance_wait_marker() {
@@ -85,8 +93,7 @@ private_storage_maintenance_lifecycle() {
     private_storage_fragments_phase_start lifecycle
     jq -cn --argjson baseline "$provider_baseline_ms" --argjson scope "$storage_route_scope" \
         '{baseline:$baseline,scope:$scope}' >"$WORK/maintenance-coordinator-ready.private" || return 1
-    install -o root -g "$WORKER_GID" -m 0640 "$WORK/maintenance-coordinator-ready.private" \
-        "$WORK/maintenance-coordinator/ready.json"
+    private_storage_maintenance_publish_ready || return 1
     maintenance_status=0
     wait "$MAINTENANCE_OWNER_PID" || maintenance_status=$?
     MAINTENANCE_OWNER_PID=
