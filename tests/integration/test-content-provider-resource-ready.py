@@ -72,6 +72,48 @@ class ResourceReadiness(unittest.TestCase):
         self.assertEqual(result["scope"], CHECK["SCOPE"])
         self.assertFalse(result["scope"]["worker_capacity_proven"])
 
+    def test_pressure_phase_keeps_identical_thresholds_timing_and_failure_policy(self):
+        outcomes = (([observation()] * 3, "ready", 3, 2000),
+                    ([observation(), observation(cpu="unavailable")], "unavailable", 2, 1000),
+                    ([observation(io="pressured")] * 30, "timeout", 30, 30000))
+        for values, status, samples, elapsed in outcomes:
+            with self.subTest(status=status):
+                legacy = wait(values)
+                pressure = wait(values, phase="pressure")
+                self.assertEqual(pressure, dict(legacy, phase="pressure"))
+                self.assertEqual((pressure["status"], pressure["samples"], pressure["elapsed_ms"]),
+                                 (status, samples, elapsed))
+                self.assertFalse(pressure["scope"]["worker_capacity_proven"])
+                self.assertFalse(pressure["scope"]["production_policy_overridden"])
+
+    def test_pressure_file_is_separate_exclusive_and_phase_bound(self):
+        self.assertEqual(CHECK["OUTPUTS"], {
+            "native": "content-provider-adaptive-resource-ready.json",
+            "https": "content-provider-adaptive-https-resource-ready.json",
+            "pressure": "content-provider-pressure-resource-ready.json"})
+        retained = {}
+        for phase in ("native", "https", "pressure"):
+            expected = wait(phase=phase)
+            self.assertTrue(CHECK["run"](self.work, phase, waiter=lambda _, v=expected: v))
+            output = self.work / CHECK["OUTPUTS"][phase]
+            retained[output] = output.read_bytes()
+            self.assertEqual(json.loads(retained[output]), expected)
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            self.assertLess(len(retained[output]), 2048)
+        with self.assertRaises(ValueError):
+            CHECK["run"](self.work, "pressure", waiter=lambda _: self.fail("must not sample twice"))
+        for output, raw in retained.items():
+            self.assertEqual(output.read_bytes(), raw)
+
+    def test_pressure_rejects_mismatched_receipt_and_unsafe_target_before_export(self):
+        target = self.work / CHECK["OUTPUTS"]["pressure"]
+        with self.assertRaises(ValueError):
+            CHECK["run"](self.work, "pressure", waiter=lambda _: wait(phase="native"))
+        self.assertFalse(target.exists())
+        target.symlink_to(self.work / "absent")
+        with self.assertRaises(ValueError):
+            CHECK["run"](self.work, "pressure", waiter=lambda _: self.fail("unsafe pressure target"))
+
     def test_pressure_resets_sequence_without_resetting_deadline(self):
         result = wait([observation(), observation(), observation(io="pressured"),
                        observation(), observation(), observation()])
@@ -244,7 +286,7 @@ class ResourceReadiness(unittest.TestCase):
         self.assertIn("|| fail CONTENT_PROVIDER_ADAPTIVE_HTTPS_RESOURCE_UNAVAILABLE", https)
         runner = (HERE / "run-alpha-topology-vm.sh").read_text()
         safe_names = runner[runner.index("SAFE_NAMES ="):runner.index("def ", runner.index("SAFE_NAMES ="))]
-        for name in CHECK["OUTPUTS"].values():
+        for name in (CHECK["OUTPUTS"][phase] for phase in ("native", "https")):
             self.assertIn(f'"{name}"', safe_names)
         topology = (HERE / "kvm-alpha-topology.sh").read_text()
         provider_preflight = topology[topology.index("for provider_fixture in "):]

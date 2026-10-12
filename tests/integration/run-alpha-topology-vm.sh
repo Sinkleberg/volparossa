@@ -1117,6 +1117,16 @@ WEATHER_PRODUCTS_FAILURE_NAMES = {f"weather-products-delivery-{suffix}.json" for
 WEATHER_PRODUCTS_HELPERS = ("weather-products-delivery.py", "weather-source-observer.mjs", *WEATHER_CLIENT_HELPERS)
 LATE_PROVIDER_NAMES = {f"content-provider-late-recovery-{suffix}.json" for suffix in (
     "first-snapshot", "final-snapshot", "object", "run-cleanup", "cleanup", "evidence", "failure", "readiness")}
+PRESSURE_PROVIDER_NAMES = {f"content-provider-pressure-{suffix}.json" for suffix in (
+    "worker-budget", "continuation", "resource-ready", "evidence", "ready", "controller", "cleanup",
+    "object", "fetch", "selection", "live-selection", "status-before", "status-after",
+    "qdisc-before", "qdisc-limited", "qdisc-after", "qdisc-profile", "control-privacy")}
+PRESSURE_PROVIDER_NAMES.update(f"content-provider-pressure-privacy-{node}.json"
+    for node in ("client", "relay0", "relay1", "relay2", "exit"))
+PRESSURE_PROVIDER_NAMES.update(f"content-provider-pressure-{node}-{operation}.json"
+    for node in ("relay3", "relay4", "relay5") for operation in ("reset", "serve", "status", "stop"))
+PRESSURE_PRIORITY_NAMES = {f"content-provider-pressure-{suffix}.json" for suffix in (
+    "worker-budget", "continuation", "resource-ready", "evidence", "ready", "controller", "cleanup", "object", "fetch")}
 
 
 def joined_client_helper(work, names, entrypoint):
@@ -1357,6 +1367,12 @@ def collect(home, opt, revision, scenario, guest_status,
             if len(roots) == 5:
                 break
     if scenario == "content-provider":
+        # Keep the aggregate outcome/terminal phase even if later diagnostics
+        # fill the unchanged emergency file budget.
+        for root, label in roots:
+            if root.is_dir() and not root.is_symlink():
+                candidates.extend((root / name, f"{label}/{name}")
+                    for name in ("content-provider-smoke.json", "current-phase"))
         # Prioritize already validated exact Browser receipts before generic
         # diagnostics consume the existing file-count/byte limits. This is
         # recovery evidence only, even when an inner receipt says passed=true.
@@ -1378,6 +1394,12 @@ def collect(home, opt, revision, scenario, guest_status,
         for root, label in roots:
             if root.is_dir() and not root.is_symlink():
                 candidates.extend((root / name, f"{label}/{name}") for name in sorted(LATE_PROVIDER_NAMES))
+        # Preserve the closed pressure outcome first; the remaining exact raw
+        # evidence is best effort under the same 64-file/8MiB emergency bounds.
+        for names in (PRESSURE_PRIORITY_NAMES, PRESSURE_PROVIDER_NAMES - PRESSURE_PRIORITY_NAMES):
+            for root, label in roots:
+                if root.is_dir() and not root.is_symlink():
+                    candidates.extend((root / name, f"{label}/{name}") for name in sorted(names))
     for root, label in roots:
         if root.is_symlink() or not root.is_dir():
             continue
@@ -1528,7 +1550,9 @@ def collect(home, opt, revision, scenario, guest_status,
         candidates.extend((path, f"{label}/{path.name}") for path in sorted(root.glob("content-*"))[:48]
                           if re.fullmatch(r"content-[a-z0-9-]+\.(json|txt|log|err|out)", path.name)
                           and (not path.name.startswith("content-provider-late-recovery-")
-                               or scenario == "content-provider" and path.name in LATE_PROVIDER_NAMES))
+                               or scenario == "content-provider" and path.name in LATE_PROVIDER_NAMES)
+                          and (not path.name.startswith("content-provider-pressure-")
+                               or scenario == "content-provider" and path.name in PRESSURE_PROVIDER_NAMES))
         candidates.extend((path, f"{label}/{path.name}") for path in sorted(root.glob("agent-public-task-*"))[:32]
                           if re.fullmatch(r"agent-public-task-[a-z0-9-]+\.(json|err|log)", path.name))
         candidates.extend((path, f"{label}/{path.name}") for path in sorted(root.glob("agent-public-document-*"))[:32]
@@ -1546,8 +1570,13 @@ def collect(home, opt, revision, scenario, guest_status,
         if observed is None:
             continue
         data, original_size = observed
-        if path.name in BROWSER_FILTER_NAMES | WEATHER_CLIENT_NAMES | WEATHER_PRODUCTS_NAMES | WEATHER_PRODUCTS_FAILURE_NAMES | LATE_PROVIDER_NAMES and original_size > len(data):
+        if path.name in BROWSER_FILTER_NAMES | WEATHER_CLIENT_NAMES | WEATHER_PRODUCTS_NAMES | WEATHER_PRODUCTS_FAILURE_NAMES | LATE_PROVIDER_NAMES | PRESSURE_PROVIDER_NAMES and original_size > len(data):
             continue  # Preserve complete validated original bytes, never a JSON tail.
+        if path.name in PRESSURE_PROVIDER_NAMES:
+            try:
+                json.loads(data)
+            except (ValueError, UnicodeError, RecursionError):
+                continue  # Interrupted/malformed pressure JSON is not raw-log authority.
         if scenario == "browser-network" and path.name in browser_names and original_size > len(data):
             # A truncated JSON tail is not reconstructible structured evidence.
             continue

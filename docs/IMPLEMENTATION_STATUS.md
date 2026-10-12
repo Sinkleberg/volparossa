@@ -29,17 +29,19 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Preserve existing flows when a new socket is definitively rejected, then resume joined Weather delivery. | Run `38199501353` on `0e23140b` passes the standalone sequence. The later joined run on `9b132f6c` stops at named-cache fetch: one definite kernel rejection incorrectly destroys the shared route. The original socket errno remains unknown. Pressure retirement and continuation still require a separate protected trial. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Prove pressure retirement and continuation, then resume joined Weather delivery. | The route-preservation correction passes the standalone sequence in run `38204038877` on `9441b451`. The failed joined run and unknown original kernel errno remain separately recorded. The new pressure phase is wired but has not yet passed its protected trial. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run stops before Weather acquisition, so it makes no new weather-source requests. An earlier exact-source probe encountered ECMWF HTTP 429. Closed retention includes bounded Retry-After diagnostics and passes eighty focused checks, without extra requests or automatic retries. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover joined delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR13 are merged with passing CI. Exact table extraction and a fresh full browser trial pass with synthetic products. A new immutable bundle with the corrected verifier passes capture, runtime and extracted-tree checks; the old bundle remains unchanged. Joined core delivery and native Android/iOS execution remain unverified. |
 
-The standalone provider proof passes without weather downloads. The latest joined
-trial uses the corrected Overmorrow bundle but exposes an earlier shared-route
-failure. Correct that failure before another joined trial; do not automatically
-retry source requests or route them through other peers to evade a source limit.
+The corrected standalone provider proof passes without weather downloads. The
+latest joined trial uses the corrected Overmorrow bundle but stops at the earlier
+shared-route failure. The new standalone result clears that prerequisite, not
+the joined delivery gate. Do not automatically retry source requests or route
+them through other peers to evade a source limit.
 Pressure retirement and continuation remain separate evidence gaps, not implied
-by successful parallel delivery. Their test helper is being prepared separately
-and is not part of the failed run.
+by successful parallel delivery. A separate disposable-guest phase is now wired
+after the healthy native and HTTPS transfers. It is not part of either retained
+standalone result or the failed joined run.
 The Drizz.li/Weather candidate and frozen input
 bundle remain intact; Overmorrow's core delivery and native execution are still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
@@ -74,8 +76,9 @@ still require route retirement. Eleven targeted tests pass: seven retirement
 tests, three helper-protocol tests and the route-loss classification test.
 The tests exercise the production error conversion, real local sibling socket
 ownership and malformed replies; they do not substitute for MPTCP dataplane
-evidence. Formatting and independent review pass. The correction has not yet
-passed a new protected network trial.
+evidence. Formatting and independent review pass. The correction also passes
+the protected standalone trial below; the original failed joined run remains
+failed.
 
 Failure evidence is retained at
 `.git/ci-evidence/weather-overmorrow-joined.f58CgX/`. The source archive hash is
@@ -86,9 +89,58 @@ Cleanup completes with zero owned objects; the VM, private scratch directory and
 forwarded test port are gone. Readable development-host network measurements are
 unchanged; firewall access was unavailable before and after, not verified equal.
 
+### Verified corrected provider baseline
+
+[Run `38204038877`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38204038877)
+passes on exact source `9441b4514ae0c66c6353158fdeb45579773c32fa`.
+Independent validation with that revision's schema-three checker reconstructs
+the complete aggregate from its raw evidence. Named fetch delivers 2,097,275
+bytes in nine chunks from two providers. Native and HTTPS adaptive phases each
+deliver 15,728,640 bytes in sixty chunks from three providers, with measured
+three-provider overlaps of 5.139 and 4.655 seconds. HTTPS uses one authenticated
+HEAD and no origin body or range requests.
+
+Late recovery completes in 11.096 seconds, with its gate released after 4.975
+seconds. Requester cancellation preserves independent cache-only delivery
+(165 ms), closes control IPC (7 ms), and drains the original agent and helper.
+All owned objects are removed; the disposable guest-root network state is
+unchanged. This is guest evidence, not a development-host comparison.
+
+Evidence is retained at
+`.git/ci-evidence/content-provider-hosted-9441.M6pG5O/`; the aggregate SHA-256 is
+`0d8cbd696240dd7d12f73545c4ef305b5b73e6a845620388a88bad3819d449a3`.
+Worker allowance remains twelve, with a peak of three leases and no pressure or
+continuation events. The run proves neither pressure recovery nor joined Weather
+delivery. CodeQL passes for this exact revision; Quality checks are still running.
+
+### Prepared pressure retirement trial
+
+The new phase uses the original sixty-chunk publication, three disjoint provider
+caches and the same protected route, but a fresh client cache. After observing
+three complete, hash-verified chunks, a guest-only controller starts two capless
+CPU workers on one guest CPU for at most ten seconds, including child cleanup.
+Three fixed 2 Mbit/s provider egress limits leave work in flight; the fixture
+restores only its own qdiscs before the enclosing route teardown. It does not
+alter production resource observations, admission rules, deadlines or device
+affinity.
+
+Passing requires real CPU-pressure observations, at least three initial worker
+leases followed by contraction to at most one, useful serial continuation after
+the first batch drains, full reconstruction, unchanged protected paths and
+privacy checks. The evidence does not claim that pressure has already fallen
+before continuation, or that owner-task performance has improved. The
+controller, separate production diagnostics and final object verification must
+agree; no one receipt substitutes for the others.
+
+Current provider reports use schema four and require this separate component.
+Earlier schema-one through schema-three results remain verifiable only through
+the explicit historical-report path; their original claims are unchanged.
+Focused controller, component, diagnostic, wiring and aggregate tests pass.
+These are test-harness checks, not a completed live pressure trial.
+
 ### Verified cache delivery and remaining integration
 
-The latest [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38199501353)
+The earlier [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38199501353)
 on `0e23140b` **passes** the complete standalone provider sequence. Independent
 validation of the retained schema-three report and reconstructed component
 evidence confirms:

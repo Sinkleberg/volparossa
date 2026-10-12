@@ -1361,6 +1361,7 @@ if [ "$scenario" = content-provider ]; then
         content-provider-filter-smoke.sh content-provider-filter-smoke.py \
         content-provider-adaptive-smoke.sh content-provider-adaptive-smoke.py content-provider-worker-budget.py \
         content-provider-resource-ready.py \
+        content-provider-pressure-smoke.sh content-provider-pressure-smoke.py content-provider-pressure.py \
         content-provider-late-recovery.sh content-provider-late-recovery.py content-cancellation-smoke.py; do
         if [ ! -f "$source_directory/tests/integration/$provider_fixture" ] \
             || [ -L "$source_directory/tests/integration/$provider_fixture" ]; then
@@ -2157,6 +2158,10 @@ cleanup() {
     [ "$FINALIZED" = no ] || exit "$original_status"
     FINALIZED=yes
     trap - EXIT HUP INT TERM
+    # Stop the owned CPU workers/fetch and restore fixture shaping before teardown.
+    if [ "$scenario" = content-provider ] && command -v content_provider_pressure_cleanup >/dev/null 2>&1; then
+        content_provider_pressure_cleanup || original_status=1
+    fi
     # Release the fixture gate and reap its exact owned fetch before services or namespaces.
     if [ "$scenario" = content-provider ] && command -v content_provider_late_recovery_cleanup >/dev/null 2>&1; then
         content_provider_late_recovery_cleanup || original_status=1
@@ -2701,6 +2706,8 @@ if [ "$scenario" = content-provider ]; then
     . "$source_directory/tests/integration/content-provider-filter-smoke.sh"
     # shellcheck source=tests/integration/content-provider-adaptive-smoke.sh
     . "$source_directory/tests/integration/content-provider-adaptive-smoke.sh"
+    # shellcheck source=tests/integration/content-provider-pressure-smoke.sh
+    . "$source_directory/tests/integration/content-provider-pressure-smoke.sh"
     # shellcheck source=tests/integration/content-provider-late-recovery.sh
     . "$source_directory/tests/integration/content-provider-late-recovery.sh"
     if [ -n "$weather_client_bundle" ]; then
@@ -2953,6 +2960,10 @@ if [ "$scenario" = content-provider ]; then
     for late_recovery_helper in content-provider-late-recovery.py content-provider-https-smoke.py content-network-smoke.py; do
         install -o root -g root -m 0555 "$source_directory/tests/integration/$late_recovery_helper" \
             "$WORK/bin/$late_recovery_helper"
+    done
+    for pressure_helper in content-provider-pressure.py content-provider-resource-ready.py; do
+        install -o root -g root -m 0555 "$source_directory/tests/integration/$pressure_helper" \
+            "$WORK/bin/$pressure_helper"
     done
 fi
 if [ "$scenario" = content-custody ] || [ "$scenario" = agent-artifact ] || [ "$scenario" = agent-jobs ]; then
@@ -4736,6 +4747,7 @@ provider_timing_enabled = (content_provider_mode and role == "exit"
                           and os.path.basename(output_path) in {
                               "content-provider-privacy-exit.json",
                               "content-provider-adaptive-privacy-exit.json",
+                              "content-provider-pressure-privacy-exit.json",
                               "content-provider-adaptive-https-privacy-exit.json"})
 # Linux UAPI SO_TIMESTAMPNS_NEW reports __kernel_timespec, two signed 64-bit fields.
 # Capture packet arrival, not socket-drain time: fair queue draining can reorder interfaces.
@@ -4743,6 +4755,7 @@ provider_timing_enabled = (content_provider_mode and role == "exit"
 SO_TIMESTAMPNS_NEW = 64
 provider_payload_milestones = ([262144, 3932160]
     if os.path.basename(output_path) in {"content-provider-adaptive-privacy-exit.json",
+                                      "content-provider-pressure-privacy-exit.json",
                                       "content-provider-adaptive-https-privacy-exit.json"}
     else [65536, 983040])
 provider_payload_timing = dict(enabled=provider_timing_enabled, clock="linux-so-timestampns-new",
@@ -6225,6 +6238,8 @@ start_privacy_observers() {
         weather-products-delivery-weather-privacy|weather-products-delivery-air-quality-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;
         content-provider-late-recovery-privacy)
+            [ "$scenario" = content-provider ] || return 1 ;;
+        content-provider-pressure-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;
         content-provider-privacy|content-provider-adaptive-privacy|content-provider-adaptive-https-privacy|content-provider-https-complete-privacy|content-provider-https-missing-privacy|content-provider-https-baseline-privacy|content-provider-https-origin-only-privacy|content-provider-https-auto-privacy|content-provider-https-digest-origin-only-privacy|content-provider-https-digest-peers-first-privacy|content-provider-https-limited-origin-only-privacy|content-provider-https-limited-peers-first-privacy|content-provider-https-limited-auto-privacy|content-provider-https-checksum-origin-only-privacy|content-provider-https-checksum-peers-first-privacy|content-provider-https-checksum-mismatch-privacy|content-provider-user-privacy|content-provider-named-privacy|content-provider-site-privacy|content-provider-site-cache-only-privacy|content-provider-filter-cold-privacy|content-provider-filter-warm-privacy|weather-client-delivery-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;

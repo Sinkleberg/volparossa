@@ -26,7 +26,8 @@ SCOPE = {"guest_global_psi": True, "memory_capacity_checked": False,
          "fd_capacity_checked": False, "cgroup_capacity_checked": False,
          "worker_capacity_proven": False, "production_policy_overridden": False}
 OUTPUTS = {"native": "content-provider-adaptive-resource-ready.json",
-           "https": "content-provider-adaptive-https-resource-ready.json"}
+           "https": "content-provider-adaptive-https-resource-ready.json",
+           "pressure": "content-provider-pressure-resource-ready.json"}
 
 
 def require(condition):

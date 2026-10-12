@@ -329,6 +329,7 @@ content_provider_adaptive_run() {
           client_forwarded_discovery:$discovered}' >"$WORK/content-provider-adaptive-object.json"
 
     content_provider_adaptive_https_run
+    content_provider_pressure_run
 
     PHASE=content-provider-adaptive-cleanup
     for adaptive_node in relay3 relay4 relay5; do

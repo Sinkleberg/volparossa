@@ -164,7 +164,16 @@ def build_named_publication(work, nodes):
                 serves={node: read(work / f"content-provider-named-{node}-serve.json") for node in nodes})
 
 
-def validate_transfer(evidence, *, historical=False, historical_late=False):
+def route_identity(selection):
+    # Fresh selection captures legitimately update these path observations.
+    # Keep every other field, including any policy binding, exact; never infer
+    # a new route or accept a different Exit/Relay/path from matching counters.
+    return dict(selection, paths=[{key: value for key, value in path.items()
+                                   if key not in {"reported_bytes", "smoothed_rtt_us", "state"}}
+                                  for path in selection["paths"]])
+
+
+def validate_transfer(evidence, *, historical=False, historical_late=False, historical_pressure=False):
     publication, output, fetch = evidence["publication"], evidence["output"], evidence["fetch"]
     require(publication["bytes"] == output["bytes"] == fetch["bytes"] == BYTES
             and publication["object_sha256"] == output["sha256"] == SHA
@@ -305,6 +314,20 @@ def validate_transfer(evidence, *, historical=False, historical_late=False):
             and adaptive["publication"]["publisher_hex"] != publication["publisher_hex"]
             and adaptive["publication"]["manifest_id"] != publication["manifest_id"],
             "adaptive proof substituted the topology or reused the earlier route/publication")
+    if historical_pressure:
+        require("pressure" not in evidence,
+                "historical transfer must not claim the later pressure phase")
+    else:
+        pressure = evidence.get("pressure")
+        require(type(pressure) is dict and pressure.get("success") is True,
+                "current transfer requires actual pressure-retirement and continuation proof")
+        pressure_check = runpy.run_path(str(Path(__file__).with_name("content-provider-pressure-smoke.py")))
+        pressure_check["validate"](pressure)
+        require(pressure["expected_peers"] == peers
+                and pressure["publication"] == adaptive["publication"]
+                and route_identity(pressure["selected_route"]) == route_identity(adaptive["selected_route"])
+                and pressure["selected_before"] == adaptive["selected_route"],
+                "pressure proof substituted the adaptive publication, topology or protected route")
     # Historical component evidence predates this phase; only current aggregates
     # acceptance requires it. If supplied, it must validate and bind to this run.
     if "late_provider_recovery" in evidence:
@@ -360,6 +383,14 @@ def build_late_provider_recovery(work):
     return rebuilt
 
 
+def build_pressure(work):
+    checker = runpy.run_path(str(Path(__file__).with_name("content-provider-pressure-smoke.py")))
+    rebuilt = checker["build_evidence"](work)
+    require(rebuilt == read(work / "content-provider-pressure-evidence.json"),
+            "pressure component differs from its raw transfer, pressure, continuation or cleanup evidence")
+    return rebuilt
+
+
 def build_evidence(work):
     layout = read(work / "content-provider-layout.json")
     evidence = dict(success=True, publication=read(work / "content-provider-publication.json"),
@@ -379,6 +410,7 @@ def build_evidence(work):
                     site_publication=build_site_publication(work),
                     filter_snapshot=build_filter_snapshot(work),
                     adaptive_workers=build_adaptive_workers(work),
+                    pressure=build_pressure(work),
                     late_provider_recovery=build_late_provider_recovery(work),
                     requester_cancellation=read(work / "content-provider-cancellation.json"),
                     expected_peers=read(work / "a01-expected-peers.json"),
@@ -430,9 +462,17 @@ def validate_control_underlay(evidence, control_node, provider_nodes):
 
 
 def validate_report(report, revision, *, historical=False):
-    require(type(report.get("schema_version")) is int
-            and report["schema_version"] in ((1, 2) if historical else (3,)),
+    require(type(historical) is bool and type(report.get("schema_version")) is int
+            and report["schema_version"] in ((1, 2, 3) if historical else (4,)),
             "wrong aggregate report version for current or historical validation")
+    if historical:
+        require("pressure" not in report and "pressure" not in report["transfer"],
+                "historical aggregate must not claim the later pressure phase")
+    else:
+        require(report.get("pressure") is True
+                and type(report["transfer"].get("pressure")) is dict
+                and report["transfer"]["pressure"].get("success") is True,
+                "current aggregate report requires the separate pressure proof")
     legacy_without_late = historical and report["schema_version"] == 1
     if legacy_without_late:
         require("late_provider_recovery" not in report
@@ -459,7 +499,8 @@ def validate_report(report, revision, *, historical=False):
             and re.fullmatch(r"[0-9a-f]{64}", report["host_state"]["before_sha256"])
             and all(report[flag] is False for flag in SCOPE), "wrong source, cleanup, host state or scope")
     validate_transfer(report["transfer"], historical=legacy_without_late,
-                      historical_late=historical and report["schema_version"] == 2)
+                      historical_late=historical and report["schema_version"] == 2,
+                      historical_pressure=historical)
 
 
 if __name__ == "__main__":

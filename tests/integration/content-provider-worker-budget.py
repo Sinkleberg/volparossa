@@ -21,7 +21,10 @@ TARGET = "volparossa_agent::content::worker_budget"
 CODE = "CONTENT_WORKER_BUDGET_SUMMARY"
 CONTINUATION_TARGET = "volparossa_agent::content::parallel::continuation"
 CONTINUATION_CODE = "CONTENT_PROVIDER_CONTINUATION_SUMMARY"
-PHASES = ("native", "https")
+PHASES = ("native", "https", "pressure")
+OUTPUT_PREFIXES = {"native": "content-provider-adaptive",
+                   "https": "content-provider-adaptive-https",
+                   "pressure": "content-provider-pressure"}
 MAX_INPUT = 8 * 1024 * 1024
 MAX_LINE = 16384
 MAX_LINES = 8192
@@ -171,15 +174,13 @@ def write_private(path, value, maximum, *, exclusive=False):
 
 def paths(work, phase):
     require(phase in PHASES)
-    suffix = "" if phase == "native" else "-https"
     return (work / ".content-worker-budget-{}.part".format(phase),
-            work / f"content-provider-adaptive{suffix}-worker-budget.json")
+            work / f"{OUTPUT_PREFIXES[phase]}-worker-budget.json")
 
 
 def continuation_path(work, phase):
     require(phase in PHASES)
-    suffix = "" if phase == "native" else "-https"
-    return work / f"content-provider-adaptive{suffix}-continuation.json"
+    return work / f"{OUTPUT_PREFIXES[phase]}-continuation.json"
 
 
 def mark(work, phase):

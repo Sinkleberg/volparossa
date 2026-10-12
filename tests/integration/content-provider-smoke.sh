@@ -132,7 +132,7 @@ content_provider_adaptive_control_underlay() {
 
 content_provider_adaptive_start_control_observer() {
     provider_control_prefix=$1
-    case $provider_control_prefix in content-provider-adaptive-*) ;; *) return 1 ;; esac
+    case $provider_control_prefix in content-provider-adaptive-*|content-provider-pressure-control-privacy) ;; *) return 1 ;; esac
     [ -z "$PROVIDER_CONTROL_PID" ] || return 1
     ip netns exec "$provider_control_ns" python3 "$WORK/bin/privacy-observer.py" \
         content-control "$WORK/$provider_control_prefix.json" \
@@ -341,6 +341,23 @@ content_provider_finalize_report() {
     # large native plus HTTPS capture bundle in a single operating-system argument.
     for provider_artifact in "$WORK"/content-provider-*.json "$WORK"/content-provider-*.txt \
         "$WORK"/content-provider-*.log "$WORK"/content-provider-*.out "$WORK"/content-provider-*.err; do
+        case $(basename -- "$provider_artifact") in
+            content-provider-pressure-*)
+                case $(basename -- "$provider_artifact") in
+                    content-provider-pressure-worker-budget.json|content-provider-pressure-continuation.json|content-provider-pressure-resource-ready.json|\
+                    content-provider-pressure-evidence.json|content-provider-pressure-ready.json|content-provider-pressure-controller.json|\
+                    content-provider-pressure-cleanup.json|content-provider-pressure-object.json|content-provider-pressure-fetch.json|\
+                    content-provider-pressure-selection.json|content-provider-pressure-live-selection.json|\
+                    content-provider-pressure-status-before.json|content-provider-pressure-status-after.json|\
+                    content-provider-pressure-qdisc-before.json|content-provider-pressure-qdisc-limited.json|content-provider-pressure-qdisc-after.json|\
+                    content-provider-pressure-qdisc-profile.json|content-provider-pressure-control-privacy.json|\
+                    content-provider-pressure-privacy-client.json|content-provider-pressure-privacy-relay[012].json|content-provider-pressure-privacy-exit.json|\
+                    content-provider-pressure-relay[345]-reset.json|content-provider-pressure-relay[345]-serve.json|\
+                    content-provider-pressure-relay[345]-status.json|content-provider-pressure-relay[345]-stop.json) ;;
+                    *) continue ;;
+                esac
+                ;;
+        esac
         [ ! -f "$provider_artifact" ] || [ -L "$provider_artifact" ] || \
             install -o "$OUTPUT_UID" -g "$OUTPUT_GID" -m 0600 "$provider_artifact" \
                 "$output_directory/$(basename -- "$provider_artifact")"
@@ -356,17 +373,18 @@ content_provider_finalize_report() {
         --argjson complete "$CLEANUP_COMPLETE" \
         --argjson remaining "$REMAINING_OWNED_OBJECTS" '
       $evidence_input[0] as $evidence | $host_input[0] as $host |
-      {schema_version:3,report_kind:"volparossa-native-content-providers",
+      {schema_version:4,report_kind:"volparossa-native-content-providers",
        source_revision:$revision,run_id:$run_id,phase:$phase,
        success:($status == 0 and $evidence.success == true and
          $evidence.ordinary_publication.success == true and $evidence.site_publication.success == true and
          $evidence.filter_snapshot.success == true and
-         $evidence.adaptive_workers.success == true and $evidence.late_provider_recovery.success == true and
+         $evidence.adaptive_workers.success == true and $evidence.pressure.success == true and
+         $evidence.late_provider_recovery.success == true and
          $evidence.requester_cancellation.success == true and $complete and
          $remaining == 0 and $host.unchanged == true),transfer:$evidence,
        runner_exit_status:$status,observed_blocker:(if $blocker == "NONE" then null else $blocker end),
        cleanup:{complete:$complete,remaining_owned_objects:$remaining},host_state:($host | del(.acceptance_id)),
-       scope:"explicit native publication and cooperative-origin HTTPS for the same object, normal named static-site HTTP assets, exact public filter export and networkless cache reuse, two policy-authorized providers via generic DHT/control-relay discovery and protected MPTCP/TLS/WireGuard, complete peers and missing origin ranges; separate late complementary-provider native recovery; named requester cancellation and agent shutdown during pending bootstrap",
+       scope:"explicit native publication and cooperative-origin HTTPS for the same object, normal named static-site HTTP assets, exact public filter export and networkless cache reuse, two policy-authorized providers via generic DHT/control-relay discovery and protected MPTCP/TLS/WireGuard, complete peers and missing origin ranges; three-provider admission under real bounded CPU pressure and single-worker continuation; separate late complementary-provider native recovery; named requester cancellation and agent shutdown during pending bootstrap",
        general_nat_reachability_claimed:false,full_c02_claimed:false,
        explicit_origin_authenticated_https:($evidence.https.success == true),
        normal_user_publication:($evidence.ordinary_publication.success == true),
@@ -374,6 +392,7 @@ content_provider_finalize_report() {
        native_static_site:($evidence.site_publication.success == true),
        public_filter_snapshot:($evidence.filter_snapshot.success == true),
        adaptive_provider_workers:($evidence.adaptive_workers.success == true),
+       pressure:($evidence.pressure.success == true),
        late_provider_recovery:($evidence.late_provider_recovery.success == true),
        requester_cancellation:($evidence.requester_cancellation.success == true),
        browser_integration_claimed:false,arbitrary_https_integration_claimed:false,

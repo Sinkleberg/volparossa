@@ -84,6 +84,94 @@ class WorkerBudgetDiagnostics(unittest.TestCase):
         self.assertEqual([item["outcome"] for item in https["records"]], ["failed"])
         self.assertNotIn("success", native)
 
+    def test_pressure_has_separate_paths_and_preserves_historical_names(self):
+        expected = {"native": "content-provider-adaptive", "https": "content-provider-adaptive-https",
+                    "pressure": "content-provider-pressure"}
+        self.assertEqual(set(CHECK["PHASES"]), set(expected))
+        for phase, prefix in expected.items():
+            marker, output = CHECK["paths"](self.work, phase)
+            self.assertEqual(marker.name, f".content-worker-budget-{phase}.part")
+            self.assertEqual(output.name, f"{prefix}-worker-budget.json")
+            self.assertEqual(CHECK["continuation_path"](self.work, phase).name, f"{prefix}-continuation.json")
+        for phase in ("", "PRESSURE", "../pressure", "native-pressure"):
+            with self.subTest(phase=phase), self.assertRaises(ValueError):
+                CHECK["paths"](self.work, phase)
+            with self.subTest(phase=phase), self.assertRaises(ValueError):
+                CHECK["continuation_path"](self.work, phase)
+
+    def test_three_phase_ranges_remain_independent_when_finalized_later(self):
+        retained = {}
+        for phase, allowance in (("native", 12), ("https", 8), ("pressure", 3)):
+            self.marker(phase)
+            sample = budget(initial_allowance=allowance, max_allowance=allowance)
+            sample["causes"]["cpu_pressure"] = phase == "pressure"
+            progress = continuation(returned_verified_chunks=allowance)
+            self.append(event(sample) + continuation_event(progress))
+            report = self.finish(phase)
+            self.assertEqual(report["phase"], phase)
+            self.assertEqual(report["records"], [sample])
+            for path in (self.report(phase), CHECK["continuation_path"](self.work, phase)):
+                retained[path] = path.read_bytes()
+            parsed = json.loads(CHECK["continuation_path"](self.work, phase).read_bytes())
+            self.assertEqual(parsed["records"], [progress])
+            self.assertEqual(parsed["phase"], phase)
+        self.append(event(budget(outcome="failed")) + continuation_event(continuation(outcome="failed")))
+        CHECK["finalize"](self.work)
+        for path, raw in retained.items():
+            self.assertEqual(path.read_bytes(), raw)
+
+    def test_pressure_pending_then_cancelled_records_finalize_without_other_phases(self):
+        self.marker("pressure")
+        pending = self.finish("pressure", pending=True)
+        target = CHECK["continuation_path"](self.work, "pressure")
+        self.assertEqual((pending["phase_closed"], pending["complete"], pending["status"]),
+                         (False, False, "incomplete"))
+        self.assertFalse(json.loads(target.read_bytes())["complete"])
+        interrupted = continuation(outcome="interrupted", returned_useful_continuations=0,
+                                   returned_verified_chunks=0, returned_verified_bytes=0)
+        self.append(event(budget(outcome="interrupted")) + continuation_event(interrupted))
+        CHECK["finalize"](self.work)
+        final = json.loads(self.report("pressure").read_bytes())
+        self.assertEqual((final["phase_closed"], final["complete"], final["status"]),
+                         (True, True, "observed"))
+        self.assertEqual(final["records"][0]["outcome"], "interrupted")
+        self.assertEqual(json.loads(target.read_bytes())["records"], [interrupted])
+        for phase in ("native", "https"):
+            self.assertFalse(self.report(phase).exists())
+            self.assertFalse(CHECK["continuation_path"](self.work, phase).exists())
+
+    def test_pressure_rejects_cross_phase_marker_and_keeps_other_closed_evidence(self):
+        self.marker("native")
+        self.append(event() + continuation_event())
+        self.finish("native")
+        retained = self.report("native").read_bytes()
+        marker, _ = CHECK["paths"](self.work, "pressure")
+        original, _ = CHECK["paths"](self.work, "native")
+        marker.write_bytes(original.read_bytes())
+        marker.chmod(0o600)
+        self.append(event(budget(outcome="failed")))
+        CHECK["finalize"](self.work)
+        self.assertEqual(self.report("native").read_bytes(), retained)
+        for path in (self.report("pressure"), CHECK["continuation_path"](self.work, "pressure")):
+            parsed = json.loads(path.read_bytes())
+            self.assertEqual((parsed["phase"], parsed["status"], parsed["complete"], parsed["records"]),
+                             ("pressure", "invalid", False, []))
+
+    def test_pressure_cli_lifecycle_is_closed_and_preserves_invalid_payload_isolation(self):
+        for action in ("mark", "pending"):
+            result = subprocess.run([sys.executable, "-B", str(HELPER), action, str(self.work), "pressure"],
+                                    capture_output=True, timeout=5)
+            self.assertEqual((result.returncode, result.stdout), (0, b""), result.stderr)
+        self.append(event(budget(peer_id="not-exportable")) + continuation_event())
+        result = subprocess.run([sys.executable, "-B", str(HELPER), "finalize", str(self.work)],
+                                capture_output=True, timeout=5)
+        self.assertEqual((result.returncode, result.stdout), (0, b""), result.stderr)
+        invalid = json.loads(self.report("pressure").read_bytes())
+        self.assertEqual((invalid["status"], invalid["records"]), ("invalid", []))
+        continued = json.loads(CHECK["continuation_path"](self.work, "pressure").read_bytes())
+        self.assertEqual((continued["status"], continued["records"]), ("observed", [continuation()]))
+        self.assertNotIn("not-exportable", self.report("pressure").read_text())
+
     def test_unfinished_failed_command_is_finalized_after_summary_arrives(self):
         self.marker("native")
         pending = self.finish("native", pending=True)
@@ -299,13 +387,13 @@ class WorkerBudgetDiagnostics(unittest.TestCase):
         self.assertLess(retire, finalize)
         self.assertLess(finalize, topology.index("    copy_artifacts || original_status=1", finalize))
         shell = (HERE / "content-provider-adaptive-smoke.sh").read_text()
-        for phase in CHECK["PHASES"]:
+        for phase in ("native", "https"):
             self.assertIn(f"content_provider_worker_budget_capture mark {phase}", shell)
             self.assertIn(f"content_provider_worker_budget_capture pending {phase}", shell)
             self.assertIn(f"content_provider_worker_budget_capture finish {phase}", shell)
         self.assertIn('|| fail CONTENT_PROVIDER_ADAPTIVE_EVIDENCE_INVALID', shell)
         emergency = (HERE / "run-alpha-topology-vm.sh").read_text()
-        for phase in CHECK["PHASES"]:
+        for phase in ("native", "https"):
             self.assertIn('"' + self.report(phase).name + '"', emergency)
             self.assertIn('"' + CHECK["continuation_path"](self.work, phase).name + '"', emergency)
         for name in ("kvm-alpha-topology.sh", "run-alpha-topology-vm.sh", "content-provider-adaptive-smoke.sh"):

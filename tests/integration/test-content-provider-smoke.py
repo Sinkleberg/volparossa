@@ -20,7 +20,7 @@ HERE = Path(__file__).parent
 CHECK = runpy.run_path(str(HERE / "content-provider-smoke.py"))
 
 
-def fixture(control_node="relay2", *, include_late=True):
+def fixture(control_node="relay2", *, include_late=True, include_pressure=True):
     peers = {name: f"peer-{name}" for name in (*CHECK["ROLES"], "relay3", "relay4", "relay5")}
     provider_nodes = [node for node in CHECK["CANDIDATES"] if node != control_node][:2]
     paths = [dict(route_context_id="a" * 32, path_id=index + 1,
@@ -93,6 +93,8 @@ def fixture(control_node="relay2", *, include_late=True):
     evidence["site_publication"] = runpy.run_path(str(HERE / "test-content-provider-site-smoke.py"))["fixture"](control_node)
     evidence["filter_snapshot"] = runpy.run_path(str(HERE / "test-content-provider-filter-smoke.py"))["fixture"](control_node)
     evidence["adaptive_workers"] = runpy.run_path(str(HERE / "test-content-provider-adaptive-smoke.py"))["fixture"]()
+    if include_pressure:
+        evidence["pressure"] = runpy.run_path(str(HERE / "test-content-provider-pressure-smoke.py"))["fixture"]()
     if include_late:
         evidence["late_provider_recovery"] = runpy.run_path(
             str(HERE / "test-content-provider-late-recovery.py"))["fixture"]()
@@ -213,7 +215,8 @@ class ContentProviderContract(unittest.TestCase):
         self.assertIn("content_provider_adaptive_run\n    content_provider_late_recovery_run\n"
                       "    content_provider_cancellation_run", runtime)
         self.assertIn("$evidence.late_provider_recovery.success == true", runtime)
-        self.assertIn("{schema_version:3,report_kind:", runtime)
+        self.assertIn("$evidence.pressure.success == true", runtime)
+        self.assertIn("{schema_version:4,report_kind:", runtime)
         preflight = source.split('for provider_fixture in ', 1)[1].split('; do', 1)[0]
         for name in ("content-provider-late-recovery.sh", "content-provider-late-recovery.py"):
             self.assertIn(name, preflight)
@@ -222,20 +225,26 @@ class ContentProviderContract(unittest.TestCase):
         hook = "content_provider_late_recovery_cleanup || original_status=1"
         self.assertLess(cleanup.index(hook), cleanup.index('kill -TERM'))
         self.assertLess(cleanup.index(hook), cleanup.index('retire_unit'))
+        pressure_hook = "content_provider_pressure_cleanup || original_status=1"
+        self.assertLess(cleanup.index(pressure_hook), cleanup.index('kill -TERM'))
+        self.assertLess(cleanup.index(pressure_hook), cleanup.index('retire_unit'))
         early = cleanup.split('    if [ "$scenario" = dns-cache ]', 1)[0]
         # Execute the actual trap prelude with inert hooks: failure is retained,
         # cancellation cleanup still runs, and no service/network tool is called.
         script = ('set -eu\nscenario=content-provider\nPHASE=late-failure\nOBSERVED_BLOCKER=late-blocker\n'
                   'FINALIZED=no\ncontent_provider_late_recovery_cleanup() { printf "late\\n"; return "$1"; }\n')
         # The hook has no arguments; bake the synthetic result into its body.
-        for result in (0, 1):
+        for result, pressure_result in ((0, 0), (1, 0), (0, 1), (1, 1)):
             prefix = script.replace('return "$1"', f'return {result}')
+            prefix += ('content_provider_pressure_cleanup() { printf "pressure\\n"; '
+                       f'return {pressure_result}; }}\n')
             prefix += 'content_provider_cancellation_resume() { printf "cancel\\n"; }\n'
             body = prefix + 'cleanup_prelude() {\n' + early + '\n}\ntrue\ncleanup_prelude\n'
             body += 'printf "%s:%s:%s\\n" "$original_status" "$failure_phase" "$failure_reason"\n'
             checked = subprocess.run(["sh", "-eu", "-c", body], capture_output=True, timeout=2, check=False)
             self.assertEqual(checked.returncode, 0, checked.stderr)
-            self.assertEqual(checked.stdout.decode(), f"late\ncancel\n{result}:late-failure:late-blocker\n")
+            self.assertEqual(checked.stdout.decode(),
+                             f"pressure\nlate\ncancel\n{max(result, pressure_result)}:late-failure:late-blocker\n")
         stage = source.split('for late_recovery_helper in ', 1)[1].split('\n    done', 1)[0]
         for name in ("content-provider-late-recovery.py", "content-provider-https-smoke.py", "content-network-smoke.py"):
             self.assertIn(name, stage)
@@ -312,6 +321,34 @@ class ContentProviderContract(unittest.TestCase):
             mutate(changed)
             with self.assertRaises((ValueError, KeyError)):
                 CHECK["validate_transfer"](changed)
+
+    def test_pressure_is_separate_required_and_bound_to_existing_adaptive_proof(self):
+        evidence = fixture()
+        CHECK["validate_transfer"](evidence)
+        changed_statistics = copy.deepcopy(evidence)
+        changed_statistics["pressure"]["selected_route"]["paths"][0].update(
+            reported_bytes=123456, smoothed_rtt_us=456, state=1)
+        CHECK["validate_transfer"](changed_statistics)
+        for mutate in (
+            lambda value: value.pop("pressure"),
+            lambda value: value.update(pressure=None),
+            lambda value: value["pressure"].update(success=False),
+            lambda value: value["pressure"]["expected_peers"].update(client="different-client"),
+            lambda value: value["pressure"]["publication"].update(manifest_id="f" * 64),
+            lambda value: value["pressure"]["selected_route"].update(route_context_id="f" * 32),
+            lambda value: value["pressure"]["selected_route"]["paths"][0].update(exit_peer_id="different-exit"),
+            lambda value: value["pressure"]["selected_route"].update(policy_hash="different-policy"),
+            lambda value: value["pressure"]["scope"].update(owner_goodput_claimed=True),
+            lambda value: value["adaptive_workers"].update(provider_payload_overlap_ns=0),
+        ):
+            changed = copy.deepcopy(evidence)
+            mutate(changed)
+            with self.assertRaises((ValueError, KeyError)):
+                CHECK["validate_transfer"](changed)
+        old = fixture(include_pressure=False)
+        CHECK["validate_transfer"](old, historical_pressure=True)
+        with self.assertRaises(ValueError): CHECK["validate_transfer"](old)
+        with self.assertRaises(ValueError): CHECK["validate_transfer"](evidence, historical_pressure=True)
 
     def test_site_proof_is_required_and_bound_to_parent_topology_and_exact_bundle(self):
         evidence = fixture()
@@ -481,6 +518,7 @@ class ContentProviderContract(unittest.TestCase):
             "site_publication": "site-evidence",
             "filter_snapshot": "filter-evidence",
             "adaptive_workers": "adaptive-evidence",
+            "pressure": "pressure-evidence",
             "late_provider_recovery": "late-recovery-evidence",
             "requester_cancellation": "cancellation",
         }
@@ -494,6 +532,12 @@ class ContentProviderContract(unittest.TestCase):
         for name, value in adaptive_raw.items():
             if name in files:
                 self.assertEqual(files[name], value, "component fixture cannot replace earlier proof inputs")
+            files[name] = value
+        pressure_raw = runpy.run_path(str(HERE / "test-content-provider-pressure-smoke.py"))["raw_files"](
+            evidence["pressure"])
+        for name, value in pressure_raw.items():
+            if name in files:
+                self.assertEqual(files[name], value, "pressure cannot replace earlier adaptive proof inputs")
             files[name] = value
         late_raw = runpy.run_path(str(HERE / "test-content-provider-late-recovery.py"))["raw_files"](
             evidence["late_provider_recovery"])
@@ -522,6 +566,7 @@ class ContentProviderContract(unittest.TestCase):
             work = Path(directory)
             for name, value in files.items():
                 (work / name).write_text(value if isinstance(value, str) else json.dumps(value), encoding="ascii")
+                (work / name).chmod(0o600)
             self.assertEqual(CHECK["build_evidence"](work), evidence)
             # The site must be rebuilt from raw receipts/captures, not accepted by its summary flag.
             site_report = work / "content-provider-site-evidence.json"
@@ -548,6 +593,24 @@ class ContentProviderContract(unittest.TestCase):
             with self.assertRaises(ValueError):
                 CHECK["build_evidence"](work)
             adaptive_report.write_text(json.dumps(evidence["adaptive_workers"]), encoding="ascii")
+            pressure_report = work / "content-provider-pressure-evidence.json"
+            pressure_report.unlink()
+            with self.assertRaises(OSError):
+                CHECK["build_evidence"](work)
+            substituted = copy.deepcopy(evidence["pressure"])
+            substituted["success"] = False
+            pressure_report.write_text(json.dumps(substituted), encoding="ascii")
+            with self.assertRaises(ValueError):
+                CHECK["build_evidence"](work)
+            pressure_report.write_text(json.dumps(evidence["pressure"]), encoding="ascii")
+            controller = work / "content-provider-pressure-controller.json"
+            original_controller = controller.read_text(encoding="ascii")
+            tampered = json.loads(original_controller)
+            tampered["verified_bytes"] = 0
+            controller.write_text(json.dumps(tampered), encoding="ascii")
+            with self.assertRaises(ValueError):
+                CHECK["build_evidence"](work)
+            controller.write_text(original_controller, encoding="ascii")
             late_report = work / "content-provider-late-recovery-evidence.json"
             late_report.unlink()
             with self.assertRaises(OSError):
@@ -590,10 +653,10 @@ class ContentProviderContract(unittest.TestCase):
         self.assertEqual(fixture("relay4")["layout"]["provider_nodes"], ["relay5", "relay3"])
 
     def test_exact_scoped_report(self):
-        report = dict(schema_version=3, report_kind="volparossa-native-content-providers", source_revision="a" * 40,
+        report = dict(schema_version=4, report_kind="volparossa-native-content-providers", source_revision="a" * 40,
                       explicit_origin_authenticated_https=True, normal_user_publication=True, native_name_retrieval=True,
                       native_static_site=True, public_filter_snapshot=True,
-                      adaptive_provider_workers=True, late_provider_recovery=True, requester_cancellation=True,
+                      adaptive_provider_workers=True, pressure=True, late_provider_recovery=True, requester_cancellation=True,
                       success=True, runner_exit_status=0, cleanup=dict(complete=True, remaining_owned_objects=0),
                       host_state=dict(unchanged=True, before_sha256="b" * 64, after_sha256="b" * 64),
                       transfer=fixture(), **{name: False for name in CHECK["SCOPE"]})
@@ -605,10 +668,15 @@ class ContentProviderContract(unittest.TestCase):
             lambda item: item.update(native_static_site=False),
             lambda item: item.update(public_filter_snapshot=False),
             lambda item: item.update(adaptive_provider_workers=False),
+            lambda item: item.update(pressure=False),
+            lambda item: item.pop("pressure"),
+            lambda item: item["transfer"].pop("pressure"),
+            lambda item: item["transfer"]["pressure"].update(success=False),
             lambda item: item.update(late_provider_recovery=False),
             lambda item: item.pop("late_provider_recovery"),
             lambda item: item["transfer"].pop("late_provider_recovery"),
             lambda item: item.update(schema_version=1),
+            lambda item: item.update(schema_version=3),
             lambda item: item.update(schema_version=2.0),
             lambda item: item.pop("schema_version"),
             lambda item: item.update(requester_cancellation=False),
@@ -622,7 +690,19 @@ class ContentProviderContract(unittest.TestCase):
             mutate(wrong)
             with self.assertRaises(ValueError):
                 CHECK["validate_report"](wrong, "a" * 40)
-        historical = copy.deepcopy(report)
+        older_current = copy.deepcopy(report)
+        older_current["schema_version"] = 3
+        older_current.pop("pressure")
+        older_current["transfer"].pop("pressure")
+        CHECK["validate_report"](older_current, "a" * 40, historical=True)
+        with self.assertRaises(ValueError): CHECK["validate_report"](older_current, "a" * 40)
+        for mutate in (lambda value: value.update(pressure=True),
+                       lambda value: value["transfer"].update(pressure=report["transfer"]["pressure"])):
+            retroactive = copy.deepcopy(older_current)
+            mutate(retroactive)
+            with self.assertRaises(ValueError):
+                CHECK["validate_report"](retroactive, "a" * 40, historical=True)
+        historical = copy.deepcopy(older_current)
         historical["schema_version"] = 1
         historical.pop("late_provider_recovery")
         historical["transfer"].pop("late_provider_recovery")
@@ -634,7 +714,7 @@ class ContentProviderContract(unittest.TestCase):
             CHECK["validate_report"](historical, "a" * 40)
         with self.assertRaises(ValueError):
             CHECK["validate_report"](report, "a" * 40, historical=True)
-        older_late = copy.deepcopy(report)
+        older_late = copy.deepcopy(older_current)
         older_late["schema_version"] = 2
         older_late["transfer"]["late_provider_recovery"]["schema_version"] = 1
         older_late["transfer"]["late_provider_recovery"].pop("readiness")
