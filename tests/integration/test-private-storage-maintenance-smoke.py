@@ -236,6 +236,7 @@ class MaintenanceEvidence(unittest.TestCase):
                         checkpoint=Mock(side_effect=[dict(stage='paused', turns=3),
                             dict(stage='working', turns=4), dict(stage='core_unavailable', turns=4)]),
                         OwnerProcess=Mock(return_value=owner), wait_owner=wait,
+                        retained_current_during_core_loss=Mock(return_value=dict(version=1, pending=None)),
                         status=Mock(return_value=retained), create=Mock(), unlock=lambda root: []), \
                         patch.dict(CHECK['F'], check_identity=Mock()):
                     with self.assertRaisesRegex(ValueError, '^owner lifecycle deadline$') as caught:
@@ -354,6 +355,8 @@ class MaintenanceEvidence(unittest.TestCase):
                             dict(stage='waiting_for_core', turns=5), dict(stage='paused', turns=6)]),
                         read=Mock(return_value=dict(baseline=gates['event_baseline_unix_ms'], scope=gates['exit_route_scope'])),
                         OwnerProcess=Mock(return_value=owner), unlock=lambda root: [], create=created,
+                        retained_current_during_core_loss=Mock(return_value=dict(version=1, pending=None)),
+                        retained_intent_continuity=Mock(),
                         wait_owner=lambda owner, predicate, seconds=180, **kwargs: predicate(),
                         status=Mock(return_value=retained), run_turn=Mock(return_value=dict(turns=7)),
                         invoke=Mock(return_value=dict(physical_payload_charge_upper_bound=2 * CHECK['BYTES'],
@@ -709,6 +712,7 @@ class MaintenanceEvidence(unittest.TestCase):
             owner, status, invoke = Mock(side_effect=turns), Mock(side_effect=[before] +
                 [dict(before, pending_retirements=2)] * 4), Mock()
             with patch.dict(namespace, run_turn=owner, status=status, invoke=invoke,
+                    retained_intent_continuity=Mock(),
                     RETIREMENT_TURNS=[], SAMPLER_DIAGNOSTIC={}):
                 with self.assertRaisesRegex(ValueError, 'source retirement unconfirmed') as failure:
                     CHECK['finish'](root, '/synthetic/cli', '/synthetic/socket', ['a', 'b', 'c'])
@@ -1054,6 +1058,7 @@ class MaintenanceEvidence(unittest.TestCase):
                 namespace = CHECK['restore'].__globals__
                 with patch.dict(namespace, checkpoint=Mock(side_effect=[dict(turns=9), dict(turns=10 + len(remaining))]),
                         status=Mock(side_effect=states), run_turn=Mock(side_effect=turns), invoke=invoke,
+                        retained_intent_continuity=Mock(),
                         staged_files_absent=Mock(), REPAIR_DIAGNOSTIC=None, REPAIR_TURNS=[]), \
                         patch.dict(CHECK['F'], check_identity=Mock()):
                     actual = CHECK['restore'](root, 'inert-cli', 'inert-socket', keys)

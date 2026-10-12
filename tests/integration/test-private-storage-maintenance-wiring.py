@@ -26,6 +26,78 @@ FIXTURE = runpy.run_path(str(HERE / ('test-' + SCENARIO + '-smoke.py')))
 DIAGNOSTICS = runpy.run_path(str(HERE / 'test-private-storage-fragments-wiring.py'))['diagnostics']
 
 
+def retained_private_fixture(root, pending=True):
+    """Synthetic bound private files, not signatures, provider I/O or kernel proof."""
+    value, _, keys = FIXTURE['OLD']['cli_fixture']('committed')
+    value['operation'] = 'private_storage_fragments_status'
+    now = int(time.time())
+    owner = [77] * 32
+    grants = [b'synthetic grant ' + bytes([index]) for index in range(3)]
+
+    def save(path, data):
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path.write_bytes(data if isinstance(data, bytes) else json.dumps(data, sort_keys=True).encode())
+        path.chmod(0o600)
+
+    fragments = []
+    children = []
+    for index, length in enumerate(M['LENGTHS']):
+        copies, records = [], []
+        digest = list(hashlib.sha256(bytes([index]) * length).digest())
+        for copy_index in range(2):
+            provider = (index + copy_index) % 3
+            archive = [index * 2 + copy_index + 1] * 32
+            journal = dict(version=1, provider_key=list(bytes.fromhex(keys[provider])), owner_key=owner,
+                grant_hex=grants[provider].hex(), archive_id=archive, ciphertext_bytes=length, sha256=digest,
+                requested_expiry=now + 1800, lease='synthetic-lease-' + str(2 * index + copy_index),
+                last_stored_bytes=length, last_expiry=now + 3600, last_state=3)
+            save(root / f'fragment-set/fragment-{index:04}/copy-{copy_index}/archive.json', journal)
+            copies.append(dict(provider=provider, archive_id=archive))
+            records.append(dict(provider_key=journal['provider_key'], archive_id=archive,
+                grant_sha256=list(hashlib.sha256(grants[provider]).digest()), charge='committed'))
+        fragments.append(dict(offset=sum(M['LENGTHS'][:index]), length=length, sha256=digest, copies=copies))
+        children.append(dict(version=1, owner_key=owner, ciphertext_bytes=length, sha256=digest, copies=records))
+    save(root / 'fragment-set/fragments.json', dict(manifest=dict(owner_key=owner, fragments=fragments),
+        signature='SYNTHETIC_NOT_CRYPTOGRAPHIC_EVIDENCE'))
+    original = (root / 'fragment-set/fragments.json').read_bytes()
+    en = dict(version=1, owner=owner, root=list(hashlib.sha256(original).digest()),
+        source=list(bytes.fromhex(keys[0])), providers=[list(bytes.fromhex(key)) for key in keys[1:]],
+        grants=[grant.hex() for grant in grants[1:]], created=now - 60, expires=now + 5940,
+        maximum_charged=M['MAX_CHARGE'])
+    save(root / 'maintenance/enrollment.json', dict(enrollment=en, signature='SYNTHETIC_NOT_A_SIGNATURE'))
+    for label, grant in zip('abc', grants):
+        save(root / f'grant-{label}.bin', grant)
+    if pending:
+        initial = dict(version=1, provider_key=list(bytes.fromhex(keys[2])), owner_key=owner,
+            grant_hex=grants[2].hex(), archive_id=[99] * 32, ciphertext_bytes=M['LENGTHS'][0],
+            sha256=fragments[0]['sha256'], requested_expiry=now + 5400,
+            lease=None, last_stored_bytes=0, last_expiry=0, last_state=None)
+        intent = dict(from_=0, to=2, phase='copying', initial_journal=initial)
+        intent['from'] = intent.pop('from_')
+        save(root / 'fragment-set/placement-authorizations.json', dict(authority=dict(version=1,
+            root_sha256=en['root'], placements=[dict(fragment=0, handoff=intent)]),
+            signature='SYNTHETIC_NOT_A_SIGNATURE'))
+        children[0].update(version=2, handoff=intent)
+        children[0]['copies'].append(dict(provider_key=initial['provider_key'], archive_id=initial['archive_id'],
+            grant_sha256=list(hashlib.sha256(grants[2]).digest()), charge='unattempted'))
+        save(root / 'fragment-set/fragment-0000/copy-2/archive.json', initial)
+        value.update(report_version=2, placement_authorizations=1, retained_copy_records=9,
+            pending_retirements=1, desired_copies_per_fragment=2, replacement_overhead_included=True)
+        value['fragments'][0]['copies'].append(dict(provider_key=keys[2], charge='unattempted',
+            last_confirmed_state=None, last_confirmed_stored_bytes=0, last_confirmed_expiry=0))
+        for index, copy_index in ((0, 1), (3, 0), (3, 1)):
+            value['fragments'][index]['copies'][copy_index]['charge'] = 'uncertain'
+            children[index]['copies'][copy_index]['charge'] = 'uncertain'
+        value.update(committed_payload_bytes=5 * M['CHUNK'], uncertain_payload_bytes=M['CHUNK'] + 146)
+    for index, child in enumerate(children):
+        save(root / f'fragment-set/fragment-{index:04}/replicas.json', child)
+    save(root / 'identities.sha256', M['F']['identity_digest'](root))
+    for path in root.rglob('*'):
+        if path.is_dir():
+            path.chmod(0o700)
+    return value, keys, (root / 'maintenance/enrollment.json').read_bytes(), save
+
+
 class Wiring(unittest.TestCase):
     def test_preview_is_explicit_and_last_scenario_wins(self):
         for script in ('kvm-alpha-topology.sh', 'run-alpha-topology-vm.sh'):
@@ -932,6 +1004,152 @@ private_storage_maintenance_finalize_report 7
             mutate(invalid)
             with self.assertRaises(ValueError):
                 M['retained_during_core_loss'](invalid)
+
+    def test_current_retained_intent_matches_observed_projection_without_claiming_crypto(self):
+        for pending in (False, True):
+            with self.subTest(pending=pending), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                value, keys, enrollment, save = retained_private_fixture(root, pending)
+                binding = M['retained_current_during_core_loss'](root, value, keys, enrollment)
+                self.assertEqual(binding['pending'] is not None, pending)
+                save(root / M['RETAINED_INTENT_FILE'], binding)
+                M['retained_intent_continuity'](root)
+                self.assertLess((root / M['RETAINED_INTENT_FILE']).stat().st_size, 2048)
+                self.assertNotIn(M['RETAINED_INTENT_FILE'], M['EXPORT_NAMES'])
+                if pending:
+                    actual = M['retained_status_diagnostic'](value, int(time.time()))
+                    self.assertEqual(actual['copy_counts'], [3, 2, 2, 2])
+                    self.assertEqual(actual['charge_states'], dict(committed=5, uncertain=3,
+                        unattempted=1, reserved=0, deleted=0, unknown=0))
+                    self.assertEqual(actual['physical_payload_charge_upper_bound'], 1573010)
+                    with self.assertRaises(ValueError):
+                        M['retained_during_core_loss'](value)  # Historical counter gate is unchanged.
+
+    def test_current_retained_intent_rejects_unverified_or_changed_custody(self):
+        mutations = (
+            lambda v: v.update(owner_signature_verified=False),
+            lambda v: v.pop('owner_signature_verified'),
+            lambda v: v.update(operation='private_storage_fragments_deposit'),
+            lambda v: v['fragments'][0]['copies'][0].update(provider_key='ff' * 32),
+            lambda v: v['fragments'][0]['copies'][0].update(charge='deleted'),
+            lambda v: v['fragments'][0]['copies'][0].update(charge='unattempted'),
+            lambda v: v['fragments'][0]['copies'][0].update(last_confirmed_stored_bytes=0),
+            lambda v: v['fragments'][0]['copies'][0].update(last_confirmed_expiry=1),
+            lambda v: v['fragments'][0]['copies'][2].update(charge='committed'),
+            lambda v: v['fragments'][0]['copies'].append(copy.deepcopy(v['fragments'][0]['copies'][2])),
+            lambda v: v['fragments'][3]['copies'].pop(),
+            lambda v: v.update(placement_authorizations=2),
+            lambda v: v.update(committed_payload_bytes=v['committed_payload_bytes'] - 1),
+            lambda v: v['providers'][0].update(physical_payload_charge_upper_bound=0),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(index=index), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                value, keys, enrollment, _ = retained_private_fixture(root)
+                mutate(value)
+                with self.assertRaises((ValueError, KeyError)):
+                    M['retained_current_during_core_loss'](root, value, keys, enrollment)
+
+    def test_current_retained_intent_rejects_private_identity_authority_or_phase_changes(self):
+        for change in ('original', 'enrollment', 'grant', 'child', 'journal', 'duplicate',
+                'missing', 'phase', 'expired', 'shortened', 'foreign', 'reuse'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                value, keys, enrollment, save = retained_private_fixture(root)
+                placement = root / 'fragment-set/placement-authorizations.json'
+                child_path = root / 'fragment-set/fragment-0000/replicas.json'
+                journal_path = root / 'fragment-set/fragment-0000/copy-2/archive.json'
+                signed, child, journal = (json.loads(path.read_bytes()) for path in (placement, child_path, journal_path))
+                intent = signed['authority']['placements'][0]['handoff']
+                if change == 'original':
+                    path = root / 'fragment-set/fragment-0000/copy-0/archive.json'
+                    changed = json.loads(path.read_bytes())
+                    changed['lease'] = 'changed-original-lease'
+                    save(path, changed)
+                elif change == 'enrollment':
+                    changed = json.loads(enrollment)
+                    changed['enrollment']['expires'] += 1
+                    save(root / 'maintenance/enrollment.json', changed)
+                elif change == 'grant':
+                    save(root / 'grant-c.bin', b'different')
+                elif change == 'child':
+                    child['copies'][2]['archive_id'] = [123] * 32
+                    save(child_path, child)
+                elif change == 'journal':
+                    journal['archive_id'] = [123] * 32
+                    save(journal_path, journal)
+                elif change == 'duplicate':
+                    signed['authority']['placements'] *= 2
+                    save(placement, signed)
+                elif change == 'missing':
+                    placement.unlink()
+                else:
+                    if change == 'phase':
+                        intent['phase'] = 'complete'
+                    elif change == 'expired':
+                        intent['initial_journal']['requested_expiry'] = json.loads(enrollment)['enrollment']['expires'] + 1
+                    elif change == 'shortened':
+                        intent['initial_journal']['requested_expiry'] = int(time.time()) + 1
+                    elif change == 'foreign':
+                        intent['initial_journal']['grant_hex'] = b'foreign'.hex()
+                    elif change == 'reuse':
+                        intent['initial_journal']['archive_id'] = [1] * 32
+                    child['handoff'] = copy.deepcopy(intent)
+                    child['copies'][2]['archive_id'] = intent['initial_journal']['archive_id']
+                    save(placement, signed)
+                    save(child_path, child)
+                    save(journal_path, intent['initial_journal'])
+                with self.assertRaises((ValueError, FileNotFoundError)):
+                    M['retained_current_during_core_loss'](root, value, keys, enrollment)
+
+    def test_pending_identity_survives_resume_three_placements_and_delete_only_privately(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'private-storage-user'
+            root.mkdir(mode=0o700)
+            value, keys, enrollment, save = retained_private_fixture(root)
+            binding = M['retained_current_during_core_loss'](root, value, keys, enrollment)
+            save(root / M['RETAINED_INTENT_FILE'], binding)
+            placement = root / 'fragment-set/placement-authorizations.json'
+            signed = json.loads(placement.read_bytes())
+            journal_path = root / 'fragment-set/fragment-0000/copy-2/archive.json'
+            journal = json.loads(journal_path.read_bytes())
+            # Mutable provider confirmations change; the initial identity/intent does not.
+            for state, stored in ((3, M['CHUNK']), (4, 0)):
+                journal.update(lease='new-confirmed-synthetic-lease', last_state=state,
+                    last_stored_bytes=stored, last_expiry=int(time.time()) + 5400 if stored else 0)
+                save(journal_path, journal)
+                M['retained_intent_continuity'](root)
+            for index in (2, 3):
+                signed['authority']['placements'].append(dict(fragment=index, handoff={}))
+            save(placement, signed)
+            M['retained_intent_continuity'](root)  # Other placements are checked by the real CLI/full final gate.
+            journal['requested_expiry'] += 1
+            save(journal_path, journal)
+            with self.assertRaises(ValueError):
+                M['retained_intent_continuity'](root)
+            journal['requested_expiry'] -= 1
+            save(journal_path, journal)
+            signed['authority']['placements'][0]['handoff']['initial_journal']['archive_id'] = [111] * 32
+            save(placement, signed)
+            with self.assertRaises(ValueError):
+                M['retained_intent_continuity'](root)
+            placement.unlink()
+            with self.assertRaises(FileNotFoundError):
+                M['retained_intent_continuity'](root)
+            result = M['cleanup'](str(root))
+            self.assertTrue(result['user_directory_removed'])
+            self.assertFalse(root.exists())
+
+    def test_current_intent_check_is_wired_without_new_public_fields_or_execution(self):
+        source = (HERE / (SCENARIO + '-smoke.py')).read_text()
+        lifecycle = source.split('\ndef lifecycle(', 1)[1].split('\ndef prepare(', 1)[0]
+        self.assertIn('retained_current_during_core_loss(root, retained, keys, enrollment)', lifecycle)
+        self.assertNotIn('retained_during_core_loss(retained)', lifecycle)
+        self.assertLess(lifecycle.index('retained_intent_continuity(root)'), lifecycle.index('pre_withdrawal(root'))
+        restore = source.split('\ndef restore(', 1)[1].split('\ndef validate_retirement_progress(', 1)[0]
+        self.assertEqual(restore.count('retained_intent_continuity(root)'), 2)
+        finish = source.split('\ndef finish(', 1)[1].split('\ndef cleanup(', 1)[0]
+        self.assertEqual(finish.count('retained_intent_continuity(root)'), 2)
 
     def test_route_comparison_is_closed_and_only_valid_for_relay_scope_failure(self):
         value = dict(version=2, success=False, kind='private-storage-maintenance-lifecycle-failure',
