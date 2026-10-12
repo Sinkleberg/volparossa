@@ -104,6 +104,26 @@ private_storage_maintenance_lifecycle() {
     private_storage_maintenance_join
 }
 
+private_storage_maintenance_initial_inventory() {
+    PHASE=private-storage-maintenance-inventory
+    maintenance_inventory_status=0
+    # This content-custody shortcut skips A01. Its Client deliberately cannot
+    # see custody peers relay3/4/5; reuse the same relay0/1/2 + primary Exit
+    # barrier as reconnect, not the six-relay discovered-compute fixture.
+    (umask 077
+     python3 -I -B "$WORK/bin/content-provider-readiness.py" "$WORK" \
+        >"$WORK/maintenance-initial-inventory.part") || maintenance_inventory_status=$?
+    if python3 -B "$WORK/bin/private-storage-maintenance-smoke.py" inventory-check \
+        "$WORK/maintenance-initial-inventory.part" "$maintenance_inventory_status"; then
+        mv -- "$WORK/maintenance-initial-inventory.part" \
+            "$WORK/private-storage-maintenance-inventory.json" || fail MAINTENANCE_INVENTORY_INVALID
+    else
+        rm -f -- "$WORK/maintenance-initial-inventory.part"
+        fail MAINTENANCE_INVENTORY_INVALID
+    fi
+    [ "$maintenance_inventory_status" -eq 0 ] || fail MAINTENANCE_INVENTORY_UNAVAILABLE
+}
+
 private_storage_maintenance_run() {
     storage_fixture_driver=private-storage-maintenance-smoke.py
     # Preserve all core exchange/turn deadlines. The fixture includes real daemon
@@ -111,11 +131,21 @@ private_storage_maintenance_run() {
     storage_phase_timeout_seconds=2400
     ip -n "$CLIENT" -j -d link show cr0 | jq -e 'length == 1 and .[0].linkinfo.info_kind == "veth"
         and (.[0].flags | index("UP")) != null' >/dev/null || fail MAINTENANCE_GUEST_LINK_MISSING
+    private_storage_maintenance_initial_inventory
     private_storage_fragments_run
 }
 
 private_storage_maintenance_finalize_report() {
     maintenance_status=$1
+    # Cleanup has already captured the bounded client event ring before stopping
+    # agents. Export only closed categories/counts; diagnostic failure is not a
+    # replacement for the original outcome and never changes acceptance.
+    if python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" route-diagnostic \
+        "$WORK" >"$WORK/maintenance-route-diagnostic.part" 2>/dev/null; then
+        mv -- "$WORK/maintenance-route-diagnostic.part" "$WORK/private-storage-maintenance-route-diagnostic.json" || true
+    else
+        rm -f -- "$WORK/maintenance-route-diagnostic.part" || true
+    fi
     # The owner emits a closed failure receipt, not raw stderr. Preserve it only
     # after strict bounded schema validation, including on lifecycle failure.
     if [ "$maintenance_status" -ne 0 ] && [ -f "$WORK/maintenance-owner-lifecycle.private" ]; then

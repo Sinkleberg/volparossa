@@ -5,6 +5,7 @@ from pathlib import Path
 from contextlib import contextmanager
 import copy
 import json
+import os
 import runpy
 import stat
 import subprocess
@@ -16,6 +17,31 @@ from unittest.mock import MagicMock, Mock, patch
 HERE = Path(__file__).parent
 CHECK = runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))
 OLD = runpy.run_path(str(HERE / 'test-private-storage-fragments-smoke.py'))
+
+
+class InitialInventory(unittest.TestCase):
+    def test_closed_original_helper_receipt_rejects_changed_status_scope_and_unbounded_input(self):
+        helper = runpy.run_path(str(HERE / 'content-provider-readiness.py'))
+        value = helper['new_record']()
+        value.update(outcome='deadline')
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'inventory.json'
+            def save(record):
+                path.write_text(json.dumps(record)); path.chmod(0o600)
+            save(value)
+            self.assertEqual(CHECK['inventory_file'](path, '1'), value)
+            for status in ('0', '2', '124', '-15'):
+                with self.assertRaises(ValueError): CHECK['inventory_file'](path, status)
+            for record in ({**value, 'raw_peers': 'not-exportable'},
+                    {**value, 'scope': 'route_readiness'}, {**value, 'deadline_seconds': 61},
+                    {**value, 'last_valid_presence': {'relay3': True}}):
+                save(record)
+                with self.assertRaises(ValueError): CHECK['inventory_file'](path, '1')
+            path.write_text('x' * 8193)
+            with self.assertRaises(ValueError): CHECK['inventory_file'](path, '1')
+            save(value)
+            path.chmod(0o644)
+            with self.assertRaises(ValueError): CHECK['inventory_file'](path, '1')
 
 
 def identity_projection(indexes):
@@ -358,6 +384,7 @@ class MaintenanceEvidence(unittest.TestCase):
                 + self.event(101, 'PRESELECTION_SAMPLE_INSUFFICIENT_RELAYS')
                 + self.event(111, 'PRESELECTION_SAMPLE_NO_EXIT'))
             result = CHECK['closed_preselection_events'](events, baseline, end)
+            CHECK['validate_preselection_diagnostic'](result)
             self.assertEqual(result['state'], 'known')
             self.assertEqual(result['observed_reason'], 'PRESELECTION_SAMPLE_INSUFFICIENT_RELAYS')
             self.assertEqual(result['records'], 4)
@@ -406,6 +433,7 @@ class MaintenanceEvidence(unittest.TestCase):
                 baseline, events, end = self.preselection_files(Path(temporary))
                 events.write_text(raw)
                 result = CHECK['closed_preselection_events'](events, baseline, end)
+                CHECK['validate_preselection_diagnostic'](result)
                 self.assertEqual(result['state'], 'unknown')
                 self.assertEqual(result['observed_reason'], 'unknown')
                 self.assertEqual(result['uncertainty'], uncertainty)
@@ -453,11 +481,119 @@ class MaintenanceEvidence(unittest.TestCase):
                 else:
                     events.write_text(self.event(101, 'PRESELECTION_SAMPLE_NO_EXIT') * 401)
                 result = CHECK['closed_preselection_events'](events, baseline, end)
+                CHECK['validate_preselection_diagnostic'](result)
                 self.assertEqual(result['state'], 'unknown')
                 self.assertEqual(result['uncertainty'],
                     'invalid_baseline' if kind.startswith('baseline')
                     else 'invalid_window_end' if kind.startswith('end') else 'invalid')
                 self.assertIsNone(result['counts'])
+
+    @staticmethod
+    def selection_route():
+        return dict(schema_version=1, stage='budget', reason='DEADLINE_EXHAUSTED',
+            last_connect_reason='PRESELECTION_UNAVAILABLE', connect_exit_status=1,
+            attempts=12, retries=11, redraws=0, path_polls=0, path_status=None)
+
+    def test_route_projection_binds_last_window_and_excludes_private_context(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            baseline, events, end = self.preselection_files(work)
+            baseline.rename(work / 'private-storage-maintenance-selection-start.private')
+            end.rename(work / 'private-storage-maintenance-selection-end.private')
+            phase = work / 'private-storage-maintenance-selection-phase.private'
+            phase.write_text('initial\n')
+            phase.chmod(0o600)
+            events.write_text(self.event(99, 'PRESELECTION_SAMPLE_NO_EXIT')
+                + self.event(101, 'PRESELECTION_SAMPLE_INSUFFICIENT_RELAYS')
+                + self.event(111, 'PRESELECTION_SAMPLE_NO_EXIT'))
+            raw = work / 'private-storage-maintenance-selection-route-diagnostic.json'
+            raw.write_text(json.dumps(self.selection_route()))
+            raw.chmod(0o600)
+            value = CHECK['route_diagnostic'](work)
+            CHECK['validate_route_diagnostic'](value)
+            self.assertEqual(value['route_state'], 'observed')
+            self.assertEqual(value['selection_phase'], 'initial')
+            self.assertEqual(value['route'], self.selection_route())
+            self.assertEqual(value['preselection']['observed_reason'], 'PRESELECTION_SAMPLE_INSUFFICIENT_RELAYS')
+            self.assertEqual(value['scope'], 'last_selection_window_not_failure_cause')
+            self.assertFalse(value['acceptance_evidence'])
+            for private in (str(work), 'session=', 'path=', '12345', 'a' * 64):
+                self.assertNotIn(private, json.dumps(value))
+            exported = work / 'public.json'
+            exported.write_text(json.dumps(value))
+            subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                'route-diagnostic-check', str(exported)], check=True, capture_output=True, timeout=5)
+            for phase_text, expected in (('reconnect\n', 'reconnect'), ('PRIVATE_PATH\n', 'unknown')):
+                phase.write_text(phase_text)
+                self.assertEqual(CHECK['route_diagnostic'](work)['selection_phase'], expected)
+            phase.write_text('initial\n')
+            phase.chmod(0o644)
+            self.assertEqual(CHECK['route_diagnostic'](work)['selection_phase'], 'unknown')
+
+    def test_route_projection_missing_or_invalid_is_unknown_not_raw_export(self):
+        for kind in ('missing', 'empty', 'duplicate', 'private', 'oversize', 'mode', 'symlink', 'hardlink', 'fifo'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary)
+                raw = work / 'private-storage-maintenance-selection-route-diagnostic.json'
+                if kind != 'missing':
+                    raw.write_text(json.dumps(self.selection_route()))
+                    raw.chmod(0o600)
+                if kind == 'empty':
+                    raw.write_text('')
+                elif kind == 'duplicate':
+                    raw.write_text('{"schema_version":1,' + raw.read_text()[1:])
+                elif kind == 'private':
+                    raw.write_text(json.dumps(dict(self.selection_route(), token='PRIVATE_CANARY')))
+                elif kind == 'oversize':
+                    raw.write_text('PRIVATE_CANARY' * 2048)
+                elif kind == 'mode':
+                    raw.chmod(0o644)
+                elif kind == 'symlink':
+                    raw.rename(work / 'target')
+                    raw.symlink_to(work / 'target')
+                elif kind == 'hardlink':
+                    os.link(raw, work / 'other')
+                elif kind == 'fifo':
+                    raw.unlink()
+                    os.mkfifo(raw, 0o600)
+                # Real child bounds the FIFO/no-writer regression as well.
+                result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                    'route-diagnostic', str(work)], check=True, capture_output=True, text=True, timeout=5)
+                value = json.loads(result.stdout)
+                CHECK['validate_route_diagnostic'](value)
+                self.assertEqual(value['route_state'], 'absent' if kind == 'missing' else 'invalid')
+                self.assertEqual(value['selection_phase'], 'unknown')
+                self.assertIsNone(value['route'])
+                self.assertEqual(value['preselection']['state'], 'unknown')
+                self.assertNotIn('PRIVATE_CANARY', result.stdout)
+                self.assertNotIn(str(work), result.stdout)
+
+    def test_route_diagnostic_validator_rejects_open_fields_and_fabricated_known(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            value = CHECK['route_diagnostic'](Path(temporary))
+        value.update(route_state='observed', route=self.selection_route())
+        mutations = (
+            lambda v: v.update(version=True), lambda v: v.update(acceptance_evidence=True),
+            lambda v: v.update(scope='failure_cause'), lambda v: v.update(token='PRIVATE'),
+            lambda v: v.update(selection_phase='PRIVATE'),
+            lambda v: v.update(route_state='absent'), lambda v: v.update(route=None),
+            lambda v: v['route'].update(attempts=True), lambda v: v['route'].update(retries=0),
+            lambda v: v['route'].update(attempts=361, retries=360),
+            lambda v: v['route'].update(redraws=33), lambda v: v['route'].update(path_polls=101),
+            lambda v: v['route'].update(stage='complete'),
+            lambda v: v['route'].update(last_connect_reason='PRIVATE'),
+            lambda v: v['route'].update(connect_exit_status=True),
+            lambda v: v['preselection'].update(state='known', observed_reason='PRESELECTION_SAMPLE_NO_EXIT'),
+            lambda v: v['preselection'].update(uncertainty='PRIVATE'),
+            lambda v: v['preselection'].update(records=0),
+            lambda v: v['preselection'].update(window_covers_baseline=True),
+            lambda v: v['preselection'].update(session='PRIVATE'),
+        )
+        for mutate in mutations:
+            invalid = copy.deepcopy(value)
+            mutate(invalid)
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                CHECK['validate_route_diagnostic'](invalid)
 
     def test_retirement_projects_only_existing_bounded_checkpoint_fields(self):
         namespace = CHECK['retirement_turn'].__globals__
@@ -652,7 +788,8 @@ class MaintenanceEvidence(unittest.TestCase):
             consumer_only = set(CHECK['CONSUMERS']['EXPORT_NAMES']) - set(CHECK['F']['EXPORT_NAMES'])
             self.assertEqual(set(CHECK['EXPORT_NAMES']) - consumer_only - {
                 'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json',
-                'private-storage-maintenance-lifecycle-failure.json'},
+                'private-storage-maintenance-lifecycle-failure.json', 'private-storage-maintenance-route-diagnostic.json',
+                'private-storage-maintenance-inventory.json'},
                 {p.name for p in root.iterdir()})
             (root / 'private-storage-fragments-restored_usage.json').write_text('{}')
             with self.assertRaises(ValueError):
