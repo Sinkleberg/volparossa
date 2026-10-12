@@ -78,6 +78,9 @@ FAILURE_CODES = {
     'owner lifecycle deadline': 'lifecycle_deadline',
     'lifecycle initial cursor': 'lifecycle_initial_cursor',
     'core loss changed charged custody': 'lifecycle_charge_changed',
+    'core loss changed fragment count': 'lifecycle_fragment_count_changed',
+    'core loss changed copy count': 'lifecycle_copy_count_changed',
+    'core loss changed placement count': 'lifecycle_placement_count_changed',
     'core loss changed enrollment': 'lifecycle_enrollment_changed',
     'invalid fixture coordinator reply': 'lifecycle_coordinator_invalid',
     'SIGTERM did not persist pause': 'lifecycle_pause_missing',
@@ -286,7 +289,7 @@ def retirement_turn(value, turn):
 
 def failure_receipt(error):
     if LIFECYCLE_DIAGNOSTIC is not None:
-        return dict(version=1, success=False, kind='private-storage-maintenance-lifecycle-failure',
+        return dict(version=2, success=False, kind='private-storage-maintenance-lifecycle-failure',
             code='sampler_failure' if isinstance(error, SAMPLER['SamplerFailure']) else failure_code(error),
             **LIFECYCLE_DIAGNOSTIC, sampler=SAMPLER_DIAGNOSTIC or None)
     return dict(version=1, success=False, kind='private-storage-maintenance-failure', stage=STAGE,
@@ -298,11 +301,16 @@ def failure_receipt(error):
 
 def validate_lifecycle_failure(value):
     """Reject rather than copy unknown fields from even fixture-owned output."""
-    require(isinstance(value, dict) and set(value) == {'version', 'success', 'kind', 'code', 'stage',
+    require(isinstance(value, dict) and type(value.get('version')) is int
+        and value['version'] in (1, 2), 'invalid lifecycle failure')
+    fields = {'version', 'success', 'kind', 'code', 'stage',
         'cursor_before', 'cursor_last', 'checkpoint_stage', 'owner_exit_status', 'owner_joined',
-        'cleanup_error', 'sampler'}, 'invalid lifecycle failure')
+        'cleanup_error', 'sampler'}
+    if value['version'] == 2:
+        fields.add('retained_status')
+    require(set(value) == fields, 'invalid lifecycle failure')
     codes = set(FAILURE_CODES.values()) | {'cli_timeout', 'cli_process', 'local_io', 'unclassified', 'sampler_failure'}
-    require(type(value['version']) is int and value['version'] == 1 and value['success'] is False
+    require(value['success'] is False
         and value['kind'] == 'private-storage-maintenance-lifecycle-failure'
         and value['stage'] in LIFECYCLE_STAGES and value['code'] in codes, 'invalid lifecycle failure')
     for key in ('cursor_before', 'cursor_last'):
@@ -314,6 +322,8 @@ def validate_lifecycle_failure(value):
         and -128 <= value['owner_exit_status'] <= 255, 'invalid lifecycle failure')
     require(type(value['owner_joined']) is bool and (value['cleanup_error'] is None
         or value['cleanup_error'] in codes), 'invalid lifecycle failure')
+    if value['version'] == 2 and value['retained_status'] is not None:
+        validate_retained_status(value['retained_status'])
     sampler = value['sampler']
     if sampler is not None:
         fields = {'phase', 'operation', 'code', 'samples', 'completed', 'failed'}
@@ -572,21 +582,86 @@ def wait_owner(owner, predicate, seconds=180, *, budget=None):
     raise ValueError('owner lifecycle deadline')
 
 
+CHARGE_STATES = ('unattempted', 'reserved', 'committed', 'uncertain', 'deleted', 'unknown')
+RETAINED_BYTES = ('physical_payload_charge_upper_bound', 'reserved_payload_bytes',
+    'committed_payload_bytes', 'uncertain_payload_bytes')
+
+
+def retained_status_diagnostic(value, now):
+    """Project one existing status response, never journals, keys or lease IDs.
+
+    Missing/malformed details remain unknown; no remote availability is inferred
+    from locally retained expiries. Limits only bound diagnostics, not acceptance.
+    """
+    is_object = isinstance(value, dict)
+    value = value if is_object else {}
+    result = {key: bounded_count(value.get(key), 2**64 - 1) for key in RETAINED_BYTES}
+    result.update(fragment_count=None, copy_counts=None,
+        placement_field_present='placement_authorizations' in value if is_object else None,
+        placement_authorizations=bounded_count(value.get('placement_authorizations', 0), 4096) if is_object else None,
+        charge_states=None, retained_expiries=None)
+    fragments = value.get('fragments')
+    if not isinstance(fragments, list) or len(fragments) > 64:
+        return result
+    result['fragment_count'] = len(fragments)
+    copies = [item.get('copies') if isinstance(item, dict) else None for item in fragments]
+    result['copy_counts'] = [len(items) if isinstance(items, list) and len(items) <= 64 else None
+        for items in copies]
+    if None in result['copy_counts']:
+        return result
+    charges = dict.fromkeys(CHARGE_STATES, 0)
+    expiries = dict.fromkeys(('expired', 'unexpired', 'unknown'), 0)
+    for items in copies:
+        for item in items:
+            item = item if isinstance(item, dict) else {}
+            charge = item.get('charge')
+            charges[charge if type(charge) is str and charge in CHARGE_STATES else 'unknown'] += 1
+            expiry = bounded_count(item.get('last_confirmed_expiry'), 2**64 - 1)
+            state = ('unknown' if not expiry or type(now) is not int or now < 0
+                else 'unexpired' if expiry > now else 'expired')
+            expiries[state] += 1
+    result.update(charge_states=charges, retained_expiries=expiries)
+    return result
+
+
+def validate_retained_status(value):
+    fields = set(RETAINED_BYTES) | {'fragment_count', 'copy_counts', 'placement_field_present',
+        'placement_authorizations', 'charge_states', 'retained_expiries'}
+    require(isinstance(value, dict) and set(value) == fields, 'invalid retained status diagnostic')
+    for name in RETAINED_BYTES + ('fragment_count', 'placement_authorizations'):
+        maximum = 64 if name == 'fragment_count' else 4096 if name == 'placement_authorizations' else 2**64 - 1
+        require(value[name] is None or bounded_count(value[name], maximum) == value[name]
+            and type(value[name]) is int, 'invalid retained status diagnostic')
+    require(value['placement_field_present'] is None or type(value['placement_field_present']) is bool,
+        'invalid retained status diagnostic')
+    counts = value['copy_counts']
+    require(counts is None and value['fragment_count'] is None or isinstance(counts, list)
+        and len(counts) == value['fragment_count'] and all(count is None or type(count) is int
+            and 0 <= count <= 64 for count in counts), 'invalid retained status diagnostic')
+    total = sum(counts) if counts is not None and None not in counts else None
+    for key, keys in (('charge_states', CHARGE_STATES), ('retained_expiries', ('expired', 'unexpired', 'unknown'))):
+        detail = value[key]
+        require(detail is None if total is None else isinstance(detail, dict) and set(detail) == set(keys)
+            and all(type(count) is int and 0 <= count <= 4096 for count in detail.values())
+            and sum(detail.values()) == total, 'invalid retained status diagnostic')
+
+
 def retained_during_core_loss(retained):
+    if LIFECYCLE_DIAGNOSTIC is not None:
+        LIFECYCLE_DIAGNOSTIC['retained_status'] = retained_status_diagnostic(retained, int(time.time()))
     # Original placements have the unchanged v1 report shape: v2-only repair
     # history fields do not exist until the first signed replacement is retained.
-    require(retained['physical_payload_charge_upper_bound'] == 2 * BYTES
-        and len(retained['fragments']) == 4
-        and all(len(fragment['copies']) == 2 for fragment in retained['fragments'])
-        and retained.get('placement_authorizations', 0) == 0,
-        'core loss changed charged custody')
+    require(retained['physical_payload_charge_upper_bound'] == 2 * BYTES, 'core loss changed charged custody')
+    require(len(retained['fragments']) == 4, 'core loss changed fragment count')
+    require(all(len(fragment['copies']) == 2 for fragment in retained['fragments']), 'core loss changed copy count')
+    require(retained.get('placement_authorizations', 0) == 0, 'core loss changed placement count')
 
 
 def lifecycle(root, binary, client, keys):
     """A fixed external VM supervisor alone controls the core service."""
     global LIFECYCLE_DIAGNOSTIC
     LIFECYCLE_DIAGNOSTIC = dict(stage='checkpoint_before', cursor_before=None, cursor_last=None,
-        checkpoint_stage=None, owner_exit_status=None, owner_joined=False, cleanup_error=None)
+        checkpoint_stage=None, owner_exit_status=None, owner_joined=False, cleanup_error=None, retained_status=None)
     enrollment = (root / 'maintenance/enrollment.json').read_bytes()
     budget = LifecycleBudget(json.loads(enrollment)['enrollment']['expires'])
 

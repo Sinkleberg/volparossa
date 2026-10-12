@@ -16,6 +16,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 SCENARIO = 'private-storage-maintenance'
@@ -264,17 +265,19 @@ with target.open('xb') as stream:
             work = Path(temporary)
             private = work / 'maintenance-owner-lifecycle.private'
             exported = work / 'private-storage-maintenance-lifecycle-failure.json'
-            cases = (json.dumps(value), json.dumps(dict(value, private='SECRET')),
+            current = dict(value, version=2, retained_status=M['retained_status_diagnostic']({}, 100))
+            cases = (json.dumps(value), json.dumps(current), json.dumps(dict(value, private='SECRET')),
                 json.dumps(dict(value, code='SECRET_PATH')), json.dumps(dict(value, cursor_last=True)),
-                json.dumps(dict(value, sampler=dict(value['sampler'], raw_stderr='SECRET'))), 'x' * 8193)
+                json.dumps(dict(value, sampler=dict(value['sampler'], raw_stderr='SECRET'))),
+                json.dumps(dict(current, retained_status=dict(current['retained_status'], private='SECRET'))), 'x' * 8193)
             for index, raw in enumerate(cases):
                 private.write_text(raw)
                 private.chmod(0o600)
                 subprocess.run(['sh', '-eu', '-c', block], check=True, capture_output=True, timeout=5,
                     env={'PATH': '/usr/bin:/bin', 'WORK': str(work), 'source_directory': str(HERE.parents[1]),
                         'maintenance_status': '1'})
-                if index == 0:
-                    self.assertEqual(json.loads(exported.read_text()), value)
+                if index < 2:
+                    self.assertEqual(json.loads(exported.read_text()), (value, current)[index])
                     exported.unlink()
                 else:
                     self.assertFalse(exported.exists())
@@ -293,6 +296,85 @@ with target.open('xb') as stream:
             mutate(invalid)
             with self.assertRaises(ValueError):
                 M['retained_during_core_loss'](invalid)
+
+    def test_retained_failure_codes_distinguish_each_unchanged_predicate(self):
+        value, _, _ = FIXTURE['OLD']['cli_fixture']('committed')
+        mutations = (
+            (lambda v: v.update(physical_payload_charge_upper_bound=0), 'lifecycle_charge_changed'),
+            (lambda v: v['fragments'].pop(), 'lifecycle_fragment_count_changed'),
+            (lambda v: v['fragments'][0]['copies'].append(dict(charge='unattempted', last_confirmed_expiry=0)),
+                'lifecycle_copy_count_changed'),
+            (lambda v: v.update(placement_authorizations=1), 'lifecycle_placement_count_changed'))
+        for mutate, code in mutations:
+            invalid = copy.deepcopy(value)
+            mutate(invalid)
+            diagnostic = {}
+            with patch.dict(M['retained_during_core_loss'].__globals__, LIFECYCLE_DIAGNOSTIC=diagnostic):
+                with self.assertRaises(ValueError) as error:
+                    M['retained_during_core_loss'](invalid)
+            self.assertEqual(M['failure_code'](error.exception), code)
+            M['validate_retained_status'](diagnostic['retained_status'])
+            self.assertEqual(diagnostic['retained_status']['physical_payload_charge_upper_bound'],
+                invalid['physical_payload_charge_upper_bound'])
+        # Uncertainty/retention changes alone do not change the original total
+        # charge/geometry acceptance, nor prove live remote availability.
+        value['fragments'][0]['copies'][0].update(charge='uncertain', last_confirmed_expiry=99)
+        value['fragments'][0]['copies'][1]['last_confirmed_expiry'] = 101
+        M['retained_during_core_loss'](value)
+        diagnostic = M['retained_status_diagnostic'](value, 100)
+        self.assertEqual(diagnostic['charge_states']['uncertain'], 1)
+        self.assertGreaterEqual(diagnostic['retained_expiries']['expired'], 1)
+        self.assertGreaterEqual(diagnostic['retained_expiries']['unexpired'], 1)
+
+    def test_retained_status_projection_is_bounded_closed_and_missing_is_unknown(self):
+        value, _, _ = FIXTURE['OLD']['cli_fixture']('committed')
+        value['private_path'] = 'PRIVATE_CANARY'
+        value['fragments'][0]['copies'][0].update(provider_key='PRIVATE_CANARY',
+            charge=['PRIVATE_CANARY'], last_confirmed_expiry=True)
+        projected = M['retained_status_diagnostic'](value, 100)
+        self.assertNotIn('PRIVATE_CANARY', json.dumps(projected))
+        self.assertEqual(projected['charge_states']['unknown'], 1)
+        self.assertGreaterEqual(projected['retained_expiries']['unknown'], 1)
+        self.assertFalse(projected['placement_field_present'])
+        self.assertEqual(projected['placement_authorizations'], 0)  # Original v1 report shape.
+        for invalid in (None, {}, dict(fragments=[{}]), dict(fragments=[{}] * 65),
+                dict(fragments=[dict(copies=[{}] * 65)]),
+                dict(value, physical_payload_charge_upper_bound=2**64, placement_authorizations=True)):
+            diagnostic = M['retained_status_diagnostic'](invalid, 100)
+            M['validate_retained_status'](diagnostic)
+            self.assertLess(len(json.dumps(diagnostic)), 8192)
+        self.assertIsNone(M['retained_status_diagnostic'](None, 100)['placement_authorizations'])
+        for mutate in (lambda v: v.update(private_path='PRIVATE_CANARY'),
+                lambda v: v.update(fragment_count=True), lambda v: v['copy_counts'].append(2),
+                lambda v: v['charge_states'].update(unknown=4097),
+                lambda v: v['retained_expiries'].update(expired=True)):
+            invalid = copy.deepcopy(projected)
+            mutate(invalid)
+            with self.assertRaises(ValueError):
+                M['validate_retained_status'](invalid)
+
+    def test_lifecycle_v2_exports_only_projected_status_and_keeps_v1_distinct(self):
+        value, _, _ = FIXTURE['OLD']['cli_fixture']('committed')
+        context = dict(stage='verify_retained', cursor_before=3, cursor_last=4,
+            checkpoint_stage='core_unavailable', owner_exit_status=0, owner_joined=True,
+            cleanup_error=None, retained_status=M['retained_status_diagnostic'](value, 100))
+        with patch.dict(M['failure_receipt'].__globals__, LIFECYCLE_DIAGNOSTIC=context, SAMPLER_DIAGNOSTIC={}):
+            receipt = M['failure_receipt'](ValueError('core loss changed copy count'))
+        self.assertEqual(receipt['version'], 2)
+        M['validate_lifecycle_failure'](receipt)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'failure.json'
+            path.write_text(json.dumps(receipt)); path.chmod(0o600)
+            result = subprocess.run([sys.executable, '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                'lifecycle-failure', str(path)], capture_output=True, check=True, timeout=5)
+            self.assertEqual(json.loads(result.stdout), receipt)
+        historical = dict(receipt, version=1, code='lifecycle_charge_changed')
+        del historical['retained_status']
+        M['validate_lifecycle_failure'](historical)
+        for invalid in (dict(receipt, version=1), dict(historical, version=2),
+                dict(receipt, retained_status=dict(receipt['retained_status'], private='SECRET'))):
+            with self.assertRaises(ValueError):
+                M['validate_lifecycle_failure'](invalid)
 
     def test_every_lifecycle_flag_and_cursor_is_required(self):
         value = FIXTURE['fixture']()['lifecycle']
