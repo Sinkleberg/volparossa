@@ -325,6 +325,105 @@ class LateRecovery(unittest.TestCase):
                 if failure in ("snapshot", "activation"):
                     self.assertLess(calls.index("cleanup-gate"), calls.index("fetch-terminate"))
 
+    def test_one_absolute_gate_deadline_accepts_late_discovery_but_not_slow_activation_or_release(self):
+        for case in ("discovery-5.09s", "discovery-expired", "activation-expired", "release-expired"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary); native = work / "state-client/content-late-recovery"; native.mkdir(parents=True)
+                binary = work / "volparossa"; binary.touch()
+                value, calls, clock = fixture(), [], [1_000_000_000]
+                gate_started, fetch_started, deadlines = [], [], []
+                for name, contents in (("layout", value["layout"]), ("peers", value["expected_peers"]),
+                        ("publication", value["publication"])):
+                    CHECK["write"](CHECK["path"](work, name), contents)
+                class Process:
+                    pid = 77
+                    returncode = None
+                    def poll(self): return self.returncode
+                    def wait(child, timeout):
+                        calls.append("fetch-wait")
+                        if child.returncode is not None:
+                            self.assertEqual(timeout, 2)
+                            return child.returncode
+                        self.assertAlmostEqual(timeout, (fetch_started[0]+300_000_000_000-clock[0])/1e9)
+                        clock[0] += 100_000_000
+                        (native / "object.bin").write_bytes(
+                            b"".join(bytes([16+i])*262144 for i in range(8)) + bytes([25])*123)
+                        child.returncode = 0
+                        return 0
+                    def terminate(child): calls.append("fetch-terminate"); child.returncode = -15
+                    def kill(child): calls.append("fetch-kill"); child.returncode = -9
+                process = Process()
+                def spawn(*args, **kwargs):
+                    fetch_started.append(clock[0]); calls.append("fetch-start")
+                    return process
+                def advance(seconds): clock[0] += round(seconds*1e9)
+                def execute(args, **kwargs):
+                    # Exercise real command(): every subprocess receives only its
+                    # remaining absolute budget, capped at two seconds.
+                    duration, output = 0.005, b""
+                    if args[-2:] == ["list", "tables"]: output = b'{"nftables":[]}'
+                    elif args[-2:] == ["-f", "-"]:
+                        gate_started.append(clock[0]); calls.append("gate-install")
+                    elif "list" in args and "table" in args: output = json.dumps(gate_fixture()).encode()
+                    elif "logs" in args:
+                        label = "client" if "runtime-client" in args[2] else "broker"
+                        if process.returncode == 0: snapshot = value["final_snapshot"]
+                        elif case != "discovery-expired" and clock[0] >= fetch_started[0]+5_090_000_000:
+                            snapshot = value["first_snapshot"]
+                        else: snapshot = dict(client=[], broker=value["first_snapshot"]["broker"])
+                        output = "".join(f"{row['unix_ms']} INFO event={row['event']}\n" for row in snapshot[label]).encode()
+                    elif "serve" in args:
+                        calls.append("activate-b")
+                        duration = 1.0 if case == "activation-expired" else 0.1
+                        output = json.dumps(value["providers"]["relay5"]["serve"]).encode()
+                    elif "delete" in args:
+                        calls.append("gate-release")
+                        duration = 1.0 if case == "release-expired" else 0.01
+                    else: self.fail(f"unexpected command {args}")
+                    if gate_started and process.returncode is None:
+                        deadline = gate_started[0]+CHECK["GATE_NS"]
+                        self.assertGreater(kwargs["timeout"], 0)
+                        self.assertLessEqual(kwargs["timeout"], min(2, (deadline-clock[0])/1e9))
+                        deadlines.append(deadline)
+                    if duration > kwargs["timeout"]:
+                        advance(kwargs["timeout"])
+                        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+                    advance(duration)
+                    return SimpleNamespace(returncode=0, stdout=output)
+                def release(_work, **_kwargs):
+                    calls.append("cleanup-gate")
+                    self.assertLessEqual(clock[0], gate_started[0]+CHECK["GATE_NS"]+20_000_000)
+                    if case != "discovery-5.09s": self.assertTrue(CHECK["path"](work, "failure").exists())
+                with patch.dict(CHECK["run"].__globals__, guest=lambda work: None,
+                        namespace=lambda work: dict(name="va-00000000-r4", identity="1:2"),
+                        process_identity=lambda pid: dict(pid=pid, start_ticks=100), remove_gate=release), \
+                        patch.object(CHECK["subprocess"], "run", side_effect=execute), \
+                        patch.object(CHECK["subprocess"], "Popen", side_effect=spawn), \
+                        patch.object(CHECK["time"], "monotonic_ns", side_effect=lambda: clock[0]), \
+                        patch.object(CHECK["time"], "time_ns", return_value=1_000_000_000), \
+                        patch.object(CHECK["time"], "sleep", side_effect=advance):
+                    if case == "discovery-5.09s": CHECK["run"](work, binary, "va-00000000-r4")
+                    else:
+                        with self.assertRaises((ValueError, subprocess.TimeoutExpired)):
+                            CHECK["run"](work, binary, "va-00000000-r4")
+                self.assertEqual(set(deadlines), {gate_started[0]+6_000_000_000})
+                cleanup = CHECK["read"](CHECK["path"](work, "run-cleanup"))
+                self.assertEqual(cleanup, dict(fetch_reaped=True, gate_removed=True,
+                    operation_completed=case == "discovery-5.09s"))
+                if case == "discovery-5.09s":
+                    output = CHECK["read"](CHECK["path"](work, "object"))
+                    self.assertGreaterEqual(output["first_snapshot_observed_ns"]-output["fetch_started_ns"], 5_090_000_000)
+                    self.assertLessEqual(output["gate_released_ns"]-output["gate_started_ns"], 6_000_000_000)
+                    value["output"] = output; CHECK["validate"](value)
+                else:
+                    failure = CHECK["read"](CHECK["path"](work, "failure")); CHECK["validate_failure"](failure)
+                    self.assertEqual(failure["stage"], {"discovery-expired": "first-snapshot",
+                        "activation-expired": "activate-b", "release-expired": "gate-release"}[case])
+                    self.assertFalse(CHECK["path"](work, "object").exists())
+                    self.assertLess(calls.index("cleanup-gate"), calls.index("fetch-terminate"))
+                if case == "discovery-expired": self.assertNotIn("activate-b", calls)
+                if case == "activation-expired": self.assertNotIn("gate-release", calls)
+
     def test_builder_requires_exact_original_snapshots_and_disconnected_route(self):
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary); expected = fixture()

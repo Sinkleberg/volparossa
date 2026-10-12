@@ -255,7 +255,10 @@ def run(work, binary, provider_namespace):
                 initial = snapshot(baseline, deadline)
                 require(count(initial["client"], EVENTS[0]) <= 1, "first snapshot already passed")
                 if first_snapshot(initial): break
-                require(time.monotonic_ns() < deadline - 2_000_000_000, "first snapshot not available within gate budget")
+                # Discovery, activation and release share the same six-second
+                # deadline; reserving two seconds here rejected valid DHT replies
+                # before that deadline. Slow later commands still fail closed.
+                require(time.monotonic_ns() < deadline, "first snapshot not available within gate budget")
                 time.sleep(0.02)
             observed = time.monotonic_ns()
             write(path(work, "first-snapshot"), initial)

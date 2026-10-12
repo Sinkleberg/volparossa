@@ -29,22 +29,64 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Complete requester cancellation, then join Weather delivery to the verified cache path. | Hosted run `38190664934` on `ebf0d077` passes native and HTTPS three-provider reconstruction and actual late-provider recovery. Cancellation stops before admission because its eight-second prerequisite overlaps the previous bootstrap's thirty-second cooldown. The fixture correction passes focused tests and independent review; repeat the protected trial without relaxing cancellation deadlines. Pressure-retirement continuation passes deterministic tests but was not triggered in this healthy live run; a protected pressure-specific result remains open. |
-| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Weather PR10 fixes cleanup of rejected HTTP responses without retries or relaxed validation. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Complete late-provider recovery and requester cancellation in one protected run, then join Weather delivery to the verified cache path. | Run `38193112015` on `24463595` again passes native and HTTPS three-provider reconstruction, but the late-provider fixture stops waiting before its first discovery completes. The fixture correction shares the existing six-second budget instead of stopping at four seconds; thirteen focused checks pass. Cancellation remains unreached. Actual late recovery passed in the preceding run; pressure-retirement continuation still needs its own protected result. |
+| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost; a separate exact-source probe encounters ECMWF HTTP 429. Closed retention now includes bounded Retry-After diagnostics and passes eighty focused checks, without extra requests, retries or relaxed validation. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR11 are merged with passing CI. The closed bundle profile 3 reuses the two-product acquisition/transfer path and checks exact ordered Flutter rows. Browser08 passes actual synthetic UI checks with the corrected ECMWF module, and a new immutable archive verifies against that proof. Actual joined core delivery, runtime table extraction and native Android/iOS execution remain unverified. |
 
 Respect the observed source rate limit instead of repeatedly relaunching the
 joined trial or routing requests through other peers. Finish the standalone
-provider proof, which needs no weather downloads, at its remaining cancellation
-boundary. The latest run proves concurrent reconstruction and late discovery,
-but does not exercise the pressure-retirement continuation itself.
+provider proof, which needs no weather downloads, through late discovery and
+cancellation. The latest run proves concurrent reconstruction, while the
+preceding run proves late recovery. Neither exercises the pressure-retirement
+continuation itself.
 The Drizz.li/Weather candidate and frozen input
 bundle remain intact; Overmorrow's core delivery and native execution are still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
 
-The latest [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38190664934)
+The latest [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38193112015)
+on `24463595` is **failed overall**, at the late-provider fixture's
+`first-snapshot` stage. A's offer is verified after 25 milliseconds, but the
+first discovery response reaches the client after 5.09 seconds. The fixture
+stops waiting at four seconds despite its six-second total gate budget.
+B is never activated; requester cancellation is not reached. The fetch is
+interrupted by cleanup, not reported as a completed product failure.
+
+The correction lets discovery, activation and release share the same absolute
+six-second deadline. Subprocesses receive only the remaining budget, capped at
+two seconds each; the 300-second fetch limit and production discovery limits
+are unchanged. Thirteen late-provider tests pass, including a reproduction of
+the 5.09-second response and expired discovery, activation and release cases.
+Nineteen aggregate checks and ten inert cancellation checks also pass. A new
+protected run must still prove the complete sequence.
+
+Independent reconstruction again validates native and cooperative HTTPS:
+each delivers the exact 15,728,640-byte object in sixty chunks from three
+providers, with triple bulk overlap of 4.614 and 4.437 seconds. HTTPS uses one
+authenticated HEAD and no origin body or range requests. Both worker budgets
+remain at twelve with no pressure flags. All twelve role/control captures
+drain without drops; cleanup leaves zero owned objects. Evidence is retained
+at `.git/ci-evidence/content-provider-hosted-244.hTq3Mu/`.
+The rebuilt adaptive report has SHA-256
+`a08848a7371493e45e7e7b4d3599c3e9af2896dfda34216eabba60a41f3c88ce`.
+Guest-root snapshots are byte-identical, SHA-256
+`d99467378218274580a2abd6927f76651566e885d18c95dea576c5b5680f6f76`.
+For this source, both [Quality](https://github.com/VOLPAROSSA/volparossa/actions/runs/38193076296)
+and [CodeQL](https://github.com/VOLPAROSSA/volparossa/actions/runs/38193073338)
+pass. No Weather acquisition is included in this hosted trial.
+
+Weather source diagnostics now observe an existing, non-redirected HTTP 429
+response without another request or reading its body. Only the product,
+observation time and bounded Retry-After interpretation enter a closed failure
+receipt; raw headers, URLs and sidecar files are not exported. Missing, malformed
+or excessive advice remains explicitly unknown, and never enables automatic
+retry. The observer is a separately verified core fixture helper; the frozen
+Weather input bundle is unchanged. Sixteen Node, thirty-three product,
+thirteen shell and eighteen runner checks pass, including interrupted-file
+cleanup. This is diagnostic verification, not a successful joined Weather run.
+
+The preceding [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38190664934)
 remains **failed overall**, at `content-provider-requester-cancellation`.
 Independent reconstruction from its raw evidence validates the earlier native
 and cooperative-HTTPS transfers: each reconstructs 15,728,640 bytes in sixty
@@ -87,8 +129,8 @@ That test extracted the embedded guest argument parser instead of the host
 dispatch after the case-arm order changed. A test-only correction now selects
 the unique host boundary, rejects four ambiguous/embedded variants, and passes
 the affected static contract script, syntax and ShellCheck. The product runner
-and argument/hash assertions are unchanged; hosted verification of the new
-fixture revision is still required.
+and argument/hash assertions are unchanged; the subsequent `24463595` Quality
+run passes this correction.
 
 Evidence is retained at `.git/ci-evidence/content-provider-hosted-ebf.dCSta4/`.
 The independently rebuilt adaptive and late reports have SHA-256
