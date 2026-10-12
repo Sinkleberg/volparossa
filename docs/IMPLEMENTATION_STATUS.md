@@ -29,7 +29,7 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Prove pressure retirement and continuation, then resume joined Weather delivery. | The corrected standalone baseline passes on `9441b451`. The first pressure run observes real contraction and serial continuation but fails its discovery-evidence check: the phase uses targeted refresh, not generic DHT discovery. Correct that distinction and rerun the complete sequence; retain the failed result. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Integrate the verified provider sequence, then resume joined Weather delivery. | The full sequence passes on `0f391c77`, including real CPU-pressure contraction and useful serial continuation. Independent raw-evidence reconstruction passes; the earlier failed result remains unchanged. Join the pressure fixture to PR227 and complete its integration checks. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined attempt on `9441b451` stops during the guest build because of development-host memory pressure, before any Weather request. Prepare execution away from the development host without uploading private inputs or bypassing source limits. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover joined delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR13 are merged with passing CI. Exact table extraction and a fresh full browser trial pass with synthetic products. A new immutable bundle with the corrected verifier passes capture, runtime and extracted-tree checks; the old bundle remains unchanged. Joined core delivery and native Android/iOS execution remain unverified. |
 
@@ -39,10 +39,10 @@ corrected core stops during its build because of host memory pressure. Neither
 reaches Weather acquisition. Do not automatically retry source requests or route
 them through other peers to evade a source limit. The earlier ECMWF HTTP 429 and
 its bounded Retry-After diagnostics remain relevant to the next acquisition.
-Pressure retirement and continuation remain separate evidence gaps, not implied
-by successful parallel delivery. The separate pressure phase has reached real
-transfer and cleanup, but its first complete report fails validation. It is not
-part of either passing standalone result or either joined attempt.
+Pressure retirement and useful serial continuation now pass in a separate phase
+of the complete `0f391c77` sequence. This does not prove that pressure has fallen
+before continuation, improved owner-task performance, or joined Weather delivery.
+The first pressure run remains failed; neither joined attempt reaches this phase.
 The Drizz.li/Weather candidate and frozen input
 bundle remain intact; Overmorrow's core delivery and native execution are still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
@@ -183,9 +183,45 @@ client responses. Counters cover only the actual fetch interval; an exact lookup
 finish alone cannot satisfy the check. The earlier generic discovery proof and
 all cold-cache, three-provider, pressure, continuation, route, privacy and
 cleanup requirements remain mandatory. A targeted lookup is not a DHT query.
-The correction passes 117 focused fixture checks and independent review, but
-still requires a new full protected trial. The old raw result lacks these new
-counters and remains rejected rather than being upgraded after the fact.
+The correction passes 117 focused fixture checks and independent review.
+The new full protected trial below supplies its runtime evidence.
+The old raw result lacks these new counters and remains rejected rather than
+being upgraded after the fact.
+
+### Verified provider continuation under CPU pressure
+
+[Run `38207713645`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38207713645)
+passes on exact source `0f391c77a2b9ee72ec2df26cb398a03041ed314b`.
+Independent validation reconstructs the schema-four aggregate and schema-two
+pressure component from the raw artifacts; they match the published reports.
+
+During the separate pressure phase, worker allowance falls from twelve to one
+under measured CPU-only pressure, after a peak of three leases. Two useful
+serial continuations return thirty chunks, 7,864,320 bytes. The complete
+sixty-chunk object, 15,728,640 bytes, arrives from three providers in 57.462
+seconds without origin fallback. Targeted discovery records three starts,
+three finishes and three verified nonempty responses; generic DHT queries
+remain zero. Both pressure workers are reaped without forced kills, and no
+transfer workers remain active.
+
+The complete sequence also verifies healthy native and HTTPS parallel delivery,
+late complementary-provider discovery and requester cancellation. Healthy phases
+each return the same sixty-chunk object with actual three-provider payload
+overlaps of 4.647 and 4.300 seconds. HTTPS uses one authenticated TLS 1.3 HEAD
+and no origin body request. Late recovery releases its gate after 5.371 seconds
+and completes in 12.887 seconds. After requester cancellation, independent
+cache-only delivery completes in 116 ms and control IPC reaches EOF in 10 ms.
+
+Privacy checks retain the required relay paths. Cleanup removes all owned
+objects, and the disposable guest-root network state matches before and after.
+This is not evidence of development-host firewall equality, improved owner-task
+performance, recovery of CPU headroom, or joined Weather/browser delivery.
+
+Evidence is retained at
+`.git/ci-evidence/content-pressure-hosted-fixed.t5ru8b/`. The aggregate SHA-256 is
+`d25eb8460f7edc8f428c9d438db805b254f334608aa9842edc7f8b878c420872`;
+the pressure component SHA-256 is
+`5c2e2fc6044fc502f21c129022ab355f9a664878eac2388f9f24682d7e8e52c6`.
 
 ### Verified cache delivery and remaining integration
 
