@@ -30,9 +30,23 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Java verification and the real Gradle repository/descriptor-limit fixture now pass. The last completed acquisition build stops because locked plugins require Android platforms 34/35 as well as 36. The corrected candidate pins those exact public inputs; the offline rebuild, app launch, refresh and expiry still need proof. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 reuses the existing owner-maintenance candidate with finite authorization and durable state. Its reviewed network harness covers core restart, owner stop/resume, repair and reconstruction; 77 lightweight harness checks pass. The first hosted source check stops at strict Clippy before Rust tests. Verify the narrow corrections and run the protected trial. Consumer supervision and reciprocal capacity accounting remain separate outstanding requirements. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. All required Android platforms and the real Gradle repository/descriptor-limit fixture now pass. Flutter compilation exceeds the 3 GiB process-memory cap; the correction reduces app-build workers and JVM heap without raising the cap. The APK, offline rebuild, app launch, refresh, expiry and complete cleanup still need proof. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 reuses the existing owner-maintenance candidate with finite authorization and durable state. Its reviewed network harness covers core restart, owner stop/resume, repair and reconstruction. The first trial stops before VM startup on an outdated wiring assertion; both affected assertions are corrected and all 158 preflight commands pass locally. Hosted Quality still stops at a test-only Clippy diagnostic, now narrowly corrected. Rust execution and the protected trial remain required. Consumer supervision and reciprocal capacity accounting remain open. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
+
+The latest [Android attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38251506516)
+retains its failed result: process drain could not be confirmed after the memory
+stop, so the policy and staging remain retained. KVM access restoration and an
+unchanged host network namespace pass separately; they are not complete cleanup.
+All 51 hosted-preparation tests and 11 native-preparer tests pass for the smaller
+build profile, which still needs actual hosted execution.
+
+The first [maintenance trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38251889540)
+produces no topology artifact because preflight fails before the VM or Rust
+tests. The separate [Quality run](https://github.com/VOLPAROSSA/volparossa/actions/runs/38251890260)
+rejects one unnecessary qualification in the new future-size test. The correction
+preserves that assertion and changes no production code. These failed runs remain
+part of the evidence; passing lightweight checks do not replace runtime proof.
 
 The successful hosted Drizz.li trial supersedes neither the earlier failed route
 trial nor the local build aborted for host memory pressure; both remain recorded
@@ -159,13 +173,15 @@ the original KVM access. These failed attempts remain separate from the passing
 web proof.
 
 Subsequent Android attempts pass Java verification and then the actual offline
-Gradle repository fixture. The [last completed attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38249512469)
+Gradle repository fixture. An [earlier attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38249512469)
 also verifies the JVM's bounded 4,096-descriptor profile, but the app build lacks
 Android platforms 34/35 required by the unchanged locked plugins. APK generation,
 offline rebuild and emulator execution remain unproved. Original step-log hashes
 match their receipts; process, policy and KVM-access cleanup pass. The corrected
 candidate adds only those two official platform archives to the existing
-read-only SDK preparation.
+read-only SDK preparation. The next attempt verifies them but exceeds the build
+memory cap; its incomplete cleanup and the smaller build profile are recorded
+in the current execution plan above.
 
 ### Private storage maintenance candidate
 
