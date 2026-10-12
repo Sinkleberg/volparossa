@@ -3,7 +3,9 @@
 """Inert hosted workflow contracts; no network, runtime, compiler or VM."""
 import copy
 import hashlib
+import io
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -55,7 +57,58 @@ class HostedWeatherWiring(unittest.TestCase):
         self.assertIn("ref: ${{ env.BROWSER_SOURCE_COMMIT }}", SOURCE)
         self.assertNotIn("ref: main", SOURCE)
         self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', SOURCE)
-        self.assertIn('test "$(git -C build/weather-public-source rev-parse HEAD)" = "$WEATHER_SOURCE_COMMIT"', SOURCE)
+        self.assertIn('test "$(git -C .cache/weather-public-source rev-parse HEAD)" = "$WEATHER_SOURCE_COMMIT"', SOURCE)
+
+    def test_auxiliary_checkout_paths_are_covered_by_existing_gitignore(self):
+        paths = re.findall(r"(?m)^          path: ([.a-zA-Z0-9_/-]+)$", SOURCE)
+        self.assertEqual(paths, [".cache/weather-public-source", ".cache/browser-public-source"])
+        ignored = subprocess.run(["git", "check-ignore", "--no-index", "--stdin"],
+                                 input="\n".join(paths) + "\n", cwd=ROOT, text=True,
+                                 capture_output=True, timeout=5)
+        self.assertEqual(ignored.returncode, 0, ignored.stderr)
+        self.assertEqual(ignored.stdout.splitlines(), paths)
+        # These former checkout destinations were not ignored: they introduced
+        # untracked nested repositories before the immutable VM source guard.
+        old = subprocess.run(["git", "check-ignore", "--no-index", "--stdin"],
+                             input="build/weather-public-source\nbuild/browser-public-source\n",
+                             cwd=ROOT, text=True, capture_output=True, timeout=5)
+        self.assertEqual(old.returncode, 1, old.stderr)
+        self.assertEqual(old.stdout, "")
+
+    def test_last_source_preflight_is_fail_closed_and_diagnostics_are_bounded(self):
+        source = embedded("FINAL_SOURCE_PREFLIGHT")
+        block = SOURCE.split("- name: Run actual protected", 1)[1].split("- name: Require current aggregate", 1)[0]
+        self.assertLess(block.index("# END FINAL_SOURCE_PREFLIGHT"), block.index("sudo -n --"))
+        for status in (b"", b"?? unexpected-public-path\n", b"?? " + b"x" * 10000 + b"\n"):
+            stderr = io.StringIO()
+            with self.subTest(size=len(status)), patch.dict(os.environ, {"GITHUB_SHA": "a" * 40}), \
+                    patch("subprocess.check_output", side_effect=[b"a" * 40 + b"\n", status]) as check, \
+                    patch.object(sys, "stderr", stderr):
+                if status:
+                    with self.assertRaises(SystemExit) as failure:
+                        exec(compile(source, "FINAL_SOURCE_PREFLIGHT", "exec"), {})
+                    self.assertEqual(failure.exception.code, 64)
+                    self.assertIn("source worktree must be clean", stderr.getvalue())
+                    self.assertLessEqual(len(stderr.getvalue()), 8300)
+                    self.assertEqual("status output truncated" in stderr.getvalue(), len(status) > 8192)
+                else:
+                    exec(compile(source, "FINAL_SOURCE_PREFLIGHT", "exec"), {})
+                    self.assertEqual(stderr.getvalue(), "")
+                self.assertEqual(check.call_args_list[-1].args[0], [
+                    "git", "-c", "core.quotePath=true", "status", "--porcelain=v1",
+                    "--untracked-files=normal", "--ignore-submodules=none"])
+        for outputs in ([b"b" * 40 + b"\n"], subprocess.CalledProcessError(128, "git")):
+            with patch.dict(os.environ, {"GITHUB_SHA": "a" * 40}), \
+                    patch("subprocess.check_output", side_effect=outputs):
+                with self.assertRaises((AssertionError, subprocess.CalledProcessError)):
+                    exec(compile(source, "FINAL_SOURCE_PREFLIGHT", "exec"), {})
+
+    def test_runner_original_clean_source_guard_is_preserved(self):
+        runner = (ROOT / "tests/integration/run-alpha-topology-vm.sh").read_text()
+        guard = '''[ -z "$(GIT_OPTIONAL_LOCKS=0 git -C "$REPOSITORY" status --porcelain=v1 \\
+    --untracked-files=normal --ignore-submodules=none)" ] \\
+    || { printf '%s\\n' 'source worktree must be clean' >&2; exit 64; }'''
+        self.assertEqual(runner.count(guard), 1)
 
     def metadata(self):
         pin = dict(repository="VOLPAROSSA/volparossa-weather", run_id=101, commit="a" * 40,
@@ -113,8 +166,8 @@ class HostedWeatherWiring(unittest.TestCase):
         normalized = block.replace("\\\n", " ")
         call = re.search(r"weather-client-bundle.py capture-v4\s+(.+?) >", normalized).group(1)
         paths = re.findall(r'"([^"]+)"', call)
-        self.assertEqual(paths, ["$GITHUB_WORKSPACE/build/weather-public-source",
-                                 "$GITHUB_WORKSPACE/build/browser-public-source",
+        self.assertEqual(paths, ["$GITHUB_WORKSPACE/.cache/weather-public-source",
+                                 "$GITHUB_WORKSPACE/.cache/browser-public-source",
                                  "$WEATHER_INPUTS/assets", "$WEATHER_INPUTS/proof", "$WEATHER_INPUTS/decoder",
                                  "$WEATHER_INPUTS/abi", "$archive"])
         self.assertIn('verify-runtime "$archive" "$manifest"', block)
@@ -218,7 +271,7 @@ class HostedWeatherWiring(unittest.TestCase):
         self.assertIn("if: always() && env.WEATHER_OUTPUT != ''", export)
         self.assertIn("${{ env.WEATHER_OUTPUT }}", export)
         self.assertIn("${{ env.WEATHER_INPUTS }}/provenance/*.json", export)
-        for forbidden in ("weather-client-v4.tar", "build/weather-public-source", "build/browser-public-source",
+        for forbidden in ("weather-client-v4.tar", ".cache/weather-public-source", ".cache/browser-public-source",
                           "${{ env.WEATHER_INPUTS }}/assets", "${{ env.WEATHER_INPUTS }}/decoder", "profile"):
             self.assertNotIn(forbidden, export.split("path: |", 1)[1])
         self.assertIn("without automatic retry", SOURCE)
@@ -232,7 +285,7 @@ class HostedWeatherWiring(unittest.TestCase):
                 result = subprocess.run(["bash", "-n"], input=textwrap.dedent(block),
                                         text=True, capture_output=True, timeout=5)
                 self.assertEqual(result.returncode, 0, result.stderr)
-        for name in ("PUBLIC_ARTIFACT_METADATA", "JOINED_EVIDENCE"):
+        for name in ("PUBLIC_ARTIFACT_METADATA", "FINAL_SOURCE_PREFLIGHT", "JOINED_EVIDENCE"):
             compile(embedded(name), name, "exec")
 
 

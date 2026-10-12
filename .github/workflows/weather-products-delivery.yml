@@ -69,14 +69,14 @@ jobs:
         with:
           repository: VOLPAROSSA/volparossa-weather
           ref: ${{ env.WEATHER_SOURCE_COMMIT }}
-          path: build/weather-public-source
+          path: .cache/weather-public-source
           persist-credentials: false
       - name: Retrieve exact reviewed Browser helper sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: VOLPAROSSA/volparossa-browser
           ref: ${{ env.BROWSER_SOURCE_COMMIT }}
-          path: build/browser-public-source
+          path: .cache/browser-public-source
           persist-credentials: false
       - name: Retrieve only admitted public artifacts
         env:
@@ -126,11 +126,11 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          test "$(git -C build/weather-public-source rev-parse HEAD)" = "$WEATHER_SOURCE_COMMIT"
-          test "$(git -C build/browser-public-source rev-parse HEAD)" = "$BROWSER_SOURCE_COMMIT"
+          test "$(git -C .cache/weather-public-source rev-parse HEAD)" = "$WEATHER_SOURCE_COMMIT"
+          test "$(git -C .cache/browser-public-source rev-parse HEAD)" = "$BROWSER_SOURCE_COMMIT"
           archive="$WEATHER_INPUTS/weather-client-v4.tar"
           python3 -B tests/integration/weather-client-bundle.py capture-v4 \
-            "$GITHUB_WORKSPACE/build/weather-public-source" "$GITHUB_WORKSPACE/build/browser-public-source" \
+            "$GITHUB_WORKSPACE/.cache/weather-public-source" "$GITHUB_WORKSPACE/.cache/browser-public-source" \
             "$WEATHER_INPUTS/assets" "$WEATHER_INPUTS/proof" "$WEATHER_INPUTS/decoder" "$WEATHER_INPUTS/abi" \
             "$archive" > "$WEATHER_INPUTS/provenance/capture.json"
           manifest=$(jq -er '.manifest_sha256 | select(test("^[0-9a-f]{64}$"))' "$WEATHER_INPUTS/provenance/capture.json")
@@ -184,6 +184,21 @@ jobs:
       - name: Run actual protected cold peer delivery and both Drizz.li products
         run: |
           set -euo pipefail
+          python3 -B - <<'PY'
+          # BEGIN FINAL_SOURCE_PREFLIGHT
+          import os, subprocess, sys
+          assert subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip() == os.environ["GITHUB_SHA"]
+          status = subprocess.check_output(["git", "-c", "core.quotePath=true", "status", "--porcelain=v1",
+              "--untracked-files=normal", "--ignore-submodules=none"])
+          if status:
+              print("source worktree must be clean", file=sys.stderr)
+              # Only Git-quoted status names from this public CI checkout; no contents.
+              print(status[:8192].decode("ascii", errors="backslashreplace"), file=sys.stderr)
+              if len(status) > 8192:
+                  print("status output truncated", file=sys.stderr)
+              raise SystemExit(64)
+          # END FINAL_SOURCE_PREFLIGHT
+          PY
           runner_uid=$(id -u)
           case "$runner_uid" in ''|0|0*|*[!0-9]*) exit 1 ;; esac
           sudo -n -- /usr/bin/setpriv --reuid "$runner_uid" --regid "$WEATHER_KVM_GID" \
