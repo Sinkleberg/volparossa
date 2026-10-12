@@ -12,7 +12,7 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-12
+Last updated: 2026-10-13
 
 ## Current integration and active work
 
@@ -46,6 +46,18 @@ passes; native execution is the next separate client milestone. Keep shared
 interface changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
+
+### Protected compute verifier preparation
+
+Suitable confidential-computing hardware is not currently available. This
+blocks live protected-worker acceptance, not the Android/storage integrations
+or software preparation. A separate public-fixture CI candidate now pins
+`virtee/sev` at `a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5`, its unchanged
+lockfile and four SNP chain/report tests. Fourteen inert harness checks pass;
+the real upstream build and cryptographic fixture result are still pending.
+No protected worker, remote private-task release or B04 completion is claimed.
+Public peer tasks and the current local private service remain unchanged.
+See [the bounded trial and missing admission checks](development/PROTECTED_COMPUTE_VERIFIER.md).
 
 ### Public Overmorrow build and joined delivery
 
