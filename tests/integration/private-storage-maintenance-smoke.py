@@ -94,6 +94,8 @@ FAILURE_CODES = {
     'core loss changed fragment count': 'lifecycle_fragment_count_changed',
     'core loss changed copy count': 'lifecycle_copy_count_changed',
     'core loss changed placement count': 'lifecycle_placement_count_changed',
+    'core loss retained intent invalid': 'lifecycle_retained_intent_invalid',
+    'retained intent changed after core restart': 'lifecycle_retained_intent_changed',
     'core loss changed enrollment': 'lifecycle_enrollment_changed',
     'invalid fixture coordinator reply': 'lifecycle_coordinator_invalid',
     'SIGTERM did not persist pause': 'lifecycle_pause_missing',
@@ -849,6 +851,7 @@ def validate_retained_status(value):
 
 
 def retained_during_core_loss(retained):
+    """Historical counter-only contract; current lifecycle uses the bound check below."""
     if LIFECYCLE_DIAGNOSTIC is not None:
         LIFECYCLE_DIAGNOSTIC['retained_status'] = retained_status_diagnostic(retained, int(time.time()))
     # Original placements have the unchanged v1 report shape: v2-only repair
@@ -857,6 +860,133 @@ def retained_during_core_loss(retained):
     require(len(retained['fragments']) == 4, 'core loss changed fragment count')
     require(all(len(fragment['copies']) == 2 for fragment in retained['fragments']), 'core loss changed copy count')
     require(retained.get('placement_authorizations', 0) == 0, 'core loss changed placement count')
+
+
+RETAINED_INTENT_FILE = 'lifecycle-retained-intent.json'
+INTENT_IDENTITY_FIELDS = ('version', 'provider_key', 'owner_key', 'grant_hex', 'archive_id',
+    'ciphertext_bytes', 'sha256', 'requested_expiry')
+
+
+def retained_intent_binding(root, entry):
+    # Renew changes last_expiry, not requested_expiry. Rust's signed-placement
+    # open also requires the initial requested_expiry to remain byte-identical.
+    journal = private_json(root / 'fragment-set/fragment-0000/copy-2/archive.json', 16384)
+    initial = entry['handoff']['initial_journal']
+    require(all(journal[key] == initial[key] for key in INTENT_IDENTITY_FIELDS),
+        'retained intent changed after core restart')
+    return dict(authorization_sha256=identity_sha(entry),
+        initial_identity_sha256=identity_sha({key: journal[key] for key in INTENT_IDENTITY_FIELDS}))
+
+
+def retained_intent_continuity(root):
+    """Private hash continuity only; the preceding real CLI authenticates signed state."""
+    binding = private_json(root / RETAINED_INTENT_FILE, 2048)
+    require(set(binding) == {'version', 'pending'} and type(binding['version']) is int
+        and binding['version'] == 1, 'retained intent changed after core restart')
+    pending = binding['pending']
+    if pending is None:
+        return
+    require(type(pending) is dict and set(pending) == {'authorization_sha256', 'initial_identity_sha256'}
+        and all(type(digest) is str and re.fullmatch('[0-9a-f]{64}', digest) for digest in pending.values()),
+        'retained intent changed after core restart')
+    entries = private_json(root / 'fragment-set/placement-authorizations.json', 1048576)['authority']['placements']
+    require(type(entries) is list and 1 <= len(entries) <= 3
+        and sum(entry['fragment'] == 0 for entry in entries) == 1,
+        'retained intent changed after core restart')
+    entry = next(entry for entry in entries if entry['fragment'] == 0)
+    require(retained_intent_binding(root, entry) == pending, 'retained intent changed after core restart')
+
+
+def retained_current_during_core_loss(root, retained, keys, enrollment):
+    """Preserve all original custody; admit only the first signed, unattempted A→C intent.
+
+    Status opens and verifies the actual Rust signed root/placement/child binding;
+    this Python check narrows that authority to the unchanged fixture enrollment.
+    It does not implement signature verification or infer remote availability.
+    """
+    if LIFECYCLE_DIAGNOSTIC is not None:
+        LIFECYCLE_DIAGNOSTIC['retained_status'] = retained_status_diagnostic(retained, int(time.time()))
+    F['check_identity'](root)
+    require(closed_diagnostic_text(root / 'maintenance/enrollment.json', 32768).encode() == enrollment,
+        'core loss changed enrollment')
+    en = json.loads(enrollment)['enrollment']
+    original_raw = closed_diagnostic_text(root / 'fragment-set/fragments.json', 1048576).encode()
+    original = json.loads(original_raw)['manifest']
+    now = int(time.time())
+    grants = []
+    for label in 'bc':
+        path = root / f'grant-{label}.bin'
+        require(private_file(path).st_size <= 2048, 'core loss retained intent invalid')
+        grants.append(path.read_bytes().hex())
+    require(en['version'] == 1 and en['created'] <= now < en['expires']
+        and en['owner'] == original['owner_key'] and bytes(en['source']).hex() == keys[0]
+        and [bytes(key).hex() for key in en['providers']] == list(keys[1:]) and en['grants'] == grants
+        and bytes(en['root']).hex() == hashlib.sha256(original_raw).hexdigest()
+        and en['maximum_charged'] == MAX_CHARGE,
+        'core loss retained intent invalid')
+    require(retained['operation'] == 'private_storage_fragments_status'
+        and retained['owner_signature_verified'] is True
+        and retained['logical_ciphertext_bytes'] == BYTES and retained['copies_per_fragment'] == 2,
+        'core loss retained intent invalid')
+    require(len(retained['fragments']) == retained['fragment_count'] == 4, 'core loss changed fragment count')
+    pending = retained.get('placement_authorizations', 0)
+    require(type(pending) is int and pending in (0, 1), 'core loss changed placement count')
+    charges, providers = dict(committed=0, uncertain=0), [0, 0, 0]
+    for index, fragment in enumerate(retained['fragments']):
+        require(fragment['index'] == index and fragment['offset'] == sum(LENGTHS[:index])
+            and fragment['ciphertext_bytes'] == LENGTHS[index], 'core loss changed fragment count')
+        require(len(fragment['copies']) == 2 + (pending if index == 0 else 0), 'core loss changed copy count')
+        for copy_index, copy in enumerate(fragment['copies'][:2]):
+            provider = (index + copy_index) % 3
+            require(copy['provider_key'] == keys[provider] and copy['charge'] in charges
+                and copy['last_confirmed_state'] == 'Committed'
+                and copy['last_confirmed_stored_bytes'] == LENGTHS[index]
+                and copy['last_confirmed_expiry'] > now, 'core loss changed charged custody')
+            charges[copy['charge']] += LENGTHS[index]
+            providers[provider] += LENGTHS[index]
+    require(retained['reserved_payload_bytes'] == 0
+        and all(retained[name + '_payload_bytes'] == count for name, count in charges.items())
+        and retained['physical_payload_charge_upper_bound'] == sum(charges.values()) == 2 * BYTES
+        and retained['providers'] == [dict(provider_key=key, physical_payload_charge_upper_bound=count)
+            for key, count in zip(keys, providers)], 'core loss changed charged custody')
+    authority = root / 'fragment-set/placement-authorizations.json'
+    if not pending:
+        require(not authority.exists() and not authority.is_symlink(), 'core loss retained intent invalid')
+        return dict(version=1, pending=None)
+    require(retained.get('report_version') == 2 and retained.get('retained_copy_records') == 9
+        and retained.get('pending_retirements') == 1 and retained.get('desired_copies_per_fragment') == 2
+        and retained.get('replacement_overhead_included') is True, 'core loss retained intent invalid')
+    signed = private_json(authority, 1048576)
+    entries = signed['authority']['placements']
+    require(signed['authority']['root_sha256'] == en['root'] and type(entries) is list and len(entries) == 1,
+        'core loss retained intent invalid')
+    entry = entries[0]
+    intent = entry['handoff']
+    initial = intent['initial_journal']
+    child = private_json(root / 'fragment-set/fragment-0000/replicas.json')
+    journal = private_json(root / 'fragment-set/fragment-0000/copy-2/archive.json', 16384)
+    source = private_json(root / 'fragment-set/fragment-0000/copy-0/archive.json', 16384)
+    original_archives = [copy['archive_id'] for fragment in original['fragments'] for copy in fragment['copies']]
+    require(entry['fragment'] == 0 and intent['from'] == 0 and intent['to'] == 2
+        and intent['phase'] == 'copying' and child['handoff'] == intent
+        and len(child['copies']) == 3 and child['copies'][2] == dict(provider_key=initial['provider_key'],
+            archive_id=initial['archive_id'], grant_sha256=list(hashlib.sha256(bytes.fromhex(grants[1])).digest()),
+            charge='unattempted')
+        and journal == initial and initial['version'] == 1
+        and bytes(initial['provider_key']).hex() == keys[2] and initial['owner_key'] == en['owner']
+        and len(initial['archive_id']) == 32 and any(initial['archive_id'])
+        and initial['archive_id'] not in original_archives
+        and initial['grant_hex'] == grants[1] and initial['ciphertext_bytes'] == LENGTHS[0]
+        and initial['sha256'] == original['fragments'][0]['sha256']
+        and en['created'] < initial['requested_expiry'] <= en['expires']
+        and initial['requested_expiry'] >= max(source['requested_expiry'], source['last_expiry'])
+        and initial['lease'] is None and initial['last_state'] is None
+        and initial['last_stored_bytes'] == initial['last_expiry'] == 0,
+        'core loss retained intent invalid')
+    require(retained['fragments'][0]['copies'][2] == dict(provider_key=keys[2], charge='unattempted',
+        last_confirmed_state=None, last_confirmed_stored_bytes=0, last_confirmed_expiry=0),
+        'core loss retained intent invalid')
+    return dict(version=1, pending=retained_intent_binding(root, entry))
 
 
 def lifecycle(root, binary, client, keys):
@@ -894,7 +1024,8 @@ def lifecycle(root, binary, client, keys):
             and v['turns'] >= working['turns'] else None), budget=budget)
         LIFECYCLE_DIAGNOSTIC['stage'] = 'verify_retained'
         retained = status(root, binary, client, budget=budget)
-        retained_during_core_loss(retained)
+        binding = retained_current_during_core_loss(root, retained, keys, enrollment)
+        create(root / RETAINED_INTENT_FILE, json.dumps(binding, sort_keys=True).encode())
         F['check_identity'](root)
         require((root / 'maintenance/enrollment.json').read_bytes() == enrollment,
             'core loss changed enrollment')
@@ -937,6 +1068,7 @@ def lifecycle(root, binary, client, keys):
             current = invoke(binary, client, ['storage', 'fragments', 'progress', *existing(root)],
                 deadline=budget.remaining(180))
             F['check_identity'](root)
+            retained_intent_continuity(root)
             baseline = pre_withdrawal(root, current, keys)
             LIFECYCLE_DIAGNOSTIC['stage'] = 'validate_flow_coverage'
         gates = coverage.report(joined=coverage.joined)
@@ -1250,6 +1382,7 @@ def restore(root, binary, client, keys):
         raise ValueError('bounded repair turns incomplete')
     require(fresh == set((0, 2, 3)) - set(retired), 'new replacement readbacks incomplete')
     identities = replacement_identities(root, value, keys, retired, withdrawn=True)
+    retained_intent_continuity(root)
     require(all(entry in identities for entry in baseline['replacement_identities']),
         'signed replacement identities changed after withdrawal')
     # A fresh CLI process reloads the same journals before each restore: no parent
@@ -1265,6 +1398,7 @@ def restore(root, binary, client, keys):
         require(private_file(path).st_size == BYTES and hashlib.sha256(path.read_bytes()).hexdigest() == SHA,
             'restored bytes differ')
         F['check_identity'](root)
+        retained_intent_continuity(root)
         require(replacement_identities(root, value, keys, retired, withdrawn=True) == identities,
             'signed replacement identities changed after withdrawal')
     invoke(binary, client, ['storage', 'fragments', 'restore', *existing(root), '--output', root / 'restore-1.bin'], expected=1)
@@ -1297,6 +1431,7 @@ def finish(root, binary, client, keys):
     RETIREMENT_TURNS = []
     turns = 0
     before = status(root, binary, client)
+    retained_intent_continuity(root)
     retirement_counts(before, 0)
     require(before['placement_authorizations'] == 3 and before['retained_copy_records'] == 11,
         'replacement set incomplete before retirement')
@@ -1325,6 +1460,7 @@ def finish(root, binary, client, keys):
             and all(copy['charge'] == 'deleted' for fragment in deleted['fragments'] for copy in fragment['copies']),
             'all retained copies must be explicitly deleted')
         F['check_identity'](root)
+        retained_intent_continuity(root)
     foreground = invoke(binary, client, ['storage', 'peer', 'delete', *peer_args(root, keys[1])])
     require(foreground['state'] == 'Deleted', 'foreground copy not deleted')
     staged_files_absent(root)
@@ -1359,7 +1495,7 @@ def cleanup(path):
                     allowed = ((depth == 0 and child.name in F['FILES'] | {'foreground.bin', 'foreground-grant.bin',
                             'flow-upload.json', 'flow-restore.json', 'flow-finish.json', 'flow-lifecycle.json',
                             'flow-consumer-publish.json', 'flow-consumer-exercise.json', 'flow-consumer-finish.json',
-                            'lifecycle-working.json', 'lifecycle-unavailable.json', 'lifecycle-result.json'})
+                            'lifecycle-working.json', 'lifecycle-unavailable.json', 'lifecycle-result.json', RETAINED_INTENT_FILE})
                         or (depth == 1 and child.name in ('fragments.json', 'placement-authorizations.json',
                             'enrollment.json', 'checkpoint.json', 'archive.json'))
                         or (depth == 2 and child.name in ('replicas.json', 'restored-fragment'))

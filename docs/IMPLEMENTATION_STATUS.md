@@ -31,13 +31,43 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38314299583` on `6fb0114c` passes isolated AVD creation and both APK builds, then stops the installed-app phase at its 3 GiB aggregate memory cap; process drain and full cleanup are not confirmed. Candidate `cdf604e` gives only that phase 4 GiB, retaining its existing resource reserves and other limits. Actual trial `38316868986` has failed; its original reports are being inspected. Separate component CI passes 305 tests. Installation, launch, refresh, expiry and iOS remain unproved. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's trial `38313487736` on `fd0e245e` passes inventory, upload and reconnect, then fails at `broker_validated` with the same ordinary control relay. A deterministic validator mismatch is confirmed: the original topology supplies eleven peer roles, but the current validator expected eight. The correction requires exactly the original eleven and separates snapshot/validation diagnostics; it preserves upload evidence, route rules and authority. Actual transition, repair and consumer acceptance remain required. Image PR6 and Cloud PR13 retain their original pins and checks. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's trial `38318750829` on `fd9130e6` fails the retained-copy fixture gate during core loss: its closed projection contains the original eight charged copies plus one unattempted replacement. Source permits a signed repair intent before provider I/O; the projection alone does not prove its private identity. The candidate validates that exact finite-authority intent and its later continuity, rather than allowing arbitrary extra copies. Actual transition, completed repair and consumer acceptance remain required. Image PR6 and Cloud PR13 retain their original pins and checks. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
 
 ### Current corrections awaiting hosted proof
 
-The latest [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38313487736)
+The latest [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38318750829)
+on `fd9130e6` fails at `verify_retained/lifecycle_copy_count_changed`, before
+reconnect-transition or consumer acceptance. Its original closed diagnostic
+records copy counts `[3,2,2,2]`, one placement authorization, five committed,
+three uncertain and one unattempted record. Conservative charged payload remains
+1,573,010 bytes, exactly twice the original ciphertext. Cleanup succeeds with
+zero owned objects. The original artifact and log evidence are retained; private
+journals were not exported and cannot be reconstructed from these counters.
+
+Source inspection identifies a valid intervening state: the working checkpoint
+does not pause the owner before signing a replacement intent. The parent intent
+is durably signed before its child journal and before survivor readback or target
+reservation. This is a source-supported explanation, not retrospective proof
+that every private binding in the failed run matched it.
+
+The fixture candidate keeps the historical counter-only validator separate.
+Its current check authenticates through the actual CLI, retains the original
+signed root, enrollment and eight journal identities, and recomputes their full
+charge. It admits at most the first fragment's A-to-C signed intent, using the
+unchanged C grant and original finite expiry, with an exactly matching child
+that is still unattempted and lease-free. A bounded private hash anchor binds
+that intent through restart, the final three placements, both complete restores
+and deletion of all eleven records. It is removed during private cleanup and
+never exported. Production behavior, grants, deadlines, repair turns and
+network acceptance are unchanged. All 39 wiring and 37 maintenance tests pass,
+including independent review;
+their bound journal fixtures are explicitly synthetic, not cryptographic or
+network evidence. A new real trial is still required; other, more advanced
+loss states are not admitted by this deliberately narrow fixture correction.
+
+The preceding [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38313487736)
 on `fd0e245e` fails at `broker_validated`, with control-relay relation `same`
 and exit status 1. The original artifact contains no transition record or
 intermediate control snapshot, so the exact failing command within that stage
