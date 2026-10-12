@@ -19,6 +19,31 @@ CHECK = runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))
 OLD = runpy.run_path(str(HERE / 'test-private-storage-fragments-smoke.py'))
 
 
+class InitialInventory(unittest.TestCase):
+    def test_closed_original_helper_receipt_rejects_changed_status_scope_and_unbounded_input(self):
+        helper = runpy.run_path(str(HERE / 'content-provider-readiness.py'))
+        value = helper['new_record']()
+        value.update(outcome='deadline')
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'inventory.json'
+            def save(record):
+                path.write_text(json.dumps(record)); path.chmod(0o600)
+            save(value)
+            self.assertEqual(CHECK['inventory_file'](path, '1'), value)
+            for status in ('0', '2', '124', '-15'):
+                with self.assertRaises(ValueError): CHECK['inventory_file'](path, status)
+            for record in ({**value, 'raw_peers': 'not-exportable'},
+                    {**value, 'scope': 'route_readiness'}, {**value, 'deadline_seconds': 61},
+                    {**value, 'last_valid_presence': {'relay3': True}}):
+                save(record)
+                with self.assertRaises(ValueError): CHECK['inventory_file'](path, '1')
+            path.write_text('x' * 8193)
+            with self.assertRaises(ValueError): CHECK['inventory_file'](path, '1')
+            save(value)
+            path.chmod(0o644)
+            with self.assertRaises(ValueError): CHECK['inventory_file'](path, '1')
+
+
 def identity_projection(indexes):
     return [dict(fragment=index, authorization_sha256=str(index + 1) * 64,
         copy_identity_sha256=str(index + 4) * 64) for index in indexes]
@@ -763,7 +788,8 @@ class MaintenanceEvidence(unittest.TestCase):
             consumer_only = set(CHECK['CONSUMERS']['EXPORT_NAMES']) - set(CHECK['F']['EXPORT_NAMES'])
             self.assertEqual(set(CHECK['EXPORT_NAMES']) - consumer_only - {
                 'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json',
-            'private-storage-maintenance-lifecycle-failure.json', 'private-storage-maintenance-route-diagnostic.json'},
+                'private-storage-maintenance-lifecycle-failure.json', 'private-storage-maintenance-route-diagnostic.json',
+                'private-storage-maintenance-inventory.json'},
                 {p.name for p in root.iterdir()})
             (root / 'private-storage-fragments-restored_usage.json').write_text('{}')
             with self.assertRaises(ValueError):

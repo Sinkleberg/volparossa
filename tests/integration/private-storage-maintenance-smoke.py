@@ -40,6 +40,7 @@ EXPORT_NAMES = tuple(name for name in F['EXPORT_NAMES'] if name not in
     'private-storage-maintenance-lifecycle.json',
     'private-storage-maintenance-lifecycle-failure.json',
     'private-storage-maintenance-route-diagnostic.json',
+    'private-storage-maintenance-inventory.json',
     'private-storage-fragments-lifecycle-live-selection.json',
     'private-storage-fragments-lifecycle-gates.json',
     'content-provider-adaptive-private-storage-fragments-lifecycle-control.json',
@@ -235,6 +236,17 @@ def closed_diagnostic_text(path, maximum):
         data = stream.read(maximum + 1)
         require(len(data) <= maximum, 'private diagnostic size')
     return data.decode('ascii')
+
+
+def inventory_file(path, status):
+    # Reuse the existing closed four-role inventory contract. This observation
+    # is neither Connect success nor protected-route acceptance evidence.
+    require(status in ('0', '1'), 'inventory command status')
+    helper = runpy.run_path(str(Path(__file__).with_name('content-provider-readiness.py')))
+    value = json.loads(closed_diagnostic_text(path, 8192), object_pairs_hook=helper['unique_pairs'])
+    helper['closed_record'](value)
+    require(value['ready'] == (status == '0'), 'inventory result differs from command status')
+    return value
 
 
 def closed_preselection_events(path, baseline_path, end_path):
@@ -1448,6 +1460,8 @@ def validate_report(report, revision, *, historical=False):
 
 
 def main(args):
+    if len(args) == 3 and args[0] == 'inventory-check':
+        inventory_file(Path(args[1]), args[2]); return
     if len(args) == 2 and args[0] == 'route-diagnostic':
         print(json.dumps(route_diagnostic(Path(args[1])), sort_keys=True)); return
     if len(args) == 2 and args[0] == 'route-diagnostic-check':

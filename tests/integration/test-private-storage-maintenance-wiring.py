@@ -81,6 +81,69 @@ class Wiring(unittest.TestCase):
             guest.index('    private_storage_fragments_run\n'))
         self.assertIn('private-storage-fragments-lifecycle-privacy)', guest)
 
+    def test_initial_inventory_precedes_connect_only_for_maintenance_and_preserves_failure(self):
+        helper = runpy.run_path(str(HERE / 'content-provider-readiness.py'))
+        ready = helper['new_record']()
+        ready.update(attempts=1, last_query_outcome='complete', outcome='ready', ready=True,
+            last_valid_presence={name: True for name in helper['INVENTORY_ROLES']})
+        failed = helper['new_record']()
+        failed.update(attempts=1, last_query_outcome='partial', outcome='deadline',
+            last_valid_presence={name: name != 'exit' for name in helper['INVENTORY_ROLES']})
+        guest = (HERE / 'kvm-alpha-topology.sh').read_text()
+        start = guest.index('if [ "$private_storage_maintenance" = yes ]; then\n    private_storage_maintenance_run')
+        dispatch = guest[start:guest.index('\nif [ "$private_storage_handoff"', start)]
+        script = r'''
+set -eu
+. "$source_directory/tests/integration/private-storage-maintenance-smoke.sh"
+fail() { printf '%s\n' "$1" >&2; exit 7; }
+ip() { printf '[{"linkinfo":{"info_kind":"veth"},"flags":["UP"]}]\n'; }
+python3() {
+    if [ "$3" = "$WORK/bin/content-provider-readiness.py" ]; then
+        cat "$TEST_INVENTORY"
+        return "$TEST_INVENTORY_STATUS"
+    fi
+    if [ "$3" = inventory-check ]; then
+        # Execute the real validator and its original source closure; only the
+        # read-only agent inventory is a synthetic fixture in this test.
+        command python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" "$3" "$4" "$5"
+        return
+    fi
+    command python3 "$@"
+}
+private_storage_fragments_run() {
+    if [ "$private_storage_maintenance" = yes ]; then
+        test -f "$WORK/private-storage-maintenance-inventory.json"
+        test ! -e "$WORK/maintenance-initial-inventory.part"
+    fi
+    printf 'CONNECT_REACHED\n'
+}
+''' + dispatch
+        cases = ((True, ready, 0, True), (True, failed, 1, True),
+            (True, ready, 1, False), (True, {**ready, 'private_extra': 'forbidden'}, 0, False),
+            (True, 'x' * 8193, 1, False), (False, failed, 1, False))
+        for enabled, value, status, published in cases:
+            with self.subTest(enabled=enabled, status=status, value=str(value)[:40]), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary)
+                source = work / 'input.private'
+                source.write_text(value if isinstance(value, str) else json.dumps(value))
+                source.chmod(0o600)
+                result = subprocess.run(['sh', '-c', script], capture_output=True, text=True, timeout=5,
+                    env=dict(PATH='/usr/bin:/bin', WORK=str(work), source_directory=str(HERE.parents[1]),
+                        CLIENT='inert-no-network', private_storage_maintenance='yes' if enabled else 'no',
+                        private_storage_fragments='yes', TEST_INVENTORY=str(source), TEST_INVENTORY_STATUS=str(status)))
+                reached = not enabled or value == ready and status == 0
+                self.assertEqual(result.returncode, 0 if reached else 7, result.stderr)
+                self.assertEqual('CONNECT_REACHED' in result.stdout, reached)
+                self.assertFalse((work / 'maintenance-initial-inventory.part').exists())
+                output = work / 'private-storage-maintenance-inventory.json'
+                self.assertEqual(output.exists(), published)
+                if published:
+                    self.assertEqual(M['inventory_file'](output, str(status)), value)
+                    self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+                if enabled and not reached:
+                    self.assertIn('MAINTENANCE_INVENTORY_UNAVAILABLE' if published
+                        else 'MAINTENANCE_INVENTORY_INVALID', result.stderr)
+
     def test_current_scenario_bounds_tests_and_source_gate(self):
         driver = (HERE / 'run-alpha-topology-vm.sh').read_text()
         self.assertIn('[ "$scenario" != private-storage-maintenance ] || driver_time_bound=7200s', driver)
