@@ -29,22 +29,19 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Use the integrated provider sequence for joined Weather delivery. | PR227 is merged at `a3747109`, with passing Quality and CodeQL on its exact head `c48fba8c`. The full protected sequence passes on `0f391c77`, including real CPU-pressure contraction and useful serial continuation; `c48fba8c` adds only its status record. Independent raw-evidence reconstruction passes. Joined Weather delivery remains open. |
-| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | Weather PR14 and PR15 are merged. The exact decoder passes its isolated build and Debian 13 probe; the public Drizz.li build and real Firefox synthetic two-product trial also pass. Integrate the source-bound public v4 bundle with the core consumer, then run the existing full provider sequence with actual acquisition and browser refresh on a disposable hosted VM. Separate source, decoder and synthetic UI results do not yet prove joined delivery. |
-| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR13 are merged with passing CI. Exact table extraction and a fresh full browser trial pass with synthetic products. A new immutable bundle with the corrected verifier passes capture, runtime and extracted-tree checks; the old bundle remains unchanged. Joined core delivery and native Android/iOS execution remain unverified. |
+| Integrate shared cache delivery — `volparossa`, `volparossa-weather` | Retain the proved provider sequence and integrate its actual Weather consumer. | PR227 is merged with the protected sequence, CPU-pressure contraction and useful serial continuation. The complete sequence also passes with joined Weather delivery on `15415fad`; PR229 carries this integration. |
+| Integrate weather field delivery — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing capabilities and refresh. | Weather PR14–PR16 are merged. Hosted run `38228710535` on core `15415fad` passes actual acquisition, independent protected cold transfers and exact initial/refresh UI checks for both products. Independent evidence reconstruction, Quality and CodeQL also pass on that source. The synthetic failure/expiry tests retain their separate scope. Automatic acquisition, browser-initiated cold retrieval and a complete weather service remain open. |
+| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR13 are merged with passing CI and separate synthetic full-browser/table proofs. Public hosted SDK/build and both browser trials are being prepared for a new, separately admitted input profile. Preserve all historical bundles and reports. Joined core delivery and native Android/iOS execution remain unverified. |
 
-The corrected standalone provider proof passes without weather downloads. The
-earlier joined trial stops at a shared-route failure; the later attempt with the
-corrected core stops during its build because of host memory pressure. Neither
-reaches Weather acquisition. Do not automatically retry source requests or route
-them through other peers to evade a source limit. The earlier ECMWF HTTP 429 and
-its bounded Retry-After diagnostics remain relevant to the next acquisition.
-Pressure retirement and useful serial continuation now pass in a separate phase
-of the complete `0f391c77` sequence. This does not prove that pressure has fallen
-before continuation, improved owner-task performance, or joined Weather delivery.
-The first pressure run remains failed; neither joined attempt reaches this phase.
-The Drizz.li/Weather candidate and frozen input
-bundle remain intact; Overmorrow's core delivery and native execution are still required. Keep shared interface
+The successful hosted Drizz.li trial supersedes neither the earlier failed route
+trial nor the local build aborted for host memory pressure; both remain recorded
+below. Do not automatically retry source requests or route them through other
+peers to evade a source limit. The earlier ECMWF HTTP 429 and its bounded
+Retry-After diagnostics remain relevant to future acquisition.
+Pressure retirement and useful serial continuation pass in their separate phase;
+this does not prove pressure recovery or improved owner-task performance.
+Historical input bundles remain intact; Overmorrow's core delivery and native
+execution are still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
@@ -119,7 +116,52 @@ at `f496569b`. Its explicit v4 consumer preserves the old profile behavior;
 component checks on `3c8d7080` pass 147 provider tests, 22 Drizz.li tests including
 the nine preparer cases, and 16 inert Python core-consumer tests. The core v4
 candidate captures and revalidates 216 exact public/source files without running
-their binaries. The complete hosted provider-and-browser trial remains required.
+their binaries. The joined trial below then executes those inputs in the
+disposable hosted VM.
+
+[Core PR229](https://github.com/VOLPAROSSA/volparossa/pull/229) connects that public
+bundle to the existing protected two-product trial. Its first hosted attempt
+[`38227398830`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38227398830)
+passes input capture and preparation, then fails the clean-source guard before
+VM startup. The auxiliary source checkouts used unignored paths. Correction
+`15415fad` moves them to the existing ignored cache directory without weakening
+the guard; all 128 preparatory tests pass.
+
+### Actual weather and particulate delivery into Drizz.li
+
+[Hosted run `38228710535`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38228710535)
+passes on exact core `15415fadb66b943018a9e945ce12fd7bf1162311`. It acquires and
+decodes 16 ECMWF weather/precipitation fields and 10 NOAA particulate fields,
+publishes the two products separately, removes the original publisher inputs and
+retrieves both through protected peer routes. The cold transfers carry 12,353
+weather bytes and 8,773 particulate bytes, each from one provider with zero
+origin body bytes or origin range requests during retrieval.
+
+The actual Drizz.li page and HTTP bridge then display and refresh those same
+publications. Initial and refreshed values match each product's independently
+bound forecast and display hashes, including native times, precipitation windows
+and explicit missing capabilities. Each product receives two browser API
+requests. The prior synthetic browser report is preserved separately and is not
+substituted for this actual-data result.
+
+The schema-four final evidence SHA-256 is
+`be45806d4ad5b3836d99690266b71e2b424036b00fdd476bad3ffa90151903c8`;
+the unchanged original browser report is
+`f4c44472823a710945a55e649cb7f54dd819c05c91b4a9d9faaecd6e2291bc0a`.
+Independent reconstruction of the raw core evidence matches the original
+aggregate report. Rechecking the exported records passes the source, decoder,
+manifest, cold receipt, browser and cleanup bindings. Browser/bridge processes stop normally,
+private state and viewer inputs are removed, and cache identity and source
+inventory are preserved. The complete provider sequence reports zero remaining
+owned objects and unchanged networking in the disposable guest's root namespace.
+
+Acquisition uses origin HTTPS outside the overlay. The proof covers a prior cold
+peer transfer followed by UI use and refresh, not browser-initiated cold fetching,
+cache-only browser operation or upstream signatures. It establishes neither
+multi-subflow bulk aggregation, mobile execution, forecast accuracy, automatic
+shared acquisition nor a complete production Weather service. The artifact is
+retained under `.git/ci-evidence/weather-v4-run-38228710535.xY08gC/`; its original
+failed predecessor remains separate.
 
 ### Named fetch failure and route preservation
 
