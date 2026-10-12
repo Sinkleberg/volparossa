@@ -320,10 +320,10 @@ fn enroll(args: Enroll) -> Result<serde_json::Value> {
         maximum_turn: args.maximum_turn_bytes,
     };
     candidates(&enrollment)?;
-    let signed = sign_enrollment(enrollment, &signer, crate::storage::now)?;
+    let document = sign_enrollment(enrollment, &signer, crate::storage::now)?;
     fs::DirBuilder::new().mode(0o700).create(&args.enrollment)?;
     let directory = state::directory(&args.enrollment)?;
-    save(&directory, "enrollment.json", &signed)?;
+    save(&directory, "enrollment.json", &document)?;
     checkpoint(&directory, "enrolled", 0, None)
 }
 
