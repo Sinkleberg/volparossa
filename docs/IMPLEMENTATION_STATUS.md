@@ -30,9 +30,9 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. The first attempt exposed nested acquisition deadlines; the corrected attempt verifies all eight Android/Gradle archives, then fails contradictory Java ownership checks before app build. Correct that check and prove app launch, refresh and expiry. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Reuse the existing, unmerged owner-maintenance candidate rather than build a second scheduler. Integrate its bounded authority and durable state with current fragment repair and report-v2 consumers. Provider grants, expiry, resource limits and safe handoff remain explicit. Reciprocal capacity accounting is a separate outstanding requirement. |
-| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | Select and verify actual suitable execution capacity and attestation, with task-bound authorization, cancellation and resource limits. Current local private service and public peer tasks do not prove this requirement. Capacity investigation can proceed alongside storage without presenting local fallback as completion. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Java verification and the real Gradle repository/descriptor-limit fixture now pass. The last completed acquisition build stops because locked plugins require Android platforms 34/35 as well as 36. The corrected candidate pins those exact public inputs; the offline rebuild, app launch, refresh and expiry still need proof. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 reuses the existing owner-maintenance candidate with finite authorization and durable state. Its reviewed network harness covers core restart, owner stop/resume, repair and reconstruction; 77 lightweight harness checks pass. The first hosted source check stops at strict Clippy before Rust tests. Verify the narrow corrections and run the protected trial. Consumer supervision and reciprocal capacity accounting remain separate outstanding requirements. |
+| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
 
 The successful hosted Drizz.li trial supersedes neither the earlier failed route
 trial nor the local build aborted for host memory pressure; both remain recorded
@@ -157,6 +157,38 @@ legitimate root-owned Java binary through a conflicting runner-ownership hash
 check. App compilation and emulator execution are not reached; cleanup restores
 the original KVM access. These failed attempts remain separate from the passing
 web proof.
+
+Subsequent Android attempts pass Java verification and then the actual offline
+Gradle repository fixture. The [last completed attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38249512469)
+also verifies the JVM's bounded 4,096-descriptor profile, but the app build lacks
+Android platforms 34/35 required by the unchanged locked plugins. APK generation,
+offline rebuild and emulator execution remain unproved. Original step-log hashes
+match their receipts; process, policy and KVM-access cleanup pass. The corrected
+candidate adds only those two official platform archives to the existing
+read-only SDK preparation.
+
+### Private storage maintenance candidate
+
+[Draft PR232](https://github.com/VOLPAROSSA/volparossa/pull/232) connects explicit,
+finite owner authorization to the core's existing background-work budget. The
+candidate preserves enrollment, archive identities, cursor and conservative
+storage charges across owner and core interruptions. It rechecks the original
+authorization expiry before signing delayed operations; reconnecting does not
+create a new grant or extend that authority.
+
+The independently reviewed harness requires a real disposable core restart,
+the same surviving owner, SIGTERM checkpoint and fresh-owner resume, followed
+by protected repair, two reconstructions without the withdrawn provider and
+complete cleanup. Its 77 lightweight tests pass; they are not network evidence.
+The first [hosted source check](https://github.com/VOLPAROSSA/volparossa/actions/runs/38249410405)
+stops at strict Clippy, including large async futures and documentation lint,
+before running the Rust tests. The correction boxes the shared maintenance
+future without changing task ownership or cancellation, and addresses the
+remaining import, unit-pattern and documentation diagnostics. Both corrected
+source verification and the actual protected trial remain required. The planned
+trial does not prove live elapsed
+expiry, independent-device availability, reciprocal contribution or a complete
+Image/Cloud background service.
 
 ### Hosted Weather preparation
 
