@@ -22,11 +22,16 @@ NET, ROLES, NODES = F['NET'], F['ROLES'], F['NODES']
 PHASES = dict(publish=56, exercise=16, finish=22)
 APPS = ('image', 'cloud')
 MAX_JSON = 1024 * 1024
+TRANSITION_NAME = 'private-storage-maintenance-control-transition.json'
+MAX_TRANSITION = 131072
+CONTROL_NODES = tuple(f'relay{i}' for i in range(6))
+CONTROL_PROVIDERS = ('relay3', 'relay4', 'relay5')
 SCOPE = dict(synthetic_inputs=True, automatic_grant_refresh=False, private_keys_exported=False,
     immich_running_proven=False, opencloud_account_server_proven=False,
     node_report_hash_independently_reconstructed=False, host_cleanup_proven=False)
 EXPORT_NAMES = (
     'a01-expected-peers.json', 'private-storage-fragments-layout.json',
+    TRANSITION_NAME,
     'private-storage-fragments-isolation.json', 'private-storage-fragments-deleted_usage.json',
     *(f'storage-consumer-{name}.json' for name in
         ('provision', 'prepare', *PHASES, 'withdrawal', 'private-cleanup', 'isolation', 'evidence')),
@@ -62,6 +67,180 @@ def encoded(value):
     return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
 
 
+def canonical(value):
+    # Same ASCII-only canonical representation as jq -cSj, without a newline.
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True,
+        allow_nan=False).encode()
+
+
+def optional_handle(value, required):
+    require(type(value) is dict and set(required) <= set(value)
+        and set(value) <= {*required, 'handle'}
+        and ('handle' not in value or count(value['handle'], 1, 2**32 - 1)), 'control_nft_fields')
+
+
+def control_filter(value, slot, interface, local, remote):
+    """Validate actual kernel nft JSON, including rule order and every verdict."""
+    keys(value, ('nftables',))
+    rows = value['nftables']
+    require(type(rows) is list and len(rows) == 13
+        and all(type(row) is dict and len(row) == 1 for row in rows), 'control_nft_objects')
+    meta, table_name = rows[0].get('metainfo'), f'vpa_content_control_adaptive_{slot}'
+    keys(meta, ('version', 'release_name', 'json_schema_version'))
+    require(type(meta['version']) is str and re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', meta['version'])
+        and type(meta['release_name']) is str and re.fullmatch(r'[A-Za-z0-9 ._()#-]{1,80}', meta['release_name'])
+        and type(meta['json_schema_version']) is int and meta['json_schema_version'] == 1, 'control_nft_metadata')
+    table = rows[1].get('table')
+    optional_handle(table, ('family', 'name'))
+    require(table['family'] == 'inet' and table['name'] == table_name, 'control_nft_table')
+    chains, rules = [], {}
+    for row in rows[2:]:
+        if 'chain' in row:
+            chain = row['chain']
+            optional_handle(chain, ('family', 'table', 'name', 'type', 'hook', 'prio', 'policy'))
+            require(chain['family'] == 'inet' and chain['table'] == table_name
+                and chain['name'] in ('input', 'output', 'forward') and chain['name'] not in chains
+                and chain['type'] == 'filter' and chain['hook'] == chain['name']
+                and type(chain['prio']) is int and chain['prio'] == -20
+                and chain['policy'] == 'accept', 'control_nft_chain')
+            chains.append(chain['name'])
+        else:
+            rule = row.get('rule')
+            optional_handle(rule, ('family', 'table', 'chain', 'expr'))
+            require(rule['family'] == 'inet' and rule['table'] == table_name
+                and rule['chain'] in chains, 'control_nft_rule_scope')
+            rules.setdefault(rule['chain'], []).append(rule['expr'])
+    require(set(chains) == {'input', 'output', 'forward'}, 'control_nft_chains')
+    def match(left, right):
+        return dict(match=dict(op='==', left=left, right=right))
+    def device(key):
+        return match(dict(meta=dict(key=key)), interface)
+    expected = {}
+    for chain, key, source, destination in (
+            ('input', 'iifname', remote, local), ('output', 'oifname', local, remote)):
+        address = [device(key), match(dict(payload=dict(protocol='ip', field='saddr')), source),
+            match(dict(payload=dict(protocol='ip', field='daddr')), destination)]
+        expected[chain] = [address + [match(dict(payload=dict(protocol='udp', field=field)), 41000),
+            dict(accept=None)] for field in ('dport', 'sport')]
+        expected[chain].append([device(key), dict(drop=None)])
+    expected['forward'] = [[device(key), dict(drop=None)] for key in ('iifname', 'oifname')]
+    require(canonical(rules) == canonical(expected), 'control_nft_exact_rules')
+
+
+def control_snapshot(value, broker, *, routed):
+    keys(value, ('nodes', 'route_checks'))
+    keys(value['nodes'], CONTROL_NODES)
+    if broker is None:
+        require(value['route_checks'] is None and all(node == dict(links=[], routes=[], tables={})
+            for node in value['nodes'].values()), 'control_detached_not_empty')
+        return
+    addresses, links = NET['PUBLIC_IPS'], {}
+    for node, snapshot in value['nodes'].items():
+        keys(snapshot, ('links', 'routes', 'tables'))
+        slots = range(3) if node == broker else (CONTROL_PROVIDERS.index(node),) if node in CONTROL_PROVIDERS else ()
+        expected_interfaces = {('ac' if node == broker else 'ap') + str(slot) for slot in slots}
+        require(type(snapshot['links']) is list and len(snapshot['links']) == len(expected_interfaces)
+            and type(snapshot['routes']) is list and len(snapshot['routes']) == 2 * len(expected_interfaces),
+            'control_link_route_count')
+        keys(snapshot['tables'], (f'vpa_content_control_adaptive_{slot}' for slot in slots))
+        by_name = {}
+        for link in snapshot['links']:
+            keys(link, ('ifindex', 'ifname', 'link_index', 'flags', 'kind'))
+            require(link['ifname'] in expected_interfaces and link['ifname'] not in by_name
+                and count(link['ifindex'], 1, 2**31 - 1) and count(link['link_index'], 1, 2**31 - 1)
+                and link['kind'] == 'veth' and type(link['flags']) is list and len(link['flags']) == 4
+                and set(link['flags']) == {'BROADCAST', 'MULTICAST', 'UP', 'LOWER_UP'}, 'control_link_identity')
+            by_name[link['ifname']] = link
+        require(len({link['ifindex'] for link in by_name.values()}) == len(by_name), 'control_duplicate_ifindex')
+        links[node] = by_name
+        expected_routes = []
+        for slot in slots:
+            interface = ('ac' if node == broker else 'ap') + str(slot)
+            other = CONTROL_PROVIDERS[slot] if node == broker else broker
+            local_address = f'10.241.{83 + slot}.{1 if node == broker else 2}'
+            gateway = f'10.241.{83 + slot}.{2 if node == broker else 1}'
+            expected_routes.extend([
+                dict(dst=f'10.241.{83 + slot}.0/30', dev=interface, gateway=None,
+                    prefsrc=local_address, scope='link', protocol='kernel'),
+                dict(dst=addresses[other], dev=interface, gateway=gateway,
+                    prefsrc=addresses[node], scope=None, protocol='boot')])
+            control_filter(snapshot['tables'][f'vpa_content_control_adaptive_{slot}'], slot,
+                interface, addresses[node], addresses[other])
+        actual_routes = []
+        for route in snapshot['routes']:
+            keys(route, ('dst', 'dev', 'gateway', 'prefsrc', 'scope', 'protocol'))
+            route = dict(route)
+            if route['scope'] == 'global': route['scope'] = None
+            if type(route['dst']) is str and route['dst'].endswith('/32'): route['dst'] = route['dst'][:-3]
+            actual_routes.append(route)
+        require(sorted(map(canonical, actual_routes)) == sorted(map(canonical, expected_routes)), 'control_exact_routes')
+    for slot, node in enumerate(CONTROL_PROVIDERS):
+        left, right = links[broker][f'ac{slot}'], links[node][f'ap{slot}']
+        require(left['ifindex'] == right['link_index'] and left['link_index'] == right['ifindex'],
+            'control_veth_pair')
+    if not routed:
+        require(value['route_checks'] is None, 'control_premature_routes')
+        return
+    keys(value['route_checks'], CONTROL_PROVIDERS)
+    for slot, node in enumerate(CONTROL_PROVIDERS):
+        keys(value['route_checks'][node], ('out', 'back'))
+        for direction, device, gateway, source, destination in (
+                ('out', f'ac{slot}', f'10.241.{83 + slot}.2', addresses[broker], addresses[node]),
+                ('back', f'ap{slot}', f'10.241.{83 + slot}.1', addresses[node], addresses[broker])):
+            require(value['route_checks'][node][direction] == [dict(dst=destination, dev=device,
+                gateway=gateway, prefsrc=source)], 'control_kernel_route_get')
+
+
+def validate_control_transition(value, peers, layout, *, stage='complete', layout_raw=None):
+    keys(peers, (*ROLES, *NODES))
+    require(all(type(peer) is str and re.fullmatch('[A-Za-z0-9_-]{1,128}', peer) for peer in peers.values())
+        and len(set(peers.values())) == len(peers), 'control_peer_identity')
+    keys(layout, ('provider_nodes', 'control_relay_peer_id', 'route_context_id', 'route_scope'))
+    require(layout['provider_nodes'] == list(NODES), 'control_provider_identity')
+    SAMPLER['context_id'](layout['route_context_id'])
+    SAMPLER['validate_route_scope'](layout['route_scope'])
+    keys(value, ('schema_version', 'kind', 'original_layout_sha256', 'original_layout_canonical_sha256',
+        'previous_control_relay_peer_id', 'current_control_relay_peer_id', 'relation', 'before', 'detached', 'after'))
+    require(type(value['schema_version']) is int and value['schema_version'] == 1
+        and value['kind'] == 'storage-maintenance-control-transition'
+        and stage in ('before', 'detached', 'complete')
+        and len(canonical(value)) <= MAX_TRANSITION, 'control_transition_identity')
+    require(sha(value['original_layout_sha256']) and value['original_layout_canonical_sha256']
+        == hashlib.sha256(canonical(layout)).hexdigest(), 'control_original_layout')
+    if layout_raw is not None:
+        require(value['original_layout_sha256'] == hashlib.sha256(layout_raw).hexdigest(), 'control_original_layout_bytes')
+    previous, current = value['previous_control_relay_peer_id'], value['current_control_relay_peer_id']
+    ordinary = {peers[node]: node for node in CONTROL_NODES[:3]}
+    require(len(ordinary) == 3 and previous == layout['control_relay_peer_id']
+        and previous in ordinary and current in ordinary
+        and value['relation'] == ('same' if previous == current else 'different'), 'control_broker_identity')
+    control_snapshot(value['before'], ordinary[previous], routed=False)
+    if stage == 'before':
+        require(value['detached'] is None and value['after'] is None, 'control_before_scope')
+    else:
+        if previous == current:
+            require(value['detached'] is None, 'control_same_detached')
+        else:
+            control_snapshot(value['detached'], None, routed=False)
+        if stage == 'detached':
+            require(value['after'] is None, 'control_detached_scope')
+        else:
+            control_snapshot(value['after'], ordinary[current], routed=True)
+            if previous == current:
+                require(value['before']['nodes'] == value['after']['nodes'], 'control_same_changed')
+    return {**layout, 'control_relay_peer_id': current}
+
+
+def read_control_transition(work, *, path=None, stage='complete'):
+    work = Path(work)
+    value, raw = read(path or work / TRANSITION_NAME, maximum=MAX_TRANSITION, private=True)
+    require(stage != 'complete' or raw == canonical(value), 'control_transition_encoding')
+    layout, layout_raw = read(work / 'private-storage-fragments-layout.json')
+    peers, _ = read(work / 'a01-expected-peers.json')
+    validate_control_transition(value, peers, layout, stage=stage, layout_raw=layout_raw)
+    return value
+
+
 def unique(pairs):
     value = {}
     for key, item in pairs:
@@ -70,13 +249,14 @@ def unique(pairs):
     return value
 
 
-def read(path):
+def read(path, *, maximum=MAX_JSON, private=False):
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(descriptor, 'rb') as stream:
         before = os.fstat(stream.fileno())
         require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1 and before.st_uid in (0, os.geteuid())
-            and not before.st_mode & 0o022 and 0 < before.st_size <= MAX_JSON, 'consumer_input_boundary')
-        raw = stream.read(MAX_JSON + 1)
+            and not before.st_mode & 0o022 and (not private or stat.S_IMODE(before.st_mode) == 0o600)
+            and 0 < before.st_size <= maximum, 'consumer_input_boundary')
+        raw = stream.read(maximum + 1)
         after, named = os.fstat(stream.fileno()), Path(path).lstat()
         fields = ('st_dev', 'st_ino', 'st_uid', 'st_mode', 'st_nlink', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
         require(len(raw) == before.st_size and all(getattr(before, k) == getattr(after, k) == getattr(named, k)
@@ -156,7 +336,7 @@ def usage(value, sizes, leases):
             committed_bytes=size, leases=number), 'consumer_exact_provider_usage')
 
 
-def validate_network(phase, peers, layout, name, total, repair_reads):
+def validate_network(phase, peers, layout, name, total, repair_reads, *, transition_sha=None):
     """Same protected-route/privacy conditions, with this profile's own phases.
 
     Repair of A's fragments 0/2/3 requires the sole original B/C survivor as
@@ -166,7 +346,9 @@ def validate_network(phase, peers, layout, name, total, repair_reads):
     Packet payload includes framing: these are lower bounds, not GET attribution.
     """
     keys(phase, ('layout', 'selected_route', 'privacy', 'control_privacy', 'gates'))
-    keys(phase['layout'], ('route_scope',))
+    keys(phase['layout'], ('route_scope',) if transition_sha is None else ('route_scope', 'control_transition_sha256'))
+    if transition_sha is not None:
+        require(phase['layout']['control_transition_sha256'] == transition_sha, 'consumer_phase_transition')
     selected, privacy, gates = phase['selected_route'], phase['privacy'], phase['gates']
     SAMPLER['validate_summary'](gates, gates['event_baseline_unix_ms'], PHASES[name])
     SAMPLER['validate_phase_route'](phase['layout']['route_scope'], selected, gates)
@@ -231,11 +413,12 @@ def provider_counters(capture):
         require(all(count(n) for n in counters.values()), 'consumer_packet_counter')
 
 
-def validate_evidence(value):
+def validate_evidence(value, *, previous=False):
     keys(value, ('schema_version', 'kind', 'success', 'scope', 'provision', 'provision_sha256',
         'prepare', *PHASES, 'withdrawal', 'private_cleanup', 'initial_usage', 'uploaded_usage',
-        'restored_usage', 'deleted_usage', 'expected_peers', 'layout', 'isolation', 'consumer_isolation', 'network'))
-    require(type(value['schema_version']) is int and value['schema_version'] == 1
+        'restored_usage', 'deleted_usage', 'expected_peers', 'layout', 'isolation', 'consumer_isolation', 'network',
+        *(() if previous else ('control_transition',))))
+    require(type(value['schema_version']) is int and value['schema_version'] == (1 if previous else 2)
         and value['kind'] == 'storage-consumer-maintenance-evidence' and value['success'] is True,
         'consumer_evidence_identity')
     require(encoded(value['scope']) == encoded(SCOPE), 'consumer_evidence_scope')
@@ -273,6 +456,10 @@ def validate_evidence(value):
     keys(layout, ('provider_nodes', 'control_relay_peer_id', 'route_context_id', 'route_scope'))
     SAMPLER['context_id'](layout['route_context_id'])
     SAMPLER['validate_route_scope'](layout['route_scope'])
+    transition_sha = None
+    if not previous:
+        layout = validate_control_transition(value['control_transition'], peers, layout)
+        transition_sha = hashlib.sha256(canonical(value['control_transition'])).hexdigest()
     isolation = value['isolation']
     ids = ('user_uid', 'agent_uid', 'control_gid', 'agent_gid')
     flags = ('agent_cannot_read_user_state', 'client_cannot_read_any_provider_store',
@@ -287,7 +474,7 @@ def validate_evidence(value):
         'consumer_new_owner_isolation')
     keys(value['network'], PHASES)
     for name, phase in value['network'].items():
-        validate_network(phase, peers, layout, name, total, repair_reads)
+        validate_network(phase, peers, layout, name, total, repair_reads, transition_sha=transition_sha)
     return value
 
 
@@ -297,7 +484,7 @@ def build_evidence(work):
         return read(work / name)[0]
     provision, raw = read(work / 'storage-consumer-provision.json')
     require(raw == encoded(provision), 'consumer_provision_encoding')
-    value = dict(schema_version=1, kind='storage-consumer-maintenance-evidence', success=True,
+    value = dict(schema_version=2, kind='storage-consumer-maintenance-evidence', success=True,
         scope=dict(SCOPE), provision=provision, provision_sha256=hashlib.sha256(raw).hexdigest(),
         **{name: get(f'storage-consumer-{name}.json') for name in ('prepare', *PHASES, 'withdrawal')},
         private_cleanup=get('storage-consumer-private-cleanup.json'),
@@ -306,7 +493,7 @@ def build_evidence(work):
             for name in ('uploaded', 'restored', 'deleted')},
         expected_peers=get('a01-expected-peers.json'), layout=get('private-storage-fragments-layout.json'),
         isolation=get('private-storage-fragments-isolation.json'),
-        consumer_isolation=get('storage-consumer-isolation.json'))
+        consumer_isolation=get('storage-consumer-isolation.json'), control_transition=read_control_transition(work))
     value['network'] = {name: dict(layout=get(f'private-storage-fragments-consumer-{name}-layout.json'),
         selected_route=get(f'private-storage-fragments-consumer-{name}-live-selection.json'),
         gates=get(f'private-storage-fragments-consumer-{name}-gates.json'),

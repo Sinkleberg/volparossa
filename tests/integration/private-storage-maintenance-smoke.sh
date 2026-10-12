@@ -60,13 +60,157 @@ private_storage_maintenance_supervisor_stage() {
     private_storage_maintenance_supervisor_record pending null
 }
 
+private_storage_maintenance_control_snapshot() {
+    case $1 in before|detached|after) ;; *) return 1 ;; esac
+    maintenance_snapshot_stage=$1
+    : >"$WORK/maintenance-control-nodes.private"
+    for maintenance_node in relay0 relay1 relay2 relay3 relay4 relay5; do
+        content_provider_node "$maintenance_node" || return 1
+        ip -n "$provider_ns" -j -d link show >"$WORK/maintenance-control-raw.private" || return 1
+        [ "$(wc -c <"$WORK/maintenance-control-raw.private")" -le 65536 ] || return 1
+        jq -ce '[.[] | select(.ifname | test("^(ac|ap)[012]$")) |
+            {ifindex,ifname,link_index,flags,kind:.linkinfo.info_kind}]' \
+            "$WORK/maintenance-control-raw.private" >"$WORK/maintenance-control-links.private" || return 1
+        # Details retain explicit boot/global defaults for the closed validator.
+        ip -n "$provider_ns" -j -d -4 route show >"$WORK/maintenance-control-raw.private" || return 1
+        [ "$(wc -c <"$WORK/maintenance-control-raw.private")" -le 65536 ] || return 1
+        jq -ce '[.[] | select((.dev // "") | test("^(ac|ap)[012]$")) |
+            {dst,dev,gateway,prefsrc,scope,protocol}]' \
+            "$WORK/maintenance-control-raw.private" >"$WORK/maintenance-control-routes.private" || return 1
+        ip netns exec "$provider_ns" nft -j list tables >"$WORK/maintenance-control-tables.private" || return 1
+        [ "$(wc -c <"$WORK/maintenance-control-tables.private")" -le 65536 ] || return 1
+        jq -e '.nftables | type == "array"' "$WORK/maintenance-control-tables.private" >/dev/null || return 1
+        printf '{}\n' >"$WORK/maintenance-control-table-rows.private"
+        for maintenance_slot in 0 1 2; do
+            maintenance_table=vpa_content_control_adaptive_$maintenance_slot
+            if jq -e --arg name "$maintenance_table" 'any(.nftables[];
+                .table.family == "inet" and .table.name == $name)' \
+                "$WORK/maintenance-control-tables.private" >/dev/null; then
+                ip netns exec "$provider_ns" nft -j list table inet "$maintenance_table" \
+                    >"$WORK/maintenance-control-raw.private" || return 1
+                [ "$(wc -c <"$WORK/maintenance-control-raw.private")" -le 16384 ] || return 1
+                jq -cn --arg name "$maintenance_table" --slurpfile table "$WORK/maintenance-control-raw.private" \
+                    '{($name):$table[0]}' >>"$WORK/maintenance-control-table-rows.private" || return 1
+            fi
+        done
+        jq -s 'add' "$WORK/maintenance-control-table-rows.private" >"$WORK/maintenance-control-filter.private" || return 1
+        jq -cn --arg node "$maintenance_node" --slurpfile links "$WORK/maintenance-control-links.private" \
+            --slurpfile routes "$WORK/maintenance-control-routes.private" \
+            --slurpfile tables "$WORK/maintenance-control-filter.private" \
+            '{($node):{links:$links[0],routes:$routes[0],tables:$tables[0]}}' \
+            >>"$WORK/maintenance-control-nodes.private" || return 1
+    done
+    jq -s 'add' "$WORK/maintenance-control-nodes.private" >"$WORK/maintenance-control-inventory.private" || return 1
+    printf 'null\n' >"$WORK/maintenance-control-checks.private"
+    if [ "$maintenance_snapshot_stage" = after ]; then
+        : >"$WORK/maintenance-control-check-rows.private"
+        for maintenance_node in relay3 relay4 relay5; do
+            content_provider_node "$maintenance_node" || return 1
+            ip -n "$provider_control_ns" -j route get "$provider_ip" >"$WORK/maintenance-control-raw.private" || return 1
+            [ "$(wc -c <"$WORK/maintenance-control-raw.private")" -le 8192 ] || return 1
+            jq -ce '[.[] | {dst,dev,gateway,prefsrc}]' "$WORK/maintenance-control-raw.private" \
+                >"$WORK/maintenance-control-out.private" || return 1
+            ip -n "$provider_ns" -j route get "$provider_control_ip" >"$WORK/maintenance-control-raw.private" || return 1
+            [ "$(wc -c <"$WORK/maintenance-control-raw.private")" -le 8192 ] || return 1
+            jq -ce '[.[] | {dst,dev,gateway,prefsrc}]' "$WORK/maintenance-control-raw.private" \
+                >"$WORK/maintenance-control-back.private" || return 1
+            jq -cn --arg node "$maintenance_node" --slurpfile out "$WORK/maintenance-control-out.private" \
+                --slurpfile back "$WORK/maintenance-control-back.private" '{($node):{out:$out[0],back:$back[0]}}' \
+                >>"$WORK/maintenance-control-check-rows.private" || return 1
+        done
+        jq -s 'add' "$WORK/maintenance-control-check-rows.private" >"$WORK/maintenance-control-checks.private" || return 1
+    fi
+    jq -cn --slurpfile nodes "$WORK/maintenance-control-inventory.private" \
+        --slurpfile checks "$WORK/maintenance-control-checks.private" \
+        '{nodes:$nodes[0],route_checks:$checks[0]}' >"$WORK/maintenance-control-$maintenance_snapshot_stage.private" || return 1
+}
+
+private_storage_maintenance_control_current() {
+    maintenance_observed_peer=$(content_custody_cli client content status | jq -er \
+        '.control_relay_peer_id | select(type == "string" and length > 0)') || return 1
+    [ "$maintenance_observed_peer" = "$provider_control_peer" ]
+}
+
+private_storage_maintenance_phase_layout() {
+    private_storage_maintenance_control_current || return 1
+    if [ "$1" = upload ]; then
+        jq -cn --argjson scope "$storage_route_scope" '{route_scope:$scope}'
+    else
+        maintenance_transition_sha=$(sha256sum "$WORK/private-storage-maintenance-control-transition.json" | awk '{print $1}') || return 1
+        jq -cn --argjson scope "$storage_route_scope" --arg sha "$maintenance_transition_sha" \
+            '{route_scope:$scope,control_transition_sha256:$sha}'
+    fi
+}
+
+private_storage_maintenance_control_transition() {
+    umask 077
+    [ -z "$PROVIDER_CONTROL_PID" ] || return 1
+    maintenance_previous_peer=$provider_control_peer
+    maintenance_previous_ns=$provider_control_ns
+    private_storage_maintenance_supervisor_stage broker_validated
+    jq -e --arg peer "$maintenance_control_peer" '[.relay0,.relay1,.relay2] | index($peer) != null' \
+        "$WORK/a01-expected-peers.json" >/dev/null || return 1
+    private_storage_maintenance_control_snapshot before || return 1
+    maintenance_layout_sha=$(sha256sum "$WORK/private-storage-fragments-layout.json" | awk '{print $1}') || return 1
+    maintenance_canonical_sha=$(jq -cSj '.' "$WORK/private-storage-fragments-layout.json" | sha256sum | awk '{print $1}') || return 1
+    jq -cn --arg raw "$maintenance_layout_sha" --arg canonical "$maintenance_canonical_sha" \
+        --arg previous "$maintenance_previous_peer" --arg current "$maintenance_control_peer" \
+        --arg relation "$maintenance_control_relation" --slurpfile before "$WORK/maintenance-control-before.private" \
+        '{schema_version:1,kind:"storage-maintenance-control-transition",original_layout_sha256:$raw,
+          original_layout_canonical_sha256:$canonical,previous_control_relay_peer_id:$previous,
+          current_control_relay_peer_id:$current,relation:$relation,before:$before[0],detached:null,after:null}' \
+        >"$WORK/maintenance-control-transition.private" || return 1
+    python3 -B "$WORK/bin/private-storage-maintenance-smoke.py" control-transition-check \
+        "$WORK" "$WORK/maintenance-control-transition.private" before || return 1
+    private_storage_maintenance_supervisor_stage control_rebind
+    if [ "$maintenance_control_relation" = different ]; then
+        # Only validated owned veths are removed; peer deletion also removes
+        # their kernel routes. Filters survive until every old link is gone.
+        for maintenance_slot in 0 1 2; do
+            ip -n "$maintenance_previous_ns" link delete "ac$maintenance_slot" || return 1
+        done
+        for maintenance_node in relay0 relay1 relay2 relay3 relay4 relay5; do
+            content_provider_node "$maintenance_node" || return 1
+            ip -n "$provider_ns" -j link show >"$WORK/maintenance-control-raw.private" || return 1
+            [ "$(wc -c <"$WORK/maintenance-control-raw.private")" -le 65536 ] || return 1
+            jq -e 'all(.[]; (.ifname | test("^(ac|ap)[012]$")) | not)' \
+                "$WORK/maintenance-control-raw.private" >/dev/null || return 1
+        done
+        for maintenance_slot in 0 1 2; do
+            ip netns exec "$maintenance_previous_ns" nft delete table inet \
+                "vpa_content_control_adaptive_$maintenance_slot" || return 1
+            content_provider_node "relay$((3 + maintenance_slot))" || return 1
+            ip netns exec "$provider_ns" nft delete table inet \
+                "vpa_content_control_adaptive_$maintenance_slot" || return 1
+        done
+        private_storage_maintenance_control_snapshot detached || return 1
+        jq --slurpfile detached "$WORK/maintenance-control-detached.private" '.detached=$detached[0]' \
+            "$WORK/maintenance-control-transition.private" >"$WORK/maintenance-control-next.private" || return 1
+        mv -- "$WORK/maintenance-control-next.private" "$WORK/maintenance-control-transition.private" || return 1
+        python3 -B "$WORK/bin/private-storage-maintenance-smoke.py" control-transition-check \
+            "$WORK" "$WORK/maintenance-control-transition.private" detached || return 1
+        content_provider_adaptive_control_underlay "$maintenance_control_peer" \
+            private-storage-maintenance-current-control || return 1
+    fi
+    private_storage_maintenance_supervisor_stage control_verified
+    private_storage_maintenance_control_current || return 1
+    private_storage_maintenance_control_snapshot after || return 1
+    jq -cSj --slurpfile after "$WORK/maintenance-control-after.private" '.after=$after[0]' \
+        "$WORK/maintenance-control-transition.private" >"$WORK/maintenance-control-next.private" || return 1
+    [ "$(wc -c <"$WORK/maintenance-control-next.private")" -le 131072 ] || return 1
+    python3 -B "$WORK/bin/private-storage-maintenance-smoke.py" control-transition-check \
+        "$WORK" "$WORK/maintenance-control-next.private" complete || return 1
+    mv -- "$WORK/maintenance-control-next.private" "$WORK/private-storage-maintenance-control-transition.json"
+}
+
 private_storage_maintenance_post_reconnect() {
     maintenance_control_relation=unobserved
     private_storage_maintenance_supervisor_stage bind_slots
     benchmark_bind_slots "$WORK/private-storage-maintenance-reconnect-selection.json" || {
         private_storage_maintenance_supervisor_record failed "$?"; return 1;
     }
-    # The existing restricted broker links are not silently widened by this trial.
+    # A fresh agent may choose a different ordinary broker. Preserve the old
+    # upload proof, then move only the exact owned, UDP-only control links.
     private_storage_maintenance_supervisor_stage control_query
     maintenance_control_peer=$(content_custody_cli client content status | jq -er '.control_relay_peer_id') || {
         # This is the original pipeline's status, not a claimed CLI-only status.
@@ -75,8 +219,7 @@ private_storage_maintenance_post_reconnect() {
     if [ -z "$maintenance_control_peer" ]; then maintenance_control_relation=empty
     elif [ "$maintenance_control_peer" = "$provider_control_peer" ]; then maintenance_control_relation=same
     else maintenance_control_relation=different; fi
-    private_storage_maintenance_supervisor_stage control_match
-    [ "$maintenance_control_peer" = "$provider_control_peer" ] || {
+    private_storage_maintenance_control_transition || {
         private_storage_maintenance_supervisor_record failed "$?"; return 1;
     }
     private_storage_maintenance_supervisor_stage route_scope
@@ -235,7 +378,7 @@ private_storage_maintenance_finalize_report() {
         --slurpfile consumers "$WORK/handoff-report-consumers.part" \
         --slurpfile host "$WORK/handoff-report-host.part" --argjson complete "$CLEANUP_COMPLETE" \
         --argjson remaining "$REMAINING_OWNED_OBJECTS" '
-      {schema_version:3,report_kind:"volparossa-private-storage-maintenance",source_revision:$revision,run_id:$run,
+      {schema_version:4,report_kind:"volparossa-private-storage-maintenance",source_revision:$revision,run_id:$run,
        phase:$phase,runner_exit_status:$status,maintenance:$evidence[0],consumers:$consumers[0],
        success:($status == 0 and $evidence[0].success == true and $consumers[0].success == true and $complete and $remaining == 0 and $host[0].unchanged == true),
        observed_blocker:(if $blocker == "NONE" then null else $blocker end),
