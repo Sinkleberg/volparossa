@@ -11,6 +11,7 @@ import runpy
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -76,6 +77,11 @@ def acquisition():
 
 def diagnostic(stage="weather-run"):
     return A["AcquisitionFailure"](stage, ValueError("private coordinates, path, URL and raw stderr")).diagnostic
+
+
+def source_response(key="weather", observed=CLOCK):
+    return dict(schema=1, kind="weather-source-rate-limit", product=key, status=429,
+        observed_at_ms=observed, retry_after_state="valid-seconds", retry_not_before_ms=observed+60000)
 
 
 def failure_fixture(work, raw=None):
@@ -173,7 +179,8 @@ def joined_fixture(work, version=2):
 
 class Products(unittest.TestCase):
     def setUp(self):
-        clock = patch.dict(A["prepare"].__globals__, observed_ms=lambda: CLOCK)
+        clock = patch.dict(A["prepare"].__globals__, observed_ms=lambda: CLOCK,
+            source_observer=lambda: "file:///root-owned/bin/weather-source-observer.mjs")
         clock.start(); self.addCleanup(clock.stop)
 
     def test_profiles_and_browser_exports_never_accept_other_consumers(self):
@@ -229,7 +236,7 @@ class Products(unittest.TestCase):
                 def execute(command, cwd, maximum, timeout):
                     if command[-1] == "-V":
                         gate("decoder"); return b"ecCodes Version 2.44.0\n"
-                    key = "weather" if command[2].endswith("/forecast.mjs") else "air_quality"
+                    key = "weather" if command[4].endswith("/forecast.mjs") else "air_quality"
                     gate(A["PRODUCTS"][key]["suffix"] + "-run")
                     if failed_stage == A["PRODUCTS"][key]["suffix"] + "-validation": return b'{"SECRET":'
                     return json.dumps(forecast(key, command[command.index("--run")+1])).encode()
@@ -266,6 +273,137 @@ class Products(unittest.TestCase):
             value = json.loads(result.stdout); A["validate_acquisition_diagnostic"](value)
             self.assertEqual(value["stage"], "preconditions"); self.assertEqual(result.stderr, b"")
             self.assertNotIn(temporary.encode(), result.stdout)
+
+    def test_source_response_schema_preserves_bounded_advice_without_retry_authority(self):
+        for key in A["PRODUCTS"]:
+            good = source_response(key)
+            A["validate_source_response"](good, key, (CLOCK, CLOCK))
+            for state in ("missing", "malformed", "out-of-range"):
+                A["validate_source_response"](dict(good, retry_after_state=state, retry_not_before_ms=None), key)
+            for until in (0, -1000, -A["MAX_SOURCE_EPOCH_MS"], CLOCK+A["MAX_RETRY_ADVICE_MS"]):
+                A["validate_source_response"](dict(good, retry_after_state="valid-date", retry_not_before_ms=until), key)
+            for delay in (0, A["MAX_RETRY_ADVICE_MS"]):
+                A["validate_source_response"](dict(good, retry_not_before_ms=CLOCK+delay), key)
+            bad_values = [dict(good, schema=True), dict(good, status=True), dict(good, status=503),
+                dict(good, product="wrong"), dict(good, raw_headers="SECRET"), dict(good, url="SECRET"),
+                dict(good, observed_at_ms=True), dict(good, observed_at_ms=-1),
+                dict(good, observed_at_ms=A["MAX_SOURCE_EPOCH_MS"]+1), dict(good, retry_after_state=[]),
+                dict(good, retry_after_state="retry"), dict(good, retry_after_state="missing"),
+                dict(good, retry_not_before_ms=None), dict(good, retry_not_before_ms=True),
+                dict(good, retry_not_before_ms=CLOCK-1000), dict(good, retry_not_before_ms=CLOCK+1),
+                dict(good, retry_not_before_ms=CLOCK+A["MAX_RETRY_ADVICE_MS"]+1000),
+                dict(good, retry_after_state="valid-date", retry_not_before_ms=-1001),
+                dict(good, retry_after_state="valid-date", retry_not_before_ms=-A["MAX_SOURCE_EPOCH_MS"]-1000)]
+            for bad in bad_values:
+                with self.subTest(bad=bad), self.assertRaises(ValueError): A["validate_source_response"](bad, key)
+            for window in ((CLOCK+1, CLOCK+2), (CLOCK-2, CLOCK-1), (CLOCK+1, CLOCK), (True, CLOCK)):
+                with self.subTest(window=window), self.assertRaises(ValueError):
+                    A["validate_source_response"](good, key, window)
+
+    def test_source_sidecar_requires_private_bounded_unique_current_product_record(self):
+        cases = ("valid", "missing", "mode", "link", "hardlink", "directory", "oversize", "empty",
+            "duplicate", "wrong-product", "old", "future", "raw-field", "owner", "clock-backward")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); path = root / A["SOURCE_SIDECARS"]["weather"]
+                value = source_response()
+                if case == "wrong-product": value["product"] = "air_quality"
+                elif case == "old": value["observed_at_ms"] -= 1
+                elif case == "future": value["observed_at_ms"] += 1
+                elif case == "raw-field": value["url"] = "SECRET"
+                if case == "link": path.symlink_to(root / "absent")
+                elif case == "directory": path.mkdir(mode=0o700)
+                elif case != "missing":
+                    raw = b"x" * 1025 if case == "oversize" else b"" if case == "empty" else \
+                        b'{"schema":1,"schema":1}' if case == "duplicate" else A["B"]["encode"](value)
+                    A["write_new"](path, raw, 0o644 if case == "mode" else 0o600)
+                    if case == "hardlink": os.link(path, root / "second-link")
+                with patch.object(A["os"], "getuid", return_value=os.getuid()+1) if case == "owner" else \
+                        patch.dict(A["source_response"].__globals__, observed_ms=lambda: CLOCK):
+                    state, result = A["source_response"](root, "weather", CLOCK,
+                        CLOCK-1 if case == "clock-backward" else CLOCK)
+                self.assertEqual(state, "valid" if case == "valid" else "missing" if case == "missing" else "invalid")
+                self.assertEqual(result, value if case == "valid" else None)
+                self.assertEqual(A["source_response"](root, "weather", None, None), ("missing", None))
+
+    def test_observer_requires_fixed_root_owned_readonly_single_link_core_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); target = root / "weather-source-observer.mjs"
+            target.touch()
+            for mode, owner, links, valid in ((0o100555, 0, 1, True), (0o100755, 0, 1, False),
+                    (0o100555, 1000, 1, False), (0o100555, 0, 2, False), (0o040555, 0, 1, False)):
+                info = SimpleNamespace(st_mode=mode, st_uid=owner, st_nlink=links)
+                with patch.dict(A["source_observer"].__globals__, HERE=root), \
+                        patch.object(Path, "lstat", return_value=info), \
+                        patch.dict(A["B"]["B"], canonical=lambda path: self.assertEqual(path, target)), \
+                        patch.dict(A["source_observer"].__globals__, raw_file=lambda path, maximum, mode:
+                            self.assertEqual((path, maximum, mode), (target, 64*1024, 0o555))):
+                    if valid: self.assertEqual(A["source_observer"](), target.as_uri())
+                    else:
+                        with self.assertRaises(ValueError): A["source_observer"]()
+
+    def test_failure_diagnostics_keep_historical_v2_distinct_from_new_source_metadata(self):
+        old = diagnostic(); old["schema"] = 2
+        del old["source_response_state"]; del old["source_response"]
+        A["validate_acquisition_diagnostic"](old)
+        value = dict(diagnostic(), source_response_state="valid", source_response=source_response())
+        A["validate_acquisition_diagnostic"](value)
+        for bad in (dict(old, source_response=None), dict(old, schema=3), dict(value, schema=2),
+                dict(value, source_response_state="missing"), dict(value, source_response_state=[]),
+                dict(value, stage="decoder", product=None), dict(value, product="air_quality")):
+            with self.subTest(bad=bad), self.assertRaises(ValueError): A["validate_acquisition_diagnostic"](bad)
+        for inner in (old, value):
+            with tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary); failure_fixture(work, A["B"]["encode"](inner))
+                output = work / "output"; output.mkdir()
+                status = A["copy_failure_artifacts"](work, output, os.getuid(), os.getgid())
+                self.assertTrue(status["success"])
+                retained = A["read"](A["artifact"](output, "acquisition-failure"))
+                self.assertEqual(retained["schema"], 2); self.assertEqual(retained["diagnostic"], inner)
+                self.assertFalse(any(path.name in A["SOURCE_SIDECARS"].values() for path in output.iterdir()))
+
+    def test_acquisition_failure_binds_only_actual_failing_subprocess_observation(self):
+        for failed_key, sidecar_key, observed, expected in (("weather", "weather", CLOCK, "valid"),
+                ("air_quality", "air_quality", CLOCK, "valid"), ("air_quality", "weather", CLOCK, "missing"),
+                ("weather", "weather", CLOCK-1, "invalid"), ("weather", "weather", CLOCK+1, "invalid")):
+            with self.subTest(failed_key=failed_key, sidecar_key=sidecar_key, observed=observed), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary); root = base / "weather-publisher"; root.mkdir(mode=0o700)
+                source = base / "inputs"; source.mkdir(mode=0o700)
+                A["initialize"](root); A["write_new"](source / "INPUTS.json", b"fixture", 0o400)
+                def execute(command, cwd, maximum, timeout):
+                    if command[-1] == "-V": return b"ecCodes Version 2.44.0\n"
+                    key = command[3].split("?product=")[1]
+                    if key == failed_key:
+                        save(root / A["SOURCE_SIDECARS"][sidecar_key], source_response(sidecar_key, observed))
+                        raise ValueError("PRIVATE source response and URL")
+                    return json.dumps(forecast(key, command[command.index("--run")+1])).encode()
+                with patch.dict(A["acquisition"].__globals__, run=execute, boundary=lambda *args: None), \
+                        patch.dict(A["B"], verify_tree=lambda *args: None, manifest=lambda *args: {"version": 3}), \
+                        patch.object(A["time"], "time", return_value=CLOCK//1000):
+                    with self.assertRaises(A["AcquisitionFailure"]) as raised:
+                        A["acquisition"](source, SHA, root, "net:[1]", "net:[2]", 1000)
+                value = raised.exception.diagnostic; A["validate_acquisition_diagnostic"](value)
+                self.assertEqual(value["source_response_state"], expected)
+                self.assertEqual(value["product"], failed_key); self.assertNotIn("PRIVATE", json.dumps(value))
+                self.assertEqual(value["source_response"], source_response(sidecar_key, observed) if expected == "valid" else None)
+
+    def test_preexisting_product_sidecar_prevents_child_and_is_not_reused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary); root = base / "weather-publisher"; root.mkdir(mode=0o700)
+            source = base / "inputs"; source.mkdir(mode=0o700)
+            A["initialize"](root); A["write_new"](source / "INPUTS.json", b"fixture", 0o400)
+            calls = []
+            def execute(command, *args):
+                calls.append(command)
+                save(root / A["SOURCE_SIDECARS"]["weather"], source_response())
+                return b"ecCodes Version 2.44.0\n"
+            with patch.dict(A["acquisition"].__globals__, run=execute, boundary=lambda *args: None), \
+                    patch.dict(A["B"], verify_tree=lambda *args: None, manifest=lambda *args: {"version": 3}):
+                with self.assertRaises(A["AcquisitionFailure"]) as raised:
+                    A["acquisition"](source, SHA, root, "net:[1]", "net:[2]", 1000)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(raised.exception.diagnostic["source_response_state"], "missing")
+            self.assertEqual(raised.exception.diagnostic["stage"], "weather-run")
 
     def test_retained_acquisition_failures_are_closed_and_not_success_claims(self):
         cases = [(None, "missing"), (b"", "missing"), (b'{"secret":', "invalid"),
@@ -347,7 +485,7 @@ class Products(unittest.TestCase):
             def execute(command, cwd, maximum, timeout):
                 calls.append((command, timeout))
                 if command[-1] == "-V": return b"ecCodes Version 2.44.0\n"
-                key = "weather" if command[2].endswith("/forecast.mjs") else "air_quality"
+                key = "weather" if command[4].endswith("/forecast.mjs") else "air_quality"
                 return json.dumps(forecast(key, command[command.index("--run")+1])).encode()
             clock = datetime.datetime(2026, 10, 11, 14, tzinfo=datetime.timezone.utc).timestamp()
             with patch.dict(A["acquisition"].__globals__, run=execute, boundary=lambda *args: None), \
@@ -357,6 +495,10 @@ class Products(unittest.TestCase):
                 result = A["acquisition"](source, SHA, root, "net:[1]", "net:[2]", 1000)
             A["validate_acquisition"](result)
             weather, aq = calls[1][0], calls[2][0]
+            for key, command in (("weather", weather), ("air_quality", aq)):
+                self.assertEqual(command[1:4], ["--max-old-space-size=256", "--import",
+                    "file:///root-owned/bin/weather-source-observer.mjs?product=" + key])
+                self.assertEqual(command[4], str(source / A["B"]["WEATHER"] / "scripts" / A["PRODUCTS"][key]["script"]))
             self.assertIn("--include-precipitation", weather); self.assertNotIn("--include-precipitation", aq)
             self.assertEqual(weather[weather.index("--run")+1], "2026-10-11T00:00:00.000Z")
             self.assertEqual(aq[aq.index("--run")+1], "2026-10-11T00:00:00.000Z")
@@ -382,7 +524,7 @@ class Products(unittest.TestCase):
                 started, received = A["stamp"](when), []
                 def execute(command, cwd, maximum, timeout):
                     if command[-1] == "-V": return b"ecCodes Version 2.44.0\n"
-                    key = "weather" if command[2].endswith("/forecast.mjs") else "air_quality"
+                    key = "weather" if command[4].endswith("/forecast.mjs") else "air_quality"
                     value = forecast(key, command[command.index("--run")+1], iso(started + 2000))
                     received.append(value); return json.dumps(value).encode()
                 with patch.dict(A["acquisition"].__globals__, run=execute, boundary=lambda *args: None,
@@ -635,6 +777,29 @@ class Products(unittest.TestCase):
             (root / "unrelated").unlink()
             self.assertEqual(A["cleanup"](root, True), dict(directory_removed=True, files_removed=True))
             self.assertFalse(root.exists())
+
+    def test_cleanup_removes_only_exact_private_bounded_source_sidecars(self):
+        for bad in (None, "empty", "unexpected", "directory", "mode", "oversize", "symlink", "hardlink"):
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary) / "weather-publisher"; root.mkdir(mode=0o700)
+                A["write_new"](root / "forecast.json", b"retained-until-all-paths-checked")
+                weather = root / A["SOURCE_SIDECARS"]["weather"]
+                aq = root / A["SOURCE_SIDECARS"]["air_quality"]
+                # An interrupted/malformed diagnostic is removable, never exported raw.
+                A["write_new"](aq, b'{"incomplete":')
+                if bad == "directory": weather.mkdir(mode=0o700)
+                elif bad == "symlink": weather.symlink_to(aq)
+                else:
+                    A["write_new"](weather, b"x" * (1025 if bad == "oversize" else 0 if bad == "empty" else 100),
+                        0o644 if bad == "mode" else 0o600)
+                if bad == "unexpected": A["write_new"](root / "other-origin-http.json", b"keep")
+                if bad == "hardlink": os.link(weather, root / "linked-diagnostic")
+                if bad not in (None, "empty"):
+                    with self.assertRaises((ValueError, OSError)): A["cleanup"](root, True)
+                    self.assertTrue((root / "forecast.json").exists()); self.assertTrue(aq.exists())
+                else:
+                    self.assertEqual(A["cleanup"](root, True), dict(directory_removed=True, files_removed=True))
+                    self.assertFalse(root.exists())
 
     def test_cleanup_accepts_larger_two_product_expected_but_not_links(self):
         with tempfile.TemporaryDirectory() as temporary:

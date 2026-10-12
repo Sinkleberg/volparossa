@@ -31,6 +31,20 @@ class ProductsShell(unittest.TestCase):
         self.ok(self.call(":"))
         self.assertEqual(list(self.root.iterdir()), [])
 
+    def test_source_observer_is_staged_root_readonly_before_untrusted_acquisition(self):
+        source = SOURCE.read_text()
+        staging = "    for weather_script in " + source.split("    for weather_script in ", 1)[1].split(
+            "    install -o root -g root -m 0600", 1)[0]
+        result = self.call('''
+source_directory=/verified-core
+install() { printf '%s\\n' "$*"; }
+fail() { exit 99; }
+''' + staging)
+        self.ok(result)
+        expected = f"-o root -g root -m 0555 /verified-core/tests/integration/weather-source-observer.mjs {self.root}/bin/weather-source-observer.mjs"
+        self.assertEqual(result.stdout.splitlines().count(expected), 1)
+        self.assertLess(source.index(staging), source.index("PHASE=weather-products-delivery-acquire"))
+
     def test_closed_independent_product_mapping(self):
         result = self.call('''
 for kind in weather air_quality; do

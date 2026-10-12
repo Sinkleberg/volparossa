@@ -122,7 +122,7 @@ weather_products_delivery_run() {
         "$WORK/state-$provider_node_a/air-quality-cache" "$WORK/state-$provider_node_b/air-quality-cache"; do
         if [ -e "$weather_new" ] || [ -L "$weather_new" ]; then fail WEATHER_PRODUCTS_PATH_EXISTS; fi
     done
-    for weather_script in weather-products-delivery.py weather-client-delivery.py weather-client-bundle.py \
+    for weather_script in weather-products-delivery.py weather-source-observer.mjs weather-client-delivery.py weather-client-bundle.py \
         browser-filter-bundle.py content-provider-https-smoke.py content-network-smoke.py; do
         install -o root -g root -m 0555 "$source_directory/tests/integration/$weather_script" \
             "$WORK/bin/$weather_script" || fail WEATHER_PRODUCTS_DRIVER_UNAVAILABLE

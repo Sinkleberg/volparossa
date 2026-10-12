@@ -197,6 +197,8 @@ class WeatherEmergencyExport(unittest.TestCase):
         exec(compile(body, "weather-collector", "exec"), cls.api)
 
     def test_products_helper_requires_complete_root_owned_closure_without_v1_fallback(self):
+        self.assertIn("weather-source-observer.mjs", self.api["WEATHER_PRODUCTS_HELPERS"])
+        self.assertNotIn("weather-source-observer.mjs", self.api["WEATHER_CLIENT_HELPERS"])
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary).resolve()
             directory = work / "bin"
@@ -229,6 +231,11 @@ class WeatherEmergencyExport(unittest.TestCase):
                         with self.subTest(name=name, fault=fault):
                             self.assertIsNone(self.api["weather_client_helper"](work))
                 bad_path, fault = None, {}
+                observer = directory / "weather-source-observer.mjs"
+                observer.unlink()
+                self.assertIsNone(self.api["weather_client_helper"](work))
+                observer.write_text("// inert fixture\n")
+                observer.chmod(0o555)
                 products = directory / "weather-products-delivery.py"
                 products.unlink()
                 self.assertEqual(self.api["weather_client_helper"](work), directory / "weather-client-delivery.py")
@@ -245,7 +252,8 @@ class WeatherEmergencyExport(unittest.TestCase):
                 self.assertEqual(command[4:6], ["copy-artifacts", str(root)])
                 copied = Path(command[6])
                 for name in self.api["WEATHER_CLIENT_NAMES"] | self.api["WEATHER_PRODUCTS_NAMES"] | {
-                        "weather-products-delivery-config.json", "forecast.json", "private.log"}:
+                        "weather-products-delivery-config.json", "forecast.json", "private.log",
+                        "weather-origin-http.json", "air-quality-origin-http.json", "weather-source-observer.mjs"}:
                     (copied / name).write_text("{}")
 
             with patch.object(self.api["subprocess"], "run", inert_copy):

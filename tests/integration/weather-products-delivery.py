@@ -49,6 +49,60 @@ FAILURE_CLASSES = {"missing-input", "permission-denied", "io-failed", "timeout",
     "check-or-execution-failed"}
 FAILURE_EXPORTS = ("acquisition-failure", "tree-before", "input-cleanup")
 SAFE_ERRORS = (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.SubprocessError)
+SOURCE_SIDECARS = {"weather": "weather-origin-http.json", "air_quality": "air-quality-origin-http.json"}
+MAX_SOURCE_RESPONSE = 1024
+MAX_SOURCE_EPOCH_MS = 8640000000000000  # JavaScript Date range, within safe integers.
+MAX_RETRY_ADVICE_MS = 7 * 24 * 3600000
+SOURCE_RESPONSE_STATES = {"valid-seconds", "valid-date", "missing", "malformed", "out-of-range"}
+
+
+def source_observer():
+    # This explicit fixture helper belongs to the verified core, not the frozen
+    # Weather bundle. The root orchestrator stages it read-only before dropping UID.
+    path = HERE / "weather-source-observer.mjs"
+    B["B"]["canonical"](path)
+    info = path.lstat()
+    require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1
+        and stat.S_IMODE(info.st_mode) == 0o555)
+    raw_file(path, 64 * 1024, 0o555)
+    return path.as_uri()
+
+
+def validate_source_response(value, key, window=None):
+    require(type(value) is dict and set(value) == {"schema", "kind", "product", "status",
+        "observed_at_ms", "retry_after_state", "retry_not_before_ms"})
+    same(value["schema"], 1); same(value["kind"], "weather-source-rate-limit")
+    same(value["product"], key); product(key); same(value["status"], 429)
+    observed, until, state = value["observed_at_ms"], value["retry_not_before_ms"], value["retry_after_state"]
+    require(type(observed) is int and 0 <= observed <= MAX_SOURCE_EPOCH_MS
+        and type(state) is str and state in SOURCE_RESPONSE_STATES)
+    if window is not None:
+        start, end = window
+        require(type(start) is int and type(end) is int and 0 <= start <= observed <= end <= MAX_SOURCE_EPOCH_MS)
+    if state in ("valid-seconds", "valid-date"):
+        require(type(until) is int and abs(until) <= MAX_SOURCE_EPOCH_MS
+            and until - observed <= MAX_RETRY_ADVICE_MS)
+        require(until >= observed and (until - observed) % 1000 == 0
+            if state == "valid-seconds" else until % 1000 == 0)
+    else:
+        same(until, None)
+
+
+def source_response(root, key, started_at, finished_at):
+    # No file from an earlier product/run can explain this failure. These files
+    # are never exported directly, and their advice never triggers a retry.
+    if key is None or started_at is None:
+        return "missing", None
+    path = root / SOURCE_SIDECARS[key]
+    try:
+        if not path.exists() and not path.is_symlink(): return "missing", None
+        private(path, directory=False)
+        value = json.loads(raw_file(path, MAX_SOURCE_RESPONSE, 0o600), object_pairs_hook=B["B"]["unique_pairs"])
+        end = observed_ms() if finished_at is None else finished_at
+        validate_source_response(value, key, (started_at, end))
+        return "valid", value
+    except SAFE_ERRORS:
+        return "invalid", None
 
 
 def ui_profile(version):
@@ -65,24 +119,34 @@ def ui_profile(version):
 
 class AcquisitionFailure(ValueError):
     """Carry only a closed classification, never a subprocess error or argv."""
-    def __init__(self, stage, error):
+    def __init__(self, stage, error, source_response_state="missing", source_response=None):
         failure = ("missing-input" if isinstance(error, FileNotFoundError) else
             "permission-denied" if isinstance(error, PermissionError) else
             "io-failed" if isinstance(error, OSError) else
             "timeout" if isinstance(error, subprocess.TimeoutExpired) else
             "process-failed" if isinstance(error, subprocess.CalledProcessError) else
             "check-or-execution-failed")
-        self.diagnostic = dict(schema=2, kind="weather-products-acquisition-diagnostic", success=False,
-            stage=stage, product=ACQUISITION_STAGES[stage], failure=failure)
+        self.diagnostic = dict(schema=3, kind="weather-products-acquisition-diagnostic", success=False,
+            stage=stage, product=ACQUISITION_STAGES[stage], failure=failure,
+            source_response_state=source_response_state, source_response=source_response)
         super().__init__("weather_products_acquisition_failed")
 
 
 def validate_acquisition_diagnostic(value):
-    require(type(value) is dict and set(value) == {"schema", "kind", "success", "stage", "product", "failure"})
-    same(value["schema"], 2); same(value["kind"], "weather-products-acquisition-diagnostic"); same(value["success"], False)
+    require(type(value) is dict and type(value.get("schema")) is int and value["schema"] in (2, 3))
+    fields = {"schema", "kind", "success", "stage", "product", "failure"}
+    # Historical v2 proves only the stage; do not invent HTTP metadata for it.
+    require(set(value) == fields | ({"source_response_state", "source_response"} if value["schema"] == 3 else set()))
+    same(value["kind"], "weather-products-acquisition-diagnostic"); same(value["success"], False)
     require(type(value["stage"]) is str and value["stage"] in ACQUISITION_STAGES
         and type(value["failure"]) is str and value["failure"] in FAILURE_CLASSES)
     same(value["product"], ACQUISITION_STAGES[value["stage"]])
+    if value["schema"] == 3:
+        state = value["source_response_state"]
+        require(type(state) is str and state in {"missing", "valid", "invalid"})
+        if value["product"] is None: same(state, "missing")
+        if state == "valid": validate_source_response(value["source_response"], value["product"])
+        else: same(value["source_response"], None)
 
 
 def validate_acquisition_failure(value):
@@ -174,6 +238,7 @@ def forecast_times(value, key, model_run, observed_at, acquisition_window=None):
 
 def acquisition(source, manifest_sha, root, parent, client, group):
     stage = "preconditions"
+    active_product, started_at, finished_at = None, None, None
     try:
         private(root)
         require(root.name == "weather-publisher" and set(p.name for p in root.iterdir()) == {"passphrase", "scratch"})
@@ -182,6 +247,7 @@ def acquisition(source, manifest_sha, root, parent, client, group):
         stage = "tree"
         B["verify_tree"](source, manifest_sha)
         ui_profile(B["manifest"](raw_file(source / "INPUTS.json", B["MAX_MANIFEST"], 0o400), manifest_sha)["version"])
+        observer = source_observer()
         deadline = time.monotonic() + 720
         stage = "decoder"
         require(run([str(source / "decoder/grib_ls"), "-V"], root, 4096, 10).strip() == b"ecCodes Version 2.44.0")
@@ -194,8 +260,11 @@ def acquisition(source, manifest_sha, root, parent, client, group):
         products = {}
         for key, p in PRODUCTS.items():
             stage = p["suffix"] + "-run"
+            active_product, started_at, finished_at = key, None, None
+            sidecar = root / SOURCE_SIDECARS[key]
+            require(not sidecar.exists() and not sidecar.is_symlink())
             model_run = datetime.datetime.fromtimestamp(cycles[key], datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-            command = [str(source / "runtime/node"), "--max-old-space-size=256",
+            command = [str(source / "runtime/node"), "--max-old-space-size=256", "--import", observer + "?product=" + key,
                 str(source / B["WEATHER"] / "scripts" / p["script"]), "origin", "--latitude", "52.52", "--longitude", "13.41",
                 "--run", model_run, "--steps", ",".join(map(str, p["steps"])), "--community-area",
                 "--execute", "--accept-data-license", "--decoder", str(source / "decoder/grib_ls"),
@@ -225,13 +294,15 @@ def acquisition(source, manifest_sha, root, parent, client, group):
             products[key] = dict(forecast_sha256=hashlib.sha256(raw).hexdigest(), forecast_bytes=len(raw), fields=fields)
             write_new(root / p["filename"], raw)
         stage = "final-validation"
+        active_product, started_at, finished_at = None, None, None
         result = dict(schema=2, success=True, origin_https=True, acquisition_outside_overlay=True,
             upstream_signature_attested=False, synthetic_weather=False, synthetic_air_quality=False,
             independent_product_runs=True, decoder_sha256=B["DECODER_SHA"], products=products)
         validate_acquisition(result)
         return result
     except SAFE_ERRORS as error:
-        raise AcquisitionFailure(stage, error) from None
+        state, response = source_response(root, active_product, started_at, finished_at)
+        raise AcquisitionFailure(stage, error, state, response) from None
 
 
 def validate_publication(value, key):
@@ -366,9 +437,11 @@ def cleanup(root, publisher):
     allowed = {"passphrase", "identity.key", "scratch"} if publisher else {"selection.json", "config.json", "expected.json", "browser-output"}
     allowed |= {p[field] for p in PRODUCTS.values() for field in
         (("filename", "manifest", "published", "source_cache") if publisher else ("filename", "receipt"))}
+    if publisher: allowed |= set(SOURCE_SIDECARS.values())
     files, directories, total = [], [], 0
     for path in root.iterdir():
         require(path.name in allowed)
+        sidecar_info = private(path, directory=False) if path.name in SOURCE_SIDECARS.values() else None
         if path.is_dir():
             private(path); directories.append(path)
             children = list(path.iterdir()); require(len(children) <= 20)
@@ -378,7 +451,12 @@ def cleanup(root, publisher):
                     (re.fullmatch(r"[a-f0-9]{64}", child.name) or child.name in (".volparossa-owner-v1", ".volparossa-index-v1")))
                 total += len(raw_file(child, MAX_FORECAST)); files.append(child)
         else:
-            total += len(raw_file(path, MAX_EXPECTED)); files.append(path)
+            if path.name in SOURCE_SIDECARS.values():
+                # Exclusive create followed by interruption can leave zero bytes.
+                total += len(raw_file(path, MAX_SOURCE_RESPONSE, 0o600)) if sidecar_info.st_size else 0
+            else:
+                total += len(raw_file(path, MAX_EXPECTED))
+            files.append(path)
     require(total <= 4*1024*1024)
     for path in files: path.unlink()
     for path in directories: path.rmdir()
