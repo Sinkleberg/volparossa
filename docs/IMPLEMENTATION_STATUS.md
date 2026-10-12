@@ -29,9 +29,9 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Integrate shared cache delivery — `volparossa`, `volparossa-weather` | Retain the proved provider sequence and integrate its actual Weather consumer. | PR227 is merged with the protected sequence, CPU-pressure contraction and useful serial continuation. The complete sequence also passes with joined Weather delivery on `15415fad`; PR229 carries this integration. |
+| Integrate shared cache delivery — `volparossa`, `volparossa-weather` | Retain the proved provider sequence and integrate its actual Weather consumer. | PR227 is merged with the protected sequence, CPU-pressure contraction and useful serial continuation. The complete sequence also passes with joined Weather delivery on `15415fad`; PR229 is merged at `88973908` with the evidence and status update. |
 | Integrate weather field delivery — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing capabilities and refresh. | Weather PR14–PR16 are merged. Hosted run `38228710535` on core `15415fad` passes actual acquisition, independent protected cold transfers and exact initial/refresh UI checks for both products. Independent evidence reconstruction, Quality and CodeQL also pass on that source. The synthetic failure/expiry tests retain their separate scope. Automatic acquisition, browser-initiated cold retrieval and a complete weather service remain open. |
-| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR13 are merged with passing CI and separate synthetic full-browser/table proofs. Public hosted SDK/build and both browser trials are being prepared for a new, separately admitted input profile. Preserve all historical bundles and reports. Joined core delivery and native Android/iOS execution remain unverified. |
+| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | Weather PR17 is merged at `88981717` with the successful public build and original synthetic browser trials. PR18 adds the explicit v5 consumer. The reviewed core v5 inputs pass nonexecuting capture and verification; the separate hosted workflow will test actual delivery. Joined core delivery and native Android/iOS execution remain unverified. |
 
 The successful hosted Drizz.li trial supersedes neither the earlier failed route
 trial nor the local build aborted for host memory pressure; both remain recorded
@@ -45,6 +45,65 @@ execution are still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
+
+### Public Overmorrow build and joined delivery preparation
+
+[Weather PR17](https://github.com/VOLPAROSSA/volparossa-weather/pull/17), merged at
+`88981717`, builds the pinned Overmorrow source using an authenticated Flutter SDK on a
+disposable hosted runner. Public acquisition is separate from offline compilation
+and the existing real-browser UI/table trials. Historical input profiles and
+private bundles remain unchanged.
+
+The first three hosted attempts remain failed, with original diagnostics retained:
+
+- [The first attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38232594170)
+  stopped at SDK integrity inspection. A small Git regression reproduced index
+  mutation during inspection; disabling that optional refresh preserves the index
+  while still rejecting changed source.
+- [The second attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38233666151)
+  passed SDK verification and sandbox preflight, then Flutter could not find
+  `which`. A private alias now exposes only the recorded canonical executable,
+  without mounting the system alternatives directory.
+- [The third attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38234538541)
+  reached Flutter's own dependency initialization, which tried to create
+  `packages/flutter_tools/.dart_tool` in the read-only SDK. Its original step logs
+  match their receipts; process drain, private-state checks and scoped policy
+  cleanup pass. Compilation and browser trials were not reached.
+
+Correction `06672c54` supplies a separate persistent directory for that generated
+tool metadata. SDK source, Git data, original binaries and locks remain protected;
+the complete original file inventory is still verified. All 164 lightweight
+hosted-preparation tests pass, including independent review of the new mount.
+The [corrected hosted trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38235992570)
+passes compilation, all 23 Flutter tests and both original browser trials. The
+full UI makes ten requests per product; the ordered-table trial verifies four
+weather rows and five particulate rows initially and after refresh, making two
+requests per product. All 14 recorded steps exit successfully; inner browser,
+outer process and scoped policy cleanup pass. The exported 61-file deployment
+contains 22,956,221 bytes. These are real client trials with synthetic products,
+not current-source acquisition or core delivery.
+
+[Weather PR18](https://github.com/VOLPAROSSA/volparossa-weather/pull/18)
+and the core v5 candidate bind the current consumer separately from the historical
+UI/table evidence. The old table verifier is compared as syntax, never executed.
+Acquisition and cold-transfer evidence retain their existing schema; the new
+consumer and final joined evidence use explicit profile 5. The
+[consumer component run](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38236317360)
+passes nine Overmorrow Node tests and 69 Python tests without skips on `992054c2`.
+
+Independent review verifies the original deployment, exported runtime and notice
+bytes, all step logs and UI/table source bindings. The separate
+`weather-public-overmorrow-v5.json` admits those exact artifacts with consumer
+`992054c2`, historical verifier `06672c54` and Browser helpers `08bac388`.
+Nonexecuting capture and verification pass for all 208 files (455,721,597 archive
+bytes), manifest `b5486b16bc24ce0013d170e7b558b2ae3b8bb7a6953fbaef9fdfa554acd53ab1`.
+No SDK, dependency cache, private profile or legacy private bundle is included.
+
+The new hosted workflow keeps the existing real content-provider topology and
+requires current-source acquisition, two protected cold transfers and exact
+initial/refresh tables for both Overmorrow products. Source acquisition remains
+outside the overlay. Historical UI/table trials are not relabeled as core
+delivery; preparation and input verification do not yet prove the joined path.
 
 ### Hosted Weather preparation
 

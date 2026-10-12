@@ -31,8 +31,8 @@ class WeatherBundle(unittest.TestCase):
         self.files = self.profile_files()
 
     def profile_files(self, version=1):
-        fixed = W[{1: "FIXED", 2: "FIXED_V2", 3: "FIXED_V3", 4: "FIXED_V4"}[version]]
-        static = ({W["STATIC_V3"] + name for name in W["STATIC_REQUIRED_V3"]} if version == 3
+        fixed = W[{1: "FIXED", 2: "FIXED_V2", 3: "FIXED_V3", 4: "FIXED_V4", 5: "FIXED_V5"}[version]]
+        static = ({W["STATIC_V3"] + name for name in W["STATIC_REQUIRED_V3"]} if version in (3, 5)
                   else {W["STATIC"] + "index.html"})
         return {name: dict(bytes=len(self.raw), mode=W["mode"](name), sha256=self.digest)
             for name in fixed | static}
@@ -67,14 +67,15 @@ class WeatherBundle(unittest.TestCase):
             self.assertEqual((destination / name).stat().st_mode & 0o777, item["mode"])
         self.assertEqual(destination.stat().st_mode & 0o777, 0o500)
 
-    def admission(self):
-        return dict(schema=1, kind="volparossa-weather-public-drizzli-admission", scope="disposable-joined-weather-only",
+    def admission(self, version=4):
+        return dict(schema=1, kind=("volparossa-weather-public-drizzli-admission" if version == 4
+                                  else "volparossa-weather-public-overmorrow-admission"), scope="disposable-joined-weather-only",
             sources={name: dict(commit=letter * 40) for name, letter in (("weather", "a"), ("browser", "b"))},
             artifacts={name: dict(repository="VOLPAROSSA/volparossa" + ("" if name == "abi" else "-weather"),
                 run_id=1, commit="c" * 40, id=index, name=name, sha256=self.digest, bytes=42)
                 for index, name in enumerate(("assets", "proof", "decoder", "abi"), 1)},
             files={name: {key: item[key] for key in ("bytes", "sha256")}
-                   for name, item in self.profile_files(4).items()})
+                   for name, item in self.profile_files(version).items()})
 
     def test_v4_exact_admission_roundtrip_without_private_machine_files(self):
         self.files = self.profile_files(4); admitted = self.admission()
@@ -226,6 +227,251 @@ class WeatherBundle(unittest.TestCase):
         self.assertEqual(W["manifest"](raw, digest), dict(version=1, kind=W["KIND"], files=self.files))
         self.assertNotIn(W["WEATHER"] + "src/air-quality.mjs", self.files)
         self.assertIn(W["WEATHER"] + "integrations/drizzli/browser-smoke.json", self.files)
+
+    def v5_proof_fixture(self):
+        selected, admitted = self.profile_files(5), self.admission(5)
+        _, _, common = self.v4_proof_fixture()
+        _, old = self.v3_proof_fixture()
+        proof = old["browser-proof.json"]
+        proof.pop("outer_cleanup"); proof.pop("wrapper_outcome")
+        table = copy.deepcopy(proof)
+        table.update(kind="overmorrow-synthetic-native-table-contract")
+        table["scope"].update(ordered_table_contract=True, joined_delivery_proven=False,
+            cold_transfer_proven=False, origin_acquisition_proven=False)
+        table["source"].update(table_wrapper_sha256=self.digest, table_fixture_sha256=self.digest,
+            exact_v3_verifier_sha256=self.digest, extra_synthetic_modules={"tests/precipitation-fixtures.mjs": self.digest})
+        table["checks"] = dict.fromkeys(("exact_current_v3_extractor", "exact_current_v3_observed_products",
+            "same_origin_loaded_resources", "actual_pointer_refresh", "exact_captured_response_bodies",
+            "ordered_four_weather_five_air_quality_rows", "native_missing_calm_zero_and_precipitation_windows"), True)
+        table["checks"].update(weather_requests=2, air_quality_requests=2)
+        table["table_phases"] = [dict(phase=phase, row_counts=dict(weather=4, air_quality=5),
+            browser_requests_each=index, provider_requests_each=index, exact_ordered_rows_and_metadata=True,
+            response_sha256=dict(weather=self.digest, air_quality=self.digest), display_sha256=self.digest)
+            for index, phase in enumerate(("initial_tables", "refreshed_tables"), 1)]
+        pin = old["upstream.json"]; pin["flutter_archive_sha256"] = self.digest
+        sdk = dict(schema=1, kind="hosted-flutter-sdk-materialization", pin_sha256=self.digest,
+            preparer_sha256=self.digest, input=dict(version=pin["flutter"], commit=pin["flutter_commit"], sha256=self.digest),
+            scope=dict(runtime_executed=False, current_update_authority=False, host_installed=False,
+                expected_sdk_hashes_verified=True, licenses_preserved=True),
+            files=12, bytes=256, inventory_sha256=self.digest,
+            sdk_files=dict.fromkeys(("bin/cache/dart-sdk/bin/dart", "bin/cache/flutter_tools.snapshot"), self.digest))
+        binding = dict(schema=1, provenance_sha256=self.digest, runtime_executed=False,
+            **{key: sdk[key] for key in ("input", "sdk_files", "files", "bytes", "inventory_sha256")})
+        tools = dict(schema=1, kind="hosted-overmorrow-system-tools", which=dict(path="/usr/bin/which.debianutils",
+            bytes=1234, sha256=self.digest, sandbox_alias="/tools/which"))
+        tool_state = dict(schema=1, kind="hosted-flutter-tool-state", stored_outside_sdk=True,
+            original_mountpoint_empty=True, bytes=len(self.raw),
+            files={"package_config.json":dict(bytes=len(self.raw), sha256=self.digest)})
+        source = proof["source"]
+        deployment = dict(schema=1, static_profile="flutter-canvaskit", tree_sha256=source["deployed_tree_sha256"],
+            files=source["deployed_files"], bytes=source["deployed_bytes"],
+            asset_sha256={name[len(W["STATIC_V3"]):]: item["sha256"] for name, item in selected.items()
+                         if name.startswith(W["STATIC_V3"])})
+        build = dict(schema=1, kind="hosted-overmorrow-build", weather_commit="c" * 40, browser_commit="b" * 40,
+            upstream_commit=pin["commit"], flutter_commit=pin["flutter_commit"], lock_sha256=self.digest,
+            sdk_materialization=copy.deepcopy(binding), sdk_final_binding=copy.deepcopy(binding),
+            reports={"ui":dict(sha256=self.digest, source=copy.deepcopy(proof["source"])),
+                     "table":dict(sha256=self.digest, source=copy.deepcopy(table["source"]))},
+            runtime=dict(provenance_sha256=self.digest), deployment_sha256=self.digest, system_tools=copy.deepcopy(tools),
+            tool_state=copy.deepcopy(tool_state),
+            flutter_tests=23, actual_synthetic_ui=True, actual_synthetic_tables=True, compiled_networkless=True,
+            locked_dependencies=True, copyright_notices_preserved=True, sdk_executed_in_disposable_sandbox=True,
+            core_delivery=False, weather_origin=False, native_mobile=False)
+        outer = dict(schema=1, kind="hosted-overmorrow-build-and-synthetic-ui", phase="complete", success=True,
+            weather_commit="c" * 40, browser_commit="b" * 40, policy_cleanup_complete=True,
+            origin_acquisition=False, core_delivery=False, native_mobile=False, production_authority=False,
+            synthetic_weather=True, synthetic_air_quality=True,
+            outer_cleanup=dict.fromkeys(("host_netns_unchanged", "private_profile_removed",
+                "private_table_profile_removed", "process_drain_confirmed"), True))
+        common.update({"hosted-browser-proof.json":proof, "hosted-table-proof.json":table,
+            "upstream.json":pin, "build.json":build, "result.json":outer, "deployment.json":deployment,
+            "sdk-provenance.json":sdk, "sdk-binding.json":binding, "system-tools.json":tools,
+            "tool-state-acquired.json":copy.deepcopy(tool_state), "tool-state-final.json":copy.deepcopy(tool_state)})
+        common["cleanup.json"]["kind"] = "hosted-overmorrow-sandbox-cleanup"
+        return selected, admitted, common
+
+    def check_v5_proof(self, selected, admitted, records):
+        sources = {name: Path(name) for name in selected}
+        with patch.dict(W["public_overmorrow_source_proof"].__globals__,
+                small_json=lambda path: records[path.name], matching_table_contract=lambda *args: None):
+            W["public_overmorrow_source_proof"](sources, selected, admitted)
+
+    def test_v5_roundtrip_requires_separate_exact_admission_and_no_private_inventory(self):
+        admitted = self.admission(5); self.files = self.profile_files(5)
+        W["validate_public_admission"](admitted, 5)
+        with self.assertRaises(ValueError): W["validate_public_admission"](admitted)
+        with patch.dict(W["manifest"].__globals__, public_overmorrow_admission=lambda: admitted):
+            archive, expected = self.archive(version=5)
+            frozen = self.root / "v5"
+            self.assertEqual(W["checked_archive"](archive, expected, frozen, runtime=True, report_version=True)["bundle_version"], 5)
+            self.assertFalse(W["verify_tree"](frozen, expected)["runtime_executed"])
+        self.assertFalse(any("syspref" in name or name.endswith(".xpi") for name in self.files))
+        self.assertFalse(any(".git/" in name or "/flutter-sdk/" in name or name.startswith(W["UI_STAGE"]) for name in self.files))
+        self.assertIn(W["WEATHER"] + W["HISTORICAL_OVERMORROW_DRIVER"], self.files)
+
+    def test_v5_inventory_changes_and_cross_profile_relabeling_fail_closed(self):
+        admitted = self.admission(5)
+        with patch.dict(W["manifest"].__globals__, public_overmorrow_admission=lambda: admitted,
+                        public_admission=lambda: self.admission()):
+            for name in self.profile_files(5):
+                files = self.profile_files(5); files[name]["sha256"] = "f" * 64
+                raw, expected = self.manifest(dict(version=5, kind=W["KIND"], files=files))
+                with self.subTest(name=name), self.assertRaises(ValueError): W["manifest"](raw, expected)
+            for version in (1, 2, 3, 4):
+                for declared, files in ((version, self.profile_files(5)), (5, self.profile_files(version))):
+                    raw, expected = self.manifest(dict(version=declared, kind=W["KIND"], files=files))
+                    with self.subTest(declared=declared, profile=version), self.assertRaises(ValueError):
+                        W["manifest"](raw, expected)
+            for extra in (W["STATIC"] + "index.html", W["STATIC_V3"] + "canvaskit/skwasm.wasm",
+                          W["STATIC_V3"] + "flutter_service_worker.js", W["STATIC_V3"] + "assets/extra.bin"):
+                files = self.profile_files(5); files[extra] = dict(bytes=1, mode=0o400, sha256=self.digest)
+                raw, expected = self.manifest(dict(version=5, kind=W["KIND"], files=files))
+                with self.subTest(extra=extra), self.assertRaises(ValueError): W["manifest"](raw, expected)
+
+    def test_v5_absent_admission_does_not_change_legacy_runtime_admission(self):
+        def missing(): raise FileNotFoundError("no actual reviewed Overmorrow evidence")
+        with patch.dict(W["manifest"].__globals__, public_overmorrow_admission=missing,
+                        public_admission=lambda: self.admission()):
+            for version in (1, 2, 3, 4, 5):
+                raw, expected = self.manifest(dict(version=version, kind=W["KIND"], files=self.profile_files(version)))
+                if version == 5:
+                    with self.assertRaises(FileNotFoundError): W["manifest"](raw, expected)
+                else: self.assertEqual(W["manifest"](raw, expected)["version"], version)
+
+    def test_v5_original_ui_table_build_and_sdk_proofs_are_independently_bound(self):
+        selected, admitted, records = self.v5_proof_fixture()
+        self.check_v5_proof(selected, admitted, records)
+        self.assertNotEqual(admitted["sources"]["weather"]["commit"], records["build.json"]["weather_commit"])
+        paths = [("hosted-browser-proof.json", ("scope", "core_executed")),
+            ("hosted-table-proof.json", ("scope", "origin_acquisition_proven")),
+            ("hosted-table-proof.json", ("checks", "exact_captured_response_bodies")),
+            ("hosted-table-proof.json", ("table_phases", 0, "row_counts", "weather")),
+            ("hosted-table-proof.json", ("source", "exact_v3_verifier_sha256")),
+            ("hosted-browser-proof.json", ("cleanup", "browser_exited")),
+            ("result.json", ("outer_cleanup", "private_table_profile_removed")),
+            ("result.json", ("core_delivery",)), ("build.json", ("flutter_tests",)),
+            ("build.json", ("weather_commit",)), ("build.json", ("sdk_final_binding", "files")),
+            ("build.json", ("system_tools", "which", "sha256")),
+            ("sdk-provenance.json", ("input", "sha256")),
+            ("sdk-provenance.json", ("scope", "expected_sdk_hashes_verified")),
+            ("deployment.json", ("static_profile",)), ("decoder-build.json", ("tests_passed",)),
+            ("decoder-abi.json", ("checks", "relocated_lone_decoder"))]
+        for name, path in paths:
+            selected, admitted, records = self.v5_proof_fixture(); target = records[name]
+            for key in path[:-1]: target = target[key]
+            old = target[path[-1]]
+            target[path[-1]] = not old if type(old) is bool else old + 1 if type(old) is int else "invalid"
+            with self.subTest(name=name, path=path), self.assertRaises(ValueError):
+                self.check_v5_proof(selected, admitted, records)
+        for name in ("hosted-browser-proof.json", "hosted-table-proof.json"):
+            for field in ("outer_cleanup", "wrapper_outcome"):
+                selected, admitted, records = self.v5_proof_fixture(); records[name][field] = "invented"
+                with self.subTest(name=name, field=field), self.assertRaises(ValueError):
+                    self.check_v5_proof(selected, admitted, records)
+
+    def test_v5_tool_state_receipts_are_closed_bounded_and_final_build_bound(self):
+        selected, admitted, records = self.v5_proof_fixture()
+        # Acquired and final are distinct observations, not an invented claim
+        # that legitimate generated metadata never changes during the build.
+        records["tool-state-acquired.json"]["files"]["package_config.json"]["sha256"] = "e" * 64
+        self.check_v5_proof(selected, admitted, records)
+        records["build.json"]["tool_state"]["files"]["package_config.json"]["sha256"] = "f" * 64
+        with self.assertRaises(ValueError): self.check_v5_proof(selected, admitted, records)
+        changes = [lambda v: v.update(schema=True), lambda v: v.update(bytes=True),
+            lambda v: v.update(stored_outside_sdk=False), lambda v: v.update(original_mountpoint_empty=False),
+            lambda v: v.update(raw_contents="private state must never be exported"),
+            lambda v: v.update(bytes=v["bytes"] + 1),
+            lambda v: v["files"]["package_config.json"].update(bytes=True),
+            lambda v: v["files"]["package_config.json"].update(bytes=2*1024**2+1),
+            lambda v: v["files"]["package_config.json"].update(sha256="invalid"),
+            lambda v: v["files"]["package_config.json"].update(content="not admitted"),
+            lambda v: v.update(files={str(i):dict(bytes=0, sha256=self.digest) for i in range(65)}, bytes=0),
+            lambda v: v.update(files={str(i):dict(bytes=2*1024**2, sha256=self.digest) for i in range(9)}, bytes=18*1024**2)]
+        for name in ("/absolute", "../escape", "a/../escape", "a//b", "a/./b", "a/b/c/d/e", "x"*257, "query?secret"):
+            changes.append(lambda v, name=name: v["files"].update({name:dict(bytes=0, sha256=self.digest)}))
+        for filename in ("tool-state-acquired.json", "tool-state-final.json"):
+            for index, change in enumerate(changes):
+                selected, admitted, records = self.v5_proof_fixture(); change(records[filename])
+                with self.subTest(filename=filename, change=index), self.assertRaises(ValueError):
+                    self.check_v5_proof(selected, admitted, records)
+
+    @staticmethod
+    def inert_table_contract():
+        return (b'HEADERS = {"weather": ["Time"]}\nSOURCE_FIELDS = ("license",)\n'
+            b'TABLES_JS = "__NATIVE_TABLE_HEADERS__".replace("__NATIVE_TABLE_HEADERS__", json.dumps(HEADERS))\n'
+            + b''.join(b'def ' + name + b'(value):\n    return value\n' for name in
+                (b'require', b'canonical', b'digest', b'number_equal', b'snapshot', b'observed_products')))
+
+    def test_v5_historical_python_contract_is_inert_exact_and_rebinding_rejected(self):
+        raw = self.inert_table_contract()
+        original = W["table_contract"](raw)
+        self.assertEqual(W["table_contract"](b'# comment\n' + raw + b'raise RuntimeError("must never execute")\n'), original)
+        for changed in (raw.replace(b'"Time"', b'"Wrong"'), raw.replace(b'return value', b'return None', 1)):
+            self.assertNotEqual(W["table_contract"](changed), original)
+        for changed in (raw + b'HEADERS = {}\n', raw + b'from other import snapshot\n',
+                        raw + b'if True:\n    digest = None\n', raw.replace(b'def snapshot', b'def unrelated')):
+            with self.assertRaises(ValueError): W["table_contract"](changed)
+        selected = self.profile_files(5); sources = {}
+        for name in (W["HISTORICAL_OVERMORROW_DRIVER"], "integrations/overmorrow/smoke_core_browser.py"):
+            full = W["WEATHER"] + name; path = self.root / full
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700); path.write_bytes(raw); path.chmod(0o600)
+            sources[full] = path; selected[full]["sha256"] = hashlib.sha256(raw).hexdigest()
+        W["matching_table_contract"](sources, selected)
+        historical = W["WEATHER"] + W["HISTORICAL_OVERMORROW_DRIVER"]
+        changed = raw.replace(b'return value', b'return None', 1); sources[historical].write_bytes(changed)
+        with self.assertRaises(ValueError): W["matching_table_contract"](sources, selected)
+        selected[historical]["sha256"] = hashlib.sha256(changed).hexdigest()
+        with self.assertRaises(ValueError): W["matching_table_contract"](sources, selected)
+
+    def test_v5_explicit_eight_argument_capture_preserves_original_receipt_bytes(self):
+        arguments = [str(self.root / str(index)) for index in range(8)]; calls = []
+        with patch.dict(W["main"].__globals__, capture_v5=lambda *paths: calls.append(paths) or {}), \
+                patch.object(W["sys"], "argv", ["bundle", "capture-v5", *arguments]), redirect_stdout(io.StringIO()):
+            W["main"]()
+        self.assertEqual(calls, [tuple(map(Path, arguments))])
+        selected, admitted, _ = self.v5_proof_fixture(); sources = {}
+        for name in selected:
+            path = self.root / "source" / name; path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            path.write_bytes(self.raw); path.chmod(0o600); sources[name] = path
+        with patch.dict(W["capture_v5"].__globals__, public_overmorrow_admission=lambda: admitted,
+                public_overmorrow_sources=lambda *args: sources, public_overmorrow_source_proof=lambda *args: None):
+            archive = self.root / "public-overmorrow.tar"
+            result = W["capture_v5"](*map(Path, arguments[:7]), archive)
+            self.assertFalse(result["current_origin_acquisition_proven"])
+            self.assertFalse(result["joined_delivery_proven"])
+            frozen = self.root / "public-overmorrow"
+            W["checked_archive"](archive, result["manifest_sha256"], frozen, runtime=True)
+            self.assertFalse(W["verify_tree"](frozen, result["manifest_sha256"])["runtime_executed"])
+        for name in (W["HOSTED_OVERMORROW_PROOF"], W["HOSTED_OVERMORROW_TABLE"], W["HISTORICAL_OVERMORROW_DRIVER"]):
+            self.assertEqual((frozen / W["WEATHER"] / name).read_bytes(), self.raw)
+            self.assertEqual(sources[W["WEATHER"] + name].read_bytes(), self.raw)
+
+    def test_v5_source_mapping_keeps_historical_checkout_and_artifacts_distinct(self):
+        weather, historical, browser, assets, proof, decoder, abi = (self.root / name for name in
+            ("weather", "historical", "browser", "assets", "proof", "decoder", "abi"))
+        for root in (weather, historical, browser, assets, proof, decoder, abi): root.mkdir(mode=0o700)
+        for root, names in ((assets / "hosted-browser-source/build/firefox-hosted-ci", W["RUNTIME_FILES_V4"]),
+                (weather / "integrations/overmorrow/overlay", W["OVERMORROW_OVERLAY"]),
+                (assets / "overmorrow-hosted-web-ci", W["STATIC_REQUIRED_V3"])):
+            for name in names:
+                target = root / name; target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                target.write_bytes(self.raw); target.chmod(0o600)
+        for directory in self.root.rglob("*"):
+            if directory.is_dir(): directory.chmod(0o700)
+        mapped = W["public_overmorrow_sources"](weather, historical, browser, assets, proof, decoder, abi)
+        self.assertEqual(set(mapped), set(self.profile_files(5)))
+        self.assertEqual(mapped[W["WEATHER"] + W["HISTORICAL_OVERMORROW_DRIVER"]],
+            historical / "integrations/overmorrow/smoke_core_browser.py")
+        self.assertEqual(mapped[W["WEATHER"] + "integrations/overmorrow/smoke_core_browser.py"],
+            weather / "integrations/overmorrow/smoke_core_browser.py")
+        self.assertEqual(mapped[W["WEATHER"] + W["HOSTED_OVERMORROW_TABLE"]], proof / "overmorrow-hosted-table-ci/report.json")
+        self.assertEqual(mapped[W["UI_STAGE_V3"] + "lib/volparossa/views.dart"],
+            weather / "integrations/overmorrow/overlay/lib/volparossa/views.dart")
+        self.assertEqual(mapped[W["UI_STAGE_V3"] + "pubspec.lock"], assets / "overmorrow-hosted-ci/pubspec.lock")
+        injected = assets / "hosted-browser-source/build/firefox-hosted-ci/unreviewed"
+        injected.write_bytes(self.raw); injected.chmod(0o600)
+        with self.assertRaises(ValueError):
+            W["public_overmorrow_sources"](weather, historical, browser, assets, proof, decoder, abi)
 
     def test_runtime_version_action_checks_whole_archive_without_executing_or_changing_profiles(self):
         for version in (1, 2, 3):

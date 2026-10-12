@@ -106,7 +106,7 @@ weather_products_delivery_run() {
     # dispatcher. Never accept a caller-supplied driver path or fallback UI.
     case ${weather_profile_version:-} in
         2|4) weather_products_driver=integrations/drizzli/smoke_core_browser.py ;;
-        3) weather_products_driver=integrations/overmorrow/smoke_core_browser.py ;;
+        3|5) weather_products_driver=integrations/overmorrow/smoke_core_browser.py ;;
         *) fail WEATHER_CLIENT_PROFILE_INVALID ;;
     esac
     PHASE=weather-products-delivery-prepare
@@ -127,6 +127,12 @@ weather_products_delivery_run() {
         install -o root -g root -m 0555 "$source_directory/tests/integration/$weather_script" \
             "$WORK/bin/$weather_script" || fail WEATHER_PRODUCTS_DRIVER_UNAVAILABLE
     done
+    # This reviewed record does not exist until the public Overmorrow trial is
+    # admitted. Missing v5 authority must not disable the older profiles.
+    if [ "$weather_profile_version" = 5 ]; then
+        install -o root -g root -m 0555 "$source_directory/tests/integration/weather-public-overmorrow-v5.json" \
+            "$WORK/bin/weather-public-overmorrow-v5.json" || fail WEATHER_PRODUCTS_DRIVER_UNAVAILABLE
+    fi
     install -o root -g root -m 0600 "$weather_client_bundle" "$WORK/weather-client-inputs.tar" \
         || fail WEATHER_PRODUCTS_ARCHIVE_COPY_FAILED
     python3 -B "$WORK/bin/weather-client-bundle.py" unpack "$WORK/weather-client-inputs.tar" \
@@ -275,6 +281,10 @@ weather_products_delivery_run() {
         >"$WORK/weather-products-delivery-prepared.json" || fail WEATHER_PRODUCTS_EXPECTED_FAILED
     PHASE=weather-products-delivery-browser
     weather_browser_status=0
+    # Historical drivers keep their original CLI; only the new, explicit
+    # Overmorrow profile accepts this fixed version selector.
+    set --
+    if [ "$weather_profile_version" = 5 ]; then set -- --bundle-version 5; fi
     weather_command_limit=$(weather_products_remaining 270) || fail WEATHER_PRODUCTS_DEADLINE
     timeout --signal=TERM --kill-after=30s "${weather_command_limit}s" ip netns exec "$CLIENT" setpriv \
         --reuid="$WORKER_UID" --regid="$site_control_gid" --clear-groups \
@@ -284,7 +294,7 @@ weather_products_delivery_run() {
         --execute --bundle-root "$weather_client_directory" --bundle-manifest-sha256 "$weather_client_manifest_sha256" \
         --config "$weather_viewer/config.json" --expected "$weather_viewer/expected.json" \
         --output "$weather_viewer/browser-output" --parent-netns "$site_parent_ns" --client-netns "$site_client_ns" \
-        --control-gid "$site_control_gid" >"$WORK/weather-products-delivery-launch.json" \
+        --control-gid "$site_control_gid" "$@" >"$WORK/weather-products-delivery-launch.json" \
         2>"$WORK/weather-products-delivery-browser.err" || weather_browser_status=$?
     PHASE=weather-products-delivery-verify
     python3 -B "$WORK/bin/weather-products-delivery.py" retain "$WORK" \

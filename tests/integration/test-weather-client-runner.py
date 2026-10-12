@@ -242,6 +242,37 @@ class WeatherEmergencyExport(unittest.TestCase):
                 products.symlink_to("missing-products-driver")
                 self.assertIsNone(self.api["weather_client_helper"](work))
 
+    def test_optional_v5_admission_is_checked_as_immutable_helper_not_exported(self):
+        name = self.api["WEATHER_PRODUCTS_V5_ADMISSION"]
+        self.assertEqual(name, "weather-public-overmorrow-v5.json")
+        self.assertNotIn(name, self.api["WEATHER_PRODUCTS_HELPERS"])
+        self.assertNotIn(name, self.api["WEATHER_PRODUCTS_NAMES"])
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary).resolve(); directory = work / "bin"; directory.mkdir()
+            for helper in self.api["WEATHER_PRODUCTS_HELPERS"]:
+                (directory / helper).write_text("inert fixture\n")
+            admission = directory / name
+            original = Path.lstat
+            fault = {}
+            def fixture_stat(path):
+                actual = original(path)
+                values = dict(st_mode=actual.st_mode & ~0o022, st_uid=0,
+                    st_nlink=actual.st_nlink, st_size=actual.st_size)
+                if path == admission: values.update(fault)
+                return SimpleNamespace(**values)
+            with patch.object(Path, "lstat", fixture_stat):
+                # Legacy export never needs an absent future record.
+                self.assertEqual(self.api["weather_client_helper"](work), directory / "weather-products-delivery.py")
+                admission.write_text("inert fixture, not an admission record\n")
+                self.assertEqual(self.api["weather_client_helper"](work), directory / "weather-products-delivery.py")
+                for fault in (dict(st_uid=1000), dict(st_nlink=2), dict(st_size=262145),
+                        dict(st_mode=stat.S_IFREG | 0o666), dict(st_mode=stat.S_IFLNK | 0o555)):
+                    with self.subTest(fault=fault):
+                        self.assertIsNone(self.api["weather_client_helper"](work))
+                fault = {}
+                admission.unlink(); admission.symlink_to("missing-admission")
+                self.assertIsNone(self.api["weather_client_helper"](work))
+
     def test_products_candidate_allowlist_never_exports_private_or_other_profile_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
