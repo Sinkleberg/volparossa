@@ -164,7 +164,7 @@ def build_named_publication(work, nodes):
                 serves={node: read(work / f"content-provider-named-{node}-serve.json") for node in nodes})
 
 
-def validate_transfer(evidence):
+def validate_transfer(evidence, *, historical=False):
     publication, output, fetch = evidence["publication"], evidence["output"], evidence["fetch"]
     require(publication["bytes"] == output["bytes"] == fetch["bytes"] == BYTES
             and publication["object_sha256"] == output["sha256"] == SHA
@@ -324,7 +324,7 @@ def validate_transfer(evidence):
     if "requester_cancellation" in evidence:
         cancellation = runpy.run_path(str(Path(__file__).with_name("content-cancellation-smoke.py")))
         cancellation["validate"](evidence["requester_cancellation"], publication,
-                                 evidence["named_publication"]["fetch"])
+                                 evidence["named_publication"]["fetch"], historical=historical)
 
 
 def build_site_publication(work):
@@ -458,7 +458,7 @@ def validate_report(report, revision, *, historical=False):
             and report["host_state"]["before_sha256"] == report["host_state"]["after_sha256"]
             and re.fullmatch(r"[0-9a-f]{64}", report["host_state"]["before_sha256"])
             and all(report[flag] is False for flag in SCOPE), "wrong source, cleanup, host state or scope")
-    validate_transfer(report["transfer"])
+    validate_transfer(report["transfer"], historical=historical)
 
 
 if __name__ == "__main__":

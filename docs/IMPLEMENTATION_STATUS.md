@@ -29,20 +29,78 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Preserve complementary chunks when pressure reduces concurrency, then prove late-provider recovery and requester cancellation. | Earlier runs on `a5e698cc` and `c2fbcd8c` pass native and HTTPS three-provider reconstruction and overlap checks. The corrected-source run on `a03c3c8f` fails earlier after I/O pressure reduces allowance from twelve to one. A deterministic regression reproduces lost complementary coverage; bounded serial continuation passes 36 focused Rust checks and strict scoped Clippy. Exercise the correction on the protected network next. Late recovery and cancellation remain unproven; the earlier hosted-CI primary-Exit failure has not been revalidated on current source. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Complete requester cancellation, then join Weather delivery to the verified cache path. | Hosted run `38190664934` on `ebf0d077` passes native and HTTPS three-provider reconstruction and actual late-provider recovery. Cancellation stops before admission because its eight-second prerequisite overlaps the previous bootstrap's thirty-second cooldown. The fixture correction passes focused tests and independent review; repeat the protected trial without relaxing cancellation deadlines. Pressure-retirement continuation passes deterministic tests but was not triggered in this healthy live run; a protected pressure-specific result remains open. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost. Closed failure retention now passes focused checks; a separate exact-source probe encounters ECMWF HTTP 429. Weather PR10 fixes cleanup of rejected HTTP responses without retries or relaxed validation. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR11 are merged with passing CI. The closed bundle profile 3 reuses the two-product acquisition/transfer path and checks exact ordered Flutter rows. Browser08 passes actual synthetic UI checks with the corrected ECMWF module, and a new immutable archive verifies against that proof. Actual joined core delivery, runtime table extraction and native Android/iOS execution remain unverified. |
 
 Respect the observed source rate limit instead of repeatedly relaunching the
-joined trial or routing requests through other peers. Continue the standalone
-provider proof, which needs no weather downloads, after addressing loss of
-complementary coverage under pressure. Successful concurrent reconstruction in
-an earlier run does not prove pressure recovery or late discovery convergence.
+joined trial or routing requests through other peers. Finish the standalone
+provider proof, which needs no weather downloads, at its remaining cancellation
+boundary. The latest run proves concurrent reconstruction and late discovery,
+but does not exercise the pressure-retirement continuation itself.
 The Drizz.li/Weather candidate and frozen input
 bundle remain intact; Overmorrow's core delivery and native execution are still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
+
+The latest [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38190664934)
+remains **failed overall**, at `content-provider-requester-cancellation`.
+Independent reconstruction from its raw evidence validates the earlier native
+and cooperative-HTTPS transfers: each reconstructs 15,728,640 bytes in sixty
+chunks from three providers, with triple bulk overlap of 4.455 and 4.798 seconds.
+Neither transfer fetches origin body bytes. Both worker budgets stay at twelve
+with no resource-pressure flags, so these results do not establish live pressure
+recovery.
+
+Late recovery also passes: a second complementary provider activates after the
+first completed one-offer snapshot; two queries and three total verified offers
+lead to the exact 2,097,275-byte, nine-chunk object. Transfer takes 6.700 seconds;
+the temporary gate lasts 0.474 seconds. The original deadlines, protected paths,
+privacy captures and cleanup checks pass. This is recovery, not a late-provider
+concurrency or speed claim.
+
+The cancellation request never reaches the required pending bootstrap. Eight
+attempts report `PRESELECTION_OWNER_BUSY` while all disconnect probes report idle.
+The previous successful bootstrap starts a thirty-second admission cooldown;
+route disconnection does not clear it. The fixture starts its eight-second
+pending check inside that cooldown. The helper is resumed and fixture outputs
+are removed on failure; requester cancellation and shutdown are not yet proved.
+
+The corrected fixture waits a full thirty seconds on both production clocks
+after confirming the original services and idle client. Initial and final
+identity/status checks share one thirty-five-second absolute budget. Only then
+may it pause the helper; the actual eight-second pending-bootstrap,
+four-second cache-release and two-second control-shutdown gates are unchanged.
+Current cancellation receipts use schema 2 with the explicit prerequisite;
+old schema 1 receipts remain readable only through historical validation.
+Thirteen prerequisite tests, ten inert cancellation checks, nineteen aggregate
+checks and twelve late-recovery checks pass. Independent review confirms the
+clock, process-identity, cleanup and version boundaries. This is fixture
+verification, not yet a successful live cancellation result.
+
+For the same `ebf0d077` source, [CodeQL passes](https://github.com/VOLPAROSSA/volparossa/actions/runs/38190611286).
+[Quality](https://github.com/VOLPAROSSA/volparossa/actions/runs/38190613877)
+passes dependency/license checks, strict workspace Clippy, workspace tests and
+the namespace-backed step, but fails its final non-mutating harness check.
+That test extracted the embedded guest argument parser instead of the host
+dispatch after the case-arm order changed. A test-only correction now selects
+the unique host boundary, rejects four ambiguous/embedded variants, and passes
+the affected static contract script, syntax and ShellCheck. The product runner
+and argument/hash assertions are unchanged; hosted verification of the new
+fixture revision is still required.
+
+Evidence is retained at `.git/ci-evidence/content-provider-hosted-ebf.dCSta4/`.
+The independently rebuilt adaptive and late reports have SHA-256
+`61cda7ef39469d86eb7cf12e997aee951afbe547fb438caed251a025c880d8f4` and
+`30279523964150d7af888f983f8ff334231002d5b6b2af98d66b738927611ac5`.
+The failed aggregate has SHA-256
+`3b538fddf1ed1e5bf86c7cc26cfcb2293867b3c315a2556a628e56db6a3712c0`.
+Cleanup leaves zero owned objects. Guest-root network snapshots are byte-identical,
+SHA-256 `8952811858ef8aec046d64c94d6c0c656e4eb98eb8ec143ece8b8f82ebef0f65`.
+This hosted result also passes the primary-Exit inventory prerequisite that failed
+in an older run; it does not diagnose that older failure. No Weather bundle or
+Weather source acquisition is included.
 
 Worker-budget diagnostics are now opt-in through one dedicated debug target.
 Each provider batch retains only bounded allowance and reservation counts,

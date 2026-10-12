@@ -612,6 +612,8 @@ class ContentProviderContract(unittest.TestCase):
             lambda item: item.update(schema_version=2.0),
             lambda item: item.pop("schema_version"),
             lambda item: item.update(requester_cancellation=False),
+            lambda item: item["transfer"]["requester_cancellation"].update(schema_version=1),
+            lambda item: item["transfer"]["requester_cancellation"].pop("cooldown_prerequisite"),
             lambda item: (item.pop("requester_cancellation"), item["transfer"].pop("requester_cancellation")),
             lambda item: item["cleanup"].update(remaining_owned_objects=1),
             lambda item: item["host_state"].update(after_sha256="c" * 64),
@@ -624,6 +626,9 @@ class ContentProviderContract(unittest.TestCase):
         historical["schema_version"] = 1
         historical.pop("late_provider_recovery")
         historical["transfer"].pop("late_provider_recovery")
+        # Actual old receipts had neither the new schema nor the prerequisite.
+        historical["transfer"]["requester_cancellation"]["schema_version"] = 1
+        historical["transfer"]["requester_cancellation"].pop("cooldown_prerequisite")
         CHECK["validate_report"](historical, "a" * 40, historical=True)
         with self.assertRaises(ValueError):
             CHECK["validate_report"](historical, "a" * 40)
