@@ -125,7 +125,10 @@ class Wiring(unittest.TestCase):
                 (published / name).write_text('{}')
             for name in ('maintenance-owner-lifecycle.private', 'lifecycle-result.json',
                     'identity.key', 'enrollment.json', 'checkpoint.json', 'logs-client.txt',
-                    'private-storage-maintenance-route-diagnostic.json', 'ready.json'):
+                    'private-storage-maintenance-selection-route-diagnostic.json',
+                    'private-storage-maintenance-selection-start.private',
+                    'private-storage-maintenance-selection-end.private',
+                    'private-storage-maintenance-selection-phase.private', 'ready.json'):
                 (published / name).write_text('PRIVATE_MUST_NOT_EXPORT')
             archive = diagnostics['collect'](home, root / 'missing-opt', 'a' * 40, SCENARIO, 124,
                 cgroups=root / 'missing-cgroups', proc=root / 'missing-proc')
@@ -306,6 +309,52 @@ with target.open('xb') as stream:
                 self.assertEqual(result.returncode == 0, passed)
                 if passed:
                     self.assertEqual(json.loads(result.stdout)['required_passed'], 13)
+
+    def test_route_diagnostic_export_does_not_replace_primary_failed_report(self):
+        script = r'''
+set -eu
+umask 077
+. "$source_directory/tests/integration/private-storage-maintenance-smoke.sh"
+optional_json_evidence() { printf 'null\n'; }
+python3() {
+    if [ "$3" = route-diagnostic ] && [ "$TEST_DIAGNOSTIC_FAILURE" = yes ]; then return 77; fi
+    command python3 "$@"
+}
+private_storage_maintenance_finalize_report 7
+'''
+        for diagnostic_failure in (False, True):
+            with self.subTest(diagnostic_failure=diagnostic_failure), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary)
+                output = work / 'output'
+                output.mkdir()
+                route = FIXTURE['MaintenanceEvidence'].selection_route()
+                # SELECTED must not erase a later route-scope extraction failure.
+                route.update(stage='complete', reason='SELECTED', last_connect_reason='CONNECTED',
+                    connect_exit_status=0, path_status=0)
+                raw = work / 'private-storage-maintenance-selection-route-diagnostic.json'
+                raw.write_text(json.dumps(route))
+                raw.chmod(0o600)
+                result = subprocess.run(['sh', '-c', script], capture_output=True, text=True, timeout=5,
+                    env=dict(PATH='/usr/bin:/bin', WORK=str(work), source_directory=str(HERE.parents[1]),
+                        output_directory=str(output), OUTPUT_UID=str(os.getuid()), OUTPUT_GID=str(os.getgid()),
+                        expected_commit='1' * 40, RUN_ID='inert', PHASE='private-storage-fragments-prepare',
+                        OBSERVED_BLOCKER='FRAGMENTS_ROUTE_UNAVAILABLE', CLEANUP_COMPLETE='true',
+                        REMAINING_OWNED_OBJECTS='0', TEST_DIAGNOSTIC_FAILURE='yes' if diagnostic_failure else 'no'))
+                self.assertEqual(result.returncode, 1)
+                report = json.loads((output / 'private-storage-maintenance-smoke.json').read_text())
+                self.assertEqual(report['runner_exit_status'], 7)
+                self.assertEqual(report['observed_blocker'], 'FRAGMENTS_ROUTE_UNAVAILABLE')
+                self.assertFalse(report['success'])
+                self.assertFalse((work / 'maintenance-route-diagnostic.part').exists())
+                exported = output / 'private-storage-maintenance-route-diagnostic.json'
+                self.assertEqual(exported.exists(), not diagnostic_failure)
+                if exported.exists():
+                    value = json.loads(exported.read_text())
+                    M['validate_route_diagnostic'](value)
+                    self.assertEqual(value['route'], route)
+                    self.assertFalse(value['acceptance_evidence'])
+                    self.assertEqual(exported.stat().st_mode & 0o777, 0o600)
+                self.assertFalse((output / raw.name).exists())
 
     def test_failed_lifecycle_is_exported_only_through_exact_bounded_schema(self):
         source = (HERE / 'private-storage-maintenance-smoke.sh').read_text()

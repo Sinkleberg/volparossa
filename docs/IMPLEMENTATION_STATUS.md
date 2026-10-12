@@ -30,8 +30,9 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. The last native build confirms the shared Kotlin setting, then fails with Java heap exhaustion during dex merging; cleanup passes. The follow-up gives only the app builds a 1,536 MiB heap within unchanged aggregate, reserve and time limits, but its trial stops at a download-integrity check before native execution. Identify the rejected input without weakening pins. APK, offline rebuild, launch, refresh and expiry still need proof; iOS remains open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 now has actual core-loss, reconnect and owner-resume evidence. The following repair phase still fails: custody has already moved before the deliberate provider withdrawal, while the fixture expects the original allocation. Bind the measured pre-withdrawal state to the remaining repairs; keep the separate relay-mapping failure visible. Image PR6 and Cloud PR13 have reviewed consumer bindings; real consumer maintenance and reciprocal capacity proof remain open. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38295005766` on `bf6004f9` passes both the APK build and strict offline rebuild, producing matching hashes. It then stops inside the emulator trial with a generic child failure; the precise substep remains unknown. Cleanup passes. Diagnose that substep before another trial; installation, launch, refresh and expiry still need proof, and iOS remains open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 has historical core-loss/reconnect evidence and a measured-custody fixture correction. The latest trial `38291834265` stops earlier at route preparation; its underlying route failure is unknown. Connect existing bounded route diagnostics before another trial; preserve repair and relay-mapping assertions. Image PR6 and Cloud PR13 have reviewed consumer bindings, but real consumer maintenance and reciprocal capacity proof remain open. |
+| Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Source review and 38 adapter tests pass; core compilation is separate pending evidence. The Cloud service still needs shared admission budgeting, durable enrollment and restart reconciliation. Existing protected-trial consumer pins stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
 
 The seventh [Android attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38254164363)
@@ -110,6 +111,33 @@ failed package; the retained traceback cannot identify which pin failed. No KVM,
 Gradle or APK trial runs, so this is not a test of the larger app heap. Original
 logs and the three preparation-artifact files are retained. Source pins and
 integrity checks remain unchanged while the rejected input is investigated.
+
+The [fifteenth Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38291836603)
+on `68059b02` passes input preparation and the real repository fixture, then
+fails at `:app:configureCMakeDebug[arm64-v8a]` because CMake 3.22.1 is missing
+from the read-only SDK. The build exits 1 after 705.209 seconds with peak
+aggregate RSS 3,539,718,144 bytes, below 4 GiB. No heap-exhaustion marker is
+observed. All nine original step-log hashes match; process drain, policy/staging
+removal, KVM restoration and unchanged host network namespace pass. There is
+still no completed APK, offline rebuild or installed-app result. Weather
+`bf6004f9` adds the exact official CMake archive and its constrained rootless
+layout, preserving notices and all existing integrity and resource limits.
+All 82 inert Android tests and independent review pass; native proof remains
+separate from those checks.
+
+The [sixteenth Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38295005766)
+on `bf6004f9` verifies the CMake input and successfully builds the APK. The
+strict, networkless rebuild runs Gradle `clean` and succeeds too: both receipts
+record 74,366,059 bytes and SHA256
+`501c0b2a2d658df7388b75f11d61407c5dbf774c8c0d94655491af55d2ea3184`.
+Acquisition and offline builds take 551.094 and 93.814 seconds, respectively;
+their peak aggregate RSS remains below 4 GiB. The subsequent emulator trial
+exits 1 after 333 milliseconds with only `CHILD_FAILED`; the precise internal
+operation is not recorded. All 13 original step-log hashes match. Process drain,
+policy/staging removal, private emulator-state removal, KVM restoration and
+unchanged host network namespace pass. This proves debug builds in that runner,
+not app installation, operation or release readiness. Add bounded emulator
+substep diagnostics rather than treating the generic error as a known cause.
 
 The first [maintenance trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38251889540)
 produces no topology artifact because preflight fails before the VM or Rust
@@ -234,6 +262,29 @@ correctly rejects. Test-only correction `7e5a5ecd` shares one validity interval
 and adds a deterministic signed-manifest boundary regression, retaining rejection
 of an enclosing expiry one second too late. Formatter and source review pass;
 hosted compilation and execution of the corrected test remain required.
+
+The following [Quality run](https://github.com/VOLPAROSSA/volparossa/actions/runs/38291738772)
+passes for head `5a7207cd`, actually checking merge `1c011e79` into `3dcdffa0`.
+Strict Clippy, all 614 CLI tests, all 688 agent tests and the inert integration
+harness pass. This includes the corrected authentication fixture and all 13
+maintenance-owner tests. The three separate namespace checks skip because user
+namespaces are denied; they are not protected-datapath proof.
+
+The separate [maintenance trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38291834265)
+on exact `5a7207cd` fails at `private-storage-fragments-prepare` with
+`FRAGMENTS_ROUTE_UNAVAILABLE`. It does not reach lifecycle, repair or consumers.
+The final acceptance gate correctly rejects the original report. Guest cleanup
+is complete, zero owned objects remain and the guest-root network baseline is
+unchanged. The retained output does not identify the underlying route-selection
+or route-scope failure: existing closed route diagnostics were not enabled and
+exported for this scenario. Preserve the failure and add those bounded
+observations without changing route selection, retries, deadlines or acceptance.
+The diagnostic candidate now records whether the last selection was initial or
+after reconnect, its closed result category and bounded preselection counts.
+Missing, malformed or ambiguous observations remain unknown. One exact export
+contains no raw logs, paths, identities or private markers, and explicitly is not
+acceptance evidence. All 70 targeted smoke, wiring and selection tests pass;
+the original failed report remains rejected even if diagnostic generation fails.
 
 [Image PR6](https://github.com/VOLPAROSSA/volparossa-image/pull/6) at `aade424c`
 adds finite maintenance supervision and same-adapter foreground stop/join/resume;

@@ -39,6 +39,7 @@ EXPORT_NAMES = tuple(name for name in F['EXPORT_NAMES'] if name not in
     'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json',
     'private-storage-maintenance-lifecycle.json',
     'private-storage-maintenance-lifecycle-failure.json',
+    'private-storage-maintenance-route-diagnostic.json',
     'private-storage-fragments-lifecycle-live-selection.json',
     'private-storage-fragments-lifecycle-gates.json',
     'content-provider-adaptive-private-storage-fragments-lifecycle-control.json',
@@ -112,6 +113,116 @@ PRESELECTION_REASON_CODES = (
     'PRESELECTION_SAMPLE_INVALID_POLICY', 'PRESELECTION_SAMPLE_INVALID_SNAPSHOT',
     'PRESELECTION_SAMPLE_ENTROPY',
 )
+ROUTE_CONNECT_CODES = ('NOT_STARTED', 'CONNECTED', 'UNRECOGNIZED',
+    'CLIENT_ROLE_DISABLED', 'POLICY_UNAVAILABLE', 'CLIENT_ROUTE_PROFILE_INVALID',
+    'CONNECT_ALREADY_IN_PROGRESS', 'PRESELECTION_UNAVAILABLE', 'NO_ELIGIBLE_PATHS',
+    'NATIVE_PERMIT_UNAVAILABLE', 'NATIVE_RELAY_READY_UNAVAILABLE', 'NATIVE_HELPER_PREPARE_UNAVAILABLE',
+    'NATIVE_PROBE_AUTHORIZE_UNAVAILABLE', 'NATIVE_HELPER_ACTIVATE_UNAVAILABLE',
+    'NATIVE_PROBE_START_UNAVAILABLE', 'NATIVE_HELPER_COMMIT_UNAVAILABLE', 'NATIVE_PROBE_PROOF_UNAVAILABLE',
+    'NATIVE_SAMPLER_RETIREMENT_UNAVAILABLE', 'NATIVE_REMOTE_RETIREMENT_UNAVAILABLE',
+    'NATIVE_TRANSPORT_IDENTITY_UNAVAILABLE', 'ROUTE_ADMISSION_UNAVAILABLE',
+    'MPTCP_EXIT_LISTENER_SIGNAL_UNAVAILABLE', 'TRANSPORT_RUNTIME_UNAVAILABLE',
+    'UDP_EXIT_SESSION_SIGNAL_UNAVAILABLE', 'UDP_INGRESS_UNAVAILABLE')
+
+
+def validate_selection_route(value):
+    require(type(value) is dict and set(value) == {'schema_version', 'stage', 'reason',
+        'last_connect_reason', 'connect_exit_status', 'attempts', 'retries', 'redraws',
+        'path_polls', 'path_status'}, 'route diagnostic shape')
+    reasons = {'initialize': ('STARTED',),
+        'budget': ('DEADLINE_EXHAUSTED', 'DRAWS_EXHAUSTED', 'ATTEMPTS_EXHAUSTED'),
+        'paths': ('SELECTION_RECORD_FAILED', 'PATHS_EMPTY', 'PATHS_INVALID_OR_QUERY_FAILED'),
+        'complete': ('SELECTED',), 'disconnect': ('DISCONNECT_FAILED',),
+        'connect': ('CONNECT_TIMEOUT', 'CONNECT_REJECTED', 'CONNECT_TRANSIENT')}
+    require(type(value['schema_version']) is int and value['schema_version'] == 1
+        and type(value['stage']) is str and value['stage'] in reasons
+        and value['reason'] in reasons[value['stage']]
+        and value['last_connect_reason'] in ROUTE_CONNECT_CODES, 'route diagnostic category')
+    for name, maximum in (('attempts', 360), ('retries', 359), ('redraws', 32), ('path_polls', 100)):
+        require(type(value[name]) is int and 0 <= value[name] <= maximum, 'route diagnostic bound')
+    require(value['retries'] == max(0, value['attempts'] - 1), 'route diagnostic attempts')
+    for name in ('connect_exit_status', 'path_status'):
+        require(value[name] is None or type(value[name]) is int and 0 <= value[name] <= 255,
+            'route diagnostic process status')
+
+
+def validate_preselection_diagnostic(value):
+    counters = ('records', 'fresh_records', 'stale_records', 'later_records', 'unrecognized_reason_records')
+    require(type(value) is dict and set(value) == {'version', 'state', 'observed_reason',
+        'uncertainty', 'scope', 'limit', 'counts', 'window_covers_baseline', *counters}
+        and type(value['version']) is int and value['version'] == 1
+        and type(value['limit']) is int and value['limit'] == 400
+        and value['scope'] == 'selection_window_not_last_attempt_proof', 'preselection diagnostic shape')
+    if value['records'] is None:
+        require(all(value[name] is None for name in counters)
+            and value['counts'] is None and value['window_covers_baseline'] is None,
+            'preselection missing observation')
+    else:
+        require(all(type(value[name]) is int and 0 <= value[name] <= 400 for name in counters)
+            and type(value['counts']) is dict and set(value['counts']) == set(PRESELECTION_REASON_CODES)
+            and all(type(count) is int and 0 <= count <= 400 for count in value['counts'].values())
+            and type(value['window_covers_baseline']) is bool
+            and value['records'] == sum(value[name] for name in ('fresh_records', 'stale_records', 'later_records'))
+            and sum(value['counts'].values()) + value['unrecognized_reason_records'] <= value['fresh_records'],
+            'preselection diagnostic counts')
+    if value['state'] == 'known':
+        require(value['counts'] is not None and value['records'] < 400
+            and value['uncertainty'] is None and value['unrecognized_reason_records'] == 0
+            and [code for code, count in value['counts'].items() if count] == [value['observed_reason']],
+            'preselection known reason')
+    else:
+        require(value['state'] == 'unknown' and value['observed_reason'] == 'unknown'
+            and value['uncertainty'] in ('absent_baseline', 'invalid_baseline', 'absent_window_end',
+                'invalid_window_end', 'absent', 'clock_regression', 'ring_at_capacity', 'unrecognized',
+                'ambiguous', 'no_fresh_signal', 'invalid'), 'preselection uncertainty')
+
+
+def validate_route_diagnostic(value):
+    require(type(value) is dict and set(value) == {'version', 'kind', 'scope', 'route_state',
+        'route', 'preselection', 'acceptance_evidence', 'selection_phase'} and type(value['version']) is int
+        and value['version'] == 1 and value['kind'] == 'private-storage-maintenance-route-diagnostic'
+        and value['scope'] == 'last_selection_window_not_failure_cause'
+        and value['acceptance_evidence'] is False
+        and value['selection_phase'] in ('initial', 'reconnect', 'unknown'), 'maintenance route diagnostic shape')
+    if value['route_state'] == 'observed':
+        validate_selection_route(value['route'])
+    else:
+        require(value['route_state'] in ('absent', 'invalid') and value['route'] is None,
+            'maintenance route observation')
+    validate_preselection_diagnostic(value['preselection'])
+
+
+def route_diagnostic(work):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, 'duplicate route diagnostic key')
+            result[key] = value
+        return result
+
+    value = dict(version=1, kind='private-storage-maintenance-route-diagnostic',
+        scope='last_selection_window_not_failure_cause', acceptance_evidence=False,
+        selection_phase='unknown', route_state='absent', route=None,
+        preselection=closed_preselection_events(work / 'logs-client.txt',
+            work / 'private-storage-maintenance-selection-start.private',
+            work / 'private-storage-maintenance-selection-end.private'))
+    try:
+        phase = closed_diagnostic_text(work / 'private-storage-maintenance-selection-phase.private', 32)
+        if phase in ('initial\n', 'reconnect\n'):
+            value['selection_phase'] = phase.strip()
+    except (OSError, ValueError, UnicodeError):
+        pass
+    try:
+        route = json.loads(closed_diagnostic_text(
+            work / 'private-storage-maintenance-selection-route-diagnostic.json', 2048), object_pairs_hook=unique)
+        validate_selection_route(route)
+        value.update(route_state='observed', route=route)
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, UnicodeError, TypeError):
+        value['route_state'] = 'invalid'
+    validate_route_diagnostic(value)
+    return value
 
 
 def closed_diagnostic_text(path, maximum):
@@ -1337,6 +1448,10 @@ def validate_report(report, revision, *, historical=False):
 
 
 def main(args):
+    if len(args) == 2 and args[0] == 'route-diagnostic':
+        print(json.dumps(route_diagnostic(Path(args[1])), sort_keys=True)); return
+    if len(args) == 2 and args[0] == 'route-diagnostic-check':
+        validate_route_diagnostic(read(Path(args[1]))); return
     if args == ['owner-test-output']:
         print(json.dumps(owner_test_output(sys.stdin.buffer, sys.stderr.buffer), sort_keys=True))
         return

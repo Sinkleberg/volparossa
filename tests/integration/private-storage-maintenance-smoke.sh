@@ -116,6 +116,15 @@ private_storage_maintenance_run() {
 
 private_storage_maintenance_finalize_report() {
     maintenance_status=$1
+    # Cleanup has already captured the bounded client event ring before stopping
+    # agents. Export only closed categories/counts; diagnostic failure is not a
+    # replacement for the original outcome and never changes acceptance.
+    if python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" route-diagnostic \
+        "$WORK" >"$WORK/maintenance-route-diagnostic.part" 2>/dev/null; then
+        mv -- "$WORK/maintenance-route-diagnostic.part" "$WORK/private-storage-maintenance-route-diagnostic.json" || true
+    else
+        rm -f -- "$WORK/maintenance-route-diagnostic.part" || true
+    fi
     # The owner emits a closed failure receipt, not raw stderr. Preserve it only
     # after strict bounded schema validation, including on lifecycle failure.
     if [ "$maintenance_status" -ne 0 ] && [ -f "$WORK/maintenance-owner-lifecycle.private" ]; then
