@@ -105,6 +105,33 @@ content_provider_pressure_shape() {
         >"$WORK/content-provider-pressure-qdisc-profile.json"
 }
 
+content_provider_pressure_event_count() {
+    # Millisecond event timestamps include the whole fetch, but no setup/history
+    # before it or unrelated later work. Equal timestamps at its start are valid.
+    awk -v baseline="$pp_baseline_ms" -v started="$pp_started_unix" \
+        -v completed="$pp_completed_unix" -v event="event=$1" \
+        '$1 > baseline && $1 >= started && $1 <= completed && $3 == event {n++} END {print n+0}' "$2"
+}
+
+content_provider_pressure_discovery_counts() {
+    pp_queries=0
+    pp_offers=0
+    pp_exact_started=0
+    pp_exact_finished=0
+    for pp_node in relay0 relay1 relay2 relay3 relay4 relay5; do
+        pp_queries=$((pp_queries + $(content_provider_pressure_event_count \
+            CONTENT_PROVIDER_QUERY_STARTED "$WORK/logs-$pp_node.txt")))
+        pp_offers=$((pp_offers + $(content_provider_pressure_event_count \
+            CONTENT_PROVIDER_OFFER_VERIFIED "$WORK/logs-$pp_node.txt")))
+        pp_exact_started=$((pp_exact_started + $(content_provider_pressure_event_count \
+            CONTENT_EXACT_LOOKUP_STARTED "$WORK/logs-$pp_node.txt")))
+        pp_exact_finished=$((pp_exact_finished + $(content_provider_pressure_event_count \
+            CONTENT_EXACT_LOOKUP_FINISHED "$WORK/logs-$pp_node.txt")))
+    done
+    pp_discovered=$(content_provider_pressure_event_count CONTENT_DISCOVERY_COMPLETED "$WORK/logs-client.txt")
+    pp_nonempty=$(content_provider_pressure_event_count CONTENT_DISCOVERY_RECEIVED_OFFERS "$WORK/logs-client.txt")
+}
+
 content_provider_pressure_run() {
     PHASE=content-provider-pressure-setup
     pp_prefix=content-provider-pressure
@@ -210,16 +237,7 @@ content_provider_pressure_run() {
     stop_privacy_observers || fail CONTENT_PROVIDER_PRESSURE_CAPTURE_NOT_DRAINED
     content_provider_stop_control_observer || fail CONTENT_PROVIDER_PRESSURE_CONTROL_NOT_DRAINED
     capture_product_logs
-    pp_queries=0
-    pp_offers=0
-    for pp_node in relay0 relay1 relay2 relay3 relay4 relay5; do
-        pp_queries=$((pp_queries + $(awk -v baseline="$pp_baseline_ms" \
-            '$1 > baseline && $3 == "event=CONTENT_PROVIDER_QUERY_STARTED" {n++} END {print n+0}' "$WORK/logs-$pp_node.txt")))
-        pp_offers=$((pp_offers + $(awk -v baseline="$pp_baseline_ms" \
-            '$1 > baseline && $3 == "event=CONTENT_PROVIDER_OFFER_VERIFIED" {n++} END {print n+0}' "$WORK/logs-$pp_node.txt")))
-    done
-    pp_discovered=$(awk -v baseline="$pp_baseline_ms" \
-        '$1 > baseline && $3 == "event=CONTENT_DISCOVERY_COMPLETED" {n++} END {print n+0}' "$WORK/logs-client.txt")
+    content_provider_pressure_discovery_counts
     if [ -L "$pp_client/object.bin" ] \
         || [ "$(stat -Lc '%a:%u:%g:%h' "$pp_client/object.bin")" != "600:$AGENT_UID:$AGENT_GID:1" ]; then
         fail CONTENT_PROVIDER_PRESSURE_OUTPUT_UNSAFE
@@ -228,12 +246,16 @@ content_provider_pressure_run() {
         --argjson bytes "$(stat -Lc '%s' "$pp_client/object.bin")" \
         --argjson baseline "$pp_baseline_ms" --argjson queries "$pp_queries" \
         --argjson offers "$pp_offers" --argjson discovered "$pp_discovered" \
+        --argjson exact_started "$pp_exact_started" --argjson exact_finished "$pp_exact_finished" \
+        --argjson nonempty "$pp_nonempty" \
         --argjson started_mono "$pp_started_mono" --argjson completed_mono "$pp_completed_mono" \
         --argjson started_unix "$pp_started_unix" --argjson completed_unix "$pp_completed_unix" \
         '{sha256:$sha256,bytes:$bytes,client_cache_initially_absent:true,
           client_mount_positive_control:true,client_mount_cannot_read_replica_stores:true,
           publisher_process_exited_before_fetch:true,event_baseline_unix_ms:$baseline,
           generic_dht_queries:$queries,authenticated_upstream_offers:$offers,
+          exact_lookup_started:$exact_started,exact_lookup_finished:$exact_finished,
+          client_nonempty_verified_responses:$nonempty,
           client_forwarded_discovery:$discovered,started_monotonic_ns:$started_mono,
           completed_monotonic_ns:$completed_mono,started_unix_ms:$started_unix,completed_unix_ms:$completed_unix}' \
         >"$WORK/$pp_prefix-object.json"

@@ -5,6 +5,8 @@
 The controller observes real guest CPU PSI after three verified cold-cache chunks.
 Production diagnostics independently prove admission contraction and useful serial
 continuation. Exact reconstruction and protected-path captures are still mandatory.
+Schema 2 distinguishes generic discovery from authenticated recent-provider refresh;
+an exact-lookup completion alone is not proof of a nonempty verified response.
 """
 import os
 from pathlib import Path
@@ -36,10 +38,34 @@ QDISC_PROFILE = dict(profile="fixed-provider-egress-2mbit",
                      rate_bits_per_second=2000000, burst_bytes=131072, queue_latency_ms=250)
 CLEANUP = dict(controller_reaped=True, fetch_reaped=True, owned_output_removed=True,
                cache_teardown_deferred_to_topology=True, qdisc_restored=True, route_retained=True)
+DISCOVERY_COUNTS = {"generic_dht_queries", "authenticated_upstream_offers", "client_forwarded_discovery",
+                    "exact_lookup_started", "exact_lookup_finished", "client_nonempty_verified_responses"}
+OUTPUT_FIELDS = DISCOVERY_COUNTS | {"sha256", "bytes", "client_cache_initially_absent",
+    "client_mount_positive_control", "client_mount_cannot_read_replica_stores",
+    "publisher_process_exited_before_fetch", "event_baseline_unix_ms", "started_monotonic_ns",
+    "completed_monotonic_ns", "started_unix_ms", "completed_unix_ms"}
 
 
 def integer(value, low=0, high=2**64-1):
     return type(value) is int and low <= value <= high
+
+
+def validate_discovery(output):
+    require(type(output) is dict and set(output) == OUTPUT_FIELDS
+            and all(integer(output[key], 0, 2**32-1) for key in DISCOVERY_COUNTS),
+            "closed phase-bound discovery counters required")
+    queries, offers, completed = (output[key] for key in
+        ("generic_dht_queries", "authenticated_upstream_offers", "client_forwarded_discovery"))
+    started, finished, nonempty = (output[key] for key in
+        ("exact_lookup_started", "exact_lookup_finished", "client_nonempty_verified_responses"))
+    require(finished <= started and 1 <= nonempty <= completed,
+            "fresh verified broker response absent or counters inconsistent")
+    generic = queries >= 1 and offers >= 3
+    # Recent hints are only identities, scoped to this route/policy/control broker.
+    # The production client independently checks authority, targets, signatures and
+    # expiry before emitting RECEIVED_OFFERS. Exact FINISHED may instead be empty.
+    exact = queries == offers == 0 and 3 <= nonempty <= finished <= started
+    require(generic or exact, "neither generic discovery nor three authenticated exact refreshes proved")
 
 
 def publication(value):
@@ -145,7 +171,7 @@ def validate_qdisc(value):
 
 def validate(evidence):
     require(type(evidence) is dict and set(evidence) == FIELDS
-            and integer(evidence["schema_version"], 1, 1)
+            and integer(evidence["schema_version"], 2, 2)
             and evidence["kind"] == "content-provider-pressure-smoke" and evidence["success"] is True
             and evidence["scope"] == SCOPE and all(type(v) is bool for v in evidence["scope"].values()),
             "invalid closed pressure component")
@@ -164,6 +190,7 @@ def validate(evidence):
     require(all(evidence[key]["control_relay_peer_id"] == control
                 for key in ("status_before", "status_after", "fetch")), "control authority changed")
     fetch, output = evidence["fetch"], evidence["output"]
+    validate_discovery(output)
     require(fetch["operation"] == "native_content" and integer(fetch["bytes"], BYTES, BYTES)
             and integer(fetch["chunks"], CHUNKS, CHUNKS) and integer(fetch["providers_used"], 3, 3)
             and type(fetch["provider_peer_ids"]) is list and len(fetch["provider_peer_ids"]) == 3
@@ -174,15 +201,14 @@ def validate(evidence):
     require(output["sha256"] == SHA and integer(output["bytes"], BYTES, BYTES)
             and all(output[key] is True for key in ("client_cache_initially_absent", "client_mount_positive_control",
                     "client_mount_cannot_read_replica_stores", "publisher_process_exited_before_fetch"))
-            and integer(output["event_baseline_unix_ms"], 1)
-            and integer(output["generic_dht_queries"], 1) and integer(output["authenticated_upstream_offers"], 3)
-            and integer(output["client_forwarded_discovery"], 1), "cold verified reconstruction/isolation absent")
+            and integer(output["event_baseline_unix_ms"], 1), "cold verified reconstruction/isolation absent")
     for key in ("started_monotonic_ns", "completed_monotonic_ns", "started_unix_ms", "completed_unix_ms"):
         require(integer(output[key], 1), "invalid original fetch clock")
     require(ready["ready_ns"] <= output["started_monotonic_ns"] <= controller["trigger_ns"]
             <= controller["first_pressure_ns"] <= output["completed_monotonic_ns"]
             and 0 < output["completed_monotonic_ns"] - output["started_monotonic_ns"] <= 120_000_000_000
             and seed["created_unix_seconds"] * 1000 <= output["started_unix_ms"]
+            and output["event_baseline_unix_ms"] <= output["started_unix_ms"]
             <= output["completed_unix_ms"] < seed["expires_unix_seconds"] * 1000,
             "CPU event occurred outside the original bounded, live-publication fetch")
     original, before, live = (evidence[key] for key in
@@ -242,7 +268,7 @@ def build_evidence(work):
     require(work.is_absolute() and work.resolve() == work, "unsafe fixture root")
     directory = CONTROLLER["directory"](work, os.geteuid())
     try:
-        evidence = dict(schema_version=1, kind="content-provider-pressure-smoke", success=True, scope=dict(SCOPE))
+        evidence = dict(schema_version=2, kind="content-provider-pressure-smoke", success=True, scope=dict(SCOPE))
         for key, filename in (("publication", "content-provider-adaptive-publication.json"),
                 ("expected_peers", "a01-expected-peers.json"),
                 ("layout", "content-provider-adaptive-layout.json"),

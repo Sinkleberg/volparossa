@@ -29,19 +29,20 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Prove pressure retirement and continuation, then resume joined Weather delivery. | The route-preservation correction passes the standalone sequence in run `38204038877` on `9441b451`. The failed joined run and unknown original kernel errno remain separately recorded. The new pressure phase is wired but has not yet passed its protected trial. |
-| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run stops before Weather acquisition, so it makes no new weather-source requests. An earlier exact-source probe encountered ECMWF HTTP 429. Closed retention includes bounded Retry-After diagnostics and passes eighty focused checks, without extra requests or automatic retries. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover joined delivery. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Prove pressure retirement and continuation, then resume joined Weather delivery. | The corrected standalone baseline passes on `9441b451`. The first pressure run observes real contraction and serial continuation but fails its discovery-evidence check: the phase uses targeted refresh, not generic DHT discovery. Correct that distinction and rerun the complete sequence; retain the failed result. |
+| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined attempt on `9441b451` stops during the guest build because of development-host memory pressure, before any Weather request. Prepare execution away from the development host without uploading private inputs or bypassing source limits. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover joined delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR13 are merged with passing CI. Exact table extraction and a fresh full browser trial pass with synthetic products. A new immutable bundle with the corrected verifier passes capture, runtime and extracted-tree checks; the old bundle remains unchanged. Joined core delivery and native Android/iOS execution remain unverified. |
 
 The corrected standalone provider proof passes without weather downloads. The
-latest joined trial uses the corrected Overmorrow bundle but stops at the earlier
-shared-route failure. The new standalone result clears that prerequisite, not
-the joined delivery gate. Do not automatically retry source requests or route
-them through other peers to evade a source limit.
+earlier joined trial stops at a shared-route failure; the later attempt with the
+corrected core stops during its build because of host memory pressure. Neither
+reaches Weather acquisition. Do not automatically retry source requests or route
+them through other peers to evade a source limit. The earlier ECMWF HTTP 429 and
+its bounded Retry-After diagnostics remain relevant to the next acquisition.
 Pressure retirement and continuation remain separate evidence gaps, not implied
-by successful parallel delivery. A separate disposable-guest phase is now wired
-after the healthy native and HTTPS transfers. It is not part of either retained
-standalone result or the failed joined run.
+by successful parallel delivery. The separate pressure phase has reached real
+transfer and cleanup, but its first complete report fails validation. It is not
+part of either passing standalone result or either joined attempt.
 The Drizz.li/Weather candidate and frozen input
 bundle remain intact; Overmorrow's core delivery and native execution are still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
@@ -111,9 +112,32 @@ Evidence is retained at
 `0d8cbd696240dd7d12f73545c4ef305b5b73e6a845620388a88bad3819d449a3`.
 Worker allowance remains twelve, with a peak of three leases and no pressure or
 continuation events. The run proves neither pressure recovery nor joined Weather
-delivery. CodeQL passes for this exact revision; Quality checks are still running.
+delivery. CodeQL and Quality checks both pass for this exact revision.
 
-### Prepared pressure retirement trial
+### Joined attempt stopped by host resource protection
+
+The next joined attempt uses the same proven core revision `9441b451` and the
+unchanged, verified Overmorrow input bundle. It exits with status 143 during the
+guest build after observations of memory pressure and falling available
+host memory. No topology or Weather-source request is reached. The attempt is
+aborted, not passed, and is not automatically restarted.
+
+The owned runner, VM and SSH supervisor are gone, the forwarded port is free,
+and the temporary VM files are removed. The base image and tracked source remain
+unchanged. DNS, routes, rules, addresses, forwarding settings, namespace names
+and WireGuard interface names match their initial observations. Full host-network
+equality is not proven: firewall access is unavailable and the link hash differs.
+That hash includes dynamic bridge timers, but the raw initial values were not
+retained, so the cause of the difference is not established.
+
+Evidence is retained at `.git/ci-evidence/weather-overmorrow-9441.PSl9Ws/`.
+The next preparation step is a reproducible hosted input recipe: the current
+workflow has no joined Weather input, and pinned public Node and Firefox
+acquisition plus decoder-build verification remain missing. Keep the existing
+private bundle outside published artifacts; a fresh build needs its own browser
+proof and bundle hash.
+
+### First pressure retirement trial
 
 The new phase uses the original sixty-chunk publication, three disjoint provider
 caches and the same protected route, but a fresh client cache. After observing
@@ -136,7 +160,32 @@ Current provider reports use schema four and require this separate component.
 Earlier schema-one through schema-three results remain verifiable only through
 the explicit historical-report path; their original claims are unchanged.
 Focused controller, component, diagnostic, wiring and aggregate tests pass.
-These are test-harness checks, not a completed live pressure trial.
+The first [live pressure run](https://github.com/VOLPAROSSA/volparossa/actions/runs/38205593860)
+on `52a3a787` nevertheless fails at the component-evidence check. The checker
+requires generic DHT discovery events, while this phase performs three targeted
+provider refreshes. Its original raw evidence reproduces that rejection; it has
+not been rewritten as a successful report.
+
+The raw observations show a complete 15,728,640-byte, sixty-chunk transfer from
+three providers without origin fallback. Under CPU-only pressure, allowance
+falls from ten to one after a peak of three leases. Two serial continuations
+return thirty-one verified chunks (8,126,464 bytes). Both pressure workers are
+reaped, cleanup removes all owned objects, and the guest-root network state is
+unchanged. These observations do not constitute a passing aggregate: late
+recovery and cancellation are not reached in this run.
+
+Evidence is retained at `.git/ci-evidence/content-pressure-hosted.ao2q3z/`.
+The report SHA-256 is
+`c1bacb39e85b50e2fd2093e4aff00cd8f87e8b3b3561cdf3e92f0c1c383848ef`.
+The corrected pressure component uses schema two, with separate counters for
+generic queries, targeted lookup starts and finishes, and verified nonempty
+client responses. Counters cover only the actual fetch interval; an exact lookup
+finish alone cannot satisfy the check. The earlier generic discovery proof and
+all cold-cache, three-provider, pressure, continuation, route, privacy and
+cleanup requirements remain mandatory. A targeted lookup is not a DHT query.
+The correction passes 117 focused fixture checks and independent review, but
+still requires a new full protected trial. The old raw result lacks these new
+counters and remains rejected rather than being upgraded after the fact.
 
 ### Verified cache delivery and remaining integration
 

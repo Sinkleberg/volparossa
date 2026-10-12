@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -36,12 +37,13 @@ def fixture():
     selected = original["selected_route"]
     output = dict(original["output"], started_monotonic_ns=controller["started_ns"],
                   completed_monotonic_ns=12_000_000_000, started_unix_ms=1_001_000,
-                  completed_unix_ms=1_012_000)
+                  completed_unix_ms=1_012_000, exact_lookup_started=0, exact_lookup_finished=0,
+                  client_nonempty_verified_responses=1)
     providers = {node: dict(reset=dict(serving=False, publications=0),
                            serve=dict(serving=True, publications=1, replication_enabled=False),
                            status=dict(serving=True, publications=1, replication_enabled=False),
                            stop=dict(serving=False, publications=0)) for node in CHECK["NODES"]}
-    return dict(schema_version=1, kind="content-provider-pressure-smoke", success=True,
+    return dict(schema_version=2, kind="content-provider-pressure-smoke", success=True,
                 scope=dict(CHECK["SCOPE"]), publication=original["publication"],
                 expected_peers=original["expected_peers"], layout=original["layout"],
                 original_selected_route=copy.deepcopy(selected), selected_before=copy.deepcopy(selected),
@@ -112,6 +114,84 @@ class PressureEvidence(unittest.TestCase):
         self.assertEqual(evidence["controller"]["last_observation"]["cpu"], "pressured")
         self.assertFalse(evidence["scope"]["pressure_recovery_claimed"])
         self.assertFalse(evidence["scope"]["owner_goodput_claimed"])
+
+    def test_fresh_exact_refresh_is_not_reported_as_generic_discovery(self):
+        evidence = fixture()
+        evidence["output"].update(generic_dht_queries=0, authenticated_upstream_offers=0,
+            exact_lookup_started=3, exact_lookup_finished=3,
+            client_nonempty_verified_responses=3, client_forwarded_discovery=3)
+        self.assertEqual(CHECK["validate"](evidence), evidence)
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            write_files(work, evidence)
+            self.assertEqual(CHECK["build_evidence"](work), evidence)
+        self.assertEqual(evidence["output"]["generic_dht_queries"], 0)
+        self.assertEqual(evidence["output"]["authenticated_upstream_offers"], 0)
+
+    def test_exact_finish_without_three_nonempty_verified_responses_is_not_proof(self):
+        exact = dict(generic_dht_queries=0, authenticated_upstream_offers=0,
+                     exact_lookup_started=3, exact_lookup_finished=3,
+                     client_nonempty_verified_responses=3, client_forwarded_discovery=3)
+        for key, value in (("exact_lookup_started", 0), ("exact_lookup_finished", 2),
+                           ("exact_lookup_finished", 4), ("client_nonempty_verified_responses", 0),
+                           ("client_nonempty_verified_responses", 2), ("client_forwarded_discovery", 2),
+                           ("authenticated_upstream_offers", 1)):
+            with self.subTest(key=key, value=value):
+                evidence = fixture()
+                evidence["output"].update(exact)
+                evidence["output"][key] = value
+                with self.assertRaises(ValueError):
+                    CHECK["validate"](evidence)
+
+    def test_missing_generic_or_empty_discovery_cannot_pass(self):
+        for key, value in (("generic_dht_queries", 0), ("authenticated_upstream_offers", 2),
+                           ("client_nonempty_verified_responses", 0), ("client_forwarded_discovery", 0)):
+            self.rejected(lambda e: e["output"].__setitem__(key, value))
+        for key in CHECK["DISCOVERY_COUNTS"]:
+            for value in (-1, True, 1.0, 2**32):
+                self.rejected(lambda e: e["output"].__setitem__(key, value))
+            self.rejected(lambda e: e["output"].pop(key))
+        self.rejected(lambda e: e["output"].__setitem__("unknown", "raw-log"))
+        self.rejected(lambda e: e.__setitem__("schema_version", 1))
+        self.rejected(lambda e: e["output"].__setitem__("event_baseline_unix_ms", 1_001_001))
+
+    def test_real_shell_counters_exclude_other_phases_and_preserve_event_meanings(self):
+        def row(timestamp, event):
+            return f"{timestamp}\tlevel=1\tevent={event}\tsession=\tpath=-\n"
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            for node in ("client", "relay0", "relay1", "relay2", "relay3", "relay4", "relay5"):
+                (work/f"logs-{node}.txt").write_text("", encoding="ascii")
+            relay = work/"logs-relay1.txt"
+            client = work/"logs-client.txt"
+            command = '. "$1"\nWORK=$2\npp_baseline_ms=100\npp_started_unix=200\npp_completed_unix=400\n'
+            command += 'content_provider_pressure_discovery_counts\n'
+            command += 'printf "%s %s %s %s %s %s\\n" "$pp_queries" "$pp_offers" "$pp_discovered" '
+            command += '"$pp_exact_started" "$pp_exact_finished" "$pp_nonempty"\n'
+            def count():
+                result = subprocess.run(["sh", "-eu", "-c", command, "sh",
+                    str(HERE/"content-provider-pressure-smoke.sh"), str(work)],
+                    capture_output=True, check=True, timeout=5)
+                self.assertEqual(result.stderr, b"")
+                return [int(value) for value in result.stdout.split()]
+            # Earlier native/HTTPS events and work after this fetch do not count.
+            outside = "".join(row(ts, event) for ts in (99, 100, 101, 199, 401)
+                for event in ("CONTENT_PROVIDER_QUERY_STARTED", "CONTENT_PROVIDER_OFFER_VERIFIED",
+                              "CONTENT_EXACT_LOOKUP_STARTED", "CONTENT_EXACT_LOOKUP_FINISHED"))
+            relay.write_text(outside + "".join(row(ts, "CONTENT_EXACT_LOOKUP_STARTED")
+                + row(ts+1, "CONTENT_EXACT_LOOKUP_FINISHED") for ts in (200, 250, 399)), encoding="ascii")
+            client.write_text("".join(row(ts, event) for ts in (199, 201, 251, 400, 401)
+                for event in ("CONTENT_DISCOVERY_RECEIVED_OFFERS", "CONTENT_DISCOVERY_COMPLETED"))
+                + row(300, "CONTENT_DISCOVERY_RECEIVED_EMPTY"), encoding="ascii")
+            self.assertEqual(count(), [0, 0, 3, 3, 3, 3])
+            relay.write_text(outside + row(200, "CONTENT_PROVIDER_QUERY_STARTED")
+                + row(300, "CONTENT_PROVIDER_OFFER_VERIFIED") * 3, encoding="ascii")
+            client.write_text(row(400, "CONTENT_DISCOVERY_RECEIVED_OFFERS")
+                + row(400, "CONTENT_DISCOVERY_COMPLETED"), encoding="ascii")
+            self.assertEqual(count(), [1, 3, 1, 0, 0, 1])
+            client.write_text(row(400, "CONTENT_DISCOVERY_RECEIVED_EMPTY")
+                + row(400, "CONTENT_DISCOVERY_COMPLETED"), encoding="ascii")
+            self.assertEqual(count(), [1, 3, 1, 0, 0, 0])
 
     def test_contraction_requires_three_actual_leases_and_available_resources(self):
         for key, value in (("initial_allowance", 2), ("peak_leases", 2), ("min_allowance", 2),
