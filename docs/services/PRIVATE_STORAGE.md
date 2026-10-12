@@ -38,7 +38,8 @@ permanent availability or rely on the development service as your only copy.
 - **Manage archives:** [whole-copy compatibility](#replica-set-candidate-explicit-copies-and-restore-failover),
   [distributed fragments](#fragment-placement-candidate-redundant-pieces-not-whole-archives-per-provider),
   [replacement](#explicit-fragment-copy-replacement), [drain](#bounded-owner-driven-archive-drain),
-  and [repair](#bounded-owner-driven-repair-pass).
+  [repair](#bounded-owner-driven-repair-pass), and
+  [background maintenance](#owner-authorized-background-maintenance-candidate).
 - **Check the evidence:** [fragment proof](#disposable-protected-fragment-proof),
   [Signal round trip](#native-signal-backup-round-trip), and
   [Image/Cloud recovery trials](#recorded-application-recovery-trials).
@@ -798,6 +799,38 @@ contribution resizing, a new redundancy policy or proof of independent device av
 The original signed reconstruction root and the existing v2 consumer boundary are unchanged.
 Its functional probe uses actual signed local provider services and SQLite stores, not a
 new protected-overlay run.
+
+### Owner-authorized background maintenance candidate
+
+The `storage fragments maintenance` commands add a candidate owner service for
+renewal and repair. `enroll` signs finite permission for one existing archive,
+named candidate providers, original provider grants and explicit byte ceilings.
+`serve` keeps the owner identity and private journals in the owner's process;
+`status` reads its checkpoint without unlocking the identity or contacting peers.
+The core issues temporary resource turns, not permission to store somebody's data.
+
+Each turn uses the core's existing background lane and worker budget. Foreground
+demand, disconnects and deadlines revoke the turn; an active exchange retains its
+resource reservation until it stops. Requested payload and bounded framing bytes
+are charged before forwarding. The owner rotates through fragments, checks actual
+retention and attempts at most one replacement handoff per turn. Uncertain copies
+continue counting toward the authorized storage ceiling.
+
+If the core disappears, the service reconnects with bounded backoff while retaining
+the enrollment, cursor, grants, lease identities and repair journals. Reconnection
+does not renew authority. SIGINT and SIGTERM use the same checkpoint-and-stop
+path. The signed enrollment's absolute expiry caps new retention and is checked
+again after a provider challenge, before signing; waiting cannot extend permission.
+Provider grant refresh remains a separate authorized action.
+
+This candidate has passed source review and formatting, **not yet compilation or
+functional acceptance**. New Unix/SQLite tests cover reconnect, interrupted
+operations, expiry while waiting and delayed renewal/repair. They still require
+hosted execution; even when passing, they will not prove the protected-overlay
+lifecycle. The separate guest-network trial must exercise real core restart,
+process signals, provider replacement, reconstruction and cleanup. Automatic
+application supervision, reciprocal contribution adjustment and permanent
+availability remain open.
 
 ### Disposable protected-fragment proof
 
