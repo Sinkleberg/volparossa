@@ -29,15 +29,15 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Complete late-provider recovery and requester cancellation in one protected run, then join Weather delivery to the verified cache path. | Run `38193112015` on `24463595` again passes native and HTTPS three-provider reconstruction, but the late-provider fixture stops waiting before its first discovery completes. The fixture correction shares the existing six-second budget instead of stopping at four seconds; thirteen focused checks pass. Cancellation remains unreached. Actual late recovery passed in the preceding run; pressure-retirement continuation still needs its own protected result. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Complete late-provider recovery and requester cancellation in one protected run, then join Weather delivery to the verified cache path. | Run `38195177153` on `c63ddf36` passes native and HTTPS three-provider reconstruction, but its first late-provider query returns empty through a newly selected broker. The six-second fixture correction cannot repair that unmet first-snapshot condition. Establish genuine signed-service readiness before the measured late-publication phase; do not inject provider hints or widen product deadlines. Cancellation and protected pressure-retirement recovery remain unproved. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost; a separate exact-source probe encounters ECMWF HTTP 429. Closed retention now includes bounded Retry-After diagnostics and passes eighty focused checks, without extra requests, retries or relaxed validation. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
-| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR11 are merged with passing CI. The closed bundle profile 3 reuses the two-product acquisition/transfer path and checks exact ordered Flutter rows. Browser08 passes actual synthetic UI checks with the corrected ECMWF module, and a new immutable archive verifies against that proof. Actual joined core delivery, runtime table extraction and native Android/iOS execution remain unverified. |
+| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR11 are merged with passing CI. Browser08 and its immutable input bundle retain their synthetic UI proof. A separate actual-browser test of the exact ordered Flutter tables fails at the initial table assertion; its browser, fixture and private profile are cleaned up. Diagnose the mismatch without weakening row checks or changing the frozen bundle. Joined core delivery and native Android/iOS execution remain unverified. |
 
 Respect the observed source rate limit instead of repeatedly relaunching the
 joined trial or routing requests through other peers. Finish the standalone
 provider proof, which needs no weather downloads, through late discovery and
-cancellation. The latest run proves concurrent reconstruction, while the
-preceding run proves late recovery. Neither exercises the pressure-retirement
+cancellation. The latest run proves concurrent reconstruction, while run
+`38190664934` proves late recovery. Neither exercises the pressure-retirement
 continuation itself.
 The Drizz.li/Weather candidate and frozen input
 bundle remain intact; Overmorrow's core delivery and native execution are still required. Keep shared interface
@@ -45,7 +45,50 @@ changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
 
-The latest [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38193112015)
+The latest [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38195177153)
+on `c63ddf36` is **failed overall**, at the late-provider `first-snapshot`
+stage. This time the broker changes from relay1 to relay2. Its first query
+returns empty after 1.151 seconds, with two dial failures and no verified offer.
+The second query returns an offer after another 5.063 seconds, or 6.214 seconds
+from the first request. The required first completed query with exactly one
+offer cannot then be established. No B activation or requester-cancellation
+proof follows. The logs establish the failed connections, not their exact cause
+or which bounded polling command timed out.
+
+A separate, bounded signed-service readiness phase is the next fixture
+candidate. It must retain its own evidence, preserve the cold content cache,
+and explicitly distinguish prepared control connectivity from cold discovery.
+The measured first-one-offer and later-B-publication assertions stay intact.
+No production address fix or longer deadline is justified by these logs alone.
+
+Independent reconstruction of the same run validates native and cooperative
+HTTPS delivery of 15,728,640 bytes in sixty chunks from three providers. Their
+triple bulk overlaps are 4.023 and 4.489 seconds. HTTPS uses one authenticated
+HEAD and no origin body or range requests. Both worker allowances stay at eleven
+with no pressure flags; this does not exercise pressure-retirement recovery.
+Late-fetch cleanup reaps the requester and removes the gate. Guest-root
+snapshots are identical, SHA-256
+`31e9d7daf3831ccf018a040bafdf7973fd0e4de41920c81d729e2ec7caefc7b5`.
+Evidence is retained at `.git/ci-evidence/content-provider-hosted-c63.rDjHnL/`;
+the independently rebuilt adaptive report has SHA-256
+`5a38b175f257dedecd46e30628bd046b3f8a2aab270febf075badc6a4850ba69`.
+[Quality](https://github.com/VOLPAROSSA/volparossa/actions/runs/38195158877) and
+[CodeQL](https://github.com/VOLPAROSSA/volparossa/actions/runs/38195155580) pass
+for this exact source. No Weather acquisition is included.
+
+The pressure-retirement candidate now has separate, opt-in continuation
+diagnostics. They distinguish retired candidates, prepared tokens, real worker
+admissions and verified progress returned by successful receives, with worker
+counts observed before admission and after owned work drains. Failed or
+cancelled receives can already have written cache chunks: zero **returned**
+bytes is not a zero-traffic or zero-write claim. Normal logging stays unchanged;
+the diagnostic contains no content, paths, peer identities or raw pressure
+samples. Native and HTTPS phases export independent closed records alongside
+the unchanged worker-budget reports. Twelve focused Rust tests and sixteen
+extractor/fixture tests pass, including cancellation and a policy error after
+verified writes. Protected recovery under actual pressure remains unproved.
+
+The earlier [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38193112015)
 on `24463595` is **failed overall**, at the late-provider fixture's
 `first-snapshot` stage. A's offer is verified after 25 milliseconds, but the
 first discovery response reaches the client after 5.09 seconds. The fixture
@@ -58,8 +101,9 @@ six-second deadline. Subprocesses receive only the remaining budget, capped at
 two seconds each; the 300-second fetch limit and production discovery limits
 are unchanged. Thirteen late-provider tests pass, including a reproduction of
 the 5.09-second response and expired discovery, activation and release cases.
-Nineteen aggregate checks and ten inert cancellation checks also pass. A new
-protected run must still prove the complete sequence.
+Nineteen aggregate checks and ten inert cancellation checks also pass. The
+subsequent `c63ddf36` run above exercises this correction but exposes the
+different first-empty-query condition; the complete sequence remains unproved.
 
 Independent reconstruction again validates native and cooperative HTTPS:
 each delivers the exact 15,728,640-byte object in sixty chunks from three

@@ -5,6 +5,9 @@
 The private markers bind byte ranges of one owned agent log. Exported reports
 contain only bounded budget summaries, never log envelopes, identifiers or paths.
 These observations do not establish transfer completion, concurrency or cleanup.
+Continuation records are exported separately from the unchanged budget schema.
+Returned progress excludes partial writes from failed or cancelled receives;
+zero returned bytes never means that no bytes travelled or entered the cache.
 """
 import io
 import json
@@ -16,6 +19,8 @@ import tempfile
 
 TARGET = "volparossa_agent::content::worker_budget"
 CODE = "CONTENT_WORKER_BUDGET_SUMMARY"
+CONTINUATION_TARGET = "volparossa_agent::content::parallel::continuation"
+CONTINUATION_CODE = "CONTENT_PROVIDER_CONTINUATION_SUMMARY"
 PHASES = ("native", "https")
 MAX_INPUT = 8 * 1024 * 1024
 MAX_LINE = 16384
@@ -29,6 +34,9 @@ OBSERVATIONS = {"initial_allowance", "min_allowance", "max_allowance",
 COUNTERS = {"peak_shared_held", "admitted_leases", "denied_leases", "peak_leases", "active_leases"}
 CAUSES = {"cpu_pressure", "memory_pressure", "io_pressure", "cpu_unavailable",
           "memory_unavailable", "io_unavailable", "resource_unavailable", "lock_unavailable"}
+CONTINUATION_COUNTS = {"retired_candidates", "prepared_continuations", "admitted_continuations",
+                       "returned_useful_continuations", "returned_verified_chunks",
+                       "initial_active_workers", "peak_active_workers", "final_active_workers"}
 
 
 def require(condition):
@@ -66,8 +74,25 @@ def summary(value):
     return value
 
 
-def extract(raw):
+def continuation_summary(value):
+    require(type(value) is dict and set(value) ==
+            {"schema_version", "outcome", "returned_verified_bytes"} | CONTINUATION_COUNTS)
+    require(type(value["schema_version"]) is int and value["schema_version"] == 1)
+    require(type(value["outcome"]) is str and value["outcome"] in ("returned", "failed", "interrupted"))
+    for key in CONTINUATION_COUNTS | {"returned_verified_bytes"}:
+        maximum = 2**64 - 1 if key == "returned_verified_bytes" else U32
+        require(type(value[key]) is int and 0 <= value[key] <= maximum)
+    require(value["returned_useful_continuations"] <= value["admitted_continuations"]
+            <= value["prepared_continuations"] <= value["retired_candidates"])
+    require(max(value["initial_active_workers"], value["final_active_workers"])
+            <= value["peak_active_workers"])
+    return value
+
+
+def extract(raw, *, continuation=False):
     """Accept complete JSON log lines only; never return an unvalidated raw line."""
+    target, code, field, validate = (CONTINUATION_TARGET, CONTINUATION_CODE, "continuation", continuation_summary) \
+        if continuation else (TARGET, CODE, "budget", summary)
     require(type(raw) is bytes and len(raw) <= MAX_INPUT)
     records = []
     incomplete = False
@@ -83,16 +108,16 @@ def extract(raw):
             continue
         event = decode(line)
         require(type(event) is dict)
-        if event.get("target") != TARGET:
+        if event.get("target") != target:
             continue
         fields = event.get("fields")
         require(type(fields) is dict)
-        if fields.get("code") != CODE:
+        if fields.get("code") != code:
             continue
-        require(event.get("level") == "DEBUG" and set(fields) == {"code", "budget"})
-        budget = fields["budget"]
-        require(type(budget) is str and len(budget.encode("utf-8")) <= MAX_BUDGET)
-        records.append(summary(decode(budget)))
+        require(event.get("level") == "DEBUG" and set(fields) == {"code", field})
+        payload = fields[field]
+        require(type(payload) is str and len(payload.encode("utf-8")) <= MAX_BUDGET)
+        records.append(validate(decode(payload)))
         require(len(records) <= MAX_RECORDS)
     return records, incomplete
 
@@ -151,6 +176,12 @@ def paths(work, phase):
             work / f"content-provider-adaptive{suffix}-worker-budget.json")
 
 
+def continuation_path(work, phase):
+    require(phase in PHASES)
+    suffix = "" if phase == "native" else "-https"
+    return work / f"content-provider-adaptive{suffix}-continuation.json"
+
+
 def mark(work, phase):
     marker, _ = paths(work, phase)
     fd, info = checked_open(work / "agent-client.log")
@@ -168,6 +199,7 @@ def finish(work, phase, *, pending=False):
     marker, output = paths(work, phase)
     report = dict(schema_version=1, kind="content-worker-budget-diagnostic", phase=phase,
                   phase_closed=not pending, complete=False, status="invalid", records=[])
+    continuation_report = dict(report, kind="content-provider-continuation-diagnostic", records=[])
     try:
         value = decode(read_private(marker, MAX_BUDGET))
         require(type(value) is dict and set(value) ==
@@ -184,15 +216,21 @@ def finish(work, phase, *, pending=False):
             require(len(raw) == end - value["start"] and os.fstat(fd).st_size >= end)
         finally:
             os.close(fd)
-        records, incomplete = extract(raw)
         if not pending and value["end"] is None:
             value["end"] = end
             write_private(marker, value, MAX_BUDGET)
-        report.update(records=records, status="incomplete" if incomplete or pending else
-                      "observed" if records else "missing", complete=bool(records) and not incomplete and not pending)
+        for selected, is_continuation in ((report, False), (continuation_report, True)):
+            try:
+                records, incomplete = extract(raw, continuation=is_continuation)
+                selected.update(records=records, status="incomplete" if incomplete or pending else
+                                "observed" if records else "missing",
+                                complete=bool(records) and not incomplete and not pending)
+            except (ValueError, KeyError, TypeError, UnicodeError, RecursionError):
+                pass  # Invalid payloads do not erase the other closed diagnostic.
     except (OSError, ValueError, KeyError, TypeError, UnicodeError, RecursionError):
         pass  # The closed invalid report replaces neither the failure nor absent evidence with success.
     write_private(output, report, MAX_OUTPUT)
+    write_private(continuation_path(work, phase), continuation_report, MAX_OUTPUT)
     return report
 
 

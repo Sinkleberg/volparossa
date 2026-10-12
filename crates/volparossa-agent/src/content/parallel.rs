@@ -295,6 +295,10 @@ impl continuation::Sources for ProtectedContinuations<'_> {
         self.budget.available_workers() > 0
     }
 
+    fn active_workers(&self) -> &AtomicUsize {
+        self.active
+    }
+
     fn transport(&self, index: usize) -> &VerifiedManifest {
         self.providers[index]
             .transport
@@ -308,6 +312,7 @@ impl continuation::Sources for ProtectedContinuations<'_> {
         download: ParallelDownload,
         worker: ChunkWorker,
         store: &mut ChunkStore,
+        diagnostic: &continuation::diagnostics::Diagnostics<'_>,
     ) -> Result<(TransferProgress, bool), ContentError> {
         if self.scope.is_none()
             || RecentProviderScope::for_route(self.context, self.policy).await != self.scope
@@ -320,6 +325,9 @@ impl continuation::Sources for ProtectedContinuations<'_> {
             self.active,
             || self.budget.try_acquire(),
             |mut worker| async move {
+                // This callback runs only after actual resource-lease admission.
+                // Admission is not a completed socket or authenticated transfer.
+                diagnostic.admitted();
                 // The clean original session consumed the first transport attempt.
                 // This single continuation spends the last one; no nested reconnect.
                 Ok(matches!(

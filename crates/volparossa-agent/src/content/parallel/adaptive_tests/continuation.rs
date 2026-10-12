@@ -21,7 +21,10 @@ use super::{Fixture, fixture_with_disjoint};
 use crate::content::{
     ContentError, now,
     parallel::{
-        continuation::{RetiredBatch, Sources},
+        continuation::{
+            RetiredBatch, Sources,
+            diagnostics::{Diagnostics, tests::Capture},
+        },
         drivers, receive_workers_retired,
     },
     worker_budget::{BatchBudget, WorkerBudget},
@@ -121,6 +124,7 @@ enum Mode {
     Complete,
     Failed,
     Cancel,
+    PolicyAfterProgress,
 }
 
 struct ActualSources<'a> {
@@ -138,6 +142,9 @@ impl Sources for ActualSources<'_> {
     fn available(&self) -> bool {
         self.budget.available_workers() > 0
     }
+    fn active_workers(&self) -> &AtomicUsize {
+        &self.active
+    }
     fn transport(&self, _: usize) -> &VerifiedManifest {
         self.fixture_manifest
     }
@@ -147,6 +154,7 @@ impl Sources for ActualSources<'_> {
         download: ParallelDownload,
         worker: ChunkWorker,
         store: &mut ChunkStore,
+        diagnostic: &Diagnostics<'_>,
     ) -> Result<(TransferProgress, bool), ContentError> {
         assert_eq!(self.active.load(Ordering::SeqCst), 0, "serial continuation");
         let driver = drivers::assigned(
@@ -155,6 +163,7 @@ impl Sources for ActualSources<'_> {
             &self.active,
             || self.budget.try_acquire(),
             |mut worker| async {
+                diagnostic.admitted();
                 assert_eq!(
                     self.opened[index].fetch_add(1, Ordering::SeqCst),
                     0,
@@ -201,6 +210,10 @@ impl Sources for ActualSources<'_> {
             "a continuation cannot authorize another one"
         );
         assert_eq!(self.active.load(Ordering::SeqCst), 0);
+        if matches!(self.mode, Mode::PolicyAfterProgress) {
+            assert!(progress[0].bytes > 0);
+            return Err(ContentError::Policy);
+        }
         Ok((progress[0], expired))
     }
 }
@@ -213,6 +226,7 @@ enum Case {
     Expired,
     Unclean,
     Cancel,
+    PolicyAfterProgress,
 }
 
 async fn exercise(case: Case) {
@@ -224,6 +238,7 @@ async fn exercise(case: Case) {
         deadline,
     } = prepare().await;
     let initial_bytes = progress.iter().map(|part| part.bytes).sum::<u64>();
+    let initial_chunks = progress.iter().map(|part| part.chunks).sum::<usize>();
     let retired_count = retired.len();
     let capacity = usize::from(!matches!(case, Case::NoResources)) as u64;
     let budget = WorkerBudget::for_test(capacity * 32 * 8 * 1024 * 1024, capacity * 4 * 8, true);
@@ -243,6 +258,7 @@ async fn exercise(case: Case) {
         mode: match case {
             Case::Failed => Mode::Failed,
             Case::Cancel => Mode::Cancel,
+            Case::PolicyAfterProgress => Mode::PolicyAfterProgress,
             _ => Mode::Complete,
         },
         started: Notify::new(),
@@ -258,23 +274,7 @@ async fn exercise(case: Case) {
             deadline
         },
     };
-    let mut work = Box::pin(retired.resume(&mut fixture.cache, &sources));
-    if matches!(case, Case::Cancel) {
-        tokio::select! {
-            () = sources.started.notified() => {},
-            _ = &mut work => panic!("continuation must remain owned until cancellation"),
-        }
-        assert_eq!(sources.active.load(Ordering::SeqCst), 1);
-        drop(work);
-    } else {
-        let outcome = work.as_mut().await.unwrap();
-        assert_eq!(
-            outcome.attempted,
-            matches!(case, Case::Complete | Case::Failed)
-        );
-        assert_eq!(outcome.timed_out, matches!(case, Case::Expired));
-        drop(work);
-    }
+    let capture = observe_resume(case, retired, &mut fixture.cache, &sources).await;
     assert_eq!(sources.active.load(Ordering::SeqCst), 0);
     let opened = sources
         .opened
@@ -282,6 +282,22 @@ async fn exercise(case: Case) {
         .map(|value| value.load(Ordering::SeqCst))
         .sum::<usize>();
     assert!(opened <= retired_count);
+    check_diagnostic(
+        case,
+        &capture,
+        retired_count,
+        opened,
+        (
+            fixture.bytes.len() as u64 - initial_bytes,
+            12 - initial_chunks,
+        ),
+    );
+    if matches!(case, Case::PolicyAfterProgress) {
+        assert!(
+            fixture.cache.usage().bytes > initial_bytes,
+            "failed receive can still have verified writes"
+        );
+    }
     let diagnosis = batch.snapshot_for_test().unwrap();
     assert_eq!(diagnosis["active_leases"], 0);
     assert!(diagnosis["peak_leases"].as_u64().unwrap() <= 1);
@@ -310,6 +326,77 @@ async fn exercise(case: Case) {
     }
 }
 
+async fn observe_resume(
+    case: Case,
+    retired: RetiredBatch<'_>,
+    cache: &mut ChunkStore,
+    sources: &ActualSources<'_>,
+) -> Capture {
+    let capture = Capture::default();
+    // These Tokio tests use the current-thread runtime; capture also covers Drop.
+    let _subscriber = tracing::subscriber::set_default(capture.subscriber(tracing::Level::DEBUG));
+    let mut work = Box::pin(retired.resume(cache, sources));
+    if matches!(case, Case::Cancel) {
+        tokio::select! {
+            () = sources.started.notified() => {},
+            _ = &mut work => panic!("continuation must remain owned until cancellation"),
+        }
+        assert_eq!(sources.active.load(Ordering::SeqCst), 1);
+    } else if matches!(case, Case::PolicyAfterProgress) {
+        assert!(matches!(work.as_mut().await, Err(ContentError::Policy)));
+    } else {
+        let outcome = work.as_mut().await.unwrap();
+        assert_eq!(
+            outcome.attempted,
+            matches!(case, Case::Complete | Case::Failed)
+        );
+        assert_eq!(outcome.timed_out, matches!(case, Case::Expired));
+    }
+    drop(work);
+    capture
+}
+
+fn check_diagnostic(
+    case: Case,
+    capture: &Capture,
+    retired: usize,
+    opened: usize,
+    remaining: (u64, usize),
+) {
+    let summaries = capture.summaries();
+    assert_eq!(summaries.len(), 1, "one Drop event per retired batch");
+    let summary = &summaries[0];
+    assert_eq!(summary.as_object().unwrap().len(), 11);
+    assert_eq!(summary["schema_version"], 1);
+    assert_eq!(summary["retired_candidates"], retired);
+    assert_eq!(
+        summary["outcome"],
+        match case {
+            Case::Cancel => "interrupted",
+            Case::PolicyAfterProgress => "failed",
+            _ => "returned",
+        }
+    );
+    assert_eq!(summary["prepared_continuations"], opened);
+    assert_eq!(summary["admitted_continuations"], opened);
+    assert_eq!(summary["initial_active_workers"], 0);
+    assert_eq!(summary["peak_active_workers"], usize::from(opened > 0));
+    assert_eq!(
+        summary["final_active_workers"], 0,
+        "emission follows owned driver drain, including cancellation"
+    );
+    if matches!(case, Case::Complete) {
+        assert_eq!(summary["returned_useful_continuations"], retired);
+        assert_eq!(summary["returned_verified_bytes"], remaining.0);
+        assert_eq!(summary["returned_verified_chunks"], remaining.1);
+    } else {
+        // Includes post-write policy error: only returned progress is measured.
+        assert_eq!(summary["returned_useful_continuations"], 0);
+        assert_eq!(summary["returned_verified_chunks"], 0);
+        assert_eq!(summary["returned_verified_bytes"], 0);
+    }
+}
+
 #[tokio::test]
 async fn production_continuation_completes_disjoint_coverage_after_dynamic_pressure() {
     tokio::time::timeout(Duration::from_secs(15), exercise(Case::Complete))
@@ -330,4 +417,11 @@ async fn production_continuation_never_renews_failed_unclean_or_unavailable_work
             .await
             .unwrap();
     }
+}
+
+#[tokio::test]
+async fn production_continuation_diagnostic_excludes_unreturned_policy_error_progress() {
+    tokio::time::timeout(Duration::from_secs(15), exercise(Case::PolicyAfterProgress))
+        .await
+        .unwrap();
 }

@@ -71,8 +71,9 @@ jobs:
           python3 -B tests/integration/transaction-abci-contract-tests.py
           python3 -B tests/integration/transaction-abci-wiring-tests.py
 
-      - name: Check closed Weather source diagnostics without network access
+      - name: Check closed provider and Weather diagnostics without network access
         run: |
+          python3 -B tests/integration/test-content-provider-worker-budget.py
           node --version
           node -e 'if (Number(process.versions.node.split(".")[0]) < 22) process.exit(1)'
           node --test tests/integration/test-weather-source-observer.mjs

@@ -1,6 +1,10 @@
 //! Single-use serial coverage after locally pressure-retired streams have drained.
 
 use std::future::Future;
+use std::sync::atomic::AtomicUsize;
+
+pub(super) mod diagnostics;
+use diagnostics::Diagnostics;
 
 use tokio::time::Instant;
 use volparossa_content::{
@@ -15,6 +19,7 @@ use super::{ContentError, complete, drivers};
 
 pub(super) trait Sources {
     fn available(&self) -> bool;
+    fn active_workers(&self) -> &AtomicUsize;
     fn transport(&self, index: usize) -> &VerifiedManifest;
     fn receive(
         &self,
@@ -22,6 +27,7 @@ pub(super) trait Sources {
         download: ParallelDownload,
         worker: ChunkWorker,
         store: &mut ChunkStore,
+        diagnostic: &Diagnostics<'_>,
     ) -> impl Future<Output = Result<(TransferProgress, bool), ContentError>> + Send;
 }
 
@@ -47,6 +53,20 @@ impl RetiredBatch<'_> {
         self,
         store: &mut ChunkStore,
         sources: &impl Sources,
+    ) -> Result<Outcome, ContentError> {
+        let diagnostic = Diagnostics::new(self.retired.len(), sources.active_workers());
+        // The awaited future owns every driver and borrows this diagnostic. On
+        // cancellation it drops first, before the final active-worker observation.
+        let result = self.resume_observed(store, sources, &diagnostic).await;
+        diagnostic.finish(result.is_ok());
+        result
+    }
+
+    async fn resume_observed(
+        self,
+        store: &mut ChunkStore,
+        sources: &impl Sources,
+        diagnostic: &Diagnostics<'_>,
     ) -> Result<Outcome, ContentError> {
         let mut outcome = Outcome::default();
         for retirement in self.retired {
@@ -76,7 +96,13 @@ impl RetiredBatch<'_> {
                 Err(_) => return Err(ContentError::Invalid),
             };
             outcome.attempted = true;
-            let (part, expired) = sources.receive(index, download, worker, store).await?;
+            diagnostic.prepared();
+            let (part, expired) = sources
+                .receive(index, download, worker, store, diagnostic)
+                .await?;
+            // Only returned writer progress is observed here. A cancelled or
+            // failed receive may have cached bytes that this summary cannot see.
+            diagnostic.returned_progress(part);
             let progress = &mut self.progress[index];
             progress.bytes = progress
                 .bytes

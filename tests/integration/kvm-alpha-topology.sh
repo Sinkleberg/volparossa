@@ -3972,7 +3972,7 @@ launch_agent() {
     agent_rust_log=volparossa_agent=info
     if [ "$scenario" = content-provider ] && [ "$node" = client ]; then
         # Disposable fixture opt-in: closed per-batch resources only, no object/route/peer identities.
-        agent_rust_log=$agent_rust_log,volparossa_agent::content::worker_budget=debug
+        agent_rust_log=$agent_rust_log,volparossa_agent::content::worker_budget=debug,volparossa_agent::content::parallel::continuation=debug
     fi
     if [ "$scenario" = browser-network ] && [ "$node" = client ]; then
         agent_rust_log=$agent_rust_log,volparossa_agent::browser_gateway::connect=debug

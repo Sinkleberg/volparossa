@@ -32,6 +32,20 @@ def event(value=None, **changes):
     return json.dumps(envelope).encode() + b"\n"
 
 
+def continuation(**changes):
+    value = dict(schema_version=1, outcome="returned", retired_candidates=2,
+                 prepared_continuations=2, admitted_continuations=2, returned_useful_continuations=2,
+                 returned_verified_chunks=6, returned_verified_bytes=1572864,
+                 initial_active_workers=0, peak_active_workers=1, final_active_workers=0)
+    value.update(changes)
+    return value
+
+
+def continuation_event(value=None):
+    return event(target=CHECK["CONTINUATION_TARGET"], fields=dict(code=CHECK["CONTINUATION_CODE"],
+                 continuation=json.dumps(value or continuation())))
+
+
 class WorkerBudgetDiagnostics(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="provider-budget-")
@@ -196,11 +210,89 @@ class WorkerBudgetDiagnostics(unittest.TestCase):
         (self.work / "content-provider-smoke.json").write_text('{"success":false}')
         self.assertEqual(self.report("native").read_bytes(), report)
 
+    def test_continuations_use_same_phase_boundary_but_separate_closed_report(self):
+        self.append(continuation_event(continuation(retired_candidates=99)))
+        self.marker("native")
+        self.append(event() + continuation_event())
+        legacy = self.finish("native")
+        target = CHECK["continuation_path"](self.work, "native")
+        retained = target.read_bytes()
+        parsed = json.loads(retained)
+        self.assertEqual(legacy["records"], [budget()])
+        self.assertEqual(parsed, dict(schema_version=1, kind="content-provider-continuation-diagnostic",
+            phase="native", phase_closed=True, complete=True, status="observed", records=[continuation()]))
+        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+        self.marker("https")
+        self.append(continuation_event(continuation(outcome="failed")))
+        self.finish("https")
+        self.append(continuation_event(continuation(outcome="interrupted")))
+        CHECK["finalize"](self.work)
+        self.assertEqual(target.read_bytes(), retained)
+        https = json.loads(CHECK["continuation_path"](self.work, "https").read_bytes())
+        self.assertEqual([row["outcome"] for row in https["records"]], ["failed"])
+        for secret in ("timestamp", "not-for-export", "target", "device", "inode", "success"):
+            self.assertNotIn(secret, retained.decode())
+
+    def test_continuation_pending_and_missing_are_not_success_or_zero_traffic(self):
+        self.marker("native")
+        self.finish("native", pending=True)
+        target = CHECK["continuation_path"](self.work, "native")
+        self.assertFalse(json.loads(target.read_bytes())["complete"])
+        interrupted = continuation(outcome="interrupted", returned_useful_continuations=0,
+                                   returned_verified_chunks=0, returned_verified_bytes=0)
+        self.append(continuation_event(interrupted))
+        CHECK["finalize"](self.work)
+        self.assertEqual(json.loads(target.read_bytes())["records"], [interrupted])
+        self.assertFalse(CHECK["continuation_path"](self.work, "https").exists())
+        self.marker("https"); self.finish("https")
+        missing = json.loads(CHECK["continuation_path"](self.work, "https").read_bytes())
+        self.assertEqual((missing["status"], missing["complete"], missing["records"]), ("missing", False, []))
+
+    def test_continuation_rejects_unknown_fields_types_ranges_and_envelope(self):
+        mutations = ({"schema_version": True}, {"outcome": "complete"}, {"peer_id": "SECRET"},
+            {"retired_candidates": -1}, {"prepared_continuations": 3}, {"admitted_continuations": 3},
+            {"returned_useful_continuations": 3}, {"returned_verified_chunks": 2**32},
+            {"returned_verified_bytes": 2**64}, {"returned_verified_bytes": True},
+            {"initial_active_workers": 2}, {"final_active_workers": 2}, {"peak_active_workers": None})
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                CHECK["extract"](continuation_event(continuation(**mutation)), continuation=True)
+        for fields in ({"code": CHECK["CONTINUATION_CODE"], "continuation": "NaN"},
+                {"code": CHECK["CONTINUATION_CODE"], "continuation": '{}', "secret": 'PRIVATE'},
+                {"code": CHECK["CONTINUATION_CODE"], "continuation": json.dumps(continuation()).replace(
+                    '"schema_version": 1', '"schema_version":1,"schema_version":1')},
+                {"code": CHECK["CONTINUATION_CODE"], "continuation": "x" * (CHECK["MAX_BUDGET"]+1)}):
+            with self.assertRaises(ValueError):
+                CHECK["extract"](event(target=CHECK["CONTINUATION_TARGET"], fields=fields), continuation=True)
+        with self.assertRaises(ValueError):
+            CHECK["extract"](continuation_event() * (CHECK["MAX_RECORDS"]+1), continuation=True)
+        maximal = continuation(retired_candidates=2**32-1, returned_verified_chunks=2**32-1,
+                               returned_verified_bytes=2**64-1)
+        self.assertEqual(CHECK["extract"](continuation_event(maximal), continuation=True)[0], [maximal])
+
+    def test_invalid_payload_does_not_erase_other_report_or_reopen_closed_phase(self):
+        self.marker("native")
+        self.append(event() + continuation_event(continuation(peer_id="PRIVATE")))
+        legacy = self.finish("native")
+        target = CHECK["continuation_path"](self.work, "native")
+        retained = target.read_bytes()
+        self.assertEqual(legacy["records"], [budget()])
+        self.assertEqual(json.loads(retained)["status"], "invalid")
+        self.append(continuation_event())
+        CHECK["finalize"](self.work)
+        self.assertEqual(target.read_bytes(), retained)
+        self.marker("https")
+        self.append(event(budget(peer_id="PRIVATE")) + continuation_event())
+        self.assertEqual(self.finish("https")["status"], "invalid")
+        self.assertEqual(json.loads(CHECK["continuation_path"](self.work, "https").read_bytes())["records"],
+                         [continuation()])
+
     def test_glue_opt_in_cleanup_order_and_closed_emergency_allowlist(self):
         topology = (HERE / "kvm-alpha-topology.sh").read_text()
         optin = ('if [ "$scenario" = content-provider ] && [ "$node" = client ]; then\n'
                  '        # Disposable fixture opt-in: closed per-batch resources only, no object/route/peer identities.\n'
-                 '        agent_rust_log=$agent_rust_log,volparossa_agent::content::worker_budget=debug')
+                 '        agent_rust_log=$agent_rust_log,volparossa_agent::content::worker_budget=debug,'
+                 'volparossa_agent::content::parallel::continuation=debug')
         self.assertIn(optin, topology)
         retire = topology.index('for cleanup_unit in $AGENT_UNITS; do retire_unit "$cleanup_unit"')
         finalize = topology.index("        content_provider_worker_budget_finalize", retire)
@@ -215,6 +307,7 @@ class WorkerBudgetDiagnostics(unittest.TestCase):
         emergency = (HERE / "run-alpha-topology-vm.sh").read_text()
         for phase in CHECK["PHASES"]:
             self.assertIn('"' + self.report(phase).name + '"', emergency)
+            self.assertIn('"' + CHECK["continuation_path"](self.work, phase).name + '"', emergency)
         for name in ("kvm-alpha-topology.sh", "run-alpha-topology-vm.sh", "content-provider-adaptive-smoke.sh"):
             subprocess.run(["/bin/sh", "-n", str(HERE / name)], check=True, timeout=5)
 
