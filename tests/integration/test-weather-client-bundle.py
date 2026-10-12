@@ -24,14 +24,14 @@ class WeatherBundle(unittest.TestCase):
         self.raw = b"inert input; must not execute\n"
         self.digest = hashlib.sha256(self.raw).hexdigest()
         self.pins = patch.dict(W["manifest"].__globals__, dict(NODE_SHA=self.digest, DECODER_SHA=self.digest,
-            PIN_SHA=self.digest, BUILD_SHA=self.digest))
+            PIN_SHA=self.digest, BUILD_SHA=self.digest, DECODER_SHA_V4=self.digest, BUILD_SHA_V4=self.digest))
         self.pins.start()
         self.addCleanup(self.pins.stop)
         self.addCleanup(self.temp.cleanup)
         self.files = self.profile_files()
 
     def profile_files(self, version=1):
-        fixed = W[{1: "FIXED", 2: "FIXED_V2", 3: "FIXED_V3"}[version]]
+        fixed = W[{1: "FIXED", 2: "FIXED_V2", 3: "FIXED_V3", 4: "FIXED_V4"}[version]]
         static = ({W["STATIC_V3"] + name for name in W["STATIC_REQUIRED_V3"]} if version == 3
                   else {W["STATIC"] + "index.html"})
         return {name: dict(bytes=len(self.raw), mode=W["mode"](name), sha256=self.digest)
@@ -66,6 +66,155 @@ class WeatherBundle(unittest.TestCase):
             self.assertEqual((destination / name).read_bytes(), self.raw)
             self.assertEqual((destination / name).stat().st_mode & 0o777, item["mode"])
         self.assertEqual(destination.stat().st_mode & 0o777, 0o500)
+
+    def admission(self):
+        return dict(schema=1, kind="volparossa-weather-public-drizzli-admission", scope="disposable-joined-weather-only",
+            sources={name: dict(commit=letter * 40) for name, letter in (("weather", "a"), ("browser", "b"))},
+            artifacts={name: dict(repository="VOLPAROSSA/volparossa" + ("" if name == "abi" else "-weather"),
+                run_id=1, commit="c" * 40, id=index, name=name, sha256=self.digest, bytes=42)
+                for index, name in enumerate(("assets", "proof", "decoder", "abi"), 1)},
+            files={name: {key: item[key] for key in ("bytes", "sha256")}
+                   for name, item in self.profile_files(4).items()})
+
+    def test_v4_exact_admission_roundtrip_without_private_machine_files(self):
+        self.files = self.profile_files(4); admitted = self.admission()
+        W["validate_public_admission"](admitted)
+        with patch.dict(W["manifest"].__globals__, public_admission=lambda: admitted):
+            archive, digest = self.archive(version=4)
+            result = W["checked_archive"](archive, digest, self.root / "frozen", runtime=True, report_version=True)
+            self.assertEqual(result["bundle_version"], 4)
+            self.assertFalse(W["verify_tree"](self.root / "frozen", digest)["runtime_executed"])
+        self.assertNotIn(W["STAGE"] + "browser/defaults/syspref/firefox-esr.js", self.files)
+        self.assertFalse(any(name.endswith(".xpi") for name in self.files))
+        self.assertIn("runtime/firefox-copyright", self.files)
+        self.assertIn("decoder/licenses/eccodes-source/COPYING", self.files)
+
+    def test_v4_caller_manifest_cannot_authorize_changed_source_proof_or_static(self):
+        admitted = self.admission()
+        for name in self.profile_files(4):
+            files = self.profile_files(4); files[name]["sha256"] = "f" * 64
+            raw, digest = self.manifest(dict(version=4, kind=W["KIND"], files=files))
+            with self.subTest(name=name), patch.dict(W["manifest"].__globals__, public_admission=lambda: admitted):
+                with self.assertRaises(ValueError): W["manifest"](raw, digest)
+        for name in (W["STATIC"] + "extra.js", W["STAGE"] + "browser/extensions/unreviewed.xpi",
+                     W["STATIC_V3"] + "index.html"):
+            files = self.profile_files(4); files[name] = dict(bytes=1, mode=0o400, sha256=self.digest)
+            raw, digest = self.manifest(dict(version=4, kind=W["KIND"], files=files))
+            with self.subTest(extra=name), patch.dict(W["manifest"].__globals__, public_admission=lambda: admitted):
+                with self.assertRaises(ValueError): W["manifest"](raw, digest)
+
+    def test_public_admission_closed_coordinates_inventory_and_bounds(self):
+        original = self.admission()
+        paths = [("schema",), ("scope",), ("sources", "weather", "commit"),
+                 ("artifacts", "proof", "repository"), ("artifacts", "proof", "run_id"),
+                 ("artifacts", "proof", "commit"), ("artifacts", "abi", "bytes"),
+                 ("artifacts", "assets", "name"), ("files", "runtime/node", "sha256")]
+        for path in paths:
+            value = copy.deepcopy(original); target = value
+            for key in path[:-1]: target = target[key]
+            target[path[-1]] = True if type(target[path[-1]]) is int else "unreviewed/../value"
+            with self.subTest(path=path), self.assertRaises(ValueError): W["validate_public_admission"](value)
+        for mutate in (lambda v: v.update(unreviewed=True), lambda v: v["files"].pop("runtime/node"),
+                       lambda v: v["sources"]["weather"].update(caller_authorized=True)):
+            value = copy.deepcopy(original); mutate(value)
+            with self.assertRaises(ValueError): W["validate_public_admission"](value)
+
+    def test_v4_missing_record_is_closed_but_legacy_profiles_never_load_it(self):
+        def missing(): raise FileNotFoundError("absent reviewed admission")
+        with patch.dict(W["manifest"].__globals__, public_admission=missing):
+            for version in (1, 2, 3):
+                files = self.profile_files(version)
+                raw, digest = self.manifest(dict(version=version, kind=W["KIND"], files=files))
+                self.assertEqual(W["manifest"](raw, digest)["version"], version)
+            raw, digest = self.manifest(dict(version=4, kind=W["KIND"], files=self.profile_files(4)))
+            with self.assertRaises(FileNotFoundError): W["manifest"](raw, digest)
+        for version in (1, 2, 3):
+            raw, digest = self.manifest(dict(version=version, kind=W["KIND"], files=self.profile_files(4)))
+            with self.assertRaises(ValueError): W["manifest"](raw, digest)
+
+    def v4_proof_fixture(self):
+        selected = self.profile_files(4); admitted = self.admission()
+        _, old = self.proof_fixture(2); proof = old["air-quality-browser-smoke.json"]
+        proof.pop("wrapper_outcome"); proof.pop("outer_cleanup")
+        proof.update(schema=1, browser_process_exit_code=0)
+        proof["cleanup"]["startup_stderr_drained"] = True
+        proof["source"]["browser_revision"] = "b" * 40
+        outer = dict(schema=1, kind="hosted-client-build-and-synthetic-ui", phase="complete", success=True,
+            policy_cleanup_complete=True, weather_commit="c" * 40, browser_commit="b" * 40,
+            origin_acquisition=False, core_delivery=False, production_authority=False,
+            synthetic_weather=True, synthetic_air_quality=True,
+            outer_cleanup=dict(host_netns_unchanged=True, private_profile_removed=True, process_drain_confirmed=True))
+        build = dict(schema=1, kind="hosted-drizzli-build", source=copy.deepcopy(proof["source"]),
+            browser_report_sha256=self.digest, weather_commit="c" * 40, browser_commit="b" * 40,
+            actual_synthetic_ui=True, compiled_networkless=True, copyright_notices_preserved=True,
+            core_delivery=False, weather_origin=False, dependency_lifecycle_scripts=False, mutable_assets_prehook=False,
+            lock_sha256=self.digest, upstream_commit=old["upstream.json"]["commit"],
+            runtime=dict(provenance_sha256=self.digest))
+        decoder = dict(compiled=True, tests_passed=True, recipe_sha256=self.digest, source_pin_sha256=self.digest,
+            source_helper_sha256=self.digest, tests=dict(version=True, ccsds_nonconstant_nearest_points=True),
+            scope=dict(decoder_authorized=False, debian13_abi_proven=False, network_during_build=False, original_sources_unchanged=True),
+            artifacts=[dict(path=name, bytes=len(self.raw), sha256=self.digest) for name in ("eccodes-build/bin/grib_ls", "probe.grib2")])
+        abi = dict(schema_version=1, kind="weather-decoder-abi", success=True, phase="complete", blocker=None,
+            source_commit="c" * 40, weather_commit="c" * 40,
+            scope=dict(disposable_abi_test_only=True, production_decoder_authorized=False, origin_acquisition_proven=False,
+                       core_delivery_proven=False, browser_proven=False),
+            checks=dict.fromkeys(("elf_inspected", "first_point", "inputs_verified", "last_point", "relocated_lone_decoder",
+                                  "sandbox_isolated", "version"), True),
+            cleanup=dict(process_drain_confirmed=True, scratch_removed=True),
+            logs={name: dict(bytes=len(self.raw), sha256=self.digest, exit_status=0) for name in W["ABI_LOGS"]})
+        records = {"hosted-browser-proof.json": proof, "upstream.json": old["upstream.json"],
+            "volparossa-staging.json": old["volparossa-staging.json"], "result.json": outer, "build.json": build,
+            "cleanup.json": dict(schema=1, kind="hosted-clients-sandbox-cleanup", complete=True,
+                process_drain_confirmed=True, profile_removed=True, restriction_unchanged=True, staging_removed=True),
+            "runtime-provenance.json": dict(scope=dict(runtime_executed=False, expected_runtime_hashes_verified=True),
+                pin_sha256=self.digest, npm=dict(pin_sha256=self.digest), preparer_sha256=self.digest),
+            "decoder-build.json": decoder, "decoder-abi.json": abi}
+        return selected, admitted, records
+
+    def check_v4_proof(self, selected, admitted, records):
+        sources = {name: Path(name) for name in selected}
+        with patch.dict(W["public_source_proof"].__globals__, small_json=lambda path: records[path.name]):
+            W["public_source_proof"](sources, selected, admitted)
+
+    def test_v4_separate_original_inner_outer_and_decoder_proofs(self):
+        selected, admitted, records = self.v4_proof_fixture()
+        self.check_v4_proof(selected, admitted, records)
+        self.assertNotEqual(admitted["sources"]["weather"]["commit"], records["build.json"]["weather_commit"])
+        for name, path in (("hosted-browser-proof.json", ("scope", "core_executed")),
+                ("result.json", ("origin_acquisition",)), ("cleanup.json", ("process_drain_confirmed",)),
+                ("build.json", ("compiled_networkless",)), ("decoder-build.json", ("tests_passed",)),
+                ("decoder-abi.json", ("checks", "relocated_lone_decoder")),
+                ("decoder-abi.json", ("cleanup", "scratch_removed"))):
+            selected, admitted, records = self.v4_proof_fixture(); target = records[name]
+            for key in path[:-1]: target = target[key]
+            target[path[-1]] = not target[path[-1]]
+            with self.subTest(name=name, path=path), self.assertRaises(ValueError):
+                self.check_v4_proof(selected, admitted, records)
+        for field in ("outer_cleanup", "wrapper_outcome"):
+            selected, admitted, records = self.v4_proof_fixture()
+            records["hosted-browser-proof.json"][field] = "invented"
+            with self.assertRaises(ValueError): self.check_v4_proof(selected, admitted, records)
+
+    def test_v4_explicit_capture_interface_and_original_proof_bytes(self):
+        arguments = [str(self.root / str(index)) for index in range(7)]; calls = []
+        with patch.dict(W["main"].__globals__, capture_v4=lambda *paths: calls.append(paths) or {}), \
+                patch.object(W["sys"], "argv", ["bundle", "capture-v4", *arguments]), redirect_stdout(io.StringIO()):
+            W["main"]()
+        self.assertEqual(calls, [tuple(map(Path, arguments))])
+        selected, admitted, records = self.v4_proof_fixture()
+        # A full inert capture exercises immutable copy, no native execution.
+        sources = {}
+        for name in selected:
+            path = self.root / "source" / name; path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            path.write_bytes(self.raw); path.chmod(0o600); sources[name] = path
+        with patch.dict(W["capture_v4"].__globals__, public_admission=lambda: admitted,
+                public_sources=lambda *args: sources, public_source_proof=lambda *args: None):
+            archive = self.root / "public.tar"
+            result = W["capture_v4"](*map(Path, arguments[:6]), archive)
+            self.assertFalse(result["current_origin_acquisition_proven"])
+            self.assertFalse(result["joined_delivery_proven"])
+            W["checked_archive"](archive, result["manifest_sha256"], self.root / "public-tree", runtime=True)
+        self.assertEqual((self.root / "public-tree" / W["WEATHER"] / W["HOSTED_PROOF"]).read_bytes(), self.raw)
 
     def test_v1_runtime_gate_preserves_existing_archive_and_schema(self):
         archive, expected = self.archive()

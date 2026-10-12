@@ -105,7 +105,7 @@ weather_products_delivery_run() {
     # Selected by complete immutable-archive validation in the enclosing
     # dispatcher. Never accept a caller-supplied driver path or fallback UI.
     case ${weather_profile_version:-} in
-        2) weather_products_driver=integrations/drizzli/smoke_core_browser.py ;;
+        2|4) weather_products_driver=integrations/drizzli/smoke_core_browser.py ;;
         3) weather_products_driver=integrations/overmorrow/smoke_core_browser.py ;;
         *) fail WEATHER_CLIENT_PROFILE_INVALID ;;
     esac
@@ -123,7 +123,7 @@ weather_products_delivery_run() {
         if [ -e "$weather_new" ] || [ -L "$weather_new" ]; then fail WEATHER_PRODUCTS_PATH_EXISTS; fi
     done
     for weather_script in weather-products-delivery.py weather-source-observer.mjs weather-client-delivery.py weather-client-bundle.py \
-        browser-filter-bundle.py content-provider-https-smoke.py content-network-smoke.py; do
+        browser-filter-bundle.py content-provider-https-smoke.py content-network-smoke.py weather-public-drizzli-v4.json; do
         install -o root -g root -m 0555 "$source_directory/tests/integration/$weather_script" \
             "$WORK/bin/$weather_script" || fail WEATHER_PRODUCTS_DRIVER_UNAVAILABLE
     done

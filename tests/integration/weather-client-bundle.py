@@ -99,6 +99,38 @@ STATIC_REQUIRED_V3 = frozenset(("index.html", "version.json", "flutter.js", "mai
     "assets/AssetManifest.bin", "LICENSE.txt", "LICENSE.VOLPAROSSA.txt"))
 STATIC_ASSET_EXTENSIONS_V3 = frozenset((".png", ".jpg", ".jpeg", ".webp", ".svg", ".ttf", ".otf",
     ".woff", ".woff2", ".json", ".bin", ".frag"))
+# Public hosted Drizz.li has a separate reviewed admission, never a relaxation of
+# the historical machine-derived runtime or its decoder/source proofs.
+ADMISSION_V4 = Path(__file__).with_name("weather-public-drizzli-v4.json")
+DECODER_SHA_V4 = "d99425a1b44fe11b9ff77918310bc1b1a2114957558481bd705851e314a59930"
+BUILD_SHA_V4 = "1c9b10e294189ffc0fd5a2064c4e436f691aa4e50cd0eea258e7976740ac17e4"
+RUNTIME_FILES_V4 = RUNTIME_FILES - {"browser/defaults/syspref/firefox-esr.js",
+    "browser/extensions/langpack-nl@firefox-esr.mozilla.org.xpi"}
+HOSTED_PROOF = "integrations/drizzli/hosted-browser-proof.json"
+HOSTED_PREFIX = "integrations/drizzli/hosted-proof/"
+HOSTED_PROOFS = {HOSTED_PROOF: "drizzli-hosted-browser-ci/report.json",
+    **{HOSTED_PREFIX + name + ".json": "hosted-clients-ci/" + name + ".json" for name in
+       ("build", "result", "cleanup", "baseline", "steps", "preflight-acquire", "preflight-compile", "preflight-browser")},
+    HOSTED_PREFIX + "runtime-provenance.json": "hosted-client-runtime/provenance.json",
+    HOSTED_PREFIX + "packages.txt": "hosted-client-packages.txt"}
+ABI_LOGS = frozenset(("elf.log", "sandbox.log", "version.log", "decode-first.log", "decode-last.log"))
+DECODER_LICENSES = frozenset(("ecbuild-source/LICENSE", "ecbuild-source/NOTICE", "ecbuild-source/COPYING",
+    "libaec-source/LICENSE.txt", "eccodes-source/LICENSE", "eccodes-source/NOTICE", "eccodes-source/COPYING",
+    "eccodes-source/third_party/expected/COPYING"))
+WEATHER_FILES_V4 = frozenset({*(name for name in WEATHER_FILES_V2 if not name.startswith("third_party/eccodes/licenses/")
+    and name not in {"build/eccodes/build-receipt.json", "third_party/noaa-gefs-smoke.json",
+        "third_party/ecmwf-precipitation-smoke.json", "integrations/drizzli/air-quality-browser-smoke.json"}),
+    "scripts/prepare_hosted_decoder.py", "scripts/prepare_hosted_runtime.py",
+    "third_party/hosted-runtime-inputs.json", "third_party/hosted-runtime-npm.json"})
+CLIENT_FILES_V4 = CLIENT_FILES_V2 | {"package-lock.json",
+    "volparossa-build-plugins/message-format.LICENSE", "volparossa-build-plugins/m-function-matcher.LICENSE"}
+FIXED_V4 = frozenset({*(WEATHER + name for name in WEATHER_FILES_V4),
+    *(WEATHER + name for name in HOSTED_PROOFS),
+    WEATHER + HOSTED_PREFIX + "decoder-build.json", WEATHER + HOSTED_PREFIX + "decoder-abi.json",
+    *(WEATHER + HOSTED_PREFIX + "decoder-abi/" + name for name in ABI_LOGS),
+    *(BROWSER + name for name in BROWSER_FILES), *(STAGE + name for name in RUNTIME_FILES_V4),
+    *(UI_STAGE + name for name in CLIENT_FILES_V4), *("decoder/licenses/" + name for name in DECODER_LICENSES),
+    "runtime/node", "runtime/node.LICENSE", "runtime/firefox-copyright", "decoder/grib_ls", "decoder/probe.grib2"})
 EXECUTABLES = frozenset({"runtime/node", "decoder/grib_ls", *(STAGE + name for name in
     ("firefox-esr", "firefox-bin", "crashhelper", "crashreporter", "glxtest", "vaapitest", "pingsender"))})
 MAX_FILES = 512
@@ -110,6 +142,26 @@ MAX_STATIC = 32 * 1024 * 1024
 require, hex64, encode = B["require"], B["hex64"], B["encode"]
 fingerprint, open_checked, identity = B["fingerprint"], B["open_checked"], B["identity"]
 header, read_exact, new_path = B["header"], B["read_exact"], B["new_path"]
+
+
+def decoder_sha(version):
+    require(type(version) is int and version in (1, 2, 3, 4))
+    return DECODER_SHA_V4 if version == 4 else DECODER_SHA
+
+
+def pin_sha(version):
+    decoder_sha(version)
+    return PIN_SHA
+
+
+def build_sha(version):
+    decoder_sha(version)
+    return BUILD_SHA_V4 if version == 4 else BUILD_SHA
+
+
+def build_source(version):
+    decoder_sha(version)
+    return "scripts/prepare_hosted_decoder.py" if version == 4 else "scripts/build_eccodes.py"
 
 
 def mode(name):
@@ -138,11 +190,11 @@ def manifest(raw, expected):
     require(hex64(expected) and 0 < len(raw) <= MAX_MANIFEST and hashlib.sha256(raw).hexdigest() == expected)
     value = json.loads(raw, object_pairs_hook=B["unique_pairs"])
     require(type(value) is dict and set(value) == {"version", "kind", "files"}
-        and type(value["version"]) is int and value["version"] in (1, 2, 3) and value["kind"] == KIND
+        and type(value["version"]) is int and value["version"] in (1, 2, 3, 4) and value["kind"] == KIND
         and type(value["files"]) is dict
         and 1 <= len(value["files"]) <= MAX_FILES and encode(value) == raw)
     version = value["version"]
-    fixed = {1: FIXED, 2: FIXED_V2, 3: FIXED_V3}[version]
+    fixed = {1: FIXED, 2: FIXED_V2, 3: FIXED_V3, 4: FIXED_V4}[version]
     prefix = STATIC_V3 if version == 3 else STATIC
     required_static = STATIC_REQUIRED_V3 if version == 3 else {"index.html"}
     require(fixed <= set(value["files"]) and all(name in fixed or static_name(name, version) for name in value["files"])
@@ -155,9 +207,14 @@ def manifest(raw, expected):
         total += item["bytes"]
         static_bytes += item["bytes"] if name.startswith(prefix) else 0
     require(total <= MAX_TOTAL and static_bytes <= MAX_STATIC)
-    for name, expected_sha in (("runtime/node", NODE_SHA), ("decoder/grib_ls", DECODER_SHA),
-            (WEATHER + "third_party/eccodes-sources.json", PIN_SHA), (WEATHER + "scripts/build_eccodes.py", BUILD_SHA)):
+    for name, expected_sha in (("runtime/node", NODE_SHA), ("decoder/grib_ls", decoder_sha(version)),
+            (WEATHER + "third_party/eccodes-sources.json", pin_sha(version)), (WEATHER + build_source(version), build_sha(version))):
         require(value["files"][name]["sha256"] == expected_sha)
+    if version == 4:
+        # A caller's manifest hash only identifies transferred bytes. The exact
+        # reviewed public/source inventory remains independent runtime authority.
+        require({name: {key: item[key] for key in ("bytes", "sha256")} for name, item in value["files"].items()}
+            == public_admission()["files"])
     return value
 
 
@@ -195,6 +252,46 @@ def small_json(path):
         raw = source.read(1024 * 1024 + 1)
         require(len(raw) == info.st_size and identity(os.fstat(source.fileno())) == identity(info))
     return json.loads(raw, object_pairs_hook=B["unique_pairs"])
+
+
+def validate_public_admission(value):
+    """Reviewed source data, not a user-supplied execution grant or release key."""
+    require(type(value) is dict and set(value) == {"schema", "kind", "scope", "sources", "artifacts", "files"}
+        and type(value["schema"]) is int and value["schema"] == 1
+        and value["kind"] == "volparossa-weather-public-drizzli-admission"
+        and value["scope"] == "disposable-joined-weather-only")
+    require(type(value["sources"]) is dict and set(value["sources"]) == {"weather", "browser"})
+    for item in value["sources"].values():
+        require(type(item) is dict and set(item) == {"commit"} and type(item["commit"]) is str
+            and re.fullmatch(r"[0-9a-f]{40}", item["commit"]) is not None)
+    require(type(value["artifacts"]) is dict and set(value["artifacts"]) == {"assets", "proof", "decoder", "abi"})
+    for name, item in value["artifacts"].items():
+        require(type(item) is dict and set(item) == {"repository", "run_id", "commit", "id", "name", "sha256", "bytes"}
+            and item["repository"] == ("VOLPAROSSA/volparossa" if name == "abi" else "VOLPAROSSA/volparossa-weather")
+            and type(item["commit"]) is str and re.fullmatch(r"[0-9a-f]{40}", item["commit"]) is not None
+            and type(item["name"]) is str and re.fullmatch(r"[A-Za-z0-9_-]{1,160}", item["name"]) is not None
+            and all(type(item[key]) is int and 0 < item[key] < 2**53 for key in ("run_id", "id", "bytes"))
+            and hex64(item["sha256"]))
+    require(all(value["artifacts"]["assets"][key] == value["artifacts"]["proof"][key]
+        for key in ("repository", "run_id", "commit")))
+    files = value["files"]
+    require(type(files) is dict and len(FIXED_V4) < len(files) <= MAX_FILES
+        and FIXED_V4 <= set(files) and STATIC + "index.html" in files
+        and all(name in FIXED_V4 or static_name(name, 4) for name in files))
+    for name, item in files.items():
+        require(type(item) is dict and set(item) == {"bytes", "sha256"}
+            and type(item["bytes"]) is int and 0 < item["bytes"] <= bound(name) and hex64(item["sha256"]))
+    require(sum(item["bytes"] for item in files.values()) <= MAX_TOTAL
+        and sum(item["bytes"] for name, item in files.items() if name.startswith(STATIC)) <= MAX_STATIC)
+    for name, digest in (("runtime/node", NODE_SHA), ("decoder/grib_ls", DECODER_SHA_V4),
+            (WEATHER + "third_party/eccodes-sources.json", PIN_SHA),
+            (WEATHER + "scripts/prepare_hosted_decoder.py", BUILD_SHA_V4)):
+        require(files[name]["sha256"] == digest)
+    return value
+
+
+def public_admission():
+    return validate_public_admission(small_json(ADMISSION_V4))
 
 
 def proven_hashes(value, names):
@@ -464,6 +561,165 @@ def capture_v3(weather, ui, static_root, browser, stage, node, proof, archive):
         historical_source_proofs_only=True, current_origin_acquisition_proven=False, joined_delivery_proven=False)
 
 
+def public_sources(weather, browser, assets, proof, decoder, abi):
+    """Map only public artifact members and reviewed source, with no execution."""
+    for root in (weather, browser, assets, proof, decoder, abi):
+        B["canonical"](root)
+    stage = assets / "hosted-browser-source/build/firefox-hosted-ci"
+    ui = assets / "drizzli-hosted-ci"
+    inventory(stage, exact=RUNTIME_FILES_V4)
+    sources = {**{WEATHER + name: weather / name for name in WEATHER_FILES_V4},
+        **{BROWSER + name: browser / name for name in BROWSER_FILES},
+        **{STAGE + name: stage / name for name in RUNTIME_FILES_V4},
+        **{WEATHER + name: proof / relative for name, relative in HOSTED_PROOFS.items()},
+        **{STATIC + name: path for name, path in inventory(ui / "build").items()},
+        **{"decoder/licenses/" + name: decoder / name for name in DECODER_LICENSES},
+        **{WEATHER + HOSTED_PREFIX + "decoder-abi/" + name: abi / name for name in ABI_LOGS},
+        WEATHER + HOSTED_PREFIX + "decoder-abi.json": abi / "report.json",
+        WEATHER + HOSTED_PREFIX + "decoder-build.json": decoder / "hosted-build-receipt.json",
+        "decoder/grib_ls": decoder / "eccodes-build/bin/grib_ls", "decoder/probe.grib2": decoder / "probe.grib2",
+        "runtime/node": assets / "hosted-client-runtime/node/bin/node",
+        "runtime/node.LICENSE": assets / "hosted-client-runtime/node/LICENSE",
+        "runtime/firefox-copyright": assets / "hosted-client-runtime/licenses/firefox-copyright"}
+    # The public assets intentionally omit the checkout/node_modules. The
+    # unchanged synthetic report hashes bind these source copies to its build.
+    for name in CLIENT_FILES_V4:
+        sources[UI_STAGE + name] = (weather / "integrations/drizzli/overlay" / name if name in OVERLAY_FILES
+            else weather / "src" / Path(name).name if name.startswith("src/lib/services/volparossa/")
+            else ui / name)
+    return sources
+
+
+def public_source_proof(sources, selected, admission):
+    """Separate immutable inner UI, outer lifecycle, build and ABI evidence.
+
+    No historic source receipt claims current origin acquisition. New joined
+    consumers are pinned by the admission inventory, not retrospectively by the
+    old synthetic UI report's driver hash.
+    """
+    read = lambda name: small_json(sources[name])
+    proof = read(WEATHER + HOSTED_PROOF)
+    build = read(WEATHER + HOSTED_PREFIX + "build.json")
+    outer = read(WEATHER + HOSTED_PREFIX + "result.json")
+    cleanup = read(WEATHER + HOSTED_PREFIX + "cleanup.json")
+    upstream = read(WEATHER + "integrations/drizzli/upstream.json")
+    scope = dict(actual_drizzli_ui=True, actual_http_bridge=True, synthetic_weather=True,
+        synthetic_air_quality=True, core_executed=False, overlay_proven=False, upstream_origin_proven=False)
+    require(type(proof["schema"]) is int and proof["schema"] == 1 and proof["passed"] is True
+        and proof["phase"] == "complete" and proof["scope"] == scope
+        and all(type(item) is bool for item in proof["scope"].values())
+        and proof["scenario"] == "precipitation" and proof["air_quality_scenario"] is True
+        and "outer_cleanup" not in proof and "wrapper_outcome" not in proof
+        and proof["browser_process_exit_code"] == 0)
+    for key in ("browser_exited", "fixture_exited", "private_profile_removed", "normal_browser_stop",
+                "normal_fixture_stop", "startup_stderr_drained"):
+        require(proof["cleanup"][key] is True)
+    require(outer["schema"] == 1 and outer["kind"] == "hosted-client-build-and-synthetic-ui"
+        and outer["phase"] == "complete" and outer["success"] is True and outer["policy_cleanup_complete"] is True
+        and outer["weather_commit"] == admission["artifacts"]["proof"]["commit"] == build["weather_commit"]
+        and outer["browser_commit"] == admission["sources"]["browser"]["commit"] == build["browser_commit"]
+        and all(outer[key] is False for key in ("origin_acquisition", "core_delivery", "production_authority"))
+        and all(outer[key] is True for key in ("synthetic_weather", "synthetic_air_quality"))
+        and set(outer["outer_cleanup"]) == {"host_netns_unchanged", "private_profile_removed", "process_drain_confirmed"}
+        and all(item is True for item in outer["outer_cleanup"].values()))
+    require(cleanup["schema"] == 1 and cleanup["kind"] == "hosted-clients-sandbox-cleanup"
+        and all(cleanup[key] is True for key in ("complete", "process_drain_confirmed", "profile_removed",
+                                               "restriction_unchanged", "staging_removed")))
+    require(build["schema"] == 1 and build["kind"] == "hosted-drizzli-build" and build["source"] == proof["source"]
+        and build["browser_report_sha256"] == selected[WEATHER + HOSTED_PROOF]["sha256"]
+        and all(build[key] is True for key in ("actual_synthetic_ui", "compiled_networkless", "copyright_notices_preserved"))
+        and all(build[key] is False for key in ("core_delivery", "weather_origin", "dependency_lifecycle_scripts", "mutable_assets_prehook"))
+        and build["lock_sha256"] == selected[UI_STAGE + "package-lock.json"]["sha256"])
+    source = proof["source"]
+    require(source["upstream"] == upstream["commit"] == build["upstream_commit"] and source["tree"] == upstream["tree"]
+        and source["patch_sha256"] == upstream["upstream_patch_sha256"]
+        == selected[WEATHER + "integrations/drizzli/upstream.patch"]["sha256"]
+        and source["browser_revision"] == admission["sources"]["browser"]["commit"]
+        and selected[UI_STAGE + "LICENSE"]["sha256"] == upstream["license_sha256"]
+        and selected[UI_STAGE + "LICENSE.VOLPAROSSA"]["sha256"] == selected[WEATHER + "LICENSE"]["sha256"])
+    for field, names, prefix in (("weather_modules", PROVEN_WEATHER_MODULES | AQ_MODULES, WEATHER),
+            ("bridge_modules", PROVEN_BRIDGE_MODULES | {"src/air-quality-core.mjs"}, WEATHER),
+            ("fixture_modules", FIXTURE_MODULES, WEATHER), ("browser_helpers", PROVEN_BROWSER_HELPERS, BROWSER),
+            ("overlay_sha256", OVERLAY_FILES, WEATHER + "integrations/drizzli/overlay/")):
+        for name, digest in proven_hashes(source[field], names).items():
+            require(selected[prefix + name]["sha256"] == digest)
+            if field == "weather_modules":
+                require(selected[UI_STAGE + "src/lib/services/volparossa/" + Path(name).name]["sha256"] == digest)
+            if field == "overlay_sha256":
+                require(selected[UI_STAGE + name]["sha256"] == digest)
+    for field, name in (("driver_sha256", "smoke_browser.py"), ("fixture_sha256", "browser-fixture.mjs")):
+        require(source[field] == selected[WEATHER + "integrations/drizzli/" + name]["sha256"])
+    hashes = {name[len(STATIC):]: item["sha256"] for name, item in selected.items() if name.startswith(STATIC)}
+    require(hashlib.sha256(json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        == source["built_tree_sha256"] and len(hashes) == source["built_files"]
+        and sum(selected[STATIC + name]["bytes"] for name in hashes) == source["built_bytes"])
+    for name in ("precipitation_native_windows", "precipitation_missing_zero_small_amount", "precipitation_no_hourly_rate",
+            "air_quality_is_separate_product", "air_quality_native_times", "air_quality_missing_zero_concentrations",
+            "air_quality_not_aqi_or_observations", "actual_refresh", "no_external_resources",
+            "weather_failure_preserves_air_quality", "weather_expiry_preserves_air_quality",
+            "aq_unavailable_weather_preserved", "aq_stale_weather_preserved", "air_quality_expiry_preserves_weather"):
+        require(proof["checks"][name] is True)
+    for name in ("precipitation", "air_quality"):
+        require(hex64(proof["checks"][name + "_initial_dom_sha256"])
+            and proof["checks"][name + "_initial_dom_sha256"] == proof["checks"][name + "_refresh_dom_sha256"])
+    require(proof["checks"]["provider_requests"] == proof["checks"]["air_quality_provider_requests"] == 11)
+    staging = read(STAGE + "volparossa-staging.json")
+    require(proof["runtime"]["node_sha256"] == NODE_SHA
+        and proven_hashes(staging["runtime_sha256"], PROVEN_RUNTIME_FILES)
+        == proven_hashes(proof["runtime"]["sha256"], PROVEN_RUNTIME_FILES)
+        and staging["defaults_sha256"] == selected[BROWSER + "defaults/privacy.json"]["sha256"]
+        and staging["autoconfig_sha256"] == selected[STAGE + "volparossa.cfg"]["sha256"])
+    for name, digest in proof["runtime"]["sha256"].items():
+        require(selected[STAGE + name]["sha256"] == digest)
+    provenance = read(WEATHER + HOSTED_PREFIX + "runtime-provenance.json")
+    require(build["runtime"]["provenance_sha256"] == selected[WEATHER + HOSTED_PREFIX + "runtime-provenance.json"]["sha256"]
+        and provenance["scope"]["runtime_executed"] is False and provenance["scope"]["expected_runtime_hashes_verified"] is True
+        and provenance["pin_sha256"] == selected[WEATHER + "third_party/hosted-runtime-inputs.json"]["sha256"]
+        and provenance["npm"]["pin_sha256"] == selected[WEATHER + "third_party/hosted-runtime-npm.json"]["sha256"]
+        and provenance["preparer_sha256"] == selected[WEATHER + "scripts/prepare_hosted_runtime.py"]["sha256"])
+    public_decoder_proof(read, selected, admission)
+
+
+def public_decoder_proof(read, selected, admission):
+    build = read(WEATHER + HOSTED_PREFIX + "decoder-build.json")
+    abi = read(WEATHER + HOSTED_PREFIX + "decoder-abi.json")
+    require(build["compiled"] is True and build["tests_passed"] is True
+        and build["recipe_sha256"] == BUILD_SHA_V4 and build["source_pin_sha256"] == PIN_SHA
+        and build["source_helper_sha256"] == selected[WEATHER + "scripts/build_eccodes.py"]["sha256"]
+        and build["tests"]["version"] is True and build["tests"]["ccsds_nonconstant_nearest_points"] is True
+        and build["scope"]["decoder_authorized"] is False and build["scope"]["debian13_abi_proven"] is False
+        and build["scope"]["network_during_build"] is False and build["scope"]["original_sources_unchanged"] is True)
+    artifacts = {item["path"]: {key: item[key] for key in ("bytes", "sha256")} for item in build["artifacts"]}
+    for name, original in (("decoder/grib_ls", "eccodes-build/bin/grib_ls"), ("decoder/probe.grib2", "probe.grib2")):
+        require(artifacts[original] == {key: selected[name][key] for key in ("bytes", "sha256")})
+    require(abi["schema_version"] == 1 and abi["kind"] == "weather-decoder-abi" and abi["success"] is True
+        and abi["phase"] == "complete" and abi["blocker"] is None
+        and abi["source_commit"] == admission["artifacts"]["abi"]["commit"]
+        and abi["weather_commit"] == admission["artifacts"]["decoder"]["commit"]
+        and abi["scope"]["disposable_abi_test_only"] is True
+        and all(abi["scope"][key] is False for key in ("production_decoder_authorized", "origin_acquisition_proven",
+                                                     "core_delivery_proven", "browser_proven"))
+        and all(abi["checks"][key] is True for key in ("elf_inspected", "first_point", "inputs_verified", "last_point",
+                                                      "relocated_lone_decoder", "sandbox_isolated", "version"))
+        and abi["cleanup"] == dict(process_drain_confirmed=True, scratch_removed=True))
+    for name in ABI_LOGS:
+        item = selected[WEATHER + HOSTED_PREFIX + "decoder-abi/" + name]
+        require(abi["logs"][name] == dict(bytes=item["bytes"], sha256=item["sha256"], exit_status=0))
+
+
+def capture_v4(weather, browser, assets, proof, decoder, abi, archive):
+    admission = public_admission()
+    sources = public_sources(weather, browser, assets, proof, decoder, abi)
+    selected = {name: dict(**fingerprint(path, bound(name)), mode=mode(name)) for name, path in sorted(sources.items())}
+    # Artifact download services discard executable mode. Normalized mode is
+    # authorized by the fixed profile; executable bytes are never run here.
+    raw = encode(dict(version=4, kind=KIND, files=selected)); expected = hashlib.sha256(raw).hexdigest()
+    manifest(raw, expected)
+    public_source_proof(sources, selected, admission)
+    return dict(**write_archive(sources, selected, raw, expected, archive),
+        synthetic_ui_proven=True, current_origin_acquisition_proven=False, joined_delivery_proven=False)
+
+
 def write_archive(sources, selected, raw, expected, archive):
     new_path(archive)
     with os.fdopen(os.open(archive, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "wb") as output:
@@ -497,7 +753,7 @@ def checked_archive(archive, expected, root=None, *, runtime=False, report_versi
         selected = manifest(raw, expected)
         # All closed profiles have explicit joined-runtime dispatch. Preserve
         # this explicit gate when future archive-only profiles are introduced.
-        require(not runtime or selected["version"] in (1, 2, 3))
+        require(not runtime or selected["version"] in (1, 2, 3, 4))
         if root is not None:
             new_path(root); root.mkdir(mode=0o700)
         for name, record in sorted(selected["files"].items()):
@@ -549,6 +805,8 @@ def main():
         result = capture(*map(Path, args), version=2 if action == "capture-v2" else 1)
     elif action == "capture-v3" and len(args) == 8:
         result = capture_v3(*map(Path, args))
+    elif action == "capture-v4" and len(args) == 7:
+        result = capture_v4(*map(Path, args))
     elif action == "verify-runtime" and len(args) == 2:
         result = checked_archive(Path(args[0]), args[1], runtime=True)
     elif action == "runtime-version" and len(args) == 2:

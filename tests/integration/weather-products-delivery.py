@@ -107,8 +107,8 @@ def source_response(root, key, started_at, finished_at):
 
 def ui_profile(version):
     # A version selects a fixed consumer, never a caller-supplied executable.
-    require(type(version) is int and version in (2, 3))
-    if version == 2:
+    require(type(version) is int and version in (2, 3, 4))
+    if version in (2, 4):
         return dict(ui="actual_drizzli_ui", static=B["STATIC"],
             preparer="integrations/drizzli/prepare-core-browser.mjs",
             driver="integrations/drizzli/smoke_core_browser.py")
@@ -246,7 +246,9 @@ def acquisition(source, manifest_sha, root, parent, client, group):
         boundary(parent, client, group, True)
         stage = "tree"
         B["verify_tree"](source, manifest_sha)
-        ui_profile(B["manifest"](raw_file(source / "INPUTS.json", B["MAX_MANIFEST"], 0o400), manifest_sha)["version"])
+        version = B["manifest"](raw_file(source / "INPUTS.json", B["MAX_MANIFEST"], 0o400), manifest_sha)["version"]
+        ui_profile(version)
+        decoder = B["decoder_sha"](version)
         observer = source_observer()
         deadline = time.monotonic() + 720
         stage = "decoder"
@@ -268,7 +270,7 @@ def acquisition(source, manifest_sha, root, parent, client, group):
                 str(source / B["WEATHER"] / "scripts" / p["script"]), "origin", "--latitude", "52.52", "--longitude", "13.41",
                 "--run", model_run, "--steps", ",".join(map(str, p["steps"])), "--community-area",
                 "--execute", "--accept-data-license", "--decoder", str(source / "decoder/grib_ls"),
-                "--decoder-sha256", B["DECODER_SHA"], "--scratch-parent", str(root / "scratch")]
+                "--decoder-sha256", decoder, "--scratch-parent", str(root / "scratch")]
             if key == "weather": command += ["--model", "ifs", "--include-wind", "--include-precipitation"]
             remaining = deadline - time.monotonic(); require(remaining > 0)
             started_at = observed_ms()
@@ -287,7 +289,7 @@ def acquisition(source, manifest_sha, root, parent, client, group):
                 evidence = (sample["evidence"], *sample["wind_10m"]["evidence"].values(), sample["precipitation"]["evidence"]) \
                     if key == "weather" else tuple(sample["evidence"].values())
                 for field in evidence:
-                    require(field["decoder_sha256"] == B["DECODER_SHA"] and field["parameter"] in p["parameters"]
+                    require(field["decoder_sha256"] == decoder and field["parameter"] in p["parameters"]
                         and hex64(field["index_sha256"]) and hex64(field["field_sha256"]))
                     fields.append(dict(lead_hours=sample["lead_hours"], parameter=field["parameter"],
                         index_sha256=field["index_sha256"], field_sha256=field["field_sha256"]))
@@ -295,10 +297,10 @@ def acquisition(source, manifest_sha, root, parent, client, group):
             write_new(root / p["filename"], raw)
         stage = "final-validation"
         active_product, started_at, finished_at = None, None, None
-        result = dict(schema=2, success=True, origin_https=True, acquisition_outside_overlay=True,
+        result = dict(schema=4 if version == 4 else 2, success=True, origin_https=True, acquisition_outside_overlay=True,
             upstream_signature_attested=False, synthetic_weather=False, synthetic_air_quality=False,
-            independent_product_runs=True, decoder_sha256=B["DECODER_SHA"], products=products)
-        validate_acquisition(result)
+            independent_product_runs=True, decoder_sha256=decoder, products=products)
+        validate_acquisition(result, version)
         return result
     except SAFE_ERRORS as error:
         state, response = source_response(root, active_product, started_at, finished_at)
@@ -390,11 +392,14 @@ def prepare(source, viewer, binary, control, weather_cache, air_quality_cache, v
     config = dict(core=core_config("weather", weather_cache), variables=V1["VARIABLES"],
         airQuality=dict(core=core_config("air_quality", air_quality_cache), variables=["pm2_5", "pm10"]))
     write_new(viewer / "config.json", B["encode"](config))
-    raw = run([str(source / "runtime/node"), "--max-old-space-size=256",
+    command = [str(source / "runtime/node"), "--max-old-space-size=256",
         str(source / B["WEATHER"] / profile["preparer"]),
         "--forecast", str(viewer / "forecast.json"), "--receipt", str(viewer / "cold-receipt.json"),
         "--air-quality", str(viewer / "air-quality.json"), "--air-quality-receipt", str(viewer / "air-quality-cold-receipt.json"),
-        "--config", str(viewer / "config.json"), "--core-sha256", core_sha, "--output", str(viewer / "expected.json")], viewer, 4096, 30)
+        "--config", str(viewer / "config.json"), "--core-sha256", core_sha, "--output", str(viewer / "expected.json")]
+    if version == 4:
+        command += ["--bundle-version", "4"]
+    raw = run(command, viewer, 4096, 30)
     result = json.loads(raw, object_pairs_hook=B["B"]["unique_pairs"])
     same(set(result), {"prepared", "expected_sha256", "display_sha256"})
     require(result["prepared"] is True and hex64(result["expected_sha256"]) and hex64(result["display_sha256"]))
@@ -464,10 +469,21 @@ def cleanup(root, publisher):
     return dict(directory_removed=True, files_removed=True)
 
 
-def validate_acquisition(value):
-    same({k: v for k, v in value.items() if k != "products"}, dict(schema=2, success=True, origin_https=True,
+def acquisition_profile(value, version=None):
+    # Receipts retain schema 2 for the old Drizz.li/Overmorrow inputs. The new
+    # decoder has a distinct receipt contract, bound to the verified manifest.
+    require(type(value) is dict and type(value.get("schema")) is int and value["schema"] in (2, 4))
+    if version is not None:
+        ui_profile(version)
+        same(value["schema"], 4 if version == 4 else 2)
+    return value["schema"]
+
+
+def validate_acquisition(value, version=None):
+    schema = acquisition_profile(value, version)
+    same({k: v for k, v in value.items() if k != "products"}, dict(schema=schema, success=True, origin_https=True,
         acquisition_outside_overlay=True, upstream_signature_attested=False, synthetic_weather=False,
-        synthetic_air_quality=False, independent_product_runs=True, decoder_sha256=B["DECODER_SHA"]))
+        synthetic_air_quality=False, independent_product_runs=True, decoder_sha256=B["decoder_sha"](schema)))
     require(type(value["products"]) is dict and set(value["products"]) == set(PRODUCTS))
     for key, item in value["products"].items():
         p = product(key)
@@ -490,9 +506,15 @@ def closed_report(report):
     require(report["phase"] in {"inputs", "sandbox", "bridge_start", "provider", "browser_start", "hydration", "refresh", "shutdown", "complete"})
     if "failure" in report: require(report["failure"] in ("interrupted", "check_or_runtime_failed"))
     source = report["source"]
-    require(set(source) == {"bundle_manifest_sha256", "driver_sha256", "preparer_sha256", "built_tree_sha256", "node_sha256", "bridge_modules"}
-        and all(hex64(v) for k, v in source.items() if k != "bridge_modules")
+    extra_source = {"synthetic_ui_proof"} if report["schema"] == 4 else set()
+    require(set(source) == {"bundle_manifest_sha256", "driver_sha256", "preparer_sha256", "built_tree_sha256", "node_sha256", "bridge_modules"} | extra_source
+        and all(hex64(v) for k, v in source.items() if k not in {"bridge_modules", "synthetic_ui_proof"})
         and set(source["bridge_modules"]) == BRIDGE_MODULES and all(hex64(v) for v in source["bridge_modules"].values()))
+    if extra_source:
+        proof = source["synthetic_ui_proof"]
+        require(type(proof) is dict and set(proof) == {"sha256", "driver_sha256", "core_executed", "overlay_proven"}
+            and hex64(proof["sha256"]) and hex64(proof["driver_sha256"])
+            and proof["core_executed"] is False and proof["overlay_proven"] is False)
     require(set(report["expected"]) == {"expected_sha256", "core_sha256", "display_sha256"}
         and all(hex64(v) or k == "expected_sha256" and v is None for k, v in report["expected"].items()))
     require(set(report["products"]) == set(PRODUCTS))
@@ -548,8 +570,10 @@ def validate_publications(work, publication, nodes, key):
 
 def validate_cold_phase(work, manifest_sha, binary_sha):
     require(hex64(binary_sha))
+    manifest = B["manifest"](raw_file(artifact(work, "manifest"), B["MAX_MANIFEST"], 0o400), manifest_sha)
+    ui_profile(manifest["version"])
     selected = validate_selection(read(artifact(work, "input")))
-    acquired = read(artifact(work, "acquisition")); validate_acquisition(acquired)
+    acquired = read(artifact(work, "acquisition")); validate_acquisition(acquired, manifest["version"])
     peers, layout = read(work / "a01-expected-peers.json"), read(work / "content-provider-layout.json")
     control_gid = (work / "runtime-client/control/agent.sock").stat().st_gid
     colds, caches = {}, {}
@@ -574,14 +598,13 @@ def validate_cold_phase(work, manifest_sha, binary_sha):
     same(read(artifact(work, "publisher-cleanup")), dict(directory_removed=True, files_removed=True))
     publisher = work / "client-fixtures/weather-publisher"
     require(not publisher.exists() and not publisher.is_symlink())
-    manifest = B["manifest"](raw_file(artifact(work, "manifest"), B["MAX_MANIFEST"], 0o400), manifest_sha)
-    ui_profile(manifest["version"])
     same(read(artifact(work, "tree-before")), dict(version=1, action="verify-tree", manifest_sha256=manifest_sha,
         files=len(manifest["files"]), runtime_executed=False))
     return selected, acquired, colds, manifest, caches
 
 
-def cold_summary(selected, acquired, colds, manifest_sha, binary_sha):
+def cold_summary(selected, acquired, colds, manifest_sha, binary_sha, version=2):
+    validate_acquisition(acquired, version)
     products = {}
     for key in PRODUCTS:
         publication = selected["products"][key]["publication"]; cold = colds[key]
@@ -589,8 +612,8 @@ def cold_summary(selected, acquired, colds, manifest_sha, binary_sha):
             manifest_id=publication["manifest_id"], cold_receipt_sha256=cold["cold_receipt_sha256"],
             acquired_fields=len(acquired["products"][key]["fields"]), protected_cold=dict(peer_bytes=cold["receipt"]["peer_bytes"],
                 providers_used=cold["receipt"]["providers_used"], origin_body_bytes=0, origin_range_requests=0, privacy_captures_validated=True))
-    result = dict(schema=2, success=True, kind="volparossa-weather-products-protected-cold", bundle_manifest_sha256=manifest_sha,
-        core_sha256=binary_sha, decoder_sha256=B["DECODER_SHA"], products=products,
+    result = dict(schema=4 if version == 4 else 2, success=True, kind="volparossa-weather-products-protected-cold", bundle_manifest_sha256=manifest_sha,
+        core_sha256=binary_sha, decoder_sha256=B["decoder_sha"](version), products=products,
         scope=dict(actual_acquisition=True, acquisition_outside_overlay=True, same_publications_joined=True,
             independent_product_captures=True, protected_cold_transfer=True, actual_drizzli_ui=False, actual_http_bridge=False,
             actual_ui_refresh=False, end_to_end_proven=False, browser_triggered_cold_fetch=False,
@@ -602,9 +625,10 @@ def cold_summary(selected, acquired, colds, manifest_sha, binary_sha):
 
 def validate_cold_export(value):
     require(set(value) == {"schema", "success", "kind", "bundle_manifest_sha256", "core_sha256", "decoder_sha256", "products", "scope", "cleanup"})
-    same(value["schema"], 2); same(value["success"], True); same(value["kind"], "volparossa-weather-products-protected-cold")
+    schema = acquisition_profile(value)
+    same(value["success"], True); same(value["kind"], "volparossa-weather-products-protected-cold")
     require(all(hex64(value[k]) for k in ("bundle_manifest_sha256", "core_sha256", "decoder_sha256"))
-        and value["decoder_sha256"] == B["DECODER_SHA"] and set(value["products"]) == set(PRODUCTS))
+        and value["decoder_sha256"] == B["decoder_sha"](schema) and set(value["products"]) == set(PRODUCTS))
     for key, item in value["products"].items():
         require(set(item) == {"forecast_sha256", "forecast_bytes", "manifest_id", "cold_receipt_sha256", "acquired_fields", "protected_cold"}
             and all(hex64(item[k]) for k in ("forecast_sha256", "manifest_id", "cold_receipt_sha256"))
@@ -623,8 +647,8 @@ def validate_cold_export(value):
 
 
 def cold_evidence(work, manifest_sha, binary_sha):
-    selected, acquired, colds, _manifest, _before = validate_cold_phase(work, manifest_sha, binary_sha)
-    return cold_summary(selected, acquired, colds, manifest_sha, binary_sha)
+    selected, acquired, colds, manifest, _before = validate_cold_phase(work, manifest_sha, binary_sha)
+    return cold_summary(selected, acquired, colds, manifest_sha, binary_sha, manifest["version"])
 
 
 def evidence(work, manifest_sha, binary_sha):
@@ -632,7 +656,7 @@ def evidence(work, manifest_sha, binary_sha):
     version = manifest["version"]
     profile = ui_profile(version)
     retained = read(artifact(work, "cold-evidence")); validate_cold_export(retained)
-    same(retained, cold_summary(selected, acquired, colds, manifest_sha, binary_sha))
+    same(retained, cold_summary(selected, acquired, colds, manifest_sha, binary_sha, version))
     same(read(artifact(work, "input-cleanup")), dict(directory_removed=True, files_removed=True))
     require(all(not path.exists() and not path.is_symlink() for path in
         (work / "client-fixtures/weather-publisher", work / "client-fixtures/weather-viewer")))
@@ -653,6 +677,10 @@ def evidence(work, manifest_sha, binary_sha):
     require(report["source"]["bundle_manifest_sha256"] == manifest_sha and report["expected"]["core_sha256"] == binary_sha)
     for field, relative in (("driver_sha256", profile["driver"]), ("preparer_sha256", profile["preparer"])):
         require(report["source"][field] == manifest["files"][B["WEATHER"] + relative]["sha256"])
+    if version == 4:
+        proof = report["source"]["synthetic_ui_proof"]
+        same(proof["sha256"], manifest["files"][B["WEATHER"] + "integrations/drizzli/hosted-browser-proof.json"]["sha256"])
+        same(proof["driver_sha256"], manifest["files"][B["WEATHER"] + "integrations/drizzli/smoke_browser.py"]["sha256"])
     for relative, digest in report["source"]["bridge_modules"].items(): require(digest == manifest["files"][B["WEATHER"] + relative]["sha256"])
     require(report["source"]["node_sha256"] == B["NODE_SHA"])
     static = {name[len(profile["static"]):]: item["sha256"] for name, item in manifest["files"].items()
@@ -679,7 +707,7 @@ def evidence(work, manifest_sha, binary_sha):
     observed_at = observed_ms()
     for key in PRODUCTS: future_query(key, selected["products"][key]["query"], observed_at)
     result = dict(schema=version, success=True, kind="volparossa-weather-products-delivery", bundle_manifest_sha256=manifest_sha,
-        core_sha256=binary_sha, decoder_sha256=B["DECODER_SHA"], products=retained["products"],
+        core_sha256=binary_sha, decoder_sha256=B["decoder_sha"](version), products=retained["products"],
         browser_report_sha256=hashlib.sha256(raw_file(artifact(work, "original-report"))).hexdigest(),
         display_sha256=report["expected"]["display_sha256"],
         scope=dict({profile["ui"]: True}, actual_acquisition=True, same_publications_joined=True, independent_product_captures=True,
@@ -699,7 +727,7 @@ def validate_evidence_export(value):
     profile = ui_profile(value["schema"])
     require(hex64(value["browser_report_sha256"]) and hex64(value["display_sha256"]))
     cold = {k: v for k, v in value.items() if k not in {"browser_report_sha256", "display_sha256", "scope", "cleanup"}}
-    cold.update(schema=2, kind="volparossa-weather-products-protected-cold", scope=dict(actual_acquisition=True,
+    cold.update(schema=4 if value["schema"] == 4 else 2, kind="volparossa-weather-products-protected-cold", scope=dict(actual_acquisition=True,
         acquisition_outside_overlay=True, same_publications_joined=True, independent_product_captures=True,
         protected_cold_transfer=True, actual_drizzli_ui=False, actual_http_bridge=False, actual_ui_refresh=False,
         end_to_end_proven=False, browser_triggered_cold_fetch=False, two_subflow_bulk_aggregation=False,
