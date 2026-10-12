@@ -340,8 +340,11 @@ def validate(value):
     validate_gate(value["gate"])
     require(first_snapshot(value["first_snapshot"]), "first generic snapshot was not one verified offer")
     final = value["final_snapshot"]
+    # Snapshots need not repeat A: one verified A followed by one verified B is
+    # sufficient. The activation, exact useful suppliers and shard/hash checks
+    # independently prove recovery; an offer count alone never proves a new peer.
     require(2 <= count(final["client"], EVENTS[0]) <= 3 and count(final["client"], EVENTS[1]) >= 2
-        and 2 <= count(final["broker"], EVENTS[3]) <= 3 and 3 <= count(final["broker"], EVENTS[4]) <= 48,
+        and 2 <= count(final["broker"], EVENTS[3]) <= 3 and 2 <= count(final["broker"], EVENTS[4]) <= 48,
         "bounded genuine rediscovery not proven")
     for label in ("client", "broker"):
         require(final[label][:len(value["first_snapshot"][label])] == value["first_snapshot"][label], "snapshot lineage changed")

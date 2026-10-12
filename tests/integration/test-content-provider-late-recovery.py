@@ -102,6 +102,15 @@ def raw_files(value):
     return files
 
 
+def disjoint_snapshot_fixture():
+    value = fixture()
+    # The broker records generic verified-offer events, not peer identifiers.
+    # Keep the two actual suppliers and complementary payload proof, but model
+    # only one offer in each completed snapshot: first {A}, then {B}, not {A,B}.
+    value["final_snapshot"]["broker"].pop()
+    return value
+
+
 class LateRecovery(unittest.TestCase):
     def test_exact_late_phase_is_independent_of_payload_overlap(self):
         for broker in ("relay0", "relay1", "relay2"):
@@ -109,6 +118,38 @@ class LateRecovery(unittest.TestCase):
             value["privacy"]["exit"]["provider_payload_timing"] = {"enabled": False}
             CHECK["validate"](value)
         self.assertNotEqual(CHECK["SHA"], CHECK["BASE"]["SHA"])
+
+    def test_disjoint_first_a_then_b_snapshots_do_not_require_a_repeated_offer(self):
+        value = disjoint_snapshot_fixture()
+        self.assertEqual(CHECK["count"](value["first_snapshot"]["broker"], CHECK["EVENTS"][4]), 1)
+        self.assertEqual(CHECK["count"](value["final_snapshot"]["broker"], CHECK["EVENTS"][4]), 2)
+        self.assertEqual(CHECK["count"](value["final_snapshot"]["broker"], CHECK["EVENTS"][3]), 2)
+        self.assertEqual(CHECK["count"](value["final_snapshot"]["client"], CHECK["EVENTS"][0]), 2)
+        CHECK["validate"](value)
+
+    def test_two_completed_snapshots_with_only_one_verified_offer_still_fail(self):
+        value = disjoint_snapshot_fixture()
+        self.assertEqual(value["final_snapshot"]["broker"].pop()["event"], CHECK["EVENTS"][4])
+        self.assertEqual(CHECK["count"](value["final_snapshot"]["broker"], CHECK["EVENTS"][4]), 1)
+        with self.assertRaisesRegex(ValueError, "bounded genuine rediscovery not proven"):
+            CHECK["validate"](value)
+
+    def test_two_offers_still_require_actual_late_b_and_complementary_delivery(self):
+        original = disjoint_snapshot_fixture()
+        mutations = [
+            (("fetch", "provider_peer_ids"), [original["expected_peers"]["relay4"]]*2),
+            (("privacy", "exit", "provider_application", "relay5", "response_payload_bytes"), 0),
+            (("providers", "relay5", "serve", "serving"), False),
+            (("output", "sha256"), "0"*64),
+            (("output", "late_activation_started_ns"), 1),
+            (("output", "fetch_completed_ns"), 400_000_000_000),
+        ]
+        for keys, changed in mutations:
+            with self.subTest(keys=keys):
+                value = copy.deepcopy(original); target = value
+                for key in keys[:-1]: target = target[key]
+                target[keys[-1]] = changed
+                with self.assertRaises(ValueError): CHECK["validate"](value)
 
     def test_rejects_no_rediscovery_early_b_warm_cache_unprotected_paths_and_bad_cleanup(self):
         mutations = [(("first_snapshot", "broker"), []), (("final_snapshot", "client"), fixture()["first_snapshot"]["client"]),
