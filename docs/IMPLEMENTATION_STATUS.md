@@ -18,20 +18,21 @@ Last updated: 2026-10-12
 
 ### Execution priorities and next milestones
 
-Continue the existing core-cache and Weather integration; the prioritization
-revision does not restart development or interrupt useful work. Choose the next
-slice across repositories by shared blockers, architectural uncertainty and a
-demonstrable end-to-end result, not by the order of applications in the goal or
-the number of changes. Develop shared core functions with their actual consumers
-rather than waiting for the entire core to be complete.
+The shared cache and actual Weather delivery into Drizz.li and Overmorrow are
+integrated. The next work joins native Android verification with shared private
+storage maintenance; further Weather expansion does not automatically take
+precedence over core blockers. Choose slices by shared dependencies,
+architectural uncertainty and a demonstrable end-to-end result, not by application
+order or change count. Develop core functions with their actual consumers.
 
 The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Integrate shared cache delivery — `volparossa`, `volparossa-weather` | Retain the proved provider sequence and integrate its actual Weather consumer. | PR227 is merged with the protected sequence, CPU-pressure contraction and useful serial continuation. The complete sequence also passes with joined Weather delivery on `15415fad`; PR229 is merged at `88973908` with the evidence and status update. |
-| Integrate weather field delivery — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing capabilities and refresh. | Weather PR14–PR16 are merged. Hosted run `38228710535` on core `15415fad` passes actual acquisition, independent protected cold transfers and exact initial/refresh UI checks for both products. Independent evidence reconstruction, Quality and CodeQL also pass on that source. The synthetic failure/expiry tests retain their separate scope. Automatic acquisition, browser-initiated cold retrieval and a complete weather service remain open. |
-| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Integrate the actual core-cache delivery, then verify native packaging. | Weather PR17 is merged at `88981717`; PR18 and core PR230 carry the joined consumer. Run `38238280753` passes real acquisition, both protected cold transfers and exact Overmorrow initial/refresh checks, independently reconstructed from the original reports. Its final workflow check fails on a relative Python import; the narrow correction and real-import regressions pass, but the corrected hosted run is still required. Android app and hosted-emulator preparation proceed in parallel; native Android/iOS execution remains unverified. |
+| Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. The first attempt exposed nested acquisition deadlines; the corrected attempt verifies all eight Android/Gradle archives, then fails contradictory Java ownership checks before app build. Correct that check and prove app launch, refresh and expiry. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Reuse the existing, unmerged owner-maintenance candidate rather than build a second scheduler. Integrate its bounded authority and durable state with current fragment repair and report-v2 consumers. Provider grants, expiry, resource limits and safe handoff remain explicit. Reciprocal capacity accounting is a separate outstanding requirement. |
+| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | Select and verify actual suitable execution capacity and attestation, with task-bound authorization, cancellation and resource limits. Current local private service and public peer tasks do not prove this requirement. Capacity investigation can proceed alongside storage without presenting local fallback as completion. |
 
 The successful hosted Drizz.li trial supersedes neither the earlier failed route
 trial nor the local build aborted for host memory pressure; both remain recorded
@@ -41,9 +42,8 @@ Retry-After diagnostics remain relevant to future acquisition.
 Pressure retirement and useful serial continuation pass in their separate phase;
 this does not prove pressure recovery or improved owner-task performance.
 Historical input bundles remain intact. Overmorrow's corrected hosted workflow
-must pass before integration; native execution is the next separate milestone.
-Keep shared interface
-changes under one owner and integrate dependent consumers together. Any new VM
+passes; native execution is the next separate client milestone. Keep shared
+interface changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
 
@@ -123,13 +123,40 @@ The correction resolves the workflow's verifier path before loading it, without
 relaxing canonical-path checks. The new regression reproduces the original
 failure; all 16 workflow tests pass after the fix. The unchanged final assertions
 also pass against byte-identical retained reports with their required private
-file modes. A corrected hosted run is still required before merging this slice.
+file modes. That local reconstruction is separate from the corrected actual run
+below.
+
+The corrected [joined run](https://github.com/VOLPAROSSA/volparossa/actions/runs/38241212407)
+passes on exact core `8b795e98739153196603a17c14cf5c6f3b656642`, including the final
+workflow verifier. It repeats actual acquisition of 16 weather and ten particulate
+fields, independent protected cold transfers of 12,353 and 8,773 bytes entirely
+from peers, and exact initial/refresh display of the same publications in
+Overmorrow. Independent audit reconstructs the aggregate from the original
+artifacts and validates all nine Weather exports. Cleanup passes and the
+disposable guest's root network state is identical before and after the trial.
+
+The original browser report SHA-256 is
+`e083a59152e288033ddc62ad8ac977ebd2b9b597961b8b0d8c7bc610677903cd`;
+final joined evidence is
+`6e3f4bb85176cb94af2d45b2c7086cf77541db3858fd6e926a5256949747d1f5`.
+[Quality](https://github.com/VOLPAROSSA/volparossa/actions/runs/38241219545)
+and all CodeQL checks pass on that exact source. Core PR230 is merged at
+`0701538f`; Weather PR18 is merged at `bec560b6`. Android PR19 now targets Weather
+`main`, preserving the verified consumer without folding in unverified mobile work.
 
 Source acquisition remains outside the overlay. These results do not prove
 browser-initiated cold retrieval, automatic acquisition, native Android/iOS
 execution or a complete weather service. The separate Android candidate reuses
 the provider interface and prepares real app/emulator checks with synthetic
-products; preparation alone is not mobile runtime or mobile core evidence.
+products; preparation alone is not mobile runtime or mobile core evidence. The
+first [Android attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38242345261)
+stops on nested deadline handling before Android acquisition. Its correction
+passes an actual alarm/phase regression. The [next attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38243122640)
+verifies and materializes all eight Android/Gradle archives, then rejects the
+legitimate root-owned Java binary through a conflicting runner-ownership hash
+check. App compilation and emulator execution are not reached; cleanup restores
+the original KVM access. These failed attempts remain separate from the passing
+web proof.
 
 ### Hosted Weather preparation
 
