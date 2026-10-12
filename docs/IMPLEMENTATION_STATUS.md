@@ -53,8 +53,13 @@ Suitable confidential-computing hardware is not currently available. This
 blocks live protected-worker acceptance, not the Android/storage integrations
 or software preparation. A separate public-fixture CI candidate now pins
 `virtee/sev` at `a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5`, its unchanged
-lockfile and four SNP chain/report tests. Fourteen inert harness checks pass;
-the real upstream build and cryptographic fixture result are still pending.
+lockfile and four SNP chain/report tests. The first hosted attempt
+[`38321426228`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38321426228)
+at `65decfc3` passes source/fixture verification, then stops before compilation
+because Cargo finds the parent core workspace. The corrected checkout uses the
+disposable runner's separate temporary directory; both manifests and the lockfile
+remain unchanged. Fifteen inert harness checks pass; the real upstream build and
+cryptographic fixture result are still pending.
 No protected worker, remote private-task release or B04 completion is claimed.
 Public peer tasks and the current local private service remain unchanged.
 See [the bounded trial and missing admission checks](development/PROTECTED_COMPUTE_VERIFIER.md).

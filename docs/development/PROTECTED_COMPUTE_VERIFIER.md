@@ -39,9 +39,15 @@ success receipt cannot be overwritten by a new execution.
 
 At introduction, the fourteen inert harness tests pass locally. They use
 synthetic output and harmless shell functions, not a native build or hardware.
-The actual upstream build and cryptographic fixture result remain pending until
-the hosted run is audited. Passing that run would establish only compatibility
-with these public fixtures, not a trustworthy worker or confidential task.
+The [first hosted attempt](https://github.com/VOLPAROSSA/volparossa/actions/runs/38321426228)
+at `65decfc3` passes those tests, compiler installation and exact source/fixture
+verification, then fails dependency acquisition: Cargo treats the nested checkout
+as an undeclared member of the core workspace. Compilation is not reached.
+The correction checks out upstream in the disposable runner's separate temporary
+directory, without changing either manifest or the pinned lockfile. Fifteen inert
+tests now pass. The actual upstream build and cryptographic fixture result remain
+pending. Passing would establish only compatibility with these public fixtures,
+not a trustworthy worker or confidential task.
 
 ## What is still needed before private tasks can run remotely
 

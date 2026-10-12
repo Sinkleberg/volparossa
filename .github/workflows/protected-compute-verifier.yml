@@ -26,6 +26,8 @@ jobs:
   public-fixtures:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      VERIFIER_SOURCE: ${{ runner.temp }}/volparossa-protected-compute-verifier-source
     steps:
       - name: Check out exact VOLPAROSSA source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,18 +53,20 @@ jobs:
       - name: Fetch exact upstream source and verify public fixtures
         run: |
           set -euo pipefail
-          git init build/protected-compute-verifier/source
-          git -C build/protected-compute-verifier/source remote add origin https://github.com/virtee/sev.git
-          timeout --kill-after=15s 180s git -C build/protected-compute-verifier/source fetch --depth=1 origin a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5
-          git -C build/protected-compute-verifier/source checkout --detach FETCH_HEAD
-          python3 -B tests/integration/protected-compute-verifier.py source build/protected-compute-verifier/source
+          # Outside the core Cargo workspace; do not patch either manifest.
+          test ! -e "$VERIFIER_SOURCE"
+          git init "$VERIFIER_SOURCE"
+          git -C "$VERIFIER_SOURCE" remote add origin https://github.com/virtee/sev.git
+          timeout --kill-after=15s 180s git -C "$VERIFIER_SOURCE" fetch --depth=1 origin a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5
+          git -C "$VERIFIER_SOURCE" checkout --detach FETCH_HEAD
+          python3 -B tests/integration/protected-compute-verifier.py source "$VERIFIER_SOURCE"
       - name: Fetch locked upstream dependencies without running tests
         env:
           CARGO_HOME: ${{ github.workspace }}/build/protected-compute-verifier/cargo-home
         run: |
           set -euo pipefail
-          timeout --kill-after=15s 300s cargo +1.85.0 fetch --locked --manifest-path build/protected-compute-verifier/source/Cargo.toml
-          python3 -B tests/integration/protected-compute-verifier.py source build/protected-compute-verifier/source
+          timeout --kill-after=15s 300s cargo +1.85.0 fetch --locked --manifest-path "$VERIFIER_SOURCE/Cargo.toml"
+          python3 -B tests/integration/protected-compute-verifier.py source "$VERIFIER_SOURCE"
       - name: Execute only four public cryptographic fixtures
         env:
           CARGO_HOME: ${{ github.workspace }}/build/protected-compute-verifier/cargo-home
@@ -76,7 +80,7 @@ jobs:
           # this does not claim an OS network sandbox or confidential hardware.
           set +e
           timeout --kill-after=15s 900s cargo +1.85.0 test --locked --offline \
-            --manifest-path build/protected-compute-verifier/source/Cargo.toml \
+            --manifest-path "$VERIFIER_SOURCE/Cargo.toml" \
             --no-default-features --features snp,crypto_nossl --test certs 'snp::' \
             -- --test-threads=1 2>&1 | python3 -B tests/integration/protected-compute-verifier.py \
               capture build/protected-compute-verifier/evidence/tests.log
@@ -85,7 +89,7 @@ jobs:
           printf '%s\n' "${statuses[1]}" > build/protected-compute-verifier/evidence/capture-exit.txt
           set -e
           python3 -B tests/integration/protected-compute-verifier.py receipt \
-            build/protected-compute-verifier/source build/protected-compute-verifier/evidence "${statuses[0]}" "${statuses[1]}"
+            "$VERIFIER_SOURCE" build/protected-compute-verifier/evidence "${statuses[0]}" "${statuses[1]}"
       - name: Retain original public fixture evidence only
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -179,10 +179,19 @@ python3() {
                 evidence.mkdir(parents=True)
                 run = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-o', 'pipefail',
                     '-c', prefix + script], cwd=tmp, capture_output=True, timeout=10,
-                    env={**os.environ, 'TEST_CARGO_EXIT': str(cargo_exit), 'TEST_CAPTURE_EXIT': str(capture_exit)})
+                    env={**os.environ, 'TEST_CARGO_EXIT': str(cargo_exit), 'TEST_CAPTURE_EXIT': str(capture_exit),
+                        'VERIFIER_SOURCE': str(Path(tmp) / 'inert-source')})
                 self.assertEqual((evidence / 'cargo-exit.txt').read_text().strip(), str(cargo_exit))
                 self.assertEqual((evidence / 'capture-exit.txt').read_text().strip(), str(capture_exit))
                 self.assertEqual(run.returncode == 0, cargo_exit == capture_exit == 0)
+
+    def test_upstream_is_outside_parent_cargo_workspace(self):
+        text = WORKFLOW.read_text()
+        self.assertIn('VERIFIER_SOURCE: ${{ runner.temp }}/volparossa-protected-compute-verifier-source', text)
+        self.assertIn('test ! -e "$VERIFIER_SOURCE"', text)
+        self.assertEqual(text.count('--manifest-path "$VERIFIER_SOURCE/Cargo.toml"'), 2)
+        self.assertNotIn('build/protected-compute-verifier/source', text)
+        self.assertNotIn('workspace.exclude', text)
 
     def test_workflow_is_source_pinned_public_and_bounded(self):
         text = WORKFLOW.read_text()
