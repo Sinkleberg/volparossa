@@ -29,23 +29,64 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Complete late-provider recovery and requester cancellation in one protected run, then join Weather delivery to the verified cache path. | Run `38195177153` on `c63ddf36` passes native and HTTPS three-provider reconstruction, but its first late-provider query returns empty through a newly selected broker. A separate signed-service readiness prerequisite is now implemented and component-tested, without provider hints or longer product deadlines. Its live execution, cancellation and protected pressure-retirement recovery remain unproved. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Join Weather delivery to the verified cache path, then exercise recovery under actual device pressure. | Run `38199501353` on `0e23140b` passes three-provider native/HTTPS reconstruction, signed-service readiness, late-provider recovery, requester cancellation and cleanup together. Its worker budget remains unchanged throughout; pressure retirement and continuation still require a separate protected trial. |
 | Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost; a separate exact-source probe encounters ECMWF HTTP 429. Closed retention now includes bounded Retry-After diagnostics and passes eighty focused checks, without extra requests, retries or relaxed validation. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
-| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR12 are merged with passing CI. Exact table extraction and a fresh full browser trial pass with synthetic products. A new immutable bundle with the corrected verifier passes capture, runtime and extracted-tree checks; the old bundle remains unchanged. Joined core delivery and native Android/iOS execution remain unverified. |
+| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR13 are merged with passing CI. Exact table extraction and a fresh full browser trial pass with synthetic products. A new immutable bundle with the corrected verifier passes capture, runtime and extracted-tree checks; the old bundle remains unchanged. Joined core delivery and native Android/iOS execution remain unverified. |
 
-Respect the observed source rate limit instead of repeatedly relaunching the
-joined trial or routing requests through other peers. Finish the standalone
-provider proof, which needs no weather downloads, through late discovery and
-cancellation. The latest run proves concurrent reconstruction, while run
-`38190664934` proves late recovery. Neither exercises the pressure-retirement
-continuation itself.
+The standalone provider proof now passes without weather downloads. The next
+joined trial uses the corrected Overmorrow bundle and bounded source acquisition;
+respect the observed source rate limit instead of automatically retrying or
+routing requests through other peers. Pressure retirement and continuation are
+still separate evidence gaps, not implied by successful parallel delivery.
 The Drizz.li/Weather candidate and frozen input
 bundle remain intact; Overmorrow's core delivery and native execution are still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
 
-The latest [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38195177153)
+### Verified cache delivery and remaining integration
+
+The latest [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38199501353)
+on `0e23140b` **passes** the complete standalone provider sequence. Independent
+validation of the retained schema-three report and reconstructed component
+evidence confirms:
+
+- The signed-service readiness prerequisite completes in 3.015 seconds,
+  returning A's verified offer. No provider hints are sent; B stays off and the content cache
+  stays cold. The measured late-provider phase starts after this preparation.
+- The first A-only snapshot arrives 5.163 seconds after gate start; B activation
+  and gate removal finish by 5.246 seconds, within the original six-second gate. The fetch reconstructs
+  all nine chunks, 2,097,275 bytes, from two useful providers in 12.976 seconds,
+  without an origin fallback.
+- Native and cooperative HTTPS delivery each reconstruct sixty disjoint chunks,
+  15,728,640 bytes, from R3, R4 and R5. Actual three-provider payload overlaps are
+  4.913 and 4.479 seconds. HTTPS uses one authenticated HEAD and no origin body
+  or range requests.
+- Requester cancellation passes after the original thirty-second cooldown.
+  Independent cache-only delivery remains available, control EOF is observed,
+  and the original agent and owned helper terminate cleanly.
+- Privacy captures and cleanup pass: two distinct relay paths, no direct
+  client-to-exit traffic and zero remaining owned objects. The disposable
+  guest-root network state is identical before and after; this is guest
+  evidence, not a separate development-host firewall measurement.
+
+Both healthy parallel phases retain a worker allowance of twelve and peak at
+three leases. No pressure flags or continuation events occur. This run does
+**not** prove pressure retirement, recovery under load, Weather acquisition,
+browser delivery or general performance improvements.
+
+Evidence is retained at
+`.git/ci-evidence/content-provider-hosted-readiness.5siQDi/`. The aggregate report
+has SHA-256 `86466078298fcab6b6ae951fbd369b8ce0b28a2bda566cf238aa69a0deebd4a6`;
+the independently rebuilt adaptive report has SHA-256
+`fc691fe02e4f7b3bde36797a23cab01431b26fa9d22a41aabacf80eba0772841`.
+Commit `9b132f6c` subsequently pins the local test dependency to `=0.1.0` and
+updates documentation; runtime sources, validators and `Cargo.lock` are
+unchanged. The protected result remains attributed to its exact tested commit.
+
+### Readiness correction and client evidence
+
+The earlier [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38195177153)
 on `c63ddf36` is **failed overall**, at the late-provider `first-snapshot`
 stage. This time the broker changes from relay1 to relay2. Its first query
 returns empty after 1.151 seconds, with two dial failures and no verified offer.
@@ -71,8 +112,8 @@ preparation/setup time consumes the original deadline. Two Rust socket tests,
 seventeen late-provider tests, nineteen aggregate checks and ten existing inert
 cancellation checks pass, with an independent review. Current aggregate schema 3
 requires late-component schema 2 and its readiness evidence; historical schemas
-remain explicitly separate. Live readiness and the complete sequence are still
-unproved. No production address fix is claimed.
+remain explicitly separate. The successful live trial above now verifies this
+sequence. No production address fix is claimed.
 
 The separate Overmorrow table trial now passes in the actual isolated Firefox
 CanvasKit UI using synthetic products. Earlier extraction assigned both tables
@@ -86,8 +127,8 @@ The retained report at Weather's `build/overmorrow-table-browser-04/report.json`
 has SHA-256 `3ed8ceeaf89aa22bb2c9fd656c9b4228dd5f75b12e87424820bd430dc9dc214d`.
 Five pure DOM regressions accompany the existing exact-value checks. This proves
 the corrected UI verifier, not core, origin, cold or native-mobile delivery.
-Old reports and the frozen bundle are unchanged; a future joined trial needs a
-new bundle with the corrected driver.
+Old reports and the previous frozen bundle are unchanged; the new bundle below
+contains the corrected driver.
 
 The table correction is merged in Weather
 [PR12](https://github.com/VOLPAROSSA/volparossa-weather/pull/12), with passing
@@ -95,7 +136,10 @@ component and CodeQL checks. A fresh full synthetic browser trial also passes
 on the current shared harness: ten requests per product, nine pointer refreshes,
 independent failures/expiry, detail navigation and complete cleanup. Its report
 SHA-256 is `48be438ea5fc932314648a6fd81b6b104b4b7b84734e8efaebccf6c20383f10b`.
-This full trial and the exact-table trial remain separate evidence.
+This full trial and the exact-table trial remain separate evidence. Its updated
+build record is merged in Weather
+[PR13](https://github.com/VOLPAROSSA/volparossa-weather/pull/13), with passing
+component and CodeQL checks.
 
 A new immutable version-three bundle is retained at
 `.git/ci-evidence/weather-overmorrow-inputs-v3-tables.JRK0OK/inputs.tar`:
@@ -108,7 +152,7 @@ browser proof, build record, shared harness and corrected table driver differ
 from the previous bundle. The old archive hash is unchanged before and after
 capture. This prepares the joined trial; it does not prove its delivery path.
 
-Independent reconstruction of the same run validates native and cooperative
+Independent reconstruction of the earlier `c63ddf36` run validates native and cooperative
 HTTPS delivery of 15,728,640 bytes in sixty chunks from three providers. Their
 triple bulk overlaps are 4.023 and 4.489 seconds. HTTPS uses one authenticated
 HEAD and no origin body or range requests. Both worker allowances stay at eleven
@@ -150,7 +194,8 @@ are unchanged. Thirteen late-provider tests pass, including a reproduction of
 the 5.09-second response and expired discovery, activation and release cases.
 Nineteen aggregate checks and ten inert cancellation checks also pass. The
 subsequent `c63ddf36` run above exercises this correction but exposes the
-different first-empty-query condition; the complete sequence remains unproved.
+different first-empty-query condition. The successful `0e23140b` run above
+supersedes this earlier failure without changing the measured gate or deadline.
 
 Independent reconstruction again validates native and cooperative HTTPS:
 each delivers the exact 15,728,640-byte object in sixty chunks from three
