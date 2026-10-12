@@ -176,6 +176,13 @@ retention and rejected oversized/foreign-scenario evidence. The six-second gate,
 three-hundred-second transfer, gate-first cleanup and production behavior are
 unchanged; the actual late-provider trial is still required.
 
+A new standalone trial is running on clean source
+`a03c3c8fc865b8e1dfbf3caab745bcc27918fd4c`, with evidence at
+`.git/ci-evidence/content-provider-late-03.nV7eQv`. Its resource preflight passes
+without reducing the four-GiB guest or two-GiB host reserve; the pinned VM is
+provisioning. No weather source acquisition or joined Weather bundle is included.
+Await the retained terminal result and cleanup before starting another heavy job.
+
 The late-provider fixture uses a fresh publication, route and consumer cache.
 It registers the second complementary provider only after observing the first
 completed, single-offer discovery. A temporary provider-side gate is bounded to
