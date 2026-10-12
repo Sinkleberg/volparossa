@@ -343,10 +343,12 @@ async fn maintain(
     signer: &SigningKey,
     scan: u64,
 ) -> Result<serde_json::Value> {
-    transfer::with_maintenance_expiry(
+    // Keep the complete custody state machine off every caller's stack, while
+    // retaining the same task-local authority and cancellation/drop ownership.
+    Box::pin(transfer::with_maintenance_expiry(
         enrollment.expires,
         maintain_inner(enrollment, socket, signer, scan),
-    )
+    ))
     .await
 }
 
@@ -483,7 +485,7 @@ async fn serve_enrolled(
             maximum_bytes: enrollment.maximum_turn,
         });
         let grant = tokio::select! {
-            _ = &mut stop => { checkpoint(directory,"paused",turns,None)?; return Ok(()); },
+            () = &mut stop => { checkpoint(directory,"paused",turns,None)?; return Ok(()); },
             () = tokio::time::sleep(Duration::from_secs(enrollment.expires.saturating_sub(crate::storage::now()?))) => {
                 crate::storage::print(&checkpoint(directory,"enrollment_expired",turns,None)?)?;
                 return Ok(());
@@ -498,7 +500,7 @@ async fn serve_enrolled(
             let remaining =
                 Duration::from_secs(enrollment.expires.saturating_sub(crate::storage::now()?));
             tokio::select! {
-                _ = &mut stop => { checkpoint(directory,"paused",turns,None)?; return Ok(()); },
+                () = &mut stop => { checkpoint(directory,"paused",turns,None)?; return Ok(()); },
                 () = tokio::time::sleep(reconnect_delay.min(remaining)) => {},
             }
             reconnect_delay = reconnect_delay.saturating_mul(2).min(MAX_RECONNECT_DELAY);
@@ -526,7 +528,7 @@ async fn serve_enrolled(
             .saturating_sub(crate::storage::now()?);
         let result = tokio::select! {
             biased;
-            _ = &mut stop => { checkpoint(directory,"paused",turns,None)?; return Ok(()); },
+            () = &mut stop => { checkpoint(directory,"paused",turns,None)?; return Ok(()); },
             () = tokio::time::sleep(Duration::from_secs(remaining)) => None,
             _ = control.read(&mut closed) => None,
             result = transfer::with_maintenance_turn(ready.turn,maintain(enrollment,socket,signer,turns-1)) => Some(result),

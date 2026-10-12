@@ -1,11 +1,9 @@
-//! Real owner loop and signed SQLite custody behind a fixture resource coordinator.
+//! Real owner loop and signed `SQLite` custody behind a fixture resource coordinator.
 //! This is not evidence of protected overlay routing or the daemon's idle admission.
 
 use super::*;
 use std::{future::pending, sync::Arc};
-use tokio::{
-    io::AsyncReadExt as _, net::UnixListener, sync::oneshot, task::JoinSet, time::timeout,
-};
+use tokio::{net::UnixListener, sync::oneshot, task::JoinSet, time::timeout};
 use volparossa_local_control::{
     CONTROL_PROTOCOL_VERSION, ControlResponse, PrivateStorageMaintenanceReady, read_request,
     write_request, write_response,

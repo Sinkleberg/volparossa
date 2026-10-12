@@ -80,6 +80,12 @@ fn enrollment_signature_private_mode_and_restart_cursor_are_retained() {
         LockedFragments::create(&archive, &owner, &mut input, plan(&bytes), &grants, 600).unwrap();
     let (_, grant) = candidate(&owner);
     let enrollment = enrollment(&set, archive, &owner, &providers, &grant);
+    // Construct, but never poll: the owner loop must not embed the entire
+    // maintenance state machine (previously 17 KiB) in every async caller.
+    let socket = temp.path().join("not-polled.sock");
+    let work = maintain(&enrollment, &socket, &owner, 0);
+    assert!(std::mem::size_of_val(&work) <= 1024);
+    drop(work);
     let signature = hex::encode(owner.sign(&signing(&enrollment).unwrap()).to_bytes());
     let path = temp.path().join("maintenance");
     fs::DirBuilder::new().mode(0o700).create(&path).unwrap();

@@ -1,7 +1,7 @@
 //! Clock drift across real signed storage exchanges, not protected-overlay evidence.
 
 use super::*;
-use tokio::{io::AsyncReadExt as _, net::UnixListener, sync::oneshot, time::timeout};
+use tokio::{net::UnixListener, sync::oneshot, time::timeout};
 use volparossa_content::private_storage::{
     LeaseId,
     protocol::{StorageChallenge, StorageOperation, StorageTarget},
@@ -12,7 +12,7 @@ use volparossa_local_control::{
 };
 
 /// Delay the first live Progress challenge. Its signed response still comes from
-/// the real SQLite provider, as do subsequent Renew/Reserve operations and receipts.
+/// the real `SQLite` provider, as do subsequent Renew/Reserve operations and receipts.
 async fn delayed_progress(
     listener: UnixListener,
     backend: PathBuf,
