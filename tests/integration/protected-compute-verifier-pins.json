@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "kind": "protected-compute-verifier-pins",
   "upstream": {
     "repository": "virtee/sev",
@@ -23,6 +23,22 @@
     "snp::milan_report",
     "snp::milan_report_invalid"
   ],
+  "lock_correction": {
+    "path": "Cargo.lock",
+    "package": "num-bigint-dig",
+    "version": "0.8.6",
+    "old_dependency": "rand 0.8.5",
+    "new_dependency": "rand 0.8.8",
+    "occurrences": 1,
+    "upstream": {
+      "bytes": 66223,
+      "sha256": "fe1511ef932c1a54d0cd70ac470b41de8357ab2efca9ed6b3a4ea22c3b7d3bd0"
+    },
+    "effective": {
+      "bytes": 66223,
+      "sha256": "7b7dbf853cecf44a8d2a6b51283012b446db97600f4e19af36a1c642b8bfa7cb"
+    }
+  },
   "files": {
     "Cargo.lock": {
       "bytes": 66223,

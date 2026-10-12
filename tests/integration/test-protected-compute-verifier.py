@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Inert verifier-contract tests: no Rust, SDK, hardware or network execution."""
 import copy
+from contextlib import contextmanager
 import importlib.util
 import io
 import json
@@ -17,6 +18,43 @@ SPEC = importlib.util.spec_from_file_location('fixture_verifier', SOURCE)
 V = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(V)
 WORKFLOW = V.ROOT / '.github/workflows/protected-compute-verifier.yml'
+
+
+def git(source, *args):
+    return subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
+        '-c', 'user.name=Inert fixture', '-c', 'user.email=fixture@example.invalid',
+        '-C', str(source), *args], timeout=10).decode().strip()
+
+
+@contextmanager
+def source_fixture():
+    """Real Git operations on tiny synthetic text, not upstream/native execution."""
+    selected = copy.deepcopy(V.pins())
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp)
+        old = b'[[package]]\nname = "num-bigint-dig"\nversion = "0.8.6"\ndependencies = [\n "rand 0.8.5",\n]\n'
+        new = old.replace(b' "rand 0.8.5",\n', b' "rand 0.8.8",\n')
+        for name in selected['files']:
+            path = source / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            raw = old if name == 'Cargo.lock' else ('synthetic ' + name + '\n').encode()
+            if name == 'LICENSE':
+                raw = (V.ROOT / 'third_party/licenses/virtee-sev-8.0.0-Apache-2.0.txt').read_bytes()
+            path.write_bytes(raw)
+            selected['files'][name] = dict(bytes=len(raw), sha256=V.sha(raw))
+        (source / 'other.rs').write_text('synthetic tracked source\n')
+        (source / '.gitignore').write_text('ignored-output\n')
+        git(source, 'init', '-q')
+        git(source, 'add', '--all')
+        git(source, 'commit', '-qm', 'inert fixture')
+        selected['upstream']['commit'] = git(source, 'rev-parse', 'HEAD')
+        selected['upstream']['tree'] = git(source, 'rev-parse', 'HEAD^{tree}')
+        selected['lock_correction']['upstream'] = selected['files']['Cargo.lock']
+        selected['lock_correction']['effective'] = dict(bytes=len(new), sha256=V.sha(new))
+        # Only authority input is substituted. The actual source/HEAD/index/file
+        # validators and exact correction run normally against the text fixture.
+        with patch.object(V, 'pins', return_value=selected):
+            yield source, selected, old, new
 
 
 def log():
@@ -55,6 +93,22 @@ class FixtureContracts(unittest.TestCase):
                 mutated['files']['../LICENSE'] = mutated['files'].pop('LICENSE')
             else:
                 mutated['files']['LICENSE']['bytes'] = True
+            mutations.append(mutated)
+        for change in ('missing', 'extra', 'old', 'new', 'effective', 'upstream', 'count', 'old_schema'):
+            mutated = copy.deepcopy(original)
+            if change == 'missing':
+                del mutated['lock_correction']
+            elif change == 'extra':
+                mutated['lock_correction']['arbitrary_patch'] = True
+            elif change in ('old', 'new'):
+                mutated['lock_correction'][change + '_dependency'] = 'rand 0.9.0'
+            elif change in ('effective', 'upstream'):
+                mutated['lock_correction'][change]['sha256'] = 'f' * 64
+            elif change == 'count':
+                mutated['lock_correction']['occurrences'] = True
+            else:
+                mutated['schema_version'] = 1
+                del mutated['lock_correction']
             mutations.append(mutated)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'pins.json'
@@ -123,11 +177,81 @@ class FixtureContracts(unittest.TestCase):
 
     def test_source_mismatch_precedes_reading_fixtures(self):
         selected = V.pins()
-        for observed in (['wrong'], [selected['upstream']['commit'], 'wrong'],
-                [selected['upstream']['commit'], selected['upstream']['tree'], ' M source.rs']):
+        for observed in (['wrong'], [selected['upstream']['commit'], 'wrong']):
             with tempfile.TemporaryDirectory() as tmp, patch.object(V, 'command', side_effect=observed):
                 with self.assertRaisesRegex(ValueError, 'source_(commit|tree|changed)'):
                     V.verify_source(Path(tmp))
+
+    def test_prepare_requires_pristine_then_only_exact_effective_lock(self):
+        with source_fixture() as (source, selected, old, new), patch.object(V, 'hosted'):
+            V.main(['source', str(source)])
+            with self.assertRaisesRegex(ValueError, 'source_changed'):
+                V.main(['source-effective', str(source)])
+            V.main(['prepare', str(source)])
+            self.assertEqual((source / 'Cargo.lock').read_bytes(), new)
+            self.assertEqual(V.command_bytes(source, 'show', 'HEAD:Cargo.lock'), old)
+            V.main(['source-effective', str(source)])
+            self.assertFalse((source / 'report.json').exists())
+            for command in ('source', 'prepare'):
+                with self.assertRaisesRegex(ValueError, 'source_changed'):
+                    V.main([command, str(source)])
+            self.assertEqual((source / 'Cargo.lock').read_bytes(), new)
+
+    def test_pre_and_post_patch_reject_other_source_untracked_ignored_or_index_changes(self):
+        for effective in (False, True):
+            for change in ('tracked', 'untracked', 'ignored', 'staged', 'mode', 'hidden'):
+                with self.subTest(effective=effective, change=change), source_fixture() as (source, _, _, _):
+                    if effective:
+                        V.prepare_source(source)
+                    path = source / 'other.rs'
+                    if change in ('tracked', 'staged', 'hidden'):
+                        path.write_text('changed\n')
+                        if change == 'staged':
+                            git(source, 'add', '--', 'other.rs')
+                        elif change == 'hidden':
+                            git(source, 'update-index', '--assume-unchanged', 'other.rs')
+                    elif change == 'mode':
+                        path.chmod(0o755)
+                    else:
+                        (source / ('ignored-output' if change == 'ignored' else 'extra')).write_text('extra\n')
+                    with self.assertRaisesRegex(ValueError, 'source_(changed|index_flags)'):
+                        V.verify_source(source, effective=effective)
+
+    def test_effective_lock_rejects_staging_mode_altered_and_extra_patch(self):
+        for change in ('staged', 'mode', 'altered', 'extra', 'reverted'):
+            with self.subTest(change=change), source_fixture() as (source, _, old, new):
+                V.prepare_source(source)
+                path = source / 'Cargo.lock'
+                if change == 'staged':
+                    git(source, 'add', '--', 'Cargo.lock')
+                elif change == 'mode':
+                    path.chmod(0o755)
+                else:
+                    path.write_bytes(new.replace(b'0.8.8', b'0.8.9') if change == 'altered'
+                        else new + b'\n' if change == 'extra' else old)
+                with self.assertRaises(ValueError):
+                    V.verify_source(source, effective=True)
+
+    def test_head_lock_must_match_original_even_if_worktree_matches_effective_pin(self):
+        with source_fixture() as (source, selected, old, new):
+            (source / 'Cargo.lock').write_bytes(old + b'\n')
+            git(source, 'add', '--', 'Cargo.lock')
+            git(source, 'commit', '-qm', 'wrong original lock fixture')
+            selected['upstream']['commit'] = git(source, 'rev-parse', 'HEAD')
+            selected['upstream']['tree'] = git(source, 'rev-parse', 'HEAD^{tree}')
+            (source / 'Cargo.lock').write_bytes(new)
+            with self.assertRaisesRegex(ValueError, 'lock_digest'):
+                V.verify_source(source, effective=True)
+
+    def test_wrong_original_or_wrong_effective_pin_cannot_be_prepared(self):
+        with source_fixture() as (source, selected, old, _):
+            for raw in (old + b'\n', old.replace(b'0.8.5', b'0.8.9')):
+                with self.assertRaisesRegex(ValueError, 'lock_digest'):
+                    V.corrected_lock(raw, selected)
+            selected['lock_correction']['effective']['sha256'] = 'f' * 64
+            with self.assertRaisesRegex(ValueError, 'lock_digest'):
+                V.prepare_source(source)
+            self.assertEqual((source / 'Cargo.lock').read_bytes(), old)
 
     def test_receipt_preserves_scope_and_cannot_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(V, 'hosted'), \
@@ -139,12 +263,37 @@ class FixtureContracts(unittest.TestCase):
                 (output / (name + '.txt')).write_text(name + ' 1.85.0 (fixture)\nrelease: 1.85.0\n')
             V.main(['receipt', 'inert-source', tmp, '0', '0'])
             result = json.loads((output / 'report.json').read_bytes())
+            self.assertEqual(result['schema_version'], 2)
+            self.assertEqual(result['source_state'], 'upstream-with-pinned-lock-correction')
+            self.assertEqual(result['cargo_lock'], V.LOCK_CORRECTION)
+            self.assertNotEqual(result['cargo_lock']['upstream'], result['cargo_lock']['effective'])
+            self.assertNotIn('cargo_lock_sha256', result)  # Old ambiguous schema-one field.
             self.assertEqual(result['scope'], V.SCOPE)
             self.assertIs(result['scope']['private_task_release'], False)
             self.assertIs(result['scope']['protected_execution_proven'], False)
             self.assertEqual(result['evidence']['log_sha256'], V.sha(log()))
             with self.assertRaises(FileExistsError):
                 V.main(['receipt', 'inert-source', tmp, '0', '0'])
+            old = dict(schema_version=1, kind='protected-compute-upstream-fixture-result',
+                cargo_lock_sha256=V.LOCK_CORRECTION['upstream']['sha256'], tests=result['tests'])
+            legacy = json.dumps(old).encode()
+            (output / 'report.json').write_bytes(legacy)
+            with self.assertRaises(FileExistsError):
+                V.main(['receipt', 'inert-source', tmp, '0', '0'])
+            self.assertEqual((output / 'report.json').read_bytes(), legacy)
+
+    def test_unpatched_source_or_preparation_output_cannot_authorize_result(self):
+        with source_fixture() as (source, _, _, _), patch.object(V, 'hosted'):
+            with tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp)
+                (output / 'tests.log').write_bytes(log())
+                with self.assertRaisesRegex(ValueError, 'source_changed'):
+                    V.main(['receipt', str(source), tmp, '0', '0'])
+                V.prepare_source(source)
+                (output / 'tests.log').write_bytes(b'source verified and lock prepared\n')
+                with self.assertRaisesRegex(ValueError, 'exact_fixture_tests'):
+                    V.main(['receipt', str(source), tmp, '0', '0'])
+                self.assertFalse((output / 'report.json').exists())
 
     def test_failed_capture_never_writes_receipt(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(V, 'hosted'):
@@ -168,6 +317,8 @@ python3() {
   elif [[ "$3" == receipt ]]; then
     test "$6" = "$TEST_CARGO_EXIT" && test "$7" = "$TEST_CAPTURE_EXIT" || return 98
     test "$6" = 0 && test "$7" = 0
+  elif [[ "$3" == source-effective ]]; then
+    return 0
   else
     return 99
   fi
@@ -214,6 +365,21 @@ python3() {
         self.assertEqual(text.count('--manifest-path "$VERIFIER_SOURCE/Cargo.toml"'), 2)
         self.assertNotIn('build/protected-compute-verifier/source', text)
         self.assertNotIn('workspace.exclude', text)
+
+    def test_workflow_applies_fixed_correction_before_unchanged_locked_commands(self):
+        text = WORKFLOW.read_text()
+        prefix = 'python3 -B tests/integration/protected-compute-verifier.py '
+        pristine = text.index(prefix + 'source "$VERIFIER_SOURCE"')
+        prepare = text.index(prefix + 'prepare "$VERIFIER_SOURCE"')
+        fetch = text.index('cargo +1.85.0 fetch --locked')
+        test = text.index('cargo +1.85.0 test --locked --offline')
+        self.assertLess(pristine, prepare)
+        self.assertLess(prepare, fetch)
+        self.assertEqual(text.count(prefix + 'prepare "$VERIFIER_SOURCE"'), 1)
+        self.assertIn(prefix + 'source-effective "$VERIFIER_SOURCE"', text[prepare:fetch])
+        self.assertEqual(text[fetch:test].count(prefix + 'source-effective "$VERIFIER_SOURCE"'), 2)
+        self.assertNotIn('cargo update', text)
+        self.assertNotIn('generate-lockfile', text)
 
     def test_workflow_is_source_pinned_public_and_bounded(self):
         text = WORKFLOW.read_text()

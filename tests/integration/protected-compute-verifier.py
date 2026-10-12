@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 
@@ -20,6 +21,10 @@ EXPECTED_FILES = {'Cargo.lock', 'Cargo.toml', 'LICENSE', 'tests/certs.rs',
     'tests/certs_data/vcek_milan.der'}
 SCOPE = dict(public_fixtures_only=True, live_hardware_attestation=False,
     trusted_worker_admission=False, private_task_release=False, protected_execution_proven=False)
+LOCK_CORRECTION = dict(path='Cargo.lock', package='num-bigint-dig', version='0.8.6',
+    old_dependency='rand 0.8.5', new_dependency='rand 0.8.8', occurrences=1,
+    upstream=dict(bytes=66223, sha256='fe1511ef932c1a54d0cd70ac470b41de8357ab2efca9ed6b3a4ea22c3b7d3bd0'),
+    effective=dict(bytes=66223, sha256='7b7dbf853cecf44a8d2a6b51283012b446db97600f4e19af36a1c642b8bfa7cb'))
 
 
 def require(condition, reason):
@@ -43,8 +48,8 @@ def pins():
     value = json.loads(bounded(PINS, 32768))
     require(set(value) == {'schema_version', 'kind', 'upstream', 'toolchain',
         'default_features', 'features', 'test_target', 'test_filter', 'expected_tests',
-        'files', 'scope'} and type(value['schema_version']) is int
-        and value['schema_version'] == 1 and value['kind'] == 'protected-compute-verifier-pins', 'pins_schema')
+        'files', 'scope', 'lock_correction'} and type(value['schema_version']) is int
+        and value['schema_version'] == 2 and value['kind'] == 'protected-compute-verifier-pins', 'pins_schema')
     require(set(value['upstream']) == {'repository', 'url', 'commit', 'tree'}, 'upstream_schema')
     require(value['upstream']['repository'] == 'virtee/sev'
         and value['upstream']['url'] == 'https://github.com/virtee/sev'
@@ -60,29 +65,80 @@ def pins():
         require(name and not name.startswith('/') and all(p not in ('', '.', '..') for p in name.split('/')), 'fixture_path')
         require(set(record) == {'bytes', 'sha256'} and type(record['bytes']) is int
             and 0 < record['bytes'] <= 1024 * 1024 and re.fullmatch('[0-9a-f]{64}', record['sha256']), 'fixture_pin')
+    require(value['lock_correction'] == LOCK_CORRECTION
+        and type(value['lock_correction']['occurrences']) is int
+        and value['files']['Cargo.lock'] == LOCK_CORRECTION['upstream'], 'lock_correction_pin')
     return value
 
 
 def command(source, *args):
-    return subprocess.check_output(['git', '-C', str(source), *args], timeout=15).decode('ascii').strip()
+    return command_bytes(source, *args).decode('ascii').strip()
 
 
-def verify_source(source):
+def command_bytes(source, *args):
+    return subprocess.check_output(['git', '-c', 'core.filemode=true', '-C', str(source), *args], timeout=15)
+
+
+def lock_identity(raw, expected):
+    require(len(raw) == expected['bytes'] and sha(raw) == expected['sha256'], 'lock_digest')
+
+
+def corrected_lock(raw, selected):
+    correction = selected['lock_correction']
+    lock_identity(raw, correction['upstream'])
+    # The original full-file pin binds this sole occurrence to num-bigint-dig
+    # 0.8.6. No dependency version/checksum/package entry is regenerated.
+    old, new = b' "rand 0.8.5",\n', b' "rand 0.8.8",\n'
+    require(raw.count(old) == 1, 'lock_correction_occurrence')
+    effective = raw.replace(old, new)
+    lock_identity(effective, correction['effective'])
+    return effective
+
+
+def verify_source(source, *, effective=False):
     selected = pins()
     require(source.is_dir() and not source.is_symlink(), 'source_directory')
     require(command(source, 'rev-parse', 'HEAD') == selected['upstream']['commit'], 'source_commit')
     require(command(source, 'rev-parse', 'HEAD^{tree}') == selected['upstream']['tree'], 'source_tree')
-    # Both source checks run before/after the native test. Build artifacts use a
-    # separate target directory and may not silently become modified source.
-    require(not command(source, 'status', '--porcelain', '--untracked-files=all'), 'source_changed')
+    tracked = command_bytes(source, 'ls-files', '-v', '-z').split(b'\0')
+    require(tracked[-1] == b'' and all(entry.startswith(b'H ') for entry in tracked[:-1]), 'source_index_flags')
+    # Also report ignored files: acquisition/build outputs belong outside this
+    # checkout. Preserve the index and accept exactly one unstaged text change.
+    observed = command_bytes(source, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching')
+    require(observed == (b' M Cargo.lock\0' if effective else b''), 'source_changed')
+    require(not command_bytes(source, 'diff', '--no-ext-diff', '--no-textconv', '--summary', 'HEAD', '--'),
+        'source_mode_changed')
+    original = command_bytes(source, 'show', 'HEAD:Cargo.lock')
+    lock_identity(original, selected['files']['Cargo.lock'])
+    patched = corrected_lock(original, selected)
     for name, record in selected['files'].items():
         path = source / name
         require(path.resolve().is_relative_to(source.resolve()), 'fixture_path_escape')
-        raw = bounded(path, record['bytes'])
-        require(len(raw) == record['bytes'] and sha(raw) == record['sha256'], 'fixture_digest')
+        expected = selected['lock_correction']['effective'] if effective and name == 'Cargo.lock' else record
+        raw = bounded(path, expected['bytes'])
+        require(len(raw) == expected['bytes'] and sha(raw) == expected['sha256'], 'fixture_digest')
+        if name == 'Cargo.lock':
+            require(raw == (patched if effective else original), 'lock_correction_bytes')
     require(bounded(source / 'LICENSE', 32768)
         == bounded(ROOT / 'third_party/licenses/virtee-sev-8.0.0-Apache-2.0.txt', 32768), 'license_identity')
     return selected
+
+
+def prepare_source(source):
+    selected = verify_source(source)
+    # One exact existing file, same descriptor and length; never run Cargo to
+    # refresh the lock. A partial failure cannot pass the effective-source gate.
+    fd = os.open(source / 'Cargo.lock', os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, 'r+b') as stream:
+        info = os.fstat(stream.fileno())
+        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid == os.geteuid(), 'lock_file')
+        raw = stream.read(selected['lock_correction']['upstream']['bytes'] + 1)
+        patched = corrected_lock(raw, selected)
+        stream.seek(0)
+        stream.write(patched)
+        stream.flush()
+        os.fsync(stream.fileno())
+    verify_source(source, effective=True)
 
 
 def verify_results(raw, exit_status):
@@ -129,11 +185,14 @@ def capture(stream, path):
 
 
 def main(args):
-    require(args and args[0] in ('source', 'receipt', 'capture'), 'fixed_verifier_command')
+    require(args and args[0] in ('source', 'source-effective', 'prepare', 'receipt', 'capture'), 'fixed_verifier_command')
     hosted()
-    if args[0] == 'source':
+    if args[0] in ('source', 'source-effective', 'prepare'):
         require(len(args) == 2, 'source_arguments')
-        verify_source(Path(args[1]))
+        if args[0] == 'prepare':
+            prepare_source(Path(args[1]))
+        else:
+            verify_source(Path(args[1]), effective=args[0] == 'source-effective')
         return
     if args[0] == 'capture':
         require(len(args) == 2, 'capture_arguments')
@@ -142,14 +201,15 @@ def main(args):
     require(len(args) == 5, 'receipt_arguments')
     require(int(args[4]) == 0, 'capture_failed')
     source, output = Path(args[1]), Path(args[2])
-    selected = verify_source(source)
+    selected = verify_source(source, effective=True)
     raw = bounded(output / 'tests.log', MAX_LOG)
     result = verify_results(raw, int(args[3]))
     tools = toolchain(bounded(output / 'rustc.txt', 32768), bounded(output / 'cargo.txt', 32768))
-    record = dict(schema_version=1, kind='protected-compute-upstream-fixture-result',
+    record = dict(schema_version=2, kind='protected-compute-upstream-fixture-result',
         source_commit=selected['upstream']['commit'], source_tree=selected['upstream']['tree'],
+        source_state='upstream-with-pinned-lock-correction',
         core_commit=os.environ['GITHUB_SHA'], pins_sha256=sha(bounded(PINS, 32768)),
-        cargo_lock_sha256=selected['files']['Cargo.lock']['sha256'],
+        cargo_lock=selected['lock_correction'],
         features=selected['features'], default_features=False, toolchain=tools,
         evidence=dict(log_sha256=sha(raw), log_bytes=len(raw)), tests=result, scope=SCOPE)
     # A new result only; a stale success can never survive an unsuccessful rerun.

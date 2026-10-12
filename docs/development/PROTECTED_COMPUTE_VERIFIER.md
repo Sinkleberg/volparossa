@@ -10,8 +10,8 @@ and public peer-task admission remain unchanged.
 
 The [hosted workflow](../../.github/workflows/protected-compute-verifier.yml)
 builds the upstream Rust `virtee/sev` library at exact commit
-`a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5`, using its original lockfile and
-Rust 1.85.0. It enables only `snp,crypto_nossl`, with default features disabled.
+`a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5`, using Rust 1.85.0 and the
+explicit lockfile correction below. It enables only `snp,crypto_nossl`, with default features disabled.
 The selected upstream test target executes four public Milan fixtures:
 
 - Verify the supplied AMD SNP certificate chain.
@@ -24,10 +24,33 @@ VOLPAROSSA users' data. No `/dev/sev` device, private model, task input or secre
 used. This is not yet a production dependency or an attestation backend.
 
 The [pinset](../../tests/integration/protected-compute-verifier-pins.json)
-records the exact source tree and nine source, lock, license and fixture hashes.
-The trial verifies source identity before dependency acquisition and after test
-execution. Dependency acquisition is separate from offline Cargo execution;
+records the exact source tree, nine original file hashes, and the corrected
+lockfile identity. The trial requires pristine upstream before applying the
+correction. Subsequent checks accept only that exact unstaged lockfile change,
+verify the original `HEAD:Cargo.lock` separately, and reject other tracked,
+staged, untracked or ignored files and mode changes. Dependency acquisition
+is separate from offline Cargo execution;
 `--offline` is not an operating-system network sandbox.
+
+## Exact lockfile correction
+
+The pinned upstream [lockfile](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/Cargo.lock#L965)
+contains one dangling dependency reference: `num-bigint-dig 0.8.6` still names
+`rand 0.8.5`, although the [same commit](https://github.com/virtee/sev/commit/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5)
+replaces that package with `rand 0.8.8`. The fixture changes only that reference
+to the already pinned `0.8.8`; it changes no package version, checksum, manifest,
+source or test. Cargo never regenerates the lockfile, and both acquisition and
+test commands retain `--locked`.
+
+Both original and effective files contain 66,223 bytes. Their SHA-256 values are:
+
+- Upstream: `fe1511ef932c1a54d0cd70ac470b41de8357ab2efca9ed6b3a4ea22c3b7d3bd0`.
+- Effective: `7b7dbf853cecf44a8d2a6b51283012b446db97600f4e19af36a1c642b8bfa7cb`.
+
+The schema-two pinset and result receipt distinguish these identities and name
+the exact one-occurrence correction. The immutable Git commit and tree continue
+to identify upstream, not an unmodified effective checkout. Preparation writes
+no success receipt and cannot substitute for cryptographic tests.
 
 ## Evidence and limits
 
@@ -37,15 +60,14 @@ The original bounded log, both pipeline exit statuses and compiler-version
 outputs are retained separately. Log overflow fails the trial; an earlier
 success receipt cannot be overwritten by a new execution.
 
-Fifteen inert harness tests pass locally and on the hosted runner. They use
-synthetic output and harmless shell functions, not a native build or hardware.
+Twenty-two inert harness tests pass locally. They use synthetic output, small
+text-only Git repositories and harmless shell functions, not a native build or hardware.
 The [current hosted attempt](https://github.com/VOLPAROSSA/volparossa/actions/runs/38322166464)
 at `7bbe0950` verifies the original source and fixtures, then stops before
-compilation: Cargo 1.85.0 refuses dependency acquisition because the pinned
-upstream lockfile would require an update. No cryptographic test has run.
-The workflow retains `--locked`; resolving this requires a separately reviewed
-dependency-resolution or source-pin correction, not silently fetching different
-versions. The earlier workspace/context failures are recorded in the
+compilation: Cargo 1.85.0 refuses dependency acquisition because the inconsistent
+upstream lockfile requires an update. That run passes the previous fifteen inert
+checks; it does not test this correction. No cryptographic test has run, and the
+corrected lock still needs a successful hosted acquisition and build. The earlier workspace/context failures are recorded in the
 [implementation ledger](../IMPLEMENTATION_STATUS.md#protected-compute-verifier-preparation).
 
 Even a future passing run would establish only compatibility with these public

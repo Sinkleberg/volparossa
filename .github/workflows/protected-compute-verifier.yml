@@ -60,14 +60,16 @@ jobs:
           timeout --kill-after=15s 180s git -C "$VERIFIER_SOURCE" fetch --depth=1 origin a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5
           git -C "$VERIFIER_SOURCE" checkout --detach FETCH_HEAD
           python3 -B tests/integration/protected-compute-verifier.py source "$VERIFIER_SOURCE"
+          python3 -B tests/integration/protected-compute-verifier.py prepare "$VERIFIER_SOURCE"
       - name: Fetch locked upstream dependencies without running tests
         env:
           VERIFIER_SOURCE: ${{ runner.temp }}/volparossa-protected-compute-verifier-source
           CARGO_HOME: ${{ github.workspace }}/build/protected-compute-verifier/cargo-home
         run: |
           set -euo pipefail
+          python3 -B tests/integration/protected-compute-verifier.py source-effective "$VERIFIER_SOURCE"
           timeout --kill-after=15s 300s cargo +1.85.0 fetch --locked --manifest-path "$VERIFIER_SOURCE/Cargo.toml"
-          python3 -B tests/integration/protected-compute-verifier.py source "$VERIFIER_SOURCE"
+          python3 -B tests/integration/protected-compute-verifier.py source-effective "$VERIFIER_SOURCE"
       - name: Execute only four public cryptographic fixtures
         env:
           VERIFIER_SOURCE: ${{ runner.temp }}/volparossa-protected-compute-verifier-source
@@ -78,6 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
+          python3 -B tests/integration/protected-compute-verifier.py source-effective "$VERIFIER_SOURCE"
           # All inputs are public. Offline Cargo prevents dependency resolution;
           # this does not claim an OS network sandbox or confidential hardware.
           set +e

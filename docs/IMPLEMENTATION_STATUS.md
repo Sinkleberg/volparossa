@@ -52,8 +52,9 @@ do not run competing heavy builds or lower that reserve.
 Suitable confidential-computing hardware is not currently available. This
 blocks live protected-worker acceptance, not the Android/storage integrations
 or software preparation. A separate public-fixture CI candidate now pins
-`virtee/sev` at `a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5`, its unchanged
-lockfile and four SNP chain/report tests. The first hosted attempt
+`virtee/sev` at `a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5`, the original
+lockfile plus one explicit dependency-reference correction, and four SNP
+chain/report tests. The first hosted attempt
 [`38321426228`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38321426228)
 at `65decfc3` passes source/fixture verification, then stops before compilation
 because Cargo finds the parent core workspace. The second attempt
@@ -67,12 +68,22 @@ at `7bbe0950` uses the same external checkout path in the three permitted step
 contexts. All fifteen inert tests and exact source/fixture checks pass. Cargo
 1.85.0 then refuses dependency acquisition with `--locked`, reporting that the
 original upstream lockfile needs updating. No compilation or cryptographic test
-has run. Both source manifests and the lockfile remain unchanged; dependency
-resolution needs separate diagnosis rather than an unlocked retry.
+has run. The original failure retains its unchanged source and lockfile.
 The original artifact contains only `rustc.txt` and `cargo.txt` (630-byte ZIP,
 SHA-256 `cd425ab034d7b27117f66998322850c2018f091af2bdf69361b233587eea1ba7`,
 matching the API digest); the original eleven-member log ZIP is retained with
 SHA-256 `770c4589980f587f8c0975103b8bff2fea38ebf4b05f514e04253d356091539c`.
+
+Static inspection confirms the lockfile mismatch: `num-bigint-dig 0.8.6` names
+absent `rand 0.8.5`, while the pinned commit replaces that package with `0.8.8`.
+The correction changes only this reference to the already pinned version.
+Pristine upstream, its committed original lock hash and the exact effective lock
+hash are checked separately; all other source/index/untracked changes are
+rejected. Schema-two receipts distinguish upstream from effective inputs and
+are produced only after four actual passing tests, never from preparation.
+All 22 inert tests pass locally. Rust 1.85.0, source/fixture pins, test selection
+and `--locked` remain unchanged; actual acquisition, compilation and the four
+cryptographic checks still require a successful hosted trial.
 No protected worker, remote private-task release or B04 completion is claimed.
 Public peer tasks and the current local private service remain unchanged.
 See [the bounded trial and missing admission checks](development/PROTECTED_COMPUTE_VERIFIER.md).
