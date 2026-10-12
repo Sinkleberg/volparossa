@@ -30,8 +30,8 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38298489504` on `44a1de30` again passes the APK build and strict offline rebuild, with matching hashes within that run. It then fails at AVD creation: `avdmanager` exits 1 before emulator boot; the underlying SDK cause remains unknown. Cleanup passes. Exercise that exact isolated step before more builds; installation, launch, refresh and expiry still need proof, and iOS remains open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 has historical core-loss/reconnect evidence and a measured-custody fixture correction. Trial `38297150483` stops before upload: initial Connect exhausts its existing attempts with `NO_ELIGIBLE_PATHS`. The readiness correction waits for the existing three-relay/primary-exit advertisement inventory, without changing route selection or retry limits. Image PR6 and Cloud PR13 have reviewed consumer bindings, but real consumer maintenance and reciprocal capacity proof remain open. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38298489504` proves matching APK build/offline-rebuild hashes within that run, but fails at AVD creation. A short preflight now exercises this same step before costly builds. Trials `38303294983` and `38305241688` confirm all eight launcher helpers are available, but `avdmanager` still exits 1 with an unclassified cause. Cleanup passes. Investigate the retained inputs and CLI boundary before another probe; installation, launch, refresh and expiry still need proof, and iOS remains open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's readiness correction advances trial `38301596867` beyond initial selection: inventory, upload and reconnect succeed. The trial then fails at `await_coordinator` with `local_io`; its exact cause remains under investigation. Cleanup passes. Image PR6 and Cloud PR13 have reviewed consumer bindings, but real consumer maintenance and reciprocal capacity proof remain open. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
 
@@ -152,6 +152,26 @@ installation and UI checks were not reached. Process, private AVD, policy,
 staging and KVM cleanup pass. The next step is a bounded execution of that exact
 isolated AVD-create operation before costly app builds, not a speculative SDK,
 Java or sandbox change.
+
+The [eighteenth Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38302085129)
+executes that early preflight and identifies a missing launcher helper: `awk`
+is not reachable inside the isolated environment. The scoped correction supplies
+the declared, hash-checked `mawk` through an Android-only read-only tools path;
+it does not change the SDK, Java selection or host aliases. All 105 targeted
+inert Android tests pass. The [nineteenth trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38303294983)
+on exact `9d453ee0` confirms all eight helpers are available, but AVD creation
+still exits 1. Its complete 1,275-byte diagnostic has no recognized cause, so
+the helper fix must not be presented as a completed emulator fix. No dependency
+acquisition, Gradle build or app execution is reached in these two early-failing
+trials. Private AVD/home, process, staging, policy and KVM cleanup pass. The next
+step investigates the launcher-to-Java boundary using these retained inputs.
+Candidate `5ce20d90` adds fixed Java-error families and filesystem indications
+within the existing bounded diagnostic. All 110 inert tests pass; no SDK,
+command, sandbox right or resource limit changes. The [twentieth trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38305241688)
+still fails at AVD creation with complete 1,275-byte output and no recognized
+SDK, Java or filesystem indication. Those absent markers do not establish or
+rule out the cause. The next investigation must use the retained exact inputs
+and command-line boundary, not treat this diagnostic change as an emulator fix.
 
 The first [maintenance trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38251889540)
 produces no topology artifact because preflight fails before the VM or Rust
@@ -323,6 +343,20 @@ for `a80ec391`, checking merge `1f6d5a8` into `3dcdffa0`, passes strict Clippy,
 all 614 CLI tests, all 688 agent tests and the inert harness. Its namespace
 checks do not establish the failed storage trial's missing live proof.
 
+The readiness candidate `ade8c290` passes [Quality run 38301460483](https://github.com/VOLPAROSSA/volparossa/actions/runs/38301460483),
+which checks merge `91be0fd4` into `3dcdffa0`. Strict Clippy, all 614 CLI tests,
+all 688 agent tests and the inert harness pass. The three separate live namespace
+checks explicitly skip because user namespaces are denied. The [protected retry](https://github.com/VOLPAROSSA/volparossa/actions/runs/38301596867)
+on exact `ade8c290` advances beyond the initial failure: the inventory is ready
+after 138 queries, the eight-copy upload runs and reconnect reaches CONNECTED.
+It later fails at `await_coordinator` with `local_io`, cursor 3 to 4 and checkpoint
+`core_unavailable`. This code also covers supervisor cancellation via
+`InterruptedError`; it does not establish a filesystem fault. The owner process joins with exit 0, but that does not make
+the failed lifecycle successful. Cleanup completes with zero owned objects and
+an unchanged disposable guest-root network baseline. Diagnose the local
+coordination boundary before running the longer Cloud continuation; neither
+consumer repair nor the full lifecycle is proved by this failed trial.
+
 [Image PR6](https://github.com/VOLPAROSSA/volparossa-image/pull/6) at `aade424c`
 adds finite maintenance supervision and same-adapter foreground stop/join/resume;
 53 targeted tests pass. [Cloud PR13](https://github.com/VOLPAROSSA/volparossa-cloud/pull/13)
@@ -381,6 +415,27 @@ real joined protected upload, provider-loss repair, repeated restoration and
 all-provider zero-usage finish remain required. These candidates do not replace
 the older pinned read-focused maintenance trial or prove a server-independent
 OpenCloud service.
+
+The separate `cloud-upload-maintenance` scenario joins those candidates without
+replacing the original maintenance proof or its pinned consumers. It requires
+the old proof first, then starts with an encrypted empty catalog, performs an
+authenticated Cloud PUT, observes automatic finite enrollment, withdraws a
+provider and checks new repair plus two complete cold reads across service
+restart. Measured early retirements determine the remaining repair and delete
+traffic; all eleven retained copy records must finish deleted and all three
+provider stores must report zero usage. The original deadline, grants and
+identities remain bound throughout.
+
+Its own captures, bounded reports and cleanup checks are wired into the
+disposable VM runner. The compact final report binds the complete original
+maintenance and new upload evidence, rather than treating a hash or a component
+test as proof of the full chain. Only this longer scenario has a 14,400-second
+driver ceiling and 134 exact emergency-export slots; the old scenario and the
+shared 8 MiB export bound are unchanged. These are test-execution ceilings, not
+extensions of user authority. Protected execution remains required before this
+candidate can establish real automatic upload maintenance. All 62 new focused
+Python/Node checks pass, alongside 81 existing maintenance/consumer regressions;
+these are bounded component and wiring tests, not that protected execution.
 
 Core [Quality run 38298055486](https://github.com/VOLPAROSSA/volparossa/actions/runs/38298055486)
 checks exact `613a1ea0` and passes strict Clippy, 619 CLI tests and the inert
