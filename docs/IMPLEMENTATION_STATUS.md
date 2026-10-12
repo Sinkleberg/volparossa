@@ -29,20 +29,62 @@ The immediate milestones build on the retained candidates and evidence below:
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
-| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Join Weather delivery to the verified cache path, then exercise recovery under actual device pressure. | Run `38199501353` on `0e23140b` passes three-provider native/HTTPS reconstruction, signed-service readiness, late-provider recovery, requester cancellation and cleanup together. Its worker budget remains unchanged throughout; pressure retirement and continuation still require a separate protected trial. |
-| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run passes corrected archive-owner dispatch but fails during acquisition. Its specific failure diagnostic was lost; a separate exact-source probe encounters ECMWF HTTP 429. Closed retention now includes bounded Retry-After diagnostics and passes eighty focused checks, without extra requests, retries or relaxed validation. Respect the source limit before another joined trial. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover this delivery. |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Preserve existing flows when a new socket is definitively rejected, then resume joined Weather delivery. | Run `38199501353` on `0e23140b` passes the standalone sequence. The later joined run on `9b132f6c` stops at named-cache fetch: one definite kernel rejection incorrectly destroys the shared route. The original socket errno remains unknown. Pressure retirement and continuation still require a separate protected trial. |
+| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined run stops before Weather acquisition, so it makes no new weather-source requests. An earlier exact-source probe encountered ECMWF HTTP 429. Closed retention includes bounded Retry-After diagnostics and passes eighty focused checks, without extra requests or automatic retries. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover joined delivery. |
 | Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR13 are merged with passing CI. Exact table extraction and a fresh full browser trial pass with synthetic products. A new immutable bundle with the corrected verifier passes capture, runtime and extracted-tree checks; the old bundle remains unchanged. Joined core delivery and native Android/iOS execution remain unverified. |
 
-The standalone provider proof now passes without weather downloads. The next
-joined trial uses the corrected Overmorrow bundle and bounded source acquisition;
-respect the observed source rate limit instead of automatically retrying or
-routing requests through other peers. Pressure retirement and continuation are
-still separate evidence gaps, not implied by successful parallel delivery.
+The standalone provider proof passes without weather downloads. The latest joined
+trial uses the corrected Overmorrow bundle but exposes an earlier shared-route
+failure. Correct that failure before another joined trial; do not automatically
+retry source requests or route them through other peers to evade a source limit.
+Pressure retirement and continuation remain separate evidence gaps, not implied
+by successful parallel delivery. Their test helper is being prepared separately
+and is not part of the failed run.
 The Drizz.li/Weather candidate and frozen input
 bundle remain intact; Overmorrow's core delivery and native execution are still required. Keep shared interface
 changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
+
+### Named fetch failure and route preservation
+
+The joined trial on `9b132f6c` fails before Weather acquisition at
+`content-provider-named-fetch`, with `CONTENT_NAME_FETCH_FAILED` and
+`CONTENT_UNAVAILABLE`. Both providers register successfully and named metadata
+passes verification. During the subsequent body fetch, the first MPTCP socket is
+ready at 04:02:53.433 UTC; the second receives a definitive helper `Kernel`
+rejection at 04:02:53.499. The client starts destroying the shared route two
+milliseconds later, followed by route-flow and TLS failures. No weather-source
+request or client rendering is reached.
+
+Source inspection identifies the propagation defect: the client converts every
+acquisition error to `AcquireUnconfirmed`, even a correlated rejection that
+issued no descriptor or flow capability. Its reservation then also marks route
+ownership uncertain on drop, forcing full context destruction and disrupting
+the sibling flow. The underlying kernel syscall and errno were not retained;
+route age, source-port collision or resource pressure must not be asserted as
+its cause.
+
+The correction preserves only authenticated, correlated `Kernel`, `Capacity`
+and `Unavailable` rejections. It releases the failed request's reserved slot
+without clearing another request's uncertainty. The existing bounded acquisition
+loop, selected route, deadlines and genuine MPTCP requirement remain unchanged.
+Cancellation, malformed replies, lost descriptor handoffs and ambiguous cleanup
+still require route retirement. Eleven targeted tests pass: seven retirement
+tests, three helper-protocol tests and the route-loss classification test.
+The tests exercise the production error conversion, real local sibling socket
+ownership and malformed replies; they do not substitute for MPTCP dataplane
+evidence. Formatting and independent review pass. The correction has not yet
+passed a new protected network trial.
+
+Failure evidence is retained at
+`.git/ci-evidence/weather-overmorrow-joined.f58CgX/`. The source archive hash is
+`d877f84d62816886e301f29d460d58eb1ebd0a626e09993c8769153a3bad597c`;
+the aggregate report hash is
+`a2c9379b12f96623c95e527b57ffb4e6873337a0f35420be0e60ef2c1ca8c5e7`.
+Cleanup completes with zero owned objects; the VM, private scratch directory and
+forwarded test port are gone. Readable development-host network measurements are
+unchanged; firewall access was unavailable before and after, not verified equal.
 
 ### Verified cache delivery and remaining integration
 
@@ -83,6 +125,10 @@ the independently rebuilt adaptive report has SHA-256
 Commit `9b132f6c` subsequently pins the local test dependency to `=0.1.0` and
 updates documentation; runtime sources, validators and `Cargo.lock` are
 unchanged. The protected result remains attributed to its exact tested commit.
+Hosted [Quality checks for `9b132f6c`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38200580494)
+and the [documentation-only `726fe694`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38202461085)
+pass, as do both revisions' CodeQL checks. These results do not establish
+verification of the later route-preservation correction.
 
 ### Readiness correction and client evidence
 
