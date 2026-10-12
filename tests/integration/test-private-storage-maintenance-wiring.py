@@ -257,6 +257,151 @@ private_storage_fragments_run() {
 
 
 class OwnerLifecycle(unittest.TestCase):
+    def supervisor_trial(self, failure='', relation='same', *, hard_exit=False, diagnostic_failure=False):
+        script = r'''
+set -eu
+umask 077
+. "$source_directory/tests/integration/private-storage-maintenance-smoke.sh"
+gate() { printf '%s\n' "$1" >>"$WORK/events"; [ "$TEST_FAIL" != "$1" ] || return 37; }
+python3() {
+    if [ "$3" = supervisor-record ]; then
+        [ "$TEST_DIAGNOSTIC_FAILURE" != yes ] || return 77
+        shift 2
+        command python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" "$@"
+    else command python3 "$@"; fi
+}
+benchmark_bind_slots() { gate bind_slots; }
+content_custody_cli() {
+    gate control_query || return "$?"
+    printf '%s\n' "$TEST_CONTROL"
+}
+jq() {
+    case "$1:$2" in
+        '-ce:{exit_peer_id:'*) gate route_scope || return "$?" ;;
+        '-cn:--argjson') gate ready_payload || return "$?" ;;
+        '-ce:. + '*) gate lifecycle_receipt || return "$?" ;;
+    esac
+    command jq "$@"
+}
+private_storage_fragments_phase_start() {
+    if [ "$TEST_HARD_EXIT" = yes ]; then exit 43; fi
+    gate start_observers
+}
+private_storage_maintenance_publish_ready() { gate publish_ready; }
+private_storage_fragments_phase_finish() { gate finish_observers; }
+private_storage_maintenance_join() { gate coordinator_cleanup; }
+cleanup() { printf 'cleanup\n' >>"$WORK/events"; wait "$test_owner" || true; }
+trap cleanup EXIT
+sh -c 'exit "$TEST_OWNER_STATUS"' &
+test_owner=$!; MAINTENANCE_OWNER_PID=$test_owner
+provider_control_peer=PRIVATE_ORIGINAL_RELAY
+provider_baseline_ms=123
+status=0
+private_storage_maintenance_post_reconnect || status=$?
+exit "$status"
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            (work / 'private-storage-maintenance-reconnect-selection.json').write_text(json.dumps({
+                'exact_selected_exit': 'PRIVATE_EXIT', 'paths': [{'path_id': 1, 'relay_peer_id': 'PRIVATE_PATH'}]}))
+            (work / 'maintenance-owner-lifecycle.private').write_text('{}')
+            peer = {'same': 'PRIVATE_ORIGINAL_RELAY', 'different': 'PRIVATE_OTHER_RELAY', 'empty': ''}[relation]
+            result = subprocess.run(['sh', '-c', script], capture_output=True, timeout=15,
+                env=dict(PATH='/usr/bin:/bin', WORK=str(work), source_directory=str(HERE.parents[1]),
+                    TEST_FAIL=failure, TEST_CONTROL=json.dumps({'control_relay_peer_id': peer}),
+                    TEST_OWNER_STATUS='37' if failure == 'join_owner' else '0',
+                    TEST_HARD_EXIT='yes' if hard_exit else 'no',
+                    TEST_DIAGNOSTIC_FAILURE='yes' if diagnostic_failure else 'no'))
+            self.assertEqual((work / 'events').read_text().splitlines()[-1], 'cleanup')
+            path = work / 'private-storage-maintenance-supervisor.json'
+            self.assertFalse((work / 'maintenance-supervisor.part').exists())
+            if diagnostic_failure:
+                self.assertFalse(path.exists())
+                return result, None
+            raw = path.read_bytes()
+            self.assertNotIn(b'PRIVATE_', raw)
+            self.assertLessEqual(len(raw), 1024)
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            value = M['supervisor_file'](path)
+            self.assertFalse(value['acceptance_evidence'])
+            return result, value
+
+    def test_post_reconnect_retains_each_gate_failure_before_cleanup(self):
+        for stage in M['SUPERVISOR_STAGES']:
+            with self.subTest(stage=stage):
+                result, value = self.supervisor_trial(stage,
+                    'different' if stage == 'control_match' else 'same')
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(value['stage'], stage)
+                self.assertEqual(value['outcome'], 'failed')
+                # The query retains its original pipeline exit (jq sees EOF),
+                # while explicit test failure and child wait retain status37.
+                self.assertEqual(value['exit_status'], 4 if stage == 'control_query'
+                    else 1 if stage == 'control_match' else 37)
+                self.assertEqual(value['control_relay_relation'],
+                    'unobserved' if stage in ('bind_slots', 'control_query')
+                    else 'different' if stage == 'control_match' else 'same')
+
+    def test_post_reconnect_success_empty_control_and_hard_exit_do_not_invent_acceptance(self):
+        result, value = self.supervisor_trial()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((value['stage'], value['outcome'], value['exit_status']),
+            ('coordinator_cleanup', 'complete', 0))
+        result, value = self.supervisor_trial(relation='empty')
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual((value['stage'], value['control_relay_relation'], value['exit_status']),
+            ('control_match', 'empty', 1))
+        result, value = self.supervisor_trial(hard_exit=True)
+        self.assertEqual(result.returncode, 43)
+        self.assertEqual((value['stage'], value['outcome'], value['exit_status']),
+            ('start_observers', 'pending', None))
+        result, value = self.supervisor_trial('bind_slots', diagnostic_failure=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIsNone(value)
+
+    def test_actual_term_is_distinct_from_local_io_without_exporting_signal_text(self):
+        script = '''import json,runpy,signal,sys
+m=runpy.run_path(sys.argv[1])
+signal.signal(signal.SIGTERM,m['interrupted'])
+try:
+ print('ready',flush=True)
+ signal.pause()
+except InterruptedError as error:
+ print(json.dumps({'code':m['failure_code'](error)}),flush=True)
+'''
+        process = subprocess.Popen([sys.executable, '-B', '-c', script,
+            str(HERE / 'private-storage-maintenance-smoke.py')], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            self.assertTrue(select.select([process.stdout], [], [], 5)[0])
+            self.assertEqual(process.stdout.readline(), b'ready\n')
+            process.send_signal(signal.SIGTERM)
+            stdout, stderr = process.communicate(timeout=5)
+            self.assertEqual(process.returncode, 0, stderr)
+            self.assertEqual(json.loads(stdout), {'code': 'termination_signal'})
+        finally:
+            if process.poll() is None:
+                process.kill(); process.communicate(timeout=5)
+        self.assertEqual(M['failure_code'](InterruptedError('OS EINTR, not our handler')), 'local_io')
+        self.assertEqual(M['failure_code'](PermissionError('PRIVATE_PATH')), 'local_io')
+
+    def test_supervisor_export_validation_preserves_primary_failure_and_rejects_raw_data(self):
+        source = (HERE / 'private-storage-maintenance-smoke.sh').read_text()
+        start = source.index('    # Already published at the original supervisor gate')
+        block = source[start:source.index('    # Cleanup has already captured', start)]
+        valid = M['supervisor_record']('control_match', 'failed', '1', 'different')
+        for raw in (json.dumps(valid), json.dumps({**valid, 'private': 'PRIVATE_DATA'}), 'x' * 1025):
+            with self.subTest(raw=raw[:50]), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary)
+                path = work / 'private-storage-maintenance-supervisor.json'
+                path.write_text(raw); path.chmod(0o600)
+                result = subprocess.run(['sh', '-eu', '-c',
+                    'maintenance_status=7\n' + block + '\ntest "$maintenance_status" -eq 7'],
+                    capture_output=True, timeout=5,
+                    env=dict(PATH='/usr/bin:/bin', WORK=str(work), source_directory=str(HERE.parents[1])))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(path.exists(), raw == json.dumps(valid))
+                if path.exists(): self.assertEqual(M['supervisor_file'](path), valid)
+
     def test_ready_publication_is_atomic_after_bytes_and_metadata_and_partial_cleanup(self):
         # Execute the real publisher/cleanup functions with only install replaced:
         # no root chown is attempted, but its exact arguments remain mandatory.
@@ -421,7 +566,8 @@ private_storage_maintenance_finalize_report 7
 
     def test_failed_lifecycle_is_exported_only_through_exact_bounded_schema(self):
         source = (HERE / 'private-storage-maintenance-smoke.sh').read_text()
-        start = source.index('    if [ "$maintenance_status" -ne 0 ]')
+        start = source.index('    if [ "$maintenance_status" -ne 0 ]',
+            source.index('private_storage_maintenance_finalize_report()'))
         block = source[start:source.index('\n    optional_json_evidence', start)]
         value = dict(version=1, success=False, kind='private-storage-maintenance-lifecycle-failure',
             stage='start_sampler', code='sampler_failure', cursor_before=3, cursor_last=5,
@@ -433,7 +579,9 @@ private_storage_maintenance_finalize_report 7
             private = work / 'maintenance-owner-lifecycle.private'
             exported = work / 'private-storage-maintenance-lifecycle-failure.json'
             current = dict(value, version=2, retained_status=M['retained_status_diagnostic']({}, 100))
-            cases = (json.dumps(value), json.dumps(current), json.dumps(dict(value, private='SECRET')),
+            cancelled = dict(current, stage='await_coordinator', code='termination_signal', sampler=None)
+            valid = (value, current, cancelled)
+            cases = (*map(json.dumps, valid), json.dumps(dict(value, private='SECRET')),
                 json.dumps(dict(value, code='SECRET_PATH')), json.dumps(dict(value, cursor_last=True)),
                 json.dumps(dict(value, sampler=dict(value['sampler'], raw_stderr='SECRET'))),
                 json.dumps(dict(current, retained_status=dict(current['retained_status'], private='SECRET'))), 'x' * 8193)
@@ -443,8 +591,8 @@ private_storage_maintenance_finalize_report 7
                 subprocess.run(['sh', '-eu', '-c', block], check=True, capture_output=True, timeout=5,
                     env={'PATH': '/usr/bin:/bin', 'WORK': str(work), 'source_directory': str(HERE.parents[1]),
                         'maintenance_status': '1'})
-                if index < 2:
-                    self.assertEqual(json.loads(exported.read_text()), (value, current)[index])
+                if index < len(valid):
+                    self.assertEqual(json.loads(exported.read_text()), valid[index])
                     exported.unlink()
                 else:
                     self.assertFalse(exported.exists())

@@ -19,6 +19,42 @@ CHECK = runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))
 OLD = runpy.run_path(str(HERE / 'test-private-storage-fragments-smoke.py'))
 
 
+class SupervisorDiagnostic(unittest.TestCase):
+    def test_closed_schema_rejects_unknown_fields_values_statuses_and_false_acceptance(self):
+        value = CHECK['supervisor_record']('control_match', 'failed', '1', 'different')
+        self.assertFalse(value['acceptance_evidence'])
+        for changed in ({'stage': 'PRIVATE_PATH'}, {'outcome': 'success'}, {'exit_status': 256},
+                {'exit_status': 0}, {'exit_status': True}, {'exit_status': 1.0},
+                {'control_relay_relation': 'PRIVATE_PEER'}, {'acceptance_evidence': True},
+                {'raw_command': 'PRIVATE_COMMAND'}, {'version': True}):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                CHECK['validate_supervisor']({**value, **changed})
+        for status in ('-15', '01', '1\nPRIVATE', '1.0', 'true'):
+            with self.subTest(status=status), self.assertRaises(ValueError):
+                CHECK['supervisor_record']('bind_slots', 'failed', status, 'unobserved')
+        with self.assertRaises(ValueError):
+            CHECK['supervisor_record']('bind_slots', 'complete', '0', 'unobserved')
+
+    def test_private_receipt_reader_is_closed_bounded_and_no_follow(self):
+        value = CHECK['supervisor_record']('control_query', 'pending', 'null', 'unobserved')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / 'supervisor.json'
+            path.write_text(json.dumps(value)); path.chmod(0o600)
+            self.assertEqual(CHECK['supervisor_file'](path), value)
+            for raw in ('x' * 1025, '{"version":1,"version":1}',
+                    json.dumps({**value, 'private_peer': 'DO_NOT_EXPORT'})):
+                path.write_text(raw)
+                with self.assertRaises(ValueError): CHECK['supervisor_file'](path)
+            path.write_text(json.dumps(value)); path.chmod(0o644)
+            with self.assertRaises(ValueError): CHECK['supervisor_file'](path)
+            path.chmod(0o600)
+            link = root / 'link'; link.symlink_to(path)
+            with self.assertRaises(OSError): CHECK['supervisor_file'](link)
+            fifo = root / 'fifo'; os.mkfifo(fifo, 0o600)
+            with self.assertRaises(ValueError): CHECK['supervisor_file'](fifo)
+
+
 class InitialInventory(unittest.TestCase):
     def test_closed_original_helper_receipt_rejects_changed_status_scope_and_unbounded_input(self):
         helper = runpy.run_path(str(HERE / 'content-provider-readiness.py'))
@@ -789,7 +825,7 @@ class MaintenanceEvidence(unittest.TestCase):
             self.assertEqual(set(CHECK['EXPORT_NAMES']) - consumer_only - {
                 'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json',
                 'private-storage-maintenance-lifecycle-failure.json', 'private-storage-maintenance-route-diagnostic.json',
-                'private-storage-maintenance-inventory.json'},
+                'private-storage-maintenance-inventory.json', 'private-storage-maintenance-supervisor.json'},
                 {p.name for p in root.iterdir()})
             (root / 'private-storage-fragments-restored_usage.json').write_text('{}')
             with self.assertRaises(ValueError):
