@@ -84,7 +84,7 @@ fn enrollment_signature_private_mode_and_restart_cursor_are_retained() {
     // maintenance state machine (previously 17 KiB) in every async caller.
     let socket = temp.path().join("not-polled.sock");
     let work = maintain(&enrollment, &socket, &owner, 0);
-    assert!(std::mem::size_of_val(&work) <= 1024);
+    assert!(size_of_val(&work) <= 1024);
     drop(work);
     let signature = hex::encode(owner.sign(&signing(&enrollment).unwrap()).to_bytes());
     let path = temp.path().join("maintenance");
