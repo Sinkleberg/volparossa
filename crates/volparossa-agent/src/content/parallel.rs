@@ -11,6 +11,7 @@ use tokio::time::{Instant, timeout_at};
 
 #[cfg(test)]
 mod adaptive_tests;
+mod continuation;
 mod drivers;
 #[cfg(test)]
 mod tests;
@@ -20,7 +21,7 @@ use volparossa_content::{
     provider::{ProviderError, pull_publication_worker},
     transfer::{
         TransferError, TransferLimits, TransferProgress,
-        parallel::{ChunkWorker, ParallelDownload},
+        parallel::{ChunkWorker, ParallelDownload, ResourceRetired},
     },
 };
 
@@ -159,6 +160,17 @@ pub(super) async fn pull_indexed_with_budget(
     pull_inner(context, manifest, store, policy, sources, Some(deadline)).await
 }
 
+fn distinct_sources(providers: Vec<ProviderSource>) -> Result<Vec<ProviderSource>, ContentError> {
+    if providers.len() > 16 {
+        return Err(ContentError::Invalid);
+    }
+    let mut seen = BTreeSet::new();
+    Ok(providers
+        .into_iter()
+        .filter(|source| seen.insert(source.provider.peer_id))
+        .collect())
+}
+
 async fn pull_inner(
     context: &ControlContext,
     manifest: &VerifiedManifest,
@@ -167,14 +179,7 @@ async fn pull_inner(
     providers: Vec<ProviderSource>,
     deadline: Option<Instant>,
 ) -> Result<IndexedReceipt, ContentError> {
-    if providers.len() > 16 {
-        return Err(ContentError::Invalid);
-    }
-    let mut seen = BTreeSet::new();
-    let providers = providers
-        .into_iter()
-        .filter(|source| seen.insert(source.provider.peer_id))
-        .collect::<Vec<_>>();
+    let providers = distinct_sources(providers)?;
     if providers.is_empty() || complete(manifest, store)? {
         return Ok(IndexedReceipt::default());
     }
@@ -213,14 +218,37 @@ async fn pull_inner(
                 )
             })
             .collect();
-        let (progress, measurements, timed_out) = Box::pin(receive_workers(
-            download,
-            store,
-            drivers,
-            || budget.allowance(active.load(Ordering::Acquire)),
+        let (mut progress, measurements, mut timed_out, retired) =
+            Box::pin(receive_workers_retired(
+                download,
+                store,
+                drivers,
+                || budget.allowance(active.load(Ordering::Acquire)),
+                deadline,
+            ))
+            .await?;
+        let resumed = continuation::RetiredBatch {
+            manifest,
+            progress: &mut progress,
+            measurements: &measurements,
+            retired,
             deadline,
-        ))
+        }
+        .resume(
+            store,
+            &ProtectedContinuations {
+                context,
+                policy,
+                manifest,
+                providers: &providers,
+                budget: &budget,
+                active: &active,
+                deadline,
+                scope,
+            },
+        )
         .await?;
+        timed_out |= resumed.timed_out;
         let elapsed = observed_at.elapsed();
         if timed_out {
             content_event(context, "CONTENT_PROVIDER_TRANSFER_FAILED").await;
@@ -238,7 +266,9 @@ async fn pull_inner(
                 observed_at,
                 observed_wall,
                 elapsed,
-                valid: !timed_out && same_route,
+                // Serial recovery is useful authenticated progress, not an ordinary clean
+                // concurrent-batch cost sample or a new throughput improvement claim.
+                valid: !timed_out && same_route && !resumed.attempted,
             },
         )
         .await
@@ -247,6 +277,80 @@ async fn pull_inner(
     // Ok can contain partial progress: diagnostics call this "returned", not "complete".
     budget.finish(result.is_ok());
     result
+}
+
+struct ProtectedContinuations<'a> {
+    context: &'a ControlContext,
+    policy: &'a volparossa_policy::VerifiedManifest,
+    manifest: &'a VerifiedManifest,
+    providers: &'a [ProviderSource],
+    budget: &'a super::worker_budget::BatchBudget<'a>,
+    active: &'a AtomicUsize,
+    deadline: Instant,
+    scope: Option<RecentProviderScope>,
+}
+
+impl continuation::Sources for ProtectedContinuations<'_> {
+    fn available(&self) -> bool {
+        self.budget.available_workers() > 0
+    }
+
+    fn transport(&self, index: usize) -> &VerifiedManifest {
+        self.providers[index]
+            .transport
+            .as_ref()
+            .unwrap_or(self.manifest)
+    }
+
+    async fn receive(
+        &self,
+        index: usize,
+        download: ParallelDownload,
+        worker: ChunkWorker,
+        store: &mut ChunkStore,
+    ) -> Result<(TransferProgress, bool), ContentError> {
+        if self.scope.is_none()
+            || RecentProviderScope::for_route(self.context, self.policy).await != self.scope
+        {
+            return Err(ContentError::Policy);
+        }
+        let driver = drivers::assigned(
+            worker,
+            self.deadline,
+            self.active,
+            || self.budget.try_acquire(),
+            |mut worker| async move {
+                // The clean original session consumed the first transport attempt.
+                // This single continuation spends the last one; no nested reconnect.
+                Ok(matches!(
+                    attempt(
+                        self.context,
+                        self.policy,
+                        &self.providers[index].provider,
+                        &mut worker,
+                    )
+                    .await?,
+                    Attempt::Complete
+                ))
+            },
+        );
+        let (progress, _, timed_out, retired) = receive_workers_retired(
+            download,
+            store,
+            vec![driver],
+            || self.budget.allowance(self.active.load(Ordering::Acquire)),
+            self.deadline,
+        )
+        .await?;
+        if RecentProviderScope::for_route(self.context, self.policy).await != self.scope {
+            return Err(ContentError::Policy);
+        }
+        debug_assert!(
+            retired.is_empty(),
+            "continuations never renew retirement authority"
+        );
+        Ok((progress[0], timed_out))
+    }
 }
 
 fn prepare_download(
@@ -396,6 +500,7 @@ async fn remember_measurement(
     }
 }
 
+#[cfg(test)]
 async fn receive_workers<F: Future<Output = Result<drivers::Measurement, ContentError>>>(
     download: ParallelDownload,
     store: &mut ChunkStore,
@@ -403,21 +508,42 @@ async fn receive_workers<F: Future<Output = Result<drivers::Measurement, Content
     allowance: impl Fn() -> usize,
     deadline: Instant,
 ) -> Result<(Vec<TransferProgress>, Vec<drivers::Measurement>, bool), ContentError> {
+    receive_workers_retired(download, store, drivers, allowance, deadline)
+        .await
+        .map(|(progress, measurements, expired, _)| (progress, measurements, expired))
+}
+
+async fn receive_workers_retired<F: Future<Output = Result<drivers::Measurement, ContentError>>>(
+    download: ParallelDownload,
+    store: &mut ChunkStore,
+    drivers: Vec<F>,
+    allowance: impl Fn() -> usize,
+    deadline: Instant,
+) -> Result<
+    (
+        Vec<TransferProgress>,
+        Vec<drivers::Measurement>,
+        bool,
+        Vec<ResourceRetired>,
+    ),
+    ContentError,
+> {
     let mut progress = vec![TransferProgress::default(); drivers.len()];
     let write = timeout_at(
         deadline,
-        download.run_with_allowance(store, &mut progress, allowance),
+        download.run_with_allowance_retired(store, &mut progress, allowance),
     );
     // Every future remains owned here: cancellation drops both writer and stream owners.
     // A failed peer is collected independently, so verified siblings can still finish.
     let (written, outcomes) = tokio::join!(write, drivers::collect(drivers));
-    let timed_out = match written {
-        Ok(Ok(())) => false,
-        Ok(Err(TransferError::Timeout)) | Err(_) => true,
+    let (retired, expired) = match written {
+        Ok(Ok(retired)) => (retired, false),
+        Ok(Err(TransferError::Timeout)) | Err(_) => (Vec::new(), true),
         Ok(Err(_)) => return Err(ContentError::Invalid),
-    } || Instant::now() >= deadline;
+    };
+    let timed_out = expired || Instant::now() >= deadline;
     let measurements = outcomes.into_iter().collect::<Result<Vec<_>, _>>()?;
-    Ok((progress, measurements, timed_out))
+    Ok((progress, measurements, timed_out, retired))
 }
 
 /// A transport/close failure cannot cancel a useful sibling or erase bytes the single

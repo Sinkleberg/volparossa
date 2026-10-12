@@ -48,6 +48,8 @@ impl Drop for Held {
     }
 }
 
+// Independent fault-injection switches exercise combinations, not one exclusive state.
+#[allow(clippy::struct_excessive_bools)]
 struct Fixture {
     _directory: tempfile::TempDir,
     manifest: VerifiedManifest,
@@ -358,7 +360,7 @@ async fn duplicate_recent_hints_and_snapshots_do_not_repeat_provider_work() {
 async fn repeated_same_and_empty_snapshots_are_bounded_and_not_full_object_success() {
     for duplicate in [false, true] {
         let mut source = fixture(2);
-        for _ in 0..MAX_ROUNDS + 1 {
+        for _ in 0..=MAX_ROUNDS {
             source.snapshots.push_back(Ok(if duplicate {
                 vec![source.providers[0].clone()]
             } else {
@@ -430,10 +432,10 @@ async fn authority_and_discovery_errors_remain_fatal_or_preserve_only_verified_p
             let result = run(&mut source, deadline()).await;
             match error {
                 ContentDiscoveryError::Invalid => {
-                    assert!(matches!(result, Err(ContentError::Invalid)))
+                    assert!(matches!(result, Err(ContentError::Invalid)));
                 }
                 ContentDiscoveryError::Invalidated => {
-                    assert!(matches!(result, Err(ContentError::Policy)))
+                    assert!(matches!(result, Err(ContentError::Policy)));
                 }
                 _ if partial => assert_eq!(result.unwrap().1, CHUNK_BYTES as u64),
                 _ => assert!(matches!(result, Err(ContentError::Unavailable))),

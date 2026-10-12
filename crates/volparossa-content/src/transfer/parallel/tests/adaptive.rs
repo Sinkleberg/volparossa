@@ -5,6 +5,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+mod retirement;
 mod stream;
 
 use super::{
@@ -23,9 +24,20 @@ enum Case {
     NoResources,
     Many,
     Pressure,
+    PressureComplementary,
     RetiredCoverage,
     RetiredDuplicate,
     PressureCoverage,
+}
+
+impl Case {
+    fn allowance(self) -> usize {
+        match self {
+            Self::NoResources => 0,
+            Self::Serial | Self::Many => 1,
+            _ => 3,
+        }
+    }
 }
 
 struct Fixture {
@@ -274,6 +286,16 @@ async fn hard_pressure_preserves_partial_progress_but_does_not_claim_full_object
         .expect("hard resource pressure takes precedence over complementary coverage");
 }
 
+#[tokio::test]
+async fn dynamic_pressure_preserves_disjoint_provider_coverage_with_serial_continuation() {
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        transfer(Case::PressureComplementary),
+    )
+    .await
+    .expect("bounded disjoint coverage after three streams drain to one");
+}
+
 fn reject_speed_probe(download: &mut ParallelDownload) {
     // Fix only the performance history, not any content/transport response:
     // a third admitted probe did not improve the preceding aggregate rate.
@@ -342,11 +364,7 @@ async fn transfer(case: Case) {
         mut output,
         bytes,
     } = fixture(case);
-    let allowance = match case {
-        Case::NoResources => 0,
-        Case::Serial | Case::Many => 1,
-        _ => 3,
-    };
+    let allowance = case.allowance();
     let limits = TransferLimits {
         session_timeout: Duration::from_secs(8),
         ..TransferLimits::default()
@@ -387,7 +405,12 @@ async fn transfer(case: Case) {
         Ordering::SeqCst,
     );
     let mut drivers = Vec::new();
-    for (index, (worker, provider)) in workers.into_iter().zip(providers).enumerate() {
+    let providers = providers.into_iter().map(Arc::new).collect::<Vec<_>>();
+    for (index, (worker, provider)) in workers
+        .into_iter()
+        .zip(providers.iter().cloned())
+        .enumerate()
+    {
         drivers.push(tokio::spawn(drive(
             worker,
             provider,
@@ -398,8 +421,8 @@ async fn transfer(case: Case) {
         )));
     }
     let mut progress = vec![TransferProgress::default(); transports.len()];
-    download
-        .run_with_allowance(&mut output, &mut progress, || {
+    let retired = download
+        .run_with_allowance_retired(&mut output, &mut progress, || {
             counters.allowance.load(Ordering::SeqCst)
         })
         .await
@@ -407,6 +430,21 @@ async fn transfer(case: Case) {
     let mut sent = 0;
     for driver in drivers {
         sent += driver.await.unwrap().bytes;
+    }
+    if matches!(case, Case::PressureComplementary) {
+        assert!(!retired.is_empty());
+        assert!(progress.iter().map(|part| part.chunks).sum::<usize>() < 9);
+        sent += retirement::continue_streams(
+            retired,
+            &manifest,
+            &transports,
+            &providers,
+            &mut output,
+            &mut progress,
+            &counters,
+        )
+        .await;
+        assert!(counters.opened.load(Ordering::SeqCst) <= 6);
     }
     check_result(
         case,
@@ -447,7 +485,7 @@ fn check_result(
         assert!(matches!(result, Err(crate::Error::MissingChunk(_))));
         return;
     }
-    if matches!(case, Case::Pressure) {
+    if matches!(case, Case::Pressure | Case::PressureComplementary) {
         assert_eq!(counters.maximum.load(Ordering::SeqCst), 3);
         assert_eq!(counters.allowance.load(Ordering::SeqCst), 1);
         assert!(
@@ -478,7 +516,7 @@ fn check_result(
 
 async fn drive(
     mut worker: ChunkWorker,
-    provider: PublicationRegistry,
+    provider: Arc<PublicationRegistry>,
     counters: Counters,
     limits: TransferLimits,
     case: Case,
@@ -496,7 +534,7 @@ async fn drive(
     counters.maximum.fetch_max(running, Ordering::SeqCst);
     counters.opened.fetch_add(1, Ordering::SeqCst);
     let (client, mut server) = tokio::io::duplex(1024);
-    if matches!(case, Case::Pressure) && running == 3 {
+    if matches!(case, Case::Pressure | Case::PressureComplementary) && running == 3 {
         counters.allowance.store(1, Ordering::SeqCst);
     }
     let mut client = stream::MeasuredStream {

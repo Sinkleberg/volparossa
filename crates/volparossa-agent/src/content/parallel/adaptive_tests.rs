@@ -1,5 +1,7 @@
 //! Actual v1 selector/chunk streams through the production assignment/lease driver gate.
 
+mod continuation;
+
 use std::{
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
@@ -27,6 +29,10 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
+    fixture_with_disjoint(false)
+}
+
+fn fixture_with_disjoint(disjoint: bool) -> Fixture {
     let directory = tempfile::tempdir().unwrap();
     let limits = CacheLimits {
         max_bytes: 12 * CHUNK_BYTES as u64,
@@ -59,10 +65,13 @@ fn fixture() -> Fixture {
     .unwrap();
     let manifest = envelope.verify(&signer.verifying_key(), now()).unwrap();
     let mut registries = Vec::new();
-    for provider in 0..4 {
+    for provider in 0..if disjoint { 3 } else { 4 } {
         let root = directory.path().join(format!("provider-{provider}"));
         let mut store = ChunkStore::create(&root, limits).unwrap();
-        for chunk in manifest.chunks() {
+        for (index, chunk) in manifest.chunks().iter().enumerate() {
+            if disjoint && index % 3 != provider {
+                continue;
+            }
             store
                 .put_verified(*chunk.id(), &source.get(chunk.id()).unwrap().unwrap())
                 .unwrap();
@@ -272,9 +281,10 @@ async fn adaptive_worker_interruption_releases_observed_leases_before_batch_summ
                 &active,
                 || budget.try_acquire(),
                 |worker| async {
-                    let _worker = worker;
                     started.notify_one();
-                    std::future::pending::<Result<bool, ContentError>>().await
+                    let result = std::future::pending::<Result<bool, ContentError>>().await;
+                    drop(worker);
+                    result
                 },
             )
         })

@@ -62,6 +62,7 @@ impl ParallelDownload {
                 break;
             }
             if self.peers[index].state == PeerState::Active && self.peers[index].pending.is_none() {
+                self.peers[index].resource_retired = true;
                 self.finish_peer(index);
                 active -= 1;
             }
@@ -128,7 +129,7 @@ impl ParallelDownload {
             .count()
     }
 
-    fn eligible(&self, index: usize) -> bool {
+    pub(super) fn eligible(&self, index: usize) -> bool {
         self.chunks
             .iter()
             .any(|chunk| !chunk.complete && !chunk.attempted.contains(&index))

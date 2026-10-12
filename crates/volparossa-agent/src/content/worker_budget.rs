@@ -458,7 +458,7 @@ mod tests {
         }
         let causes = value["causes"].as_object().unwrap();
         assert!(causes.iter().all(|(key, value)| value
-            == &matches!(
+            == matches!(
                 key.as_str(),
                 "cpu_pressure" | "memory_unavailable" | "io_pressure"
             )));

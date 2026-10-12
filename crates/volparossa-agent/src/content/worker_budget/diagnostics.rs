@@ -16,6 +16,8 @@ pub(super) enum Outcome {
 }
 
 #[derive(Clone, Copy, Default, Serialize)]
+// Independent, cumulative observations in a closed diagnostic schema, not exclusive states.
+#[allow(clippy::struct_excessive_bools)]
 struct Causes {
     cpu_pressure: bool,
     memory_pressure: bool,
@@ -27,7 +29,7 @@ struct Causes {
     lock_unavailable: bool,
 }
 
-/// Counts saturate at u32::MAX; this never clamps the actual resource decision.
+/// Counts saturate at `u32::MAX`; this never clamps the actual resource decision.
 #[derive(Clone, Serialize)]
 struct Summary {
     schema_version: u8,
@@ -197,7 +199,7 @@ mod tests {
             assert_eq!(value["initial_allowance"], 0);
             let causes = value["causes"].as_object().unwrap();
             assert_eq!(causes.len(), 8);
-            assert!(causes.iter().all(|(key, value)| value == &(key == reason)));
+            assert!(causes.iter().all(|(key, value)| value == (key == reason)));
         }
     }
 
