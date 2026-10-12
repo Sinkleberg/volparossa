@@ -44,6 +44,7 @@ EXPORT_NAMES = tuple(name for name in F['EXPORT_NAMES'] if name not in
     'private-storage-maintenance-supervisor.json',
     'private-storage-fragments-lifecycle-live-selection.json',
     'private-storage-fragments-lifecycle-gates.json',
+    *(f'private-storage-fragments-{name}-layout.json' for name in ('upload', 'lifecycle', 'restore', 'finish')),
     'content-provider-adaptive-private-storage-fragments-lifecycle-control.json',
     *(f'private-storage-fragments-lifecycle-privacy-{role}.json' for role in F['ROLES']))
 EXPORT_NAMES = tuple(dict.fromkeys((*EXPORT_NAMES, *CONSUMERS['EXPORT_NAMES'])))
@@ -58,7 +59,8 @@ REPAIR_DIAGNOSTIC = None
 REPAIR_TURNS = []
 SAMPLER_DIAGNOSTIC = {}
 LIFECYCLE_DIAGNOSTIC = None
-SUPERVISOR_STAGES = ('bind_slots', 'control_query', 'control_match', 'route_scope',
+SUPERVISOR_STAGES = ('bind_slots', 'control_query', 'control_match', 'broker_validated', 'control_rebind',
+    'control_verified', 'route_scope',
     'start_observers', 'ready_payload', 'publish_ready', 'join_owner',
     'lifecycle_receipt', 'finish_observers', 'coordinator_cleanup')
 LIFECYCLE_STAGES = ('checkpoint_before', 'spawn_owner', 'await_working', 'await_core_loss',
@@ -1404,7 +1406,8 @@ def validate_lifecycle(value, *, historical=False):
         and value['physical_payload_charge'] == 2 * BYTES, 'lifecycle evidence incomplete')
 
 
-def validate_evidence(value, *, historical=False):
+def validate_evidence(value, *, historical=False, previous=False):
+    require(not (historical and previous), 'ambiguous historical profile')
     require(value['success'] is True and all(value[key] is False for key in SCOPE_FALSE), 'scope overstated')
     require(value['prepare'] == dict(synthetic_opaque_bytes=True, ciphertext_bytes=BYTES, fragment_lengths=list(LENGTHS),
         providers=3, copies_per_fragment=2, grant_payload_bytes=[BYTES] * 3, grant_max_leases=[4] * 3,
@@ -1465,8 +1468,23 @@ def validate_evidence(value, *, historical=False):
             'all_provider_keys_match_independent_fixture_peers', 'three_provider_namespaces_distinct')),
         'private owner/provider isolation missing')
     require(set(value['network']) == {*F['PHASES'], 'lifecycle'}, 'network phase missing')
+    current_layout, transition_sha = value['layout'], None
+    if not (historical or previous):
+        current_layout = CONSUMERS['validate_control_transition'](value['control_transition'],
+            value['expected_peers'], value['layout'])
+        transition_sha = hashlib.sha256(CONSUMERS['canonical'](value['control_transition'])).hexdigest()
+    else:
+        require('control_transition' not in value, 'historical transition not admitted')
     for name, phase in value['network'].items():
-        layout = dict(value['layout'])
+        layout = dict(value['layout'] if name == 'upload' else current_layout)
+        if transition_sha is not None:
+            CONSUMERS['keys'](phase['layout'], ('route_scope',) if name == 'upload'
+                else ('route_scope', 'control_transition_sha256'))
+            if name != 'upload':
+                require(phase['layout']['control_transition_sha256'] == transition_sha,
+                    'maintenance phase transition differs')
+            require(phase['layout']['route_scope'] == phase['gates']['exit_route_scope'],
+                'maintenance phase scope differs')
         if name != 'upload':
             layout['route_scope'] = phase['gates']['exit_route_scope']
         F['validate_network'](phase, value['expected_peers'], layout, name,
@@ -1481,7 +1499,9 @@ def evidence(work):
         value[name] = F['read_usage'](work / f'private-storage-fragments-{name}.json')
     value.update(success=True, expected_peers=read(work / 'a01-expected-peers.json'), **dict.fromkeys(SCOPE_FALSE, False))
     value['lifecycle'] = read(work / 'private-storage-maintenance-lifecycle.json')
-    value['network'] = {name: dict(selected_route=read(work / f'private-storage-fragments-{name}-live-selection.json'),
+    value['control_transition'] = CONSUMERS['read_control_transition'](work)
+    value['network'] = {name: dict(layout=read(work / f'private-storage-fragments-{name}-layout.json'),
+        selected_route=read(work / f'private-storage-fragments-{name}-live-selection.json'),
         privacy={role: read(work / f'private-storage-fragments-{name}-privacy-{role}.json') for role in F['ROLES']},
         control_privacy=read(work / f'content-provider-adaptive-private-storage-fragments-{name}-control.json'),
         gates=read(work / f'private-storage-fragments-{name}-gates.json')) for name in (*F['PHASES'], 'lifecycle')}
@@ -1489,26 +1509,28 @@ def evidence(work):
     return value
 
 
-def validate_report(report, revision, *, historical=False):
+def validate_report(report, revision, *, historical=False, previous=False):
     # Historical v2 reports describe only the original opaque fixture. They
     # remain inspectable, but never satisfy the current combined CLI gate.
-    require(re.fullmatch('[0-9a-f]{40}', revision) and report['source_revision'] == revision
-        and report['schema_version'] == (2 if historical else 3)
+    require(not (historical and previous) and re.fullmatch('[0-9a-f]{40}', revision) and report['source_revision'] == revision
+        and report['schema_version'] == (2 if historical else 3 if previous else 4)
         and report['report_kind'] == 'volparossa-private-storage-maintenance'
         and report['success'] is True and report['runner_exit_status'] == 0
         and report['phase'] == 'private-storage-maintenance-complete' and report['observed_blocker'] is None
         and report['cleanup'] == dict(complete=True, remaining_owned_objects=0)
         and report['host_state']['unchanged'] is True, 'source-bound cleanup missing')
-    validate_evidence(report['maintenance'], historical=historical)
+    validate_evidence(report['maintenance'], historical=historical, previous=previous)
     if not historical:
-        CONSUMERS['validate_evidence'](report['consumers'])
+        CONSUMERS['validate_evidence'](report['consumers'], previous=previous)
         require(all(report['maintenance'][name] == report['consumers'][name]
-            for name in ('expected_peers', 'layout', 'isolation'))
+            for name in ('expected_peers', 'layout', 'isolation', *(() if previous else ('control_transition',))))
             and report['maintenance']['deleted_usage'] == report['consumers']['initial_usage'],
             'consumer continuation does not match original topology')
 
 
 def main(args):
+    if len(args) == 4 and args[0] == 'control-transition-check':
+        CONSUMERS['read_control_transition'](Path(args[1]), path=Path(args[2]), stage=args[3]); return
     if len(args) == 5 and args[0] == 'supervisor-record':
         print(json.dumps(supervisor_record(*args[1:]), sort_keys=True)); return
     if len(args) == 2 and args[0] == 'supervisor-check':

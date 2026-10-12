@@ -18,15 +18,16 @@ PREVIOUS = runpy.run_path(str(HERE / 'test-storage-consumer-maintenance-evidence
 MAINTENANCE = runpy.run_path(str(HERE / 'test-private-storage-maintenance-smoke.py'))
 
 
-def fixture(retired=()):
+def fixture(retired=(), *, changed=True):
     previous = PREVIOUS['fixture']()
+    PREVIOUS['attach_transition'](previous, changed=changed)
     pins = M['PROVISIONER']['load_pins']()
     provision = dict(version=1, kind='cloud-upload-maintenance-runtime-provision', success=True,
         pins=pins, pins_sha256=hashlib.sha256(M['PROVISIONER']['PINS'].read_bytes()).hexdigest(),
         previous_consumer_provision_sha256=previous['provision_sha256'], tools=copy.deepcopy(previous['provision']['tools']),
         **dict.fromkeys(M['PROVISIONER']['TRUE_FLAGS'], True), **dict.fromkeys(M['PROVISIONER']['FALSE_FLAGS'], False))
     digest = hashlib.sha256(M['encoded'](provision)).hexdigest()
-    value = dict(schema_version=1, kind='cloud-upload-maintenance-evidence', success=True,
+    value = dict(schema_version=2, kind='cloud-upload-maintenance-evidence', success=True,
         scope=dict(M['SCOPE']), previous_consumers=previous, provision=provision, provision_sha256=digest)
     for phase in ('prepare', *M['PHASES']):
         node = APP['report'](phase, retired)
@@ -79,8 +80,10 @@ def write_evidence(root, value):
     original = MAINTENANCE['fixture']()
     for name in ('expected_peers', 'layout', 'isolation'):
         original[name] = copy.deepcopy(value[name])
+    PREVIOUS['attach_transition'](original,
+        changed=value['previous_consumers']['control_transition']['relation'] == 'different', consumer=False)
     write('private-storage-maintenance-smoke.json', dict(MAINTENANCE['report'](original),
-        schema_version=3, run_id='a' * 32, consumers=value['previous_consumers']))
+        schema_version=4, run_id='a' * 32, consumers=value['previous_consumers']))
     for name in ('provision', 'prepare', *M['PHASES'], 'withdrawal'):
         write(f'cloud-upload-{name}.json', value[name])
     write('cloud-upload-private-cleanup.json', value['private_cleanup'])
@@ -137,6 +140,56 @@ class Evidence(unittest.TestCase):
             old.write_bytes(M['encoded'](modified))
             with self.assertRaisesRegex(ValueError, 'previous_raw_binding'):
                 M['build_evidence'](root)
+
+    def test_all_cloud_phases_bind_current_broker_without_rewriting_original_upload(self):
+        for changed in (False, True):
+            value = fixture(changed=changed)
+            original = copy.deepcopy(value['layout'])
+            self.assertEqual(M['validate_evidence'](value), value)
+            self.assertEqual(value['layout'], original)
+            transition = value['previous_consumers']['control_transition']
+            self.assertEqual(value['layout']['control_relay_peer_id'], transition['previous_control_relay_peer_id'])
+            digest = hashlib.sha256(M['OLD']['canonical'](transition)).hexdigest()
+            for phase in M['PHASES']:
+                self.assertEqual(value['network'][phase]['layout']['control_transition_sha256'], digest)
+                invalid = copy.deepcopy(value)
+                invalid['network'][phase]['layout']['control_transition_sha256'] = '0' * 64
+                with self.assertRaisesRegex(ValueError, 'upload_phase_transition'):
+                    M['validate_evidence'](invalid)
+                invalid = copy.deepcopy(value)
+                del invalid['network'][phase]['layout']['control_transition_sha256']
+                with self.assertRaises(ValueError): M['validate_evidence'](invalid)
+                if changed:
+                    invalid = copy.deepcopy(value)
+                    node = next(node for node in M['ROLES'][1:4]
+                        if value['expected_peers'][node] == original['control_relay_peer_id'])
+                    pairs = invalid['network'][phase]['control_privacy']['content_control_pairs']
+                    for pair in pairs.values(): pair[0] = M['NET']['PUBLIC_IPS'][node]
+                    with self.assertRaisesRegex(ValueError, 'upload_control_boundary'):
+                        M['validate_evidence'](invalid)
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                write_evidence(root, value)
+                self.assertEqual(M['build_evidence'](root), value)
+                maintenance = json.loads((root / 'private-storage-maintenance-smoke.json').read_bytes())
+                self.assertEqual(maintenance['schema_version'], 4)
+                self.assertEqual(maintenance['maintenance']['layout'], original)
+                self.assertNotIn('control_transition_sha256', maintenance['maintenance']['network']['upload']['layout'])
+                self.assertEqual(maintenance['consumers']['control_transition'], transition)
+
+    def test_old_profiles_or_replaced_transition_cannot_satisfy_current_acceptance(self):
+        self.reject(lambda value: value.update(schema_version=1), 'upload_evidence_identity')
+        self.reject(lambda value: value['previous_consumers'].update(schema_version=1))
+        self.reject(lambda value: value['layout'].update(control_relay_peer_id=
+            value['previous_consumers']['control_transition']['current_control_relay_peer_id']), 'upload_previous_fixture_binding')
+        value = fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_evidence(root, value)
+            path = root / M['OLD']['TRANSITION_NAME']
+            replacement = fixture(changed=False)['previous_consumers']['control_transition']
+            path.write_bytes(M['OLD']['canonical'](replacement))
+            with self.assertRaises(ValueError): M['build_evidence'](root)
 
     def test_absolute_shared_authority_and_source_only_ordering_claim(self):
         for mutate in (

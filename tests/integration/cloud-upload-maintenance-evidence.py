@@ -27,6 +27,7 @@ EXPORT_NAMES = (
     'cloud-upload-maintenance-smoke.json', 'private-storage-maintenance-smoke.json',
     'storage-consumer-evidence.json', 'private-storage-fragments-consumer_deleted_usage.json',
     'a01-expected-peers.json', 'private-storage-fragments-layout.json', 'private-storage-fragments-isolation.json',
+    OLD['TRANSITION_NAME'],
     *(f'cloud-upload-{name}.json' for name in ('provision', 'prepare', *PHASES, 'withdrawal', 'private-cleanup', 'isolation', 'evidence')),
     *(f'private-storage-fragments-cloud_upload_{name}_usage.json' for name in ('uploaded', 'restored', 'deleted')),
     *(filename for phase in PHASES for filename in (
@@ -93,7 +94,7 @@ def usage(actual, expected):
         require(all(count(n) for n in record.values()) and record == original, 'upload_exact_store_usage')
 
 
-def validate_network(phase, peers, layout, name, size, repair_bytes, minimum):
+def validate_network(phase, peers, layout, name, size, repair_bytes, minimum, transition_sha):
     """Unchanged privacy/route predicates, explicit new phases and byte bounds.
 
     Each still-live original A fragment needs its B/C survivor read and other
@@ -101,7 +102,8 @@ def validate_network(phase, peers, layout, name, size, repair_bytes, minimum):
     Pre-withdrawal replacements are not counted again as post-loss reads.
     """
     keys(phase, ('layout', 'selected_route', 'privacy', 'control_privacy', 'gates'))
-    keys(phase['layout'], ('route_scope',))
+    keys(phase['layout'], ('route_scope', 'control_transition_sha256'))
+    require(phase['layout']['control_transition_sha256'] == transition_sha, 'upload_phase_transition')
     selected, privacy, gates = phase['selected_route'], phase['privacy'], phase['gates']
     SAMPLER['validate_summary'](gates, gates['event_baseline_unix_ms'], minimum)
     SAMPLER['validate_phase_route'](phase['layout']['route_scope'], selected, gates)
@@ -158,7 +160,7 @@ def validate_evidence(value):
     keys(value, ('schema_version', 'kind', 'success', 'scope', 'previous_consumers', 'provision', 'provision_sha256',
         'prepare', *PHASES, 'withdrawal', 'private_cleanup', 'initial_usage', 'uploaded_usage', 'restored_usage',
         'deleted_usage', 'expected_peers', 'layout', 'isolation', 'upload_isolation', 'network'))
-    require(type(value['schema_version']) is int and value['schema_version'] == 1
+    require(type(value['schema_version']) is int and value['schema_version'] == 2
         and value['kind'] == 'cloud-upload-maintenance-evidence' and value['success'] is True, 'upload_evidence_identity')
     require(encoded(value['scope']) == encoded(SCOPE), 'upload_evidence_scope')
     OLD['validate_evidence'](value['previous_consumers'])
@@ -168,6 +170,11 @@ def validate_evidence(value):
         and value['provision']['previous_consumer_provision_sha256'] == value['previous_consumers']['provision_sha256'], 'upload_provision_hash')
     for field in ('expected_peers', 'layout', 'isolation'):
         require(encoded(value[field]) == encoded(value['previous_consumers'][field]), 'upload_previous_fixture_binding')
+    # Keep the original upload layout immutable. The additional Cloud phases
+    # run after the real core restart and the mandatory, kernel-checked rebind.
+    transition = value['previous_consumers']['control_transition']
+    current_layout = OLD['validate_control_transition'](transition, value['expected_peers'], value['layout'])
+    transition_sha = hashlib.sha256(OLD['canonical'](transition)).hexdigest()
     require(encoded(value['initial_usage']) == encoded(value['previous_consumers']['deleted_usage']), 'upload_previous_zero_binding')
     prepared_authority = value['prepare']['authority']
     uploaded = value['upload']['node']
@@ -199,8 +206,8 @@ def validate_evidence(value):
     repair_bytes = sum(lengths[i] for i in (0, 2, 3) if i not in uploaded['baseline']['retired_original_a'])
     keys(value['network'], PHASES)
     for name, phase in value['network'].items():
-        validate_network(phase, value['expected_peers'], value['layout'], name, size, repair_bytes,
-            APP['flow_minimum'](name, uploaded))
+        validate_network(phase, value['expected_peers'], current_layout, name, size, repair_bytes,
+            APP['flow_minimum'](name, uploaded), transition_sha)
     return value
 
 
@@ -214,7 +221,7 @@ def build_evidence(work):
     # Reconstruct the original mandatory component independently as well; a
     # standalone invented old report is not enough in the joined raw builder.
     require(encoded(previous) == encoded(OLD['build_evidence'](work)), 'upload_previous_raw_binding')
-    value = dict(schema_version=1, kind='cloud-upload-maintenance-evidence', success=True, scope=dict(SCOPE),
+    value = dict(schema_version=2, kind='cloud-upload-maintenance-evidence', success=True, scope=dict(SCOPE),
         previous_consumers=previous, provision=provision, provision_sha256=hashlib.sha256(raw).hexdigest(),
         **{name: get(f'cloud-upload-{name}.json') for name in ('prepare', *PHASES, 'withdrawal')},
         private_cleanup=get('cloud-upload-private-cleanup.json'),

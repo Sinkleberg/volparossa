@@ -1104,6 +1104,9 @@ MAINTENANCE_NAMES = (FRAGMENTS_NAMES - {"private-storage-fragments-smoke.json", 
     "private-storage-maintenance-route-diagnostic.json",
     "private-storage-maintenance-inventory.json",
     "private-storage-maintenance-supervisor.json",
+    "private-storage-maintenance-control-transition.json",
+    *(f"private-storage-fragments-{phase}-layout.json"
+      for phase in ("upload", "lifecycle", "restore", "finish")),
     "private-storage-fragments-lifecycle-live-selection.json",
     "private-storage-fragments-lifecycle-gates.json",
     "content-provider-adaptive-private-storage-fragments-lifecycle-control.json",
@@ -1123,6 +1126,10 @@ MAINTENANCE_NAMES |= {f"storage-consumer-{name}.json" for name in (
     *(f"private-storage-fragments-consumer-{phase}-privacy-{role}.json"
       for role in ("client", "relay0", "relay1", "relay2", "exit")),
 )}
+MAINTENANCE_LARGE_NAMES = {
+    "private-storage-maintenance-smoke.json", "private-storage-maintenance-evidence.json",
+    "storage-consumer-evidence.json",
+}
 MAINTENANCE_PRIORITY_NAMES = {
     name for name in MAINTENANCE_NAMES if name.startswith("storage-consumer-")
     or name.startswith("private-storage-maintenance-") or name.endswith("_usage.json")
@@ -1157,9 +1164,9 @@ CLOUD_UPLOAD_OUTCOME_NAMES = {
     "private-storage-fragments-cloud_upload_deleted_usage.json",
     "host-state-before.json", "host-state-after.json", "guest-exit-status", "current-phase",
 }
-# 130 exact old/new receipt names + five recovery names = 135 slots.
+# 135 exact old/new receipt names + five recovery names = 140 slots.
 # The old scenario stays at 128; byte-identical copies share only one slot.
-CLOUD_UPLOAD_FILE_COUNT_LIMIT = 135
+CLOUD_UPLOAD_FILE_COUNT_LIMIT = 140
 
 SIGNAL_FRAGMENT_NAMES = {"a01-expected-peers.json", "signal-backup-provision.json",
     "signal-backup-private_cleanup.json", "host-state-before.json", "host-state-after.json",
@@ -1729,6 +1736,11 @@ def collect(home, opt, revision, scenario, guest_status,
         per_file = 1048576 if scenario == "browser-network" and path.name == "browser-network-evidence.json" else FILE_LIMIT
         if scenario == "cloud-upload-maintenance" and path.name in CLOUD_UPLOAD_NAMES:
             per_file = 1048576  # Complete closed JSON; same normal-export bound, still 8MiB total.
+        if scenario == "private-storage-maintenance" and path.name in MAINTENANCE_LARGE_NAMES:
+            # These aggregates embed the original bounded control-transition
+            # readbacks. Match the normal export ceiling for only these names;
+            # standalone receipts and the total byte/file bounds are unchanged.
+            per_file = 1048576
         observed = read_tail(path, min(per_file, TOTAL_LIMIT - total))
         if observed is None:
             continue

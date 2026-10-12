@@ -107,8 +107,8 @@ class Wiring(unittest.TestCase):
         new = runpy.run_path(str(HERE / 'cloud-upload-maintenance-evidence.py'))
         self.assertEqual(set(old['EXPORT_NAMES']), module['MAINTENANCE_NAMES'])
         self.assertEqual(set(old['EXPORT_NAMES']) | set(new['EXPORT_NAMES']), module['CLOUD_UPLOAD_NAMES'])
-        self.assertEqual(len(module['MAINTENANCE_NAMES']), 90)
-        self.assertEqual(len(module['CLOUD_UPLOAD_NAMES']), 130)
+        self.assertEqual(len(module['MAINTENANCE_NAMES']), 95)
+        self.assertEqual(len(module['CLOUD_UPLOAD_NAMES']), 135)
         recovery = {'guest-phase.txt', 'current-phase', 'guest-exit-status', 'host-state-before.json', 'host-state-after.json'}
         self.assertFalse(module['CLOUD_UPLOAD_NAMES'] & recovery)
         self.assertEqual(module['CLOUD_UPLOAD_FILE_COUNT_LIMIT'], len(module['CLOUD_UPLOAD_NAMES'] | recovery))
@@ -142,7 +142,7 @@ class Wiring(unittest.TestCase):
             archive = collect(module, home, opt, SCENARIO)
             with tarfile.open(archive, 'r:gz') as bundle:
                 summary = json.load(bundle.extractfile('vm-incomplete.json'))
-                self.assertEqual(len(summary['diagnostics']['files']), 135)
+                self.assertEqual(len(summary['diagnostics']['files']), 140)
                 self.assertFalse(summary['success'])
                 self.assertFalse(summary['cleanup']['verified'])
                 self.assertTrue(all(not item['truncated'] for item in summary['diagnostics']['files']))
@@ -173,7 +173,7 @@ class Wiring(unittest.TestCase):
             with tarfile.open(archive, 'r:gz') as bundle:
                 names = bundle.getnames()
                 summary = json.load(bundle.extractfile('vm-incomplete.json'))
-                self.assertLessEqual(len(summary['diagnostics']['files']), 135)
+                self.assertLessEqual(len(summary['diagnostics']['files']), 140)
                 self.assertLessEqual(summary['diagnostics']['captured_bytes'], 8388608)
                 for label in ('published', *(f'work-{i}' for i in range(1, 5))):
                     for name in ('cloud-upload-maintenance-smoke.json', 'cloud-upload-finish.json',

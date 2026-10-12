@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Inert dispatch/export/child-lifecycle tests, never real core or network proof."""
 import copy
+import hashlib
 import io
 import json
 import os
@@ -256,6 +257,299 @@ private_storage_fragments_run() {
                     for name in bundle.getnames()))
 
 
+class ControlRebind(unittest.TestCase):
+    """Run real fixture orchestration with inert, exact-command network doubles."""
+    def trial(self, *, same=False, failure='', stale_link=False, invalid_peer=False, observer=False):
+        script = r'''
+set -eu
+umask 077
+. "$source_directory/tests/integration/content-provider-smoke.sh"
+. "$source_directory/tests/integration/private-storage-maintenance-smoke.sh"
+R0=ns0; R1=ns1; R2=ns2; R3=ns3; R4=ns4; R5=ns5
+provider_control_peer=peer0; provider_control_node=relay0
+provider_control_ns=ns0; provider_control_ip=42.158.0.1
+provider_control_ips=42.158.0.1,48.164.4.1,49.165.5.1,50.166.6.1
+PROVIDER_CONTROL_PID=$TEST_OBSERVER
+maintenance_control_peer=$TEST_PEER
+maintenance_control_relation=$TEST_RELATION
+record() { printf '%s\n' "$*" >>"$WORK/events"; [ "$TEST_FAIL" != "$*" ] || return 37; }
+private_storage_maintenance_supervisor_stage() { record "stage:$1"; }
+private_storage_maintenance_control_snapshot() {
+    record "snapshot:$1" || return "$?"
+    printf '{"nodes":{},"route_checks":null,"test_stage":"%s"}\n' "$1" >"$WORK/maintenance-control-$1.private"
+}
+python3() {
+    [ "$1:$2:$3:$4" = "-B:$WORK/bin/private-storage-maintenance-smoke.py:control-transition-check:$WORK" ] || return 93
+    record "check:$6" || return "$?"
+    # The complete validator is tested separately with kernel-shaped fixtures.
+    # Here preserve the actual file/phase ordering and closed command interface.
+    command jq -e --arg stage "$6" 'if $stage == "before" then .before.test_stage == "before" and .after == null
+        elif $stage == "detached" then .detached.test_stage == "detached" and .after == null
+        else .after.test_stage == "after" end' "$5" >/dev/null
+}
+ip() {
+    record "ip:$*" || return "$?"
+    if [ "$1" = -n ]; then
+        case "$2" in ns0|ns1|ns2|ns3|ns4|ns5) ;; *) return 93 ;; esac
+        shift 2
+        case "$*" in
+            'link delete ac0'|'link delete ac1'|'link delete ac2') ;;
+            '-j link show')
+                if [ "$TEST_STALE" = yes ]; then printf '[{"ifname":"ap0"}]\n'; else printf '[]\n'; fi ;;
+            'link add ac0 type veth peer name ap0 netns ns3'|\
+            'link add ac1 type veth peer name ap1 netns ns4'|\
+            'link add ac2 type veth peer name ap2 netns ns5') ;;
+            'address add 10.241.83.1/30 dev ac0'|'address add 10.241.83.2/30 dev ap0'|\
+            'address add 10.241.84.1/30 dev ac1'|'address add 10.241.84.2/30 dev ap1'|\
+            'address add 10.241.85.1/30 dev ac2'|'address add 10.241.85.2/30 dev ap2') ;;
+            'link set ac0 up'|'link set ap0 up'|'link set ac1 up'|'link set ap1 up'|\
+            'link set ac2 up'|'link set ap2 up') ;;
+            'route replace '*) ;;
+            '-j route get '*) printf '[]\n' ;;
+            *) return 93 ;;
+        esac
+    elif [ "$1:$2" = netns:exec ]; then
+        case "$3" in ns0|ns3|ns4|ns5) ;; *) return 93 ;; esac
+        shift 3
+        case "$*" in 'nft delete table inet vpa_content_control_adaptive_'[012]) ;; *) return 93 ;; esac
+    else return 93; fi
+}
+content_provider_filter_link() { record "filter:$*"; }
+content_custody_cli() { record current-query || return "$?"; printf '{"control_relay_peer_id":"%s"}\n' "$TEST_PEER"; }
+private_storage_maintenance_control_transition
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            (work / 'events').touch()
+            (work / 'a01-expected-peers.json').write_text(json.dumps({f'relay{i}': f'peer{i}' for i in range(6)}))
+            layout = b'{"control_relay_peer_id":"peer0","provider_nodes":["relay4","relay5","relay3"]}\n'
+            (work / 'private-storage-fragments-layout.json').write_bytes(layout)
+            original_names = [f'content-provider-adaptive-control-relay{i}-{direction}.json'
+                for i in range(3, 6) for direction in ('out', 'back')]
+            for name in original_names:
+                (work / name).write_text('ORIGINAL UPLOAD ROUTE\n')
+            result = subprocess.run(['sh', '-c', script], capture_output=True, timeout=10, env=dict(
+                PATH='/usr/bin:/bin', WORK=str(work), source_directory=str(HERE.parents[1]),
+                TEST_RELATION='same' if same else 'different', TEST_PEER='unknown' if invalid_peer else 'peer0' if same else 'peer2',
+                TEST_FAIL=failure, TEST_STALE='yes' if stale_link else 'no', TEST_OBSERVER='123' if observer else ''))
+            events = (work / 'events').read_text().splitlines()
+            for name in original_names:
+                self.assertEqual((work / name).read_text(), 'ORIGINAL UPLOAD ROUTE\n')
+            self.assertEqual((work / 'private-storage-fragments-layout.json').read_bytes(), layout)
+            path = work / 'private-storage-maintenance-control-transition.json'
+            value = json.loads(path.read_text()) if path.exists() else None
+            if path.exists():
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+                self.assertEqual(path.read_bytes(), json.dumps(value, sort_keys=True, separators=(',', ':')).encode())
+            return result, events, value
+
+    def test_changed_broker_removes_all_old_links_before_filters_and_filters_new_links_before_up(self):
+        result, events, value = self.trial()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(value['relation'], 'different')
+        self.assertEqual(value['previous_control_relay_peer_id'], 'peer0')
+        self.assertEqual(value['current_control_relay_peer_id'], 'peer2')
+        deletes = [i for i, s in enumerate(events) if 'link delete' in s]
+        filter_deletes = [i for i, s in enumerate(events) if 'nft delete table' in s]
+        creates = [i for i, s in enumerate(events) if 'link add' in s]
+        self.assertEqual(len(deletes), 3)
+        self.assertEqual(len(filter_deletes), 6)
+        self.assertEqual(len(creates), 3)
+        self.assertLess(events.index('check:before'), min(deletes))
+        self.assertLess(max(deletes), min(filter_deletes))
+        self.assertLess(max(filter_deletes), events.index('check:detached'))
+        self.assertLess(events.index('check:detached'), min(creates))
+        for slot in range(3):
+            broker = events.index(f'filter:ns2 adaptive_{slot} ac{slot} 45.161.2.1 {("48.164.4.1", "49.165.5.1", "50.166.6.1")[slot]}')
+            peer = next(i for i, s in enumerate(events) if s.startswith(f'filter:ns{slot + 3} adaptive_{slot} ap{slot} '))
+            self.assertLess(max(broker, peer), events.index(f'ip:-n ns2 link set ac{slot} up'))
+            self.assertLess(max(broker, peer), events.index(f'ip:-n ns{slot + 3} link set ap{slot} up'))
+        self.assertEqual(events[-1], 'check:complete')
+
+    def test_same_broker_is_observed_without_link_route_or_filter_mutation(self):
+        result, events, value = self.trial(same=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(value['detached'])
+        self.assertFalse(any(s.startswith(('ip:', 'filter:')) for s in events))
+        self.assertEqual([s for s in events if s.startswith('check:')], ['check:before', 'check:complete'])
+
+    def test_rejected_readback_or_partial_mutation_never_publishes_success(self):
+        for failure in ('snapshot:before', 'check:before', 'ip:-n ns0 link delete ac1',
+                'ip:netns exec ns0 nft delete table inet vpa_content_control_adaptive_1',
+                'check:detached', 'ip:-n ns2 link add ac1 type veth peer name ap1 netns ns4',
+                'filter:ns4 adaptive_1 ap1 49.165.5.1 45.161.2.1', 'current-query', 'check:complete'):
+            with self.subTest(failure=failure):
+                result, events, value = self.trial(failure=failure)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIsNone(value)
+                if failure in ('snapshot:before', 'check:before'):
+                    self.assertFalse(any('link delete' in s for s in events))
+                if failure == 'check:detached':
+                    self.assertFalse(any('link add' in s for s in events))
+                if failure.startswith('filter:ns4'):
+                    self.assertNotIn('ip:-n ns2 link set ac1 up', events)
+        result, events, value = self.trial(stale_link=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(value)
+        self.assertFalse(any('nft delete' in s or 'link add' in s for s in events))
+
+    def test_unknown_broker_or_live_observer_is_rejected_before_mutation(self):
+        for options in ({'invalid_peer': True}, {'observer': True}):
+            result, events, value = self.trial(**options)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(value)
+            self.assertFalse(any(s.startswith(('ip:', 'filter:')) for s in events))
+
+    def test_snapshot_keeps_only_fixed_kernel_projections_and_reads_actual_six_routes(self):
+        answers = {}
+        for node in range(6):
+            answers[f'-n ns{node} -j -d link show'] = [
+                dict(ifindex=1, ifname='underlay', address='PRIVATE_NON_CONTROL_MAC'),
+                dict(ifindex=10, ifname='ac0' if node == 0 else 'ap0', link_index=11,
+                    flags=['UP'], linkinfo=dict(info_kind='veth'), address='PRIVATE_MAC')]
+            answers[f'-n ns{node} -j -d -4 route show'] = [
+                dict(dst='default', dev='underlay', gateway='PRIVATE_NON_CONTROL_ROUTE'),
+                dict(dst='48.164.4.1', dev='ac0', gateway='10.241.83.2', prefsrc='42.158.0.1',
+                    protocol='boot', scope='global', uid=0, private_field='PRIVATE_ROUTE_FIELD')]
+            answers[f'netns exec ns{node} nft -j list tables'] = dict(nftables=[
+                dict(table=dict(family='inet', name='unrelated_fixture_table'))])
+        answers['netns exec ns0 nft -j list tables']['nftables'].append(
+            dict(table=dict(family='inet', name='vpa_content_control_adaptive_0')))
+        table = dict(nftables=[dict(table=dict(family='inet', name='vpa_content_control_adaptive_0'))])
+        answers['netns exec ns0 nft -j list table inet vpa_content_control_adaptive_0'] = table
+        for slot, address in enumerate(('48.164.4.1', '49.165.5.1', '50.166.6.1')):
+            answers[f'-n ns0 -j route get {address}'] = [dict(dst=address, dev=f'ac{slot}',
+                gateway=f'10.241.{83 + slot}.2', prefsrc='42.158.0.1', uid=0, cache=[])]
+            answers[f'-n ns{slot + 3} -j route get 42.158.0.1'] = [dict(dst='42.158.0.1', dev=f'ap{slot}',
+                gateway=f'10.241.{83 + slot}.1', prefsrc=address, uid=0, cache=[])]
+        script = r'''
+set -eu
+umask 077
+. "$source_directory/tests/integration/content-provider-smoke.sh"
+. "$source_directory/tests/integration/private-storage-maintenance-smoke.sh"
+R0=ns0; R1=ns1; R2=ns2; R3=ns3; R4=ns4; R5=ns5
+provider_control_ns=ns0; provider_control_ip=42.158.0.1
+ip() {
+    printf '%s\n' "$*" >>"$WORK/events"
+    command jq -ce --arg key "$*" 'if has($key) then .[$key] else error("unexpected mock command") end' "$WORK/answers.json"
+}
+private_storage_maintenance_control_snapshot "$TEST_STAGE"
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            (work / 'answers.json').write_text(json.dumps(answers))
+            def invoke(stage):
+                return subprocess.run(['sh', '-c', script], capture_output=True, timeout=5,
+                    env=dict(PATH='/usr/bin:/bin', WORK=str(work), TEST_STAGE=stage, source_directory=str(HERE.parents[1])))
+            for stage in ('before', 'detached', 'after'):
+                result = invoke(stage)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                raw = (work / f'maintenance-control-{stage}.private').read_bytes()
+                value = json.loads(raw)
+                self.assertNotIn(b'PRIVATE_', raw)
+                self.assertEqual(set(value['nodes']), {f'relay{i}' for i in range(6)})
+                self.assertEqual(value['nodes']['relay0']['tables'], {'vpa_content_control_adaptive_0': table})
+                self.assertEqual(set(value['nodes']['relay0']['links'][0]), {'ifindex', 'ifname', 'link_index', 'flags', 'kind'})
+                self.assertEqual(set(value['nodes']['relay0']['routes'][0]), {'dst', 'dev', 'gateway', 'prefsrc', 'scope', 'protocol'})
+                if stage == 'after':
+                    self.assertEqual(set(value['route_checks']), {'relay3', 'relay4', 'relay5'})
+                    for item in value['route_checks'].values():
+                        self.assertEqual(set(item), {'out', 'back'})
+                        self.assertEqual(set(item['out'][0]), {'dst', 'dev', 'gateway', 'prefsrc'})
+                else:
+                    self.assertIsNone(value['route_checks'])
+            calls = (work / 'events').read_text().splitlines()
+            self.assertEqual(len([call for call in calls if 'route get' in call]), 6)
+            self.assertFalse(any('unrelated_fixture_table' in call for call in calls))
+            self.assertNotEqual(invoke('arbitrary').returncode, 0)
+            answers['-n ns0 -j -d link show'] = 'x' * 65536
+            (work / 'answers.json').write_text(json.dumps(answers))
+            self.assertNotEqual(invoke('before').returncode, 0)
+
+    def test_actual_shell_readback_and_phase_hash_pass_actual_transition_cli(self):
+        fixtures = runpy.run_path(str(HERE / 'test-storage-consumer-maintenance-evidence.py'))
+        evidence = fixtures['M']
+        source = fixtures['fixture']()
+        script = r'''
+set -eu
+umask 077
+. "$source_directory/tests/integration/content-provider-smoke.sh"
+. "$source_directory/tests/integration/private-storage-maintenance-smoke.sh"
+R0=ns0; R1=ns1; R2=ns2; R3=ns3; R4=ns4; R5=ns5
+provider_control_ns=$TEST_NS; provider_control_ip=$TEST_IP; provider_control_peer=$TEST_PEER
+ip() { command jq -ce --arg key "$*" 'if has($key) then .[$key] else error("unexpected inert command") end' "$WORK/answers.json"; }
+content_custody_cli() { printf '{"control_relay_peer_id":"%s"}\n' "$TEST_OBSERVED"; }
+if [ "$TEST_STAGE" = phase ]; then
+    storage_route_scope=$TEST_SCOPE
+    private_storage_maintenance_phase_layout "$TEST_PHASE"
+else private_storage_maintenance_control_snapshot "$TEST_STAGE"; fi
+'''
+        for changed in (False, True):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary)
+                value = copy.deepcopy(source)
+                fixtures['attach_transition'](value, changed=changed)
+                transition = value['control_transition']
+                for name, data in (('a01-expected-peers.json', value['expected_peers']),
+                        ('private-storage-fragments-layout.json', value['layout'])):
+                    (work / name).write_bytes(evidence['encoded'](data))
+                    (work / name).chmod(0o600)
+                def invoke(stage, broker, *, phase='', observed=None):
+                    return subprocess.run(['sh', '-c', script], capture_output=True, timeout=8, env=dict(
+                        PATH='/usr/bin:/bin', WORK=str(work), source_directory=str(HERE.parents[1]),
+                        TEST_STAGE=stage, TEST_PHASE=phase, TEST_NS='ns' + broker[-1],
+                        TEST_IP=evidence['NET']['PUBLIC_IPS'][broker],
+                        TEST_PEER=value['expected_peers'][broker],
+                        TEST_OBSERVED=observed or value['expected_peers'][broker],
+                        TEST_SCOPE=json.dumps(value['layout']['route_scope'])))
+                current = next(node for node in evidence['CONTROL_NODES'][:3]
+                    if value['expected_peers'][node] == transition['current_control_relay_peer_id'])
+                previous = next(node for node in evidence['CONTROL_NODES'][:3]
+                    if value['expected_peers'][node] == transition['previous_control_relay_peer_id'])
+                for stage in ('before', 'detached', 'after'):
+                    if stage == 'detached' and not changed: continue
+                    snapshot = transition[stage]
+                    broker = previous if stage == 'before' else current
+                    answers = {}
+                    for node, row in snapshot['nodes'].items():
+                        ns = 'ns' + node[-1]
+                        answers[f'-n {ns} -j -d link show'] = [dict(
+                            (key, item) for key, item in link.items() if key != 'kind')
+                            | dict(linkinfo=dict(info_kind=link['kind'])) for link in row['links']]
+                        answers[f'-n {ns} -j -d -4 route show'] = [dict(route,
+                            scope='global' if route['scope'] is None else route['scope']) for route in row['routes']]
+                        answers[f'netns exec {ns} nft -j list tables'] = dict(nftables=[
+                            dict(table=dict(family='inet', name=name)) for name in row['tables']])
+                        for name, table in row['tables'].items():
+                            answers[f'netns exec {ns} nft -j list table inet {name}'] = table
+                    if stage == 'after':
+                        for node, routes in snapshot['route_checks'].items():
+                            answers[f'-n ns{current[-1]} -j route get {evidence["NET"]["PUBLIC_IPS"][node]}'] = routes['out']
+                            answers[f'-n ns{node[-1]} -j route get {evidence["NET"]["PUBLIC_IPS"][current]}'] = routes['back']
+                    (work / 'answers.json').write_text(json.dumps(answers))
+                    result = invoke(stage, broker)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    transition[stage] = json.loads((work / f'maintenance-control-{stage}.private').read_bytes())
+                    partial = copy.deepcopy(transition)
+                    if stage == 'before': partial.update(detached=None, after=None)
+                    if stage == 'detached': partial['after'] = None
+                    path = work / evidence['TRANSITION_NAME']
+                    path.write_bytes(evidence['canonical'](partial))
+                    path.chmod(0o600)
+                    result = subprocess.run([sys.executable, '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                        'control-transition-check', str(work), str(path), 'complete' if stage == 'after' else stage],
+                        capture_output=True, timeout=8)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                for phase in ('upload', 'lifecycle', 'restore', 'finish', 'consumer-publish'):
+                    result = invoke('phase', current, phase=phase)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    expected = dict(route_scope=value['layout']['route_scope'])
+                    if phase != 'upload':
+                        expected['control_transition_sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+                    self.assertEqual(json.loads(result.stdout), expected)
+                    self.assertNotEqual(invoke('phase', current, phase=phase, observed='different-peer').returncode, 0)
+
+
 class OwnerLifecycle(unittest.TestCase):
     def supervisor_trial(self, failure='', relation='same', *, hard_exit=False, diagnostic_failure=False):
         script = r'''
@@ -286,6 +580,16 @@ jq() {
 private_storage_fragments_phase_start() {
     if [ "$TEST_HARD_EXIT" = yes ]; then exit 43; fi
     gate start_observers
+}
+private_storage_maintenance_control_transition() {
+    private_storage_maintenance_supervisor_stage broker_validated
+    [ -n "$maintenance_control_peer" ] || return 1
+    gate broker_validated || return "$?"
+    private_storage_maintenance_supervisor_stage control_rebind
+    gate control_rebind || return "$?"
+    provider_control_peer=$maintenance_control_peer
+    private_storage_maintenance_supervisor_stage control_verified
+    gate control_verified
 }
 private_storage_maintenance_publish_ready() { gate publish_ready; }
 private_storage_fragments_phase_finish() { gate finish_observers; }
@@ -328,29 +632,31 @@ exit "$status"
 
     def test_post_reconnect_retains_each_gate_failure_before_cleanup(self):
         for stage in M['SUPERVISOR_STAGES']:
+            if stage == 'control_match':
+                continue  # Strictly readable historical diagnostic, no longer an active identity gate.
             with self.subTest(stage=stage):
-                result, value = self.supervisor_trial(stage,
-                    'different' if stage == 'control_match' else 'same')
+                result, value = self.supervisor_trial(stage)
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertEqual(value['stage'], stage)
                 self.assertEqual(value['outcome'], 'failed')
                 # The query retains its original pipeline exit (jq sees EOF),
                 # while explicit test failure and child wait retain status37.
-                self.assertEqual(value['exit_status'], 4 if stage == 'control_query'
-                    else 1 if stage == 'control_match' else 37)
+                self.assertEqual(value['exit_status'], 4 if stage == 'control_query' else 37)
                 self.assertEqual(value['control_relay_relation'],
-                    'unobserved' if stage in ('bind_slots', 'control_query')
-                    else 'different' if stage == 'control_match' else 'same')
+                    'unobserved' if stage in ('bind_slots', 'control_query') else 'same')
 
     def test_post_reconnect_success_empty_control_and_hard_exit_do_not_invent_acceptance(self):
         result, value = self.supervisor_trial()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((value['stage'], value['outcome'], value['exit_status']),
             ('coordinator_cleanup', 'complete', 0))
+        result, value = self.supervisor_trial(relation='different')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(value['control_relay_relation'], 'different')
         result, value = self.supervisor_trial(relation='empty')
         self.assertEqual(result.returncode, 1)
         self.assertEqual((value['stage'], value['control_relay_relation'], value['exit_status']),
-            ('control_match', 'empty', 1))
+            ('broker_validated', 'empty', 1))
         result, value = self.supervisor_trial(hard_exit=True)
         self.assertEqual(result.returncode, 43)
         self.assertEqual((value['stage'], value['outcome'], value['exit_status']),

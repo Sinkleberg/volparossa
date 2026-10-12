@@ -20,7 +20,81 @@ APP = runpy.run_path(str(HERE / 'test-storage-consumer-maintenance-smoke.py'))
 OLD = runpy.run_path(str(HERE / 'test-private-storage-fragments-smoke.py'))
 
 
-def fixture():
+def filter_fixture(slot, interface, local, remote):
+    table = f'vpa_content_control_adaptive_{slot}'
+    rows = [dict(metainfo=dict(version='1.1.3', release_name='Test fixture', json_schema_version=1)),
+        dict(table=dict(family='inet', name=table, handle=1))]
+    def match(left, right):
+        return dict(match=dict(op='==', left=left, right=right))
+    for chain, key, source, destination in (
+            ('input', 'iifname', remote, local), ('output', 'oifname', local, remote),
+            ('forward', None, None, None)):
+        rows.append(dict(chain=dict(family='inet', table=table, name=chain,
+            type='filter', hook=chain, prio=-20, policy='accept')))
+        rules = []
+        if key:
+            device = match(dict(meta=dict(key=key)), interface)
+            for field in ('dport', 'sport'):
+                rules.append([device, match(dict(payload=dict(protocol='ip', field='saddr')), source),
+                    match(dict(payload=dict(protocol='ip', field='daddr')), destination),
+                    match(dict(payload=dict(protocol='udp', field=field)), 41000), dict(accept=None)])
+            rules.append([device, dict(drop=None)])
+        else:
+            rules = [[match(dict(meta=dict(key=key)), interface), dict(drop=None)]
+                for key in ('iifname', 'oifname')]
+        rows.extend(dict(rule=dict(family='inet', table=table, chain=chain, expr=rule)) for rule in rules)
+    return dict(nftables=rows)
+
+
+def snapshot_fixture(broker, *, routed=False):
+    value = dict(nodes={node: dict(links=[], routes=[], tables={}) for node in M['CONTROL_NODES']}, route_checks=None)
+    if broker is None: return value
+    addresses = M['NET']['PUBLIC_IPS']
+    for slot, provider in enumerate(M['CONTROL_PROVIDERS']):
+        for node, other, device, index, peerindex, address, gateway in (
+                (broker, provider, f'ac{slot}', 10 + slot, 20 + slot, 1, 2),
+                (provider, broker, f'ap{slot}', 20 + slot, 10 + slot, 2, 1)):
+            snapshot = value['nodes'][node]
+            snapshot['links'].append(dict(ifindex=index, ifname=device, link_index=peerindex,
+                flags=['BROADCAST', 'MULTICAST', 'UP', 'LOWER_UP'], kind='veth'))
+            snapshot['routes'].extend([
+                dict(dst=f'10.241.{83 + slot}.0/30', dev=device, gateway=None,
+                    prefsrc=f'10.241.{83 + slot}.{address}', scope='link', protocol='kernel'),
+                dict(dst=addresses[other], dev=device, gateway=f'10.241.{83 + slot}.{gateway}',
+                    prefsrc=addresses[node], scope=None, protocol='boot')])
+            snapshot['tables'][f'vpa_content_control_adaptive_{slot}'] = filter_fixture(slot, device,
+                addresses[node], addresses[other])
+    if routed:
+        value['route_checks'] = {node: dict(
+            out=[dict(dst=addresses[node], dev=f'ac{slot}', gateway=f'10.241.{83 + slot}.2', prefsrc=addresses[broker])],
+            back=[dict(dst=addresses[broker], dev=f'ap{slot}', gateway=f'10.241.{83 + slot}.1', prefsrc=addresses[node])])
+            for slot, node in enumerate(M['CONTROL_PROVIDERS'])}
+    return value
+
+
+def attach_transition(value, *, changed=True, consumer=True):
+    peers, layout = value['expected_peers'], value['layout']
+    previous = next(node for node in M['CONTROL_NODES'][:3] if peers[node] == layout['control_relay_peer_id'])
+    current = next(node for node in M['CONTROL_NODES'][:3] if node != previous) if changed else previous
+    transition = dict(schema_version=1, kind='storage-maintenance-control-transition',
+        original_layout_sha256=hashlib.sha256(M['encoded'](layout)).hexdigest(),
+        original_layout_canonical_sha256=hashlib.sha256(M['canonical'](layout)).hexdigest(),
+        previous_control_relay_peer_id=peers[previous], current_control_relay_peer_id=peers[current],
+        relation='different' if changed else 'same', before=snapshot_fixture(previous),
+        detached=snapshot_fixture(None) if changed else None, after=snapshot_fixture(current, routed=True))
+    value['control_transition'] = transition
+    digest = hashlib.sha256(M['canonical'](transition)).hexdigest()
+    for name, phase in value['network'].items():
+        phase['layout'] = dict(route_scope=copy.deepcopy(phase['gates']['exit_route_scope']))
+        if not consumer and name == 'upload': continue
+        phase['layout']['control_transition_sha256'] = digest
+        phase['control_privacy']['content_control_pairs'] = {f'ac{i}':
+            [M['NET']['PUBLIC_IPS'][current], M['NET']['PUBLIC_IPS'][node]]
+            for i, node in enumerate(M['CONTROL_PROVIDERS'])}
+    return value
+
+
+def fixture(*, previous=False):
     """Complete *synthetic* input for parent aggregate tests, never live proof."""
     pins = M['PROVISIONER']['load_pins']()
     provision = dict(version=1, kind='storage-consumer-maintenance-runtime-provision', success=True,
@@ -33,7 +107,7 @@ def fixture():
     digest = hashlib.sha256(M['encoded'](provision)).hexdigest()
     prepared = APP['prepared']()
     prepared['provision_sha256'] = digest
-    value = dict(schema_version=1, kind='storage-consumer-maintenance-evidence', success=True,
+    value = dict(schema_version=1 if previous else 2, kind='storage-consumer-maintenance-evidence', success=True,
         scope=dict(M['SCOPE']), provision=provision, provision_sha256=digest)
     for phase in ('prepare', *M['PHASES']):
         node = prepared if phase == 'prepare' else APP['report'](phase)
@@ -89,6 +163,7 @@ def fixture():
                 app[n]['response_payload_bytes'] = repair + total  # Framing/extra renew traffic is permitted.
         value['network'][name] = phase
     value['layout']['route_scope'] = copy.deepcopy(value['network']['publish']['layout']['route_scope'])
+    if not previous: attach_transition(value)
     return value
 
 
@@ -106,12 +181,129 @@ def write_evidence(root, value):
     for name in ('layout', 'isolation'):
         write(f'private-storage-fragments-{name}.json', value[name])
     write('a01-expected-peers.json', value['expected_peers'])
+    if 'control_transition' in value:
+        (root / M['TRANSITION_NAME']).write_bytes(M['canonical'](value['control_transition']))
+        (root / M['TRANSITION_NAME']).chmod(0o600)
     for name, phase in value['network'].items():
         for field, suffix in (('layout', 'layout'), ('selected_route', 'live-selection'), ('gates', 'gates')):
             write(f'private-storage-fragments-consumer-{name}-{suffix}.json', phase[field])
         write(f'content-provider-adaptive-private-storage-fragments-consumer-{name}-control.json', phase['control_privacy'])
         for role, capture in phase['privacy'].items():
             write(f'private-storage-fragments-consumer-{name}-privacy-{role}.json', capture)
+
+
+class ControlTransition(unittest.TestCase):
+    def test_same_and_changed_only_pass_after_exact_detach_routes_and_filters(self):
+        for changed in (False, True):
+            value = fixture()
+            attach_transition(value, changed=changed)
+            transition = value['control_transition']
+            M['validate_evidence'](value)
+            for stage in ('before', 'detached', 'complete'):
+                partial = copy.deepcopy(transition)
+                if stage != 'complete': partial['after'] = None
+                if stage == 'before': partial['detached'] = None
+                effective = M['validate_control_transition'](partial, value['expected_peers'], value['layout'], stage=stage)
+                self.assertEqual(effective['control_relay_peer_id'], transition['current_control_relay_peer_id'])
+                if stage != 'complete':
+                    with self.assertRaises(ValueError):
+                        M['validate_control_transition'](partial, value['expected_peers'], value['layout'])
+
+    def test_link_pair_teardown_and_actual_kernel_routes_are_not_self_reported_labels(self):
+        value = fixture()
+        current = next(n for n, peer in value['expected_peers'].items()
+            if peer == value['control_transition']['current_control_relay_peer_id'])
+        for mutate in (
+                lambda t: t.update(relation='same'),
+                lambda t: t.update(current_control_relay_peer_id=value['expected_peers']['relay3']),
+                lambda t: t.update(previous_control_relay_peer_id=value['expected_peers'][current]),
+                lambda t: t.update(original_layout_canonical_sha256='0' * 64),
+                lambda t: t['detached']['nodes']['relay2']['links'].append(dict(ifname='ac0')),
+                lambda t: t['detached']['nodes']['relay3']['routes'].append(dict(dev='ap0')),
+                lambda t: t['detached']['nodes']['relay4']['tables'].update(unexpected={}),
+                lambda t: t['after']['nodes'][current]['links'][0].update(link_index=999),
+                lambda t: t['after']['nodes'][current]['links'][0].update(flags=['UP']),
+                lambda t: t['after']['nodes'][current]['routes'][1].update(gateway='10.1.1.1'),
+                lambda t: t['after']['nodes'][current]['routes'].append(dict(dev='ac0')),
+                lambda t: t['after']['nodes']['relay3']['routes'][1].update(prefsrc='127.0.0.1'),
+                lambda t: t['after']['route_checks']['relay4']['out'][0].update(dev='underlay'),
+                lambda t: t['after']['route_checks']['relay5']['back'].clear(),
+                lambda t: t['after']['nodes'].update(client=dict(links=[], routes=[], tables={})),
+                lambda t: t.update(unverified_private_detail='DO_NOT_ACCEPT')):
+            invalid = copy.deepcopy(value['control_transition'])
+            mutate(invalid)
+            with self.subTest(mutate=mutate), self.assertRaises(ValueError):
+                M['validate_control_transition'](invalid, value['expected_peers'], value['layout'])
+
+    def test_filter_exact_verdict_order_scope_and_udp_tuple_cannot_be_broadened(self):
+        original = filter_fixture(0, 'ac0', '42.158.0.1', '48.164.4.1')
+        M['control_filter'](original, 0, 'ac0', '42.158.0.1', '48.164.4.1')
+        for mutate in (
+                lambda rows: rows[1]['table'].update(name='other'),
+                lambda rows: rows[2]['chain'].update(prio=-19),
+                lambda rows: rows[2]['chain'].update(policy='drop'),
+                lambda rows: rows[3]['rule']['expr'][0]['match'].update(right='underlay'),
+                lambda rows: rows[3]['rule']['expr'][1]['match'].update(right='0.0.0.0/0'),
+                lambda rows: rows[3]['rule']['expr'][3]['match'].update(right=443),
+                lambda rows: rows[3]['rule']['expr'][3]['match']['left']['payload'].update(protocol='tcp'),
+                lambda rows: rows[3]['rule']['expr'].pop(),
+                lambda rows: rows[5]['rule']['expr'].__setitem__(-1, dict(accept=None)),
+                lambda rows: rows.__setitem__(slice(3, 6), rows[5:6] + rows[3:5]),
+                lambda rows: rows.pop(),
+                lambda rows: rows.append(dict(rule=copy.deepcopy(rows[-1]['rule'])))):
+            invalid = copy.deepcopy(original)
+            mutate(invalid['nftables'])
+            with self.subTest(mutate=mutate), self.assertRaises(ValueError):
+                M['control_filter'](invalid, 0, 'ac0', '42.158.0.1', '48.164.4.1')
+
+    def test_phase_hash_and_captured_actual_control_pairs_must_both_match(self):
+        value = fixture()
+        for phase in M['PHASES']:
+            for change in ('hash', 'capture'):
+                invalid = copy.deepcopy(value)
+                if change == 'hash':
+                    invalid['network'][phase]['layout']['control_transition_sha256'] = '0' * 64
+                else:
+                    previous = next(n for n, peer in value['expected_peers'].items()
+                        if peer == value['layout']['control_relay_peer_id'])
+                    invalid['network'][phase]['control_privacy']['content_control_pairs']['ac0'][0] = M['NET']['PUBLIC_IPS'][previous]
+                with self.subTest(phase=phase, change=change), self.assertRaises(ValueError):
+                    M['validate_evidence'](invalid)
+
+    def test_raw_input_binding_and_real_cli_reject_symlinks_oversize_and_noncanonical_complete(self):
+        value = fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_evidence(root, value)
+            path = root / M['TRANSITION_NAME']
+            command = [sys.executable, '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                'control-transition-check', str(root), str(path), 'complete']
+            result = subprocess.run(command, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            canonical = path.read_bytes()
+            for raw in (canonical + b'\n', b' ' * (M['MAX_TRANSITION'] + 1),
+                    b'{"schema_version":1,"schema_version":1}'):
+                path.write_bytes(raw)
+                with self.assertRaises((ValueError, KeyError)):
+                    M['read_control_transition'](root)
+            path.write_bytes(canonical)
+            path.chmod(0o644)
+            with self.assertRaises(ValueError): M['read_control_transition'](root)
+            path.chmod(0o600)
+            layout = root / 'private-storage-fragments-layout.json'
+            layout.write_bytes(layout.read_bytes() + b'\n')
+            with self.assertRaisesRegex(ValueError, 'original_layout_bytes'):
+                M['read_control_transition'](root)
+            link = root / 'transition-link'; link.symlink_to(path)
+            with self.assertRaises(OSError): M['read_control_transition'](root, path=link)
+            fifo = root / 'transition-fifo'; os.mkfifo(fifo, 0o600)
+            with self.assertRaises(ValueError): M['read_control_transition'](root, path=fifo)
+
+    def test_previous_schema_is_explicit_and_never_current_acceptance(self):
+        previous = fixture(previous=True)
+        M['validate_evidence'](previous, previous=True)
+        with self.assertRaises(ValueError): M['validate_evidence'](previous)
+        with self.assertRaises(ValueError): M['validate_evidence'](fixture(), previous=True)
 
 
 class ConsumerEvidence(unittest.TestCase):

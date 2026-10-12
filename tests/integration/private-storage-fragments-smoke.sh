@@ -38,7 +38,7 @@ private_storage_fragments_cleanup() {
 private_storage_fragments_phase_start() {
     storage_phase=$1
     if [ "${private_storage_maintenance:-no}" = yes ]; then
-        jq -cn --argjson scope "$storage_route_scope" '{route_scope:$scope}' \
+        private_storage_maintenance_phase_layout "$storage_phase" \
             >"$WORK/private-storage-fragments-$storage_phase-layout.json" || fail MAINTENANCE_SCOPE_INVALID
     fi
     capture_product_logs
@@ -50,6 +50,9 @@ private_storage_fragments_phase_start() {
 
 private_storage_fragments_phase_finish() {
     storage_expected_flows=$1
+    if [ "${private_storage_maintenance:-no}" = yes ]; then
+        private_storage_maintenance_control_current || fail MAINTENANCE_CONTROL_CHANGED
+    fi
     benchmark_capture_paths "private-storage-fragments-$storage_phase-live" mptcp || fail FRAGMENTS_ROUTE_UNAVAILABLE
     if [ "${private_storage_maintenance:-no}" = yes ]; then
         python3 -B "$WORK/bin/private-storage-log-sampler.py" route-check \

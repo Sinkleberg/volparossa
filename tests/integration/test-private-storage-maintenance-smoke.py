@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, Mock, patch
 HERE = Path(__file__).parent
 CHECK = runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))
 OLD = runpy.run_path(str(HERE / 'test-private-storage-fragments-smoke.py'))
+CONSUMER_FIXTURE = runpy.run_path(str(HERE / 'test-storage-consumer-maintenance-evidence.py'))
 
 
 class SupervisorDiagnostic(unittest.TestCase):
@@ -136,7 +137,7 @@ def private_replacements(root, indexes, retired):
             json.dumps(dict(authority=dict(placements=entries))).encode())
 
 
-def fixture(*, historical=False, retired=()):
+def fixture(*, historical=False, previous=False, retired=()):
     value = OLD['fixture']()
     for name in CHECK['F']['SCOPE_FALSE']:
         value.pop(name, None)
@@ -197,6 +198,8 @@ def fixture(*, historical=False, retired=()):
             exit_flow_contexts=[dict(route_context_id=selected['route_context_id'],
                 completed=gates['exit_mptcp_tls_completed'], failed=gates['exit_mptcp_tls_failed'])])
     value['layout']['route_scope'] = copy.deepcopy(value['network']['upload']['gates']['exit_route_scope'])
+    if not (historical or previous):
+        CONSUMER_FIXTURE['attach_transition'](value, consumer=False)
     return value
 
 
@@ -819,14 +822,19 @@ class MaintenanceEvidence(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             OLD['write_evidence'](root, value)
+            (root / 'private-storage-fragments-layout.json').write_bytes(CONSUMER_FIXTURE['M']['encoded'](value['layout']))
+            (root / CHECK['CONSUMERS']['TRANSITION_NAME']).write_bytes(CHECK['CONSUMERS']['canonical'](value['control_transition']))
+            for name, phase in value['network'].items():
+                (root / f'private-storage-fragments-{name}-layout.json').write_text(json.dumps(phase['layout']))
             (root / 'private-storage-maintenance-lifecycle.json').write_text(json.dumps(value['lifecycle']))
+            for path in root.iterdir(): path.chmod(0o600)
             self.assertEqual(CHECK['evidence'](root), value)
             consumer_only = set(CHECK['CONSUMERS']['EXPORT_NAMES']) - set(CHECK['F']['EXPORT_NAMES'])
             self.assertEqual(set(CHECK['EXPORT_NAMES']) - consumer_only - {
                 'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json',
                 'private-storage-maintenance-lifecycle-failure.json', 'private-storage-maintenance-route-diagnostic.json',
                 'private-storage-maintenance-inventory.json', 'private-storage-maintenance-supervisor.json'},
-                {p.name for p in root.iterdir()})
+                {p.name for p in root.iterdir()} - {CHECK['CONSUMERS']['TRANSITION_NAME']})
             (root / 'private-storage-fragments-restored_usage.json').write_text('{}')
             with self.assertRaises(ValueError):
                 CHECK['evidence'](root)
@@ -837,7 +845,8 @@ class MaintenanceEvidence(unittest.TestCase):
         # Bind this synthetic consumer fixture to the original fixture's scope.
         for name in ('expected_peers', 'layout', 'isolation'):
             consumers[name] = copy.deepcopy(original[name])
-        combined = dict(report(original), schema_version=3, consumers=consumers)
+        CONSUMER_FIXTURE['attach_transition'](consumers)
+        combined = dict(report(original), schema_version=4, consumers=consumers)
         CHECK['validate_report'](combined, '1' * 40)
         with self.assertRaises(ValueError):
             CHECK['validate_report'](report(original), '1' * 40)
@@ -856,6 +865,29 @@ class MaintenanceEvidence(unittest.TestCase):
             result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
                 'report', str(path), '1' * 40], capture_output=True, timeout=5)
             self.assertNotEqual(result.returncode, 0, 'historical v2 must not pass the current CLI gate')
+
+    def test_original_schema_three_remains_explicit_without_reinterpreting_broker_evidence(self):
+        original = fixture(previous=True)
+        consumers = CONSUMER_FIXTURE['fixture'](previous=True)
+        for name in ('expected_peers', 'layout', 'isolation'):
+            consumers[name] = copy.deepcopy(original[name])
+        retained = dict(report(original), schema_version=3, consumers=consumers)
+        CHECK['validate_report'](retained, '1' * 40, previous=True)
+        with self.assertRaises(ValueError): CHECK['validate_report'](retained, '1' * 40)
+        with self.assertRaises(ValueError): CHECK['validate_report'](retained, '1' * 40, historical=True)
+        retained['maintenance']['control_transition'] = fixture()['control_transition']
+        with self.assertRaises(ValueError): CHECK['validate_report'](retained, '1' * 40, previous=True)
+
+    def test_original_upload_control_capture_is_not_relabelled_by_later_transition(self):
+        value = fixture()
+        original_upload = copy.deepcopy(value['network']['upload'])
+        CHECK['validate_evidence'](value)
+        self.assertEqual(value['network']['upload'], original_upload)
+        for name in ('upload', 'lifecycle', 'restore', 'finish'):
+            invalid = copy.deepcopy(value)
+            other = 'lifecycle' if name == 'upload' else 'upload'
+            invalid['network'][name]['control_privacy'] = copy.deepcopy(value['network'][other]['control_privacy'])
+            with self.subTest(phase=name), self.assertRaises(ValueError): CHECK['validate_evidence'](invalid)
 
     def test_missing_core_authority_cursor_and_stop_proofs_never_pass(self):
         for mutate in (
