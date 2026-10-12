@@ -281,6 +281,7 @@ and compute coordination belongs in the core.
 | [Weather](https://github.com/VOLPAROSSA/volparossa-weather) | Direct public model data | Shared weather processing and measured forecast improvement. |
 | [Cloud](https://github.com/VOLPAROSSA/volparossa-cloud) | OpenCloud | Private files, synchronization and server-independent access. |
 | [Bank](https://github.com/VOLPAROSSA/volparossa-bank) | Financial protocol research | Participant-owned portfolios, payments and auditable corrections; no real-money service. |
+| [Citizen](https://github.com/VOLPAROSSA/volparossa-citizen) | Participation and voting research | Proposals and referenda alongside existing institutions; synthetic procedure simulation first. |
 
 [Application scope and current boundaries](docs/applications/APPLICATIONS.md)
 

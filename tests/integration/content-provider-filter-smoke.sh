@@ -120,6 +120,11 @@ content_provider_filter_cold_run() {
         >"$WORK/content-provider-filter-publisher-cleanup.json" || fail CONTENT_FILTER_PUBLISHER_CLEANUP_FAILED
     [ ! -e "$filter_publisher" ] || fail CONTENT_FILTER_PUBLISHER_FILES_REMAIN
     content_provider_filter_consume cold
+    if [ -n "${browser_filter_bundle:-}" ]; then
+        # shellcheck source=tests/integration/browser-filter-delivery.sh
+        . "$source_directory/tests/integration/browser-filter-delivery.sh"
+        browser_filter_delivery_run
+    fi
     filter_cache_before=$(stat -Lc '%d:%i' "$filter_cache") || fail CONTENT_FILTER_CACHE_IDENTITY_UNAVAILABLE
 }
 

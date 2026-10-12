@@ -116,6 +116,25 @@ financial authorization, consensus, gateway settlement and dispute governance
 remain required work. The immune system supplies bounded analysis, not unilateral
 financial authority or a guarantee that dispersed funds can be recovered.
 
+## Citizen
+
+[volparossa-citizen](https://github.com/VOLPAROSSA/volparossa-citizen) targets
+proposals, deliberation and referenda alongside existing democratic institutions.
+The application owns its participation rules; transport, storage and compute
+should reuse the core.
+
+The first executable simulation is merged in [PR1](https://github.com/VOLPAROSSA/volparossa-citizen/pull/1).
+It freezes all eligible fictional people separately from registered accounts:
+one-third support opens a referendum, two-thirds yes adopts it and two-thirds
+no rejects it. Other outcomes remain indeterminate and permit an explicit repeat
+procedure after three calendar years. Twenty-one tests pass. The documented UTC,
+calendar and renewed-support details are simulation assumptions, not additional
+confirmed governance rules.
+
+Real identity verification and uniqueness, secret verifiable voting, contestable
+proposal review, core delivery and recovery remain open. A synthetic result is
+neither a public-election security proof nor recognized legal authority.
+
 ## Shared boundaries
 
 - Public cache, private retained storage and encrypted message custody have different

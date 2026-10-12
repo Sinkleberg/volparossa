@@ -58,6 +58,12 @@ output_directory=
 expected_commit=
 code_bundle=
 code_manifest_sha256=
+browser_filter_bundle=
+browser_filter_manifest_sha256=
+browser_filter_directory=
+weather_client_bundle=
+weather_client_manifest_sha256=
+weather_client_directory=
 # Only explicit scenario arguments may authorize the staged Code inputs.
 COOPERATIVE_CODE_BUNDLE=
 COOPERATIVE_CODE_MANIFEST_SHA256=
@@ -70,6 +76,8 @@ usage() {
         '         --source DIRECTORY --bin DIRECTORY --output DIRECTORY' \
         '         --scenario signal-backup also runs the exact pinned native Signal backup test' \
         '         --scenario agent-cooperative-code requires --code-bundle DIRECTORY --code-manifest-sha256 HEX' \
+        '         --scenario content-provider accepts --browser-filter-bundle ARCHIVE --browser-filter-manifest-sha256 HEX' \
+        '         or --weather-client-bundle ARCHIVE --weather-client-manifest-sha256 HEX (not both)' \
         '         --mpquic PATH --expected-commit SHA [--scenario alpha|reciprocity|reciprocity-private-dns|local-link|mixed-link|mpquic-growth|mptcp-growth|mptcp-refill|sharing|download-sharing|wifi-link|uplink-link|crash-recovery|content|content-message|content-https|content-provider|content-replication|content-repair|content-mailbox|content-custody|private-storage-peer|private-storage-replicas|signal-backup|private-storage-handoff|private-storage-fragments|agent-artifact|agent-train-cycle|agent-train-loop|agent-artifact-quarantine|agent-jobs|agent-jobs-loss|agent-jobs-follow|agent-jobs-peer-recovery|agent-jobs-ready-queue|agent-jobs-package-queue|agent-public-task|agent-public-document|agent-public-collection|agent-public-network-sources|agent-task-graph|agent-ready-dag|agent-model-planning|agent-model-task-graph|agent-successor-serving|agent-active-recovery|agent-adapter-aggregation|agent-autonomous-aggregation|agent-policy-assessment|dns-cache]'
 }
 
@@ -557,8 +565,11 @@ print_plan() {
             '  grant only control-group traversal and remove the exact temporary publisher identity/passphrase;' \
             '  pack/publish a normal signed static site, import two replicas, remove original publisher files;' \
             '  open by publisher/name in the Client, verify HTTP assets/ranges and SIGTERM spool cleanup (no browser engine);' \
-            '  after existing phases, create three separate control-only broker links to R3/R4/R5 and fetch 15 disjoint chunks on a fresh route;' \
+            '  after existing phases, create three separate control-only broker links to R3/R4/R5 and fetch 60 disjoint chunks on a fresh route;' \
             '  require real triple provider payload overlap, exact reconstruction and normal service/route teardown;' \
+            '  prepare the selected late broker using at most two guarded signed-offer queries within 30s; keep content cold;' \
+            '  then admit a complementary provider only after one real one-offer discovery snapshot on another fresh route;' \
+            '  bound the disposable provider gate below the unchanged Exit connect timeout; require real rediscovery or fail;' \
             '  pause only the exact guest Client helper via pidfd, cancel a pending named download and require independent cached delivery;' \
             '  stop the original Client agent while bootstrap is pending, resume that helper before teardown and require successful drain;' \
             '  retain complete privacy captures/cleanup; no general NAT, arbitrary-browser HTTPS or full-C02 claim.'
@@ -865,6 +876,26 @@ while [ "$#" -gt 0 ]; do
             [ -n "$code_bundle" ] || { usage >&2; exit 64; }
             shift
             ;;
+        --browser-filter-bundle)
+            if [ "$#" -lt 2 ] || [ -n "$browser_filter_bundle" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            browser_filter_bundle=$2
+            shift
+            ;;
+        --browser-filter-manifest-sha256)
+            if [ "$#" -lt 2 ] || [ -n "$browser_filter_manifest_sha256" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            browser_filter_manifest_sha256=$2
+            shift
+            ;;
+        --weather-client-bundle)
+            if [ "$#" -lt 2 ] || [ -n "$weather_client_bundle" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            weather_client_bundle=$2
+            shift
+            ;;
+        --weather-client-manifest-sha256)
+            if [ "$#" -lt 2 ] || [ -n "$weather_client_manifest_sha256" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            weather_client_manifest_sha256=$2
+            shift
+            ;;
         --code-manifest-sha256)
             if [ "$#" -lt 2 ] || [ -n "$code_manifest_sha256" ]; then usage >&2; exit 64; fi
             code_manifest_sha256=$2
@@ -885,7 +916,7 @@ done
 
 if [ "$mode" = preview ]; then
     if [ "$approval" != no ] \
-        || [ -n "$source_directory$binary_directory$mpquic_binary$output_directory$expected_commit$code_bundle$code_manifest_sha256" ]; then
+        || [ -n "$source_directory$binary_directory$mpquic_binary$output_directory$expected_commit$code_bundle$code_manifest_sha256$browser_filter_bundle$browser_filter_manifest_sha256$weather_client_bundle$weather_client_manifest_sha256" ]; then
         usage >&2
         exit 64
     fi
@@ -922,6 +953,20 @@ elif [ -n "$code_bundle$code_manifest_sha256" ]; then
     exit 64
 fi
 
+if [ -n "$browser_filter_bundle$browser_filter_manifest_sha256" ]; then
+    [ "$scenario" = content-provider ] || exit 64
+    case $browser_filter_bundle in /*) ;; *) exit 64 ;; esac
+    case $browser_filter_bundle in /|*/|*//*|*/../*|*/./*|*/..|*/.|*[[:cntrl:]]*) exit 64 ;; esac
+    case $browser_filter_manifest_sha256 in ''|*[!0-9a-f]*) exit 64 ;; esac
+    [ "${#browser_filter_manifest_sha256}" -eq 64 ] || exit 64
+fi
+if [ -n "$weather_client_bundle$weather_client_manifest_sha256" ]; then
+    [ "$scenario" = content-provider ] && [ -z "$browser_filter_bundle$browser_filter_manifest_sha256" ] || exit 64
+    case $weather_client_bundle in /*) ;; *) exit 64 ;; esac
+    case $weather_client_bundle in /|*/|*//*|*/../*|*/./*|*/..|*/.|*[[:cntrl:]]*) exit 64 ;; esac
+    case $weather_client_manifest_sha256 in ''|*[!0-9a-f]*) exit 64 ;; esac
+    [ "${#weather_client_manifest_sha256}" -eq 64 ] || exit 64
+fi
 [ "$(id -u)" -eq 0 ] || { printf '%s\n' 'execution requires root inside KVM' >&2; exit 77; }
 [ "$(sed -n '1{s/\..*$//;p;}' /etc/debian_version)" = 13 ] \
     || { printf '%s\n' 'execution requires Debian 13' >&2; exit 77; }
@@ -939,6 +984,36 @@ for command_name in awk busctl cat chmod chown cut date find getent grep install
     command -v "$command_name" >/dev/null 2>&1 \
         || { printf 'required guest tool unavailable: %s\n' "$command_name" >&2; exit 69; }
 done
+if [ -n "$browser_filter_bundle" ]; then
+    [ -f "$browser_filter_bundle" ] && [ ! -L "$browser_filter_bundle" ] \
+        && [ "$(readlink -e -- "$browser_filter_bundle")" = "$browser_filter_bundle" ] \
+        && [ "$(stat -Lc '%a' "$browser_filter_bundle")" = 600 ] || exit 69
+    browser_filter_input_uid=$(stat -Lc '%u' "$browser_filter_bundle")
+    if [ "$browser_filter_input_uid" -eq 0 ]; then
+        python3 -B "$source_directory/tests/integration/browser-filter-bundle.py" verify \
+            "$browser_filter_bundle" "$browser_filter_manifest_sha256" || exit 69
+    elif [ "$browser_filter_input_uid" -eq "$(id -u vpci)" ]; then
+        runuser -u vpci -- python3 -B "$source_directory/tests/integration/browser-filter-bundle.py" verify \
+            "$browser_filter_bundle" "$browser_filter_manifest_sha256" || exit 69
+    else
+        exit 69
+    fi
+fi
+if [ -n "$weather_client_bundle" ]; then
+    [ -f "$weather_client_bundle" ] && [ ! -L "$weather_client_bundle" ] \
+        && [ "$(readlink -e -- "$weather_client_bundle")" = "$weather_client_bundle" ] \
+        && [ "$(stat -Lc '%a' "$weather_client_bundle")" = 600 ] || exit 69
+    weather_client_input_uid=$(stat -Lc '%u' "$weather_client_bundle")
+    if [ "$weather_client_input_uid" -eq 0 ]; then
+        python3 -B "$source_directory/tests/integration/weather-client-bundle.py" verify-runtime \
+            "$weather_client_bundle" "$weather_client_manifest_sha256" || exit 69
+    elif [ "$weather_client_input_uid" -eq "$(id -u vpci)" ]; then
+        runuser -u vpci -- python3 -B "$source_directory/tests/integration/weather-client-bundle.py" verify-runtime \
+            "$weather_client_bundle" "$weather_client_manifest_sha256" || exit 69
+    else
+        exit 69
+    fi
+fi
 if [ "$agent_cooperative_code" = yes ]; then
     if [ -d "$code_bundle" ] && [ ! -L "$code_bundle" ] \
         && [ "$(readlink -e -- "$code_bundle")" = "$code_bundle" ] \
@@ -1280,11 +1355,14 @@ if [ "$scenario" = content-mailbox ]; then
     done
 fi
 if [ "$scenario" = content-provider ]; then
-    for provider_fixture in content-provider-smoke.sh content-provider-smoke.py content-network-smoke.py \
+    for provider_fixture in content-provider-smoke.sh content-provider-smoke.py content-provider-readiness.py content-network-smoke.py \
         content-provider-https-smoke.sh content-provider-https-smoke.py content-publication-smoke.sh content-named-smoke.sh \
         content-provider-site-smoke.sh content-provider-site-smoke.py \
         content-provider-filter-smoke.sh content-provider-filter-smoke.py \
-        content-provider-adaptive-smoke.sh content-provider-adaptive-smoke.py content-cancellation-smoke.py; do
+        content-provider-adaptive-smoke.sh content-provider-adaptive-smoke.py content-provider-worker-budget.py \
+        content-provider-resource-ready.py \
+        content-provider-pressure-smoke.sh content-provider-pressure-smoke.py content-provider-pressure.py \
+        content-provider-late-recovery.sh content-provider-late-recovery.py content-cancellation-smoke.py; do
         if [ ! -f "$source_directory/tests/integration/$provider_fixture" ] \
             || [ -L "$source_directory/tests/integration/$provider_fixture" ]; then
             printf '%s\n' 'content provider fixture unavailable' >&2
@@ -1548,13 +1626,22 @@ capture_host_state() {
 }
 
 copy_artifacts() {
+    artifact_copy_status=0
+    if [ -n "$weather_client_bundle" ] && command -v weather_client_delivery_copy_artifacts >/dev/null 2>&1; then
+        # Keep the failed closed export visible to final acceptance, but retain
+        # independent safe diagnostics even when a Weather artifact is invalid.
+        weather_client_delivery_copy_artifacts || artifact_copy_status=1
+    fi
+    if [ -n "$browser_filter_bundle" ] && command -v browser_filter_delivery_copy_artifacts >/dev/null 2>&1; then
+        browser_filter_delivery_copy_artifacts || return 1
+    fi
     if [ "$scenario" = browser-network ]; then
         # The application proof has a closed JSON-only export; never copy grant/profile/log files.
         for artifact in host-state-before.json host-state-after.json a15-evidence.json; do
             [ ! -f "$WORK/$artifact" ] || [ -L "$WORK/$artifact" ] || \
                 install -o "$OUTPUT_UID" -g "$OUTPUT_GID" -m 0600 "$WORK/$artifact" "$output_directory/$artifact" || return 1
         done
-        return 0
+        return "$artifact_copy_status"
     fi
     for artifact in \
         benchmark-selection-draws.jsonl a02-selected-paths.json \
@@ -1578,7 +1665,7 @@ copy_artifacts() {
         agent-relay0.log agent-relay1.log agent-relay2.log agent-relay3.log \
         agent-relay4.log agent-relay5.log agent-exit.log agent-exit2.log \
         helper-bootstrap1.log helper-bootstrap2.log \
-        worker-network-diagnostics.txt content-replication-provider-network.txt \
+        worker-network-diagnostics.txt content-replication-provider-network.txt content-provider-readiness.json \
         status-bootstrap1.txt status-bootstrap2.txt \
         roles-bootstrap1.txt roles-bootstrap2.txt \
         a01-bootstrap1-blocked.json a01-bootstrap2-blocked.json \
@@ -1673,9 +1760,10 @@ copy_artifacts() {
         host-state-before.json host-state-after.json a15-evidence.json; do
         if [ -f "$WORK/$artifact" ] && [ ! -L "$WORK/$artifact" ]; then
             install -o "$OUTPUT_UID" -g "$OUTPUT_GID" -m 0600 \
-                "$WORK/$artifact" "$output_directory/$artifact"
+                "$WORK/$artifact" "$output_directory/$artifact" || artifact_copy_status=1
         fi
     done
+    return "$artifact_copy_status"
 }
 
 # shellcheck source=tests/integration/benchmark-selection.sh
@@ -2070,6 +2158,14 @@ cleanup() {
     [ "$FINALIZED" = no ] || exit "$original_status"
     FINALIZED=yes
     trap - EXIT HUP INT TERM
+    # Stop the owned CPU workers/fetch and restore fixture shaping before teardown.
+    if [ "$scenario" = content-provider ] && command -v content_provider_pressure_cleanup >/dev/null 2>&1; then
+        content_provider_pressure_cleanup || original_status=1
+    fi
+    # Release the fixture gate and reap its exact owned fetch before services or namespaces.
+    if [ "$scenario" = content-provider ] && command -v content_provider_late_recovery_cleanup >/dev/null 2>&1; then
+        content_provider_late_recovery_cleanup || original_status=1
+    fi
     # Resume a fixture-paused helper BEFORE any namespace, process or service teardown.
     if [ "$scenario" = content-provider ] && command -v content_provider_cancellation_resume >/dev/null 2>&1; then
         content_provider_cancellation_resume || original_status=1
@@ -2199,6 +2295,12 @@ cleanup() {
     if [ "$scenario" = content-provider ] && command -v content_provider_filter_cleanup >/dev/null 2>&1; then
         content_provider_filter_cleanup || original_status=1
     fi
+    if [ -n "$browser_filter_bundle" ] && command -v browser_filter_delivery_cleanup >/dev/null 2>&1; then
+        browser_filter_delivery_cleanup || original_status=1
+    fi
+    if [ -n "$weather_client_bundle" ] && command -v weather_client_delivery_cleanup >/dev/null 2>&1; then
+        weather_client_delivery_cleanup || original_status=1
+    fi
     if [ "$scenario" = mpquic-growth ] && command -v mpquic_growth_cleanup >/dev/null 2>&1; then
         mpquic_growth_cleanup || original_status=1
     fi
@@ -2230,6 +2332,9 @@ cleanup() {
         done
     fi
     for cleanup_unit in $AGENT_UNITS; do retire_unit "$cleanup_unit" || true; done
+    if [ "$scenario" = content-provider ] && command -v content_provider_worker_budget_finalize >/dev/null 2>&1; then
+        content_provider_worker_budget_finalize
+    fi
     if { [ "$scenario" = content-provider ] || [ "$scenario" = content-custody ]; } \
         && ip netns exec "$CLIENT" nft list table inet vpa_content_adaptive_client_control >/dev/null 2>&1; then
         ip netns exec "$CLIENT" nft delete table inet vpa_content_adaptive_client_control || original_status=1
@@ -2601,6 +2706,14 @@ if [ "$scenario" = content-provider ]; then
     . "$source_directory/tests/integration/content-provider-filter-smoke.sh"
     # shellcheck source=tests/integration/content-provider-adaptive-smoke.sh
     . "$source_directory/tests/integration/content-provider-adaptive-smoke.sh"
+    # shellcheck source=tests/integration/content-provider-pressure-smoke.sh
+    . "$source_directory/tests/integration/content-provider-pressure-smoke.sh"
+    # shellcheck source=tests/integration/content-provider-late-recovery.sh
+    . "$source_directory/tests/integration/content-provider-late-recovery.sh"
+    if [ -n "$weather_client_bundle" ]; then
+        # shellcheck source=tests/integration/weather-client-delivery.sh
+        . "$source_directory/tests/integration/weather-client-delivery.sh"
+    fi
 fi
 if [ "$scenario" = content-replication ]; then
     # shellcheck source=tests/integration/content-replication-smoke.sh
@@ -2841,6 +2954,18 @@ if [ "$scenario" = content-https ] || [ "$scenario" = content-provider ]; then
         "$binary_directory/examples/https-content-acceptance-fixture" \
         "$WORK/bin/examples/https-content-acceptance-fixture"
 fi
+if [ "$scenario" = content-provider ]; then
+    install -o root -g root -m 0555 "$source_directory/tests/integration/content-provider-readiness.py" \
+        "$WORK/bin/content-provider-readiness.py"
+    for late_recovery_helper in content-provider-late-recovery.py content-provider-https-smoke.py content-network-smoke.py; do
+        install -o root -g root -m 0555 "$source_directory/tests/integration/$late_recovery_helper" \
+            "$WORK/bin/$late_recovery_helper"
+    done
+    for pressure_helper in content-provider-pressure.py content-provider-resource-ready.py; do
+        install -o root -g root -m 0555 "$source_directory/tests/integration/$pressure_helper" \
+            "$WORK/bin/$pressure_helper"
+    done
+fi
 if [ "$scenario" = content-custody ] || [ "$scenario" = agent-artifact ] || [ "$scenario" = agent-jobs ]; then
     for custody_script in content-custody-smoke.py content-retain-smoke.py content-provider-smoke.py content-provider-https-smoke.py content-network-smoke.py; do
         install -o root -g root -m 0555 "$source_directory/tests/integration/$custody_script" "$WORK/bin/$custody_script"
@@ -3021,6 +3146,29 @@ mpquic_binary=$WORK/bin/volparossa-mpquic
 
 [ "$scenario" != agent-artifact ] || agent_artifact_prepare
 [ "$scenario" != agent-jobs ] || agent_jobs_prepare
+
+# BEGIN browser-filter namespace-parent preflight
+if [ -n "$browser_filter_bundle${weather_client_bundle:-}" ]; then
+    PHASE=browser-filter-netns-parent
+    printf '%s\n' 'Browser fixture: create /run/netns root:root mode 0755 only if absent; preserve a safe existing parent; never change private cache permissions.'
+    # This is after the root/Debian/systemd/KVM gates, inside the disposable
+    # guest only. ip netns add otherwise inherits umask 077 when making its
+    # runtime parent, preventing the capless worker from statting its namespace.
+    # An explicit mkdir mode applies only to our new directory. The runtime
+    # parent, like iproute2's own parent mount, lasts until this VM is discarded.
+    [ ! -L /run/netns ] || fail BROWSER_FILTER_NETNS_PARENT_UNSAFE
+    if [ ! -e /run/netns ]; then
+        mkdir -m 0755 -- /run/netns || fail BROWSER_FILTER_NETNS_PARENT_UNAVAILABLE
+    fi
+    if [ ! -d /run/netns ] || [ "$(readlink -e -- /run/netns)" != /run/netns ]; then
+        fail BROWSER_FILTER_NETNS_PARENT_UNSAFE
+    fi
+    case $(stat -Lc '%u:%g:%a' /run/netns) in
+        0:0:755|0:0:711) ;;
+        *) fail BROWSER_FILTER_NETNS_PARENT_UNSAFE ;;
+    esac
+fi
+# END browser-filter namespace-parent preflight
 
 PHASE=network-topology
 for namespace in "$CLIENT" "$B1" "$B2" "$R0" "$R1" "$R2" "$R3" "$R4" "$R5" \
@@ -3446,6 +3594,15 @@ write_config() {
             printf 'download_sharing:\n  enabled: true\n  interface: ar2\n'
             printf '  total_download_mbps: 100\n  contribution_download_ceiling_mbps: 1\n'
         fi
+        if [ "$scenario" = content-provider ] && [ "$node" = client ]; then
+            # Real owner-first interface accounting for the bounded discovery prerequisite.
+            # This disposable Client has neither Relay nor Exit enabled, so these
+            # flags do not install contribution queues or receive-accounting rules.
+            printf 'sharing:\n  enabled: true\n  interface: cr0\n'
+            printf '  total_upload_mbps: 100\n  contribution_upload_ceiling_mbps: 1\n'
+            printf 'download_sharing:\n  enabled: true\n  interface: cr2\n'
+            printf '  total_download_mbps: 100\n  contribution_download_ceiling_mbps: 1\n'
+        fi
         [ "$wifi_link" != yes ] || wifi_link_config
         if [ "$scenario" = content-custody ] || [ "$scenario" = agent-artifact ] || [ "$scenario" = agent-jobs ]; then content_custody_config; fi
         [ "$scenario" != content-repair ] || content_repair_config
@@ -3834,6 +3991,10 @@ launch_agent() {
     [ "$(unit_load_state "$agent_unit")" = not-found ] || fail AGENT_UNIT_COLLISION
     AGENT_UNITS="$AGENT_UNITS $agent_unit"
     agent_rust_log=volparossa_agent=info
+    if [ "$scenario" = content-provider ] && [ "$node" = client ]; then
+        # Disposable fixture opt-in: closed per-batch resources only, no object/route/peer identities.
+        agent_rust_log=$agent_rust_log,volparossa_agent::content::worker_budget=debug,volparossa_agent::content::parallel::continuation=debug
+    fi
     if [ "$scenario" = browser-network ] && [ "$node" = client ]; then
         agent_rust_log=$agent_rust_log,volparossa_agent::browser_gateway::connect=debug
     fi
@@ -4527,7 +4688,7 @@ content_control_pairs = {}
 if role == "content-control" and content_provider_mode:
     control_argument = interfaces.pop(0) if interfaces else ""
     control_addresses = control_argument.removeprefix("--content-control=").split(",")
-    allowed_interfaces = (["cp0", "cp1"], ["ac0", "ac1", "ac2"])
+    allowed_interfaces = (["cp0", "cp1"], ["ac0", "ac1", "ac2"], ["lc0", "lc1"])
     if not control_argument.startswith("--content-control=") or interfaces not in allowed_interfaces \
             or len(control_addresses) != len(interfaces) + 1 \
             or len(set(control_addresses)) != len(control_addresses):
@@ -4586,6 +4747,7 @@ provider_timing_enabled = (content_provider_mode and role == "exit"
                           and os.path.basename(output_path) in {
                               "content-provider-privacy-exit.json",
                               "content-provider-adaptive-privacy-exit.json",
+                              "content-provider-pressure-privacy-exit.json",
                               "content-provider-adaptive-https-privacy-exit.json"})
 # Linux UAPI SO_TIMESTAMPNS_NEW reports __kernel_timespec, two signed 64-bit fields.
 # Capture packet arrival, not socket-drain time: fair queue draining can reorder interfaces.
@@ -4593,6 +4755,7 @@ provider_timing_enabled = (content_provider_mode and role == "exit"
 SO_TIMESTAMPNS_NEW = 64
 provider_payload_milestones = ([262144, 3932160]
     if os.path.basename(output_path) in {"content-provider-adaptive-privacy-exit.json",
+                                      "content-provider-pressure-privacy-exit.json",
                                       "content-provider-adaptive-https-privacy-exit.json"}
     else [65536, 983040])
 provider_payload_timing = dict(enabled=provider_timing_enabled, clock="linux-so-timestampns-new",
@@ -6072,7 +6235,13 @@ start_privacy_observers() {
             [ "$scenario" = content ] || [ "$scenario" = content-message ] || return 1 ;;
         content-https-complete-privacy|content-https-missing-privacy)
             [ "$scenario" = content-https ] || return 1 ;;
-        content-provider-privacy|content-provider-adaptive-privacy|content-provider-adaptive-https-privacy|content-provider-https-complete-privacy|content-provider-https-missing-privacy|content-provider-https-baseline-privacy|content-provider-https-origin-only-privacy|content-provider-https-auto-privacy|content-provider-https-digest-origin-only-privacy|content-provider-https-digest-peers-first-privacy|content-provider-https-limited-origin-only-privacy|content-provider-https-limited-peers-first-privacy|content-provider-https-limited-auto-privacy|content-provider-https-checksum-origin-only-privacy|content-provider-https-checksum-peers-first-privacy|content-provider-https-checksum-mismatch-privacy|content-provider-user-privacy|content-provider-named-privacy|content-provider-site-privacy|content-provider-site-cache-only-privacy|content-provider-filter-cold-privacy|content-provider-filter-warm-privacy)
+        weather-products-delivery-weather-privacy|weather-products-delivery-air-quality-privacy)
+            [ "$scenario" = content-provider ] || return 1 ;;
+        content-provider-late-recovery-privacy)
+            [ "$scenario" = content-provider ] || return 1 ;;
+        content-provider-pressure-privacy)
+            [ "$scenario" = content-provider ] || return 1 ;;
+        content-provider-privacy|content-provider-adaptive-privacy|content-provider-adaptive-https-privacy|content-provider-https-complete-privacy|content-provider-https-missing-privacy|content-provider-https-baseline-privacy|content-provider-https-origin-only-privacy|content-provider-https-auto-privacy|content-provider-https-digest-origin-only-privacy|content-provider-https-digest-peers-first-privacy|content-provider-https-limited-origin-only-privacy|content-provider-https-limited-peers-first-privacy|content-provider-https-limited-auto-privacy|content-provider-https-checksum-origin-only-privacy|content-provider-https-checksum-peers-first-privacy|content-provider-https-checksum-mismatch-privacy|content-provider-user-privacy|content-provider-named-privacy|content-provider-site-privacy|content-provider-site-cache-only-privacy|content-provider-filter-cold-privacy|content-provider-filter-warm-privacy|weather-client-delivery-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;
         content-message-publication-privacy)
             [ "$scenario" = content-message ] || return 1 ;;

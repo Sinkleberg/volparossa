@@ -21,6 +21,10 @@ expected_commit=
 scenario=alpha
 code_bundle=
 code_manifest_sha256=
+browser_filter_bundle=
+browser_filter_manifest_sha256=
+weather_client_bundle=
+weather_client_manifest_sha256=
 
 guest_memory_for_scenario() {
     # These fixtures co-locate two 360M providers in one guest. Production
@@ -42,7 +46,9 @@ usage() {
         '       --package is required only for alpha; --mpquic is unnecessary for standalone Wi-Fi/model/private-browser/transaction-TEST proofs.' \
         '       agent-cooperative-code also requires --code-bundle DIRECTORY --code-manifest-sha256 SHA256.' \
         '       --native-runtime PATH is required for agent-native-coding or agent-native-editor (exact verified bundle).' \
-        '       Native-editor and cooperative-code optionally accept --host-tools-directory PATH (verified workspace-only QEMU).'
+        '       content-provider optionally accepts --browser-filter-bundle ARCHIVE --browser-filter-manifest-sha256 SHA256.' \
+        '       Or --weather-client-bundle ARCHIVE --weather-client-manifest-sha256 SHA256 (one joined client per run).' \
+        '       Native-editor, cooperative-code and content-provider accept --host-tools-directory PATH (verified workspace-only QEMU).'
 }
 
 print_plan() {
@@ -336,6 +342,7 @@ print_plan() {
             '  two disposable UDP41000-only broker-provider links with exact route and drained capture evidence;' \
             '  actual generic DHT/control-relay discovery and protected MPTCP reconstruction after publisher removal;' \
             '  exact policy-only DNS destinations, isolated Client files, both provider PeerIds and complete privacy/cleanup;' \
+            '  separate late complementary-provider phase: first one-offer snapshot, bounded gate, real rediscovery and no retry substitution;' \
             '  cooperative-origin HTTPS same-object complete/missing-ranges cases; no general NAT/browser HTTPS/full-C02 claim.'
     elif [ "$scenario" = cloud-private-upload ]; then
         printf '%s\n' \
@@ -506,6 +513,26 @@ while [ "$#" -gt 0 ]; do
             code_bundle=$2
             shift
             ;;
+        --browser-filter-bundle)
+            if [ "$#" -lt 2 ] || [ -n "$browser_filter_bundle" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            browser_filter_bundle=$2
+            shift
+            ;;
+        --browser-filter-manifest-sha256)
+            if [ "$#" -lt 2 ] || [ -n "$browser_filter_manifest_sha256" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            browser_filter_manifest_sha256=$2
+            shift
+            ;;
+        --weather-client-bundle)
+            if [ "$#" -lt 2 ] || [ -n "$weather_client_bundle" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            weather_client_bundle=$2
+            shift
+            ;;
+        --weather-client-manifest-sha256)
+            if [ "$#" -lt 2 ] || [ -n "$weather_client_manifest_sha256" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            weather_client_manifest_sha256=$2
+            shift
+            ;;
         --code-manifest-sha256)
             if [ "$#" -lt 2 ] || [ -n "$code_manifest_sha256" ]; then usage >&2; exit 64; fi
             code_manifest_sha256=$2
@@ -560,7 +587,7 @@ done
 
 if [ "$mode" = preview ]; then
     if [ "$approval" != no ] \
-        || [ -n "$image_path$mpquic_path$package_path$native_runtime_path$host_tools_directory$output_directory$expected_commit$code_bundle$code_manifest_sha256" ]; then
+        || [ -n "$image_path$mpquic_path$package_path$native_runtime_path$host_tools_directory$output_directory$expected_commit$code_bundle$code_manifest_sha256$browser_filter_bundle$browser_filter_manifest_sha256$weather_client_bundle$weather_client_manifest_sha256" ]; then
         usage >&2
         exit 64
     fi
@@ -589,12 +616,25 @@ if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative
 elif [ -n "$code_bundle$code_manifest_sha256" ]; then
     exit 64
 fi
+if [ -n "$browser_filter_bundle$browser_filter_manifest_sha256" ]; then
+    [ "$scenario" = content-provider ] || exit 64
+    case $browser_filter_bundle in /*) ;; *) exit 64 ;; esac
+    case $browser_filter_manifest_sha256 in ''|*[!0-9a-f]*) exit 64 ;; esac
+    [ "${#browser_filter_manifest_sha256}" -eq 64 ] || exit 64
+fi
+if [ -n "$weather_client_bundle$weather_client_manifest_sha256" ]; then
+    [ "$scenario" = content-provider ] && [ -z "$browser_filter_bundle$browser_filter_manifest_sha256" ] || exit 64
+    case $weather_client_bundle in /*) ;; *) exit 64 ;; esac
+    case $weather_client_bundle in /|*/|*//*|*/../*|*/./*|*/..|*/.|*[[:cntrl:]]*) exit 64 ;; esac
+    case $weather_client_manifest_sha256 in ''|*[!0-9a-f]*) exit 64 ;; esac
+    [ "${#weather_client_manifest_sha256}" -eq 64 ] || exit 64
+fi
 case $expected_commit in ''|*[!0-9a-f]*) exit 64 ;; esac
 case ${#expected_commit} in 40|64) ;; *) exit 64 ;; esac
 [ "$(id -u)" -ne 0 ] || { printf '%s\n' 'VM runner must remain unprivileged' >&2; exit 77; }
 
 if [ -n "$host_tools_directory" ]; then
-    case $scenario in agent-native-editor|agent-cooperative-code|agent-cooperative-code-proposal) ;; *) exit 64 ;; esac
+    case $scenario in agent-native-editor|agent-cooperative-code|agent-cooperative-code-proposal|content-provider) ;; *) exit 64 ;; esac
     case $host_tools_directory in /*) ;; *) exit 64 ;; esac
     python3 -B "$(dirname -- "$0")/browser-native-tools.py" --verify --output "$host_tools_directory"
     PATH=$host_tools_directory/bin:$PATH
@@ -694,6 +734,21 @@ elif [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperati
     [ "$(readlink -f -- "$output_directory")" = "$output_directory" ] || exit 64
     RUN_DIRECTORY_PARENT=$(dirname -- "$output_directory")
     RUN_DIRECTORY_PREFIX=cooperative-code-kvm
+elif [ "$scenario" = content-provider ]; then
+    # Every provider proof builds Rust in this 4 GiB guest. A growing qcow2
+    # overlay on tmpfs otherwise competes directly with the guest's RAM.
+    # Keep scratch beside validated workspace evidence, never in its export.
+    [ "$(readlink -f -- "$output_directory")" = "$output_directory" ] || exit 64
+    RUN_DIRECTORY_PARENT=$(dirname -- "$output_directory")
+    RUN_DIRECTORY_PREFIX=content-provider-kvm
+    [ -z "$browser_filter_bundle" ] || RUN_DIRECTORY_PREFIX=browser-filter-kvm
+    [ -z "${weather_client_bundle:-}" ] || RUN_DIRECTORY_PREFIX=weather-client-kvm
+    runner_scratch_filesystem=$(stat -f -c '%T' -- "$RUN_DIRECTORY_PARENT") || exit 69
+    case $runner_scratch_filesystem in
+        ''|tmpfs|ramfs)
+            printf '%s\n' 'Content-provider VM scratch requires non-memory-backed workspace storage' >&2
+            exit 69 ;;
+    esac
 fi
 RUN_DIRECTORY=$(mktemp -d "$RUN_DIRECTORY_PARENT/$RUN_DIRECTORY_PREFIX.XXXXXX")
 case $RUN_DIRECTORY in "$RUN_DIRECTORY_PARENT"/"$RUN_DIRECTORY_PREFIX".??????) ;; *) exit 69 ;; esac
@@ -752,7 +807,29 @@ git -C "$REPOSITORY" archive --format=tar --prefix=source/ "$expected_commit" \
 [ "$(stat -Lc '%s' "$SOURCE_ARCHIVE")" -gt 0 ] || exit 69
 [ "$(stat -Lc '%s' "$SOURCE_ARCHIVE")" -le 536870912 ] || exit 69
 SOURCE_SHA256=$(sha256sum "$SOURCE_ARCHIVE" | awk '{ print $1 }')
+BROWSER_FILTER_ARCHIVE=$RUN_DIRECTORY/browser-filter.tar
+BROWSER_FILTER_ARCHIVE_SHA256=none
+BROWSER_FILTER_MANIFEST_SHA256=none
+if [ -n "$browser_filter_bundle" ]; then
+    python3 -B "$HERE/browser-filter-bundle.py" verify "$browser_filter_bundle" "$browser_filter_manifest_sha256"
+    install -m 0600 "$browser_filter_bundle" "$BROWSER_FILTER_ARCHIVE"
+    python3 -B "$HERE/browser-filter-bundle.py" verify "$BROWSER_FILTER_ARCHIVE" "$browser_filter_manifest_sha256"
+    BROWSER_FILTER_ARCHIVE_SHA256=$(sha256sum "$BROWSER_FILTER_ARCHIVE" | awk '{ print $1 }')
+    BROWSER_FILTER_MANIFEST_SHA256=$browser_filter_manifest_sha256
+    printf '%s\n' 'Additional proof: exact Browser/ESR/signed-addons bundle, real core filter broker, uBO engine probes and revocation.'
+fi
 CODE_ARCHIVE=$RUN_DIRECTORY/cooperative-code.tar
+WEATHER_CLIENT_ARCHIVE=$RUN_DIRECTORY/weather-client.tar
+WEATHER_CLIENT_ARCHIVE_SHA256=none
+WEATHER_CLIENT_MANIFEST_SHA256=none
+if [ -n "$weather_client_bundle" ]; then
+    python3 -B "$HERE/weather-client-bundle.py" verify-runtime "$weather_client_bundle" "$weather_client_manifest_sha256"
+    install -m 0600 "$weather_client_bundle" "$WEATHER_CLIENT_ARCHIVE"
+    python3 -B "$HERE/weather-client-bundle.py" verify-runtime "$WEATHER_CLIENT_ARCHIVE" "$weather_client_manifest_sha256"
+    WEATHER_CLIENT_ARCHIVE_SHA256=$(sha256sum "$WEATHER_CLIENT_ARCHIVE" | awk '{ print $1 }')
+    WEATHER_CLIENT_MANIFEST_SHA256=$weather_client_manifest_sha256
+    printf '%s\n' 'Additional proof: public model HTTPS acquisition (ECMWF, plus NOAA for the two-product profiles), protected peer transfer and the exact bundled Drizz.li or Overmorrow UI; origin acquisition is not an overlay claim.'
+fi
 CODE_ARCHIVE_SHA256=none
 CODE_MANIFEST_SHA256=none
 if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative-code-proposal ]; then
@@ -837,6 +914,9 @@ SAFE_NAMES = {"runner.stdout", "runner.stderr", "guest-exit-status", "current-ph
               "private-unbound-proof.json", "private-unbound-build.log",
               "private-unbound-package.json", "private-unbound-package-lifecycle.json",
               "worker-network-diagnostics.txt", "host-state-before.json", "host-state-after.json",
+              "content-provider-adaptive-worker-budget.json", "content-provider-adaptive-https-worker-budget.json",
+              "content-provider-adaptive-continuation.json", "content-provider-adaptive-https-continuation.json",
+              "content-provider-adaptive-resource-ready.json", "content-provider-adaptive-https-resource-ready.json",
               "report.json", "local-link-smoke.json", "wifi-link-smoke.json",
               "reciprocity-smoke.json", "mixed-link-smoke.json", "mpquic-growth-smoke.json", "mptcp-growth-smoke.json", "mptcp-refill-smoke.json", "sharing-smoke.json", "download-sharing-smoke.json",
               "uplink-link-smoke.json", "crash-recovery.json", "content-network-smoke.json", "content-message-smoke.json", "content-https-smoke.json", "content-provider-smoke.json", "content-replication-smoke.json", "content-mailbox-smoke.json", "dns-cache-smoke.json",
@@ -1019,6 +1099,172 @@ COOPERATIVE_CODE_PROPOSAL_NAMES |= {
     "content-provider-custody-executor-discovery-control.json",
 } | {f"content-custody-executor-discovery-privacy-{role}.json" for role in ("client", "relay0", "relay1", "relay2", "exit")}
 
+BROWSER_FILTER_NAMES = {f"browser-filter-delivery-{suffix}.json" for suffix in (
+    "original-report", "original-outer-cleanup", "original-diagnostic", "evidence", "prepared", "cache-before", "cache-after",
+    "launch", "tree-before", "tree-after", "input-cleanup", "retained", "artifacts")}
+BROWSER_FILTER_HELPERS = ("browser-filter-delivery.py", "browser-filter-bundle.py",
+    "content-provider-filter-smoke.py", "content-provider-site-smoke.py",
+    "content-network-smoke.py", "content-provider-https-smoke.py")
+WEATHER_CLIENT_NAMES = {f"weather-client-delivery-{suffix}.json" for suffix in (
+    "cold-evidence", "evidence", "acquisition", "original-report", "tree-before", "tree-after",
+    "cache-before", "cache-after", "input-cleanup")}
+WEATHER_CLIENT_HELPERS = ("weather-client-delivery.py", "weather-client-bundle.py",
+    "browser-filter-bundle.py", "content-provider-https-smoke.py", "content-network-smoke.py")
+WEATHER_PRODUCTS_NAMES = {name.replace("weather-client-delivery-", "weather-products-delivery-", 1)
+    for name in WEATHER_CLIENT_NAMES}
+WEATHER_PRODUCTS_FAILURE_NAMES = {f"weather-products-delivery-{suffix}.json" for suffix in (
+    "acquisition-failure", "export-status", "tree-before", "input-cleanup")}
+WEATHER_PRODUCTS_HELPERS = ("weather-products-delivery.py", "weather-source-observer.mjs", *WEATHER_CLIENT_HELPERS)
+LATE_PROVIDER_NAMES = {f"content-provider-late-recovery-{suffix}.json" for suffix in (
+    "first-snapshot", "final-snapshot", "object", "run-cleanup", "cleanup", "evidence", "failure", "readiness")}
+PRESSURE_PROVIDER_NAMES = {f"content-provider-pressure-{suffix}.json" for suffix in (
+    "worker-budget", "continuation", "resource-ready", "evidence", "ready", "controller", "cleanup",
+    "object", "fetch", "selection", "live-selection", "status-before", "status-after",
+    "qdisc-before", "qdisc-limited", "qdisc-after", "qdisc-profile", "control-privacy")}
+PRESSURE_PROVIDER_NAMES.update(f"content-provider-pressure-privacy-{node}.json"
+    for node in ("client", "relay0", "relay1", "relay2", "exit"))
+PRESSURE_PROVIDER_NAMES.update(f"content-provider-pressure-{node}-{operation}.json"
+    for node in ("relay3", "relay4", "relay5") for operation in ("reset", "serve", "status", "stop"))
+PRESSURE_PRIORITY_NAMES = {f"content-provider-pressure-{suffix}.json" for suffix in (
+    "worker-budget", "continuation", "resource-ready", "evidence", "ready", "controller", "cleanup", "object", "fetch")}
+
+
+def joined_client_helper(work, names, entrypoint):
+    """Trust only the topology's immutable root-staged validation closure."""
+    try:
+        directory = work / "bin"
+        if directory.resolve(strict=True) != directory:
+            return None
+        for parent in (directory, *directory.parents):
+            info = parent.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+                return None
+        for name in names:
+            path = directory / name
+            info = path.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1
+                    or info.st_mode & 0o022 or not 0 < info.st_size <= 262144):
+                return None
+        return directory / entrypoint
+    except OSError:
+        return None
+
+
+def browser_filter_helper(work):
+    return joined_client_helper(work, BROWSER_FILTER_HELPERS, "browser-filter-delivery.py")
+
+
+def weather_client_helper(work):
+    # A present v2 entrypoint selects the complete v2 validation closure. If
+    # unsafe, reject it rather than silently interpreting v2 evidence as v1.
+    try:
+        (work / "bin/weather-products-delivery.py").lstat()
+    except FileNotFoundError:
+        return joined_client_helper(work, WEATHER_CLIENT_HELPERS, "weather-client-delivery.py")
+    except OSError:
+        return None
+    return joined_client_helper(work, WEATHER_PRODUCTS_HELPERS, "weather-products-delivery.py")
+
+
+def weather_client_candidates(root, label, helper, target):
+    # No raw forecast, request/config, CLI receipt or process log is exported.
+    names = {"weather-client-delivery.py": WEATHER_CLIENT_NAMES,
+        "weather-products-delivery.py": WEATHER_PRODUCTS_NAMES}.get(helper.name)
+    if names is None:
+        return []
+    action = "copy-artifacts"
+    if helper.name == "weather-products-delivery.py":
+        try:
+            (root / "weather-products-delivery-acquisition-failure.json").lstat()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return []
+        else:
+            # Marker trust is checked by the immutable helper, never inferred
+            # from existence; unsafe markers have no success-export fallback.
+            action = "copy-failure-artifacts"
+    validated = Path(tempfile.mkdtemp(prefix="weather-client-validated.", dir=target))
+    export_status = 0
+    try:
+        subprocess.run(["/usr/bin/python3", "-I", "-B", str(helper), action, str(root),
+                        str(validated), str(os.getuid()), str(os.getgid())],
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       cwd="/", env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}, timeout=3, check=True)
+    except subprocess.CalledProcessError as error:
+        if action != "copy-failure-artifacts" or error.returncode != 1:
+            return []
+        export_status = 1
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if action == "copy-failure-artifacts":
+        names = weather_failure_exports(validated, export_status)
+    return [(validated / name, f"{label}/{name}") for name in sorted(names)
+            if (validated / name).is_file() and not (validated / name).is_symlink()]
+
+
+def weather_failure_exports(validated, returncode):
+    """Keep only a completed dedicated failure export, never a crashed partial write."""
+    status_name = "weather-products-delivery-export-status.json"
+
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate status key")
+            value[key] = item
+        return value
+
+    def safe_file(path):
+        info = path.lstat()
+        return (stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                and info.st_uid == os.getuid() and info.st_gid == os.getgid()
+                and stat.S_IMODE(info.st_mode) == 0o600 and 0 < info.st_size <= 65536)
+
+    try:
+        status_path = validated / status_name
+        if not safe_file(status_path):
+            return set()
+        observed = read_tail(status_path, 65536)
+        if observed is None or observed[1] > 65536:
+            return set()
+        value = json.loads(observed[0], object_pairs_hook=unique)
+        if (type(value) is not dict or set(value) != {"schema", "kind", "complete", "success", "exported", "rejected"}
+                or type(value["schema"]) is not int or value["schema"] != 2
+                or value["kind"] != "weather-products-failure-export"
+                or value["complete"] is not True or value["success"] is not (returncode == 0)):
+            return set()
+        allowed = {"acquisition-failure", "tree-before", "input-cleanup"}
+        exported, rejected = value["exported"], value["rejected"]
+        if (type(exported) is not list or type(rejected) is not list
+                or not all(type(item) is str for item in exported + rejected)
+                or len(exported) != len(set(exported)) or len(rejected) != len(set(rejected))
+                or not set(exported) <= allowed or not set(rejected) <= allowed | {"acquisition"}
+                or set(exported) & set(rejected) or "acquisition-failure" not in exported
+                or value["success"] is not (not rejected)):
+            return set()
+        names = {f"weather-products-delivery-{suffix}.json" for suffix in exported} | {status_name}
+        if not names <= WEATHER_PRODUCTS_FAILURE_NAMES or not all(safe_file(validated / name) for name in names):
+            return set()
+        return names
+    except (OSError, ValueError, TypeError):
+        return set()
+
+
+def browser_filter_candidates(root, label, helper, target):
+    # Reuse the closed recursive JSON validator, never import the worker's
+    # Browser tree or copy its logs. A failed/missing validator yields no files.
+    validated = Path(tempfile.mkdtemp(prefix="browser-filter-validated.", dir=target))
+    try:
+        subprocess.run(["/usr/bin/python3", "-I", "-B", str(helper), "copy-artifacts", str(root),
+                        str(validated), str(os.getuid()), str(os.getgid())],
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       cwd="/", env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}, timeout=3, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [(validated / name, f"{label}/{name}") for name in sorted(BROWSER_FILTER_NAMES)
+            if (validated / name).is_file() and not (validated / name).is_symlink()]
+
 
 def read_tail(path, limit=FILE_LIMIT):
     try:
@@ -1120,6 +1366,40 @@ def collect(home, opt, revision, scenario, guest_status,
             roots.append((path, f"work-{len(roots)}"))
             if len(roots) == 5:
                 break
+    if scenario == "content-provider":
+        # Keep the aggregate outcome/terminal phase even if later diagnostics
+        # fill the unchanged emergency file budget.
+        for root, label in roots:
+            if root.is_dir() and not root.is_symlink():
+                candidates.extend((root / name, f"{label}/{name}")
+                    for name in ("content-provider-smoke.json", "current-phase"))
+        # Prioritize already validated exact Browser receipts before generic
+        # diagnostics consume the existing file-count/byte limits. This is
+        # recovery evidence only, even when an inner receipt says passed=true.
+        helper = next((found for root, _ in roots[1:]
+                       if (found := browser_filter_helper(root)) is not None), None)
+        if helper is not None:
+            for root, label in roots:
+                if root.is_dir() and not root.is_symlink():
+                    candidates.extend(browser_filter_candidates(root, label, helper, target))
+        helper = next((found for root, _ in roots[1:]
+                       if (found := weather_client_helper(root)) is not None), None)
+        if helper is not None:
+            for root, label in roots:
+                if root.is_dir() and not root.is_symlink():
+                    candidates.extend(weather_client_candidates(root, label, helper, target))
+        # Preserve the small, exact late-provider diagnostic set before older
+        # content globs exhaust the unchanged bounds. These are incomplete-run
+        # observations, never proof of successful cleanup or live acceptance.
+        for root, label in roots:
+            if root.is_dir() and not root.is_symlink():
+                candidates.extend((root / name, f"{label}/{name}") for name in sorted(LATE_PROVIDER_NAMES))
+        # Preserve the closed pressure outcome first; the remaining exact raw
+        # evidence is best effort under the same 64-file/8MiB emergency bounds.
+        for names in (PRESSURE_PRIORITY_NAMES, PRESSURE_PROVIDER_NAMES - PRESSURE_PRIORITY_NAMES):
+            for root, label in roots:
+                if root.is_dir() and not root.is_symlink():
+                    candidates.extend((root / name, f"{label}/{name}") for name in sorted(names))
     for root, label in roots:
         if root.is_symlink() or not root.is_dir():
             continue
@@ -1268,7 +1548,11 @@ def collect(home, opt, revision, scenario, guest_status,
         candidates.extend((path, f"{label}/{path.name}") for path in sorted(root.glob("download-sharing-*"))[:64]
                           if re.fullmatch(r"download-sharing-[a-z0-9-]+\.(json|txt|log)", path.name))
         candidates.extend((path, f"{label}/{path.name}") for path in sorted(root.glob("content-*"))[:48]
-                          if re.fullmatch(r"content-[a-z0-9-]+\.(json|txt|log|err|out)", path.name))
+                          if re.fullmatch(r"content-[a-z0-9-]+\.(json|txt|log|err|out)", path.name)
+                          and (not path.name.startswith("content-provider-late-recovery-")
+                               or scenario == "content-provider" and path.name in LATE_PROVIDER_NAMES)
+                          and (not path.name.startswith("content-provider-pressure-")
+                               or scenario == "content-provider" and path.name in PRESSURE_PROVIDER_NAMES))
         candidates.extend((path, f"{label}/{path.name}") for path in sorted(root.glob("agent-public-task-*"))[:32]
                           if re.fullmatch(r"agent-public-task-[a-z0-9-]+\.(json|err|log)", path.name))
         candidates.extend((path, f"{label}/{path.name}") for path in sorted(root.glob("agent-public-document-*"))[:32]
@@ -1286,6 +1570,13 @@ def collect(home, opt, revision, scenario, guest_status,
         if observed is None:
             continue
         data, original_size = observed
+        if path.name in BROWSER_FILTER_NAMES | WEATHER_CLIENT_NAMES | WEATHER_PRODUCTS_NAMES | WEATHER_PRODUCTS_FAILURE_NAMES | LATE_PROVIDER_NAMES | PRESSURE_PROVIDER_NAMES and original_size > len(data):
+            continue  # Preserve complete validated original bytes, never a JSON tail.
+        if path.name in PRESSURE_PROVIDER_NAMES:
+            try:
+                json.loads(data)
+            except (ValueError, UnicodeError, RecursionError):
+                continue  # Interrupted/malformed pressure JSON is not raw-log authority.
         if scenario == "browser-network" and path.name in browser_names and original_size > len(data):
             # A truncated JSON tail is not reconstructible structured evidence.
             continue
@@ -1356,6 +1647,10 @@ scenario=$5
 native_runtime_sha256=none
 code_archive_sha256=none
 code_manifest_sha256=none
+browser_filter_archive_sha256=none
+browser_filter_manifest_sha256=none
+weather_client_archive_sha256=none
+weather_client_manifest_sha256=none
 # Native and cooperative bundles share positions only in disjoint scenarios.
 case $scenario in
     agent-native-coding|agent-native-editor)
@@ -1366,6 +1661,22 @@ case $scenario in
         [ "$#" -eq 7 ] || exit 64
         code_archive_sha256=${6:-none}
         code_manifest_sha256=${7:-none}
+        ;;
+    content-provider)
+        if [ "$#" -eq 8 ]; then
+            [ "$6" = weather-client ] || exit 64
+            weather_client_archive_sha256=$7
+            weather_client_manifest_sha256=$8
+            case $weather_client_archive_sha256:$weather_client_manifest_sha256 in *[!0-9a-f:]*) exit 64 ;; esac
+            [ "${#weather_client_archive_sha256}" -eq 64 ] && [ "${#weather_client_manifest_sha256}" -eq 64 ] || exit 64
+        elif [ "$#" -eq 7 ]; then
+            browser_filter_archive_sha256=$6
+            browser_filter_manifest_sha256=$7
+            case $browser_filter_archive_sha256:$browser_filter_manifest_sha256 in *[!0-9a-f:]*) exit 64 ;; esac
+            [ "${#browser_filter_archive_sha256}" -eq 64 ] && [ "${#browser_filter_manifest_sha256}" -eq 64 ] || exit 64
+        else
+            [ "$#" -eq 5 ] || exit 64
+        fi
         ;;
     *) [ "$#" -eq 5 ] || exit 64 ;;
 esac
@@ -1494,7 +1805,7 @@ fi
 if [ "$scenario" = image-snapshot ] || [ "$scenario" = cloud-private-file ] || [ "$scenario" = cloud-private-upload ]; then
     sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends gpg gpg-agent gpgconf tar
 fi
-if [ "$scenario" = agent-cooperative-browser ] || [ "$scenario" = agent-cooperative-browser-discovered ] || [ "$scenario" = browser-network ] || [ "$scenario" = cloud-private-file ] || [ "$scenario" = cloud-private-upload ]; then
+if [ "$scenario" = agent-cooperative-browser ] || [ "$scenario" = agent-cooperative-browser-discovered ] || [ "$scenario" = browser-network ] || [ "$scenario" = cloud-private-file ] || [ "$scenario" = cloud-private-upload ] || [ "$browser_filter_manifest_sha256" != none ] || [ "$weather_client_manifest_sha256" != none ]; then
     # Exact pinned ESR is extracted separately, not installed; these are its
     # ordinary Debian dependencies plus the isolated browser/HTTPS fixture tools.
     sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
@@ -1523,6 +1834,16 @@ fi
 tar -xzf source.tar.gz
 cd source
 test -x tests/integration/kvm-alpha-topology.sh
+if [ "$browser_filter_manifest_sha256" != none ]; then
+    guest_phase browser-filter-inputs
+    printf '%s  /home/vpci/browser-filter.tar\n' "$browser_filter_archive_sha256" | sha256sum --check --strict -
+    python3 -B tests/integration/browser-filter-bundle.py verify /home/vpci/browser-filter.tar "$browser_filter_manifest_sha256"
+fi
+if [ "$weather_client_manifest_sha256" != none ]; then
+    guest_phase weather-client-inputs
+    printf '%s  /home/vpci/weather-client.tar\n' "$weather_client_archive_sha256" | sha256sum --check --strict -
+    python3 -B tests/integration/weather-client-bundle.py verify-runtime /home/vpci/weather-client.tar "$weather_client_manifest_sha256"
+fi
 if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative-code-proposal ]; then
     guest_phase code-inputs
     case $code_archive_sha256:$code_manifest_sha256 in *[!0-9a-f:]*) exit 64 ;; esac
@@ -1660,6 +1981,12 @@ set +e
 if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative-code-proposal ]; then
     set -- ./tests/integration/kvm-alpha-topology.sh --code-bundle /home/vpci/cooperative-code-inputs \
         --code-manifest-sha256 "$code_manifest_sha256"
+elif [ "$browser_filter_manifest_sha256" != none ]; then
+    set -- ./tests/integration/kvm-alpha-topology.sh --browser-filter-bundle /home/vpci/browser-filter.tar \
+        --browser-filter-manifest-sha256 "$browser_filter_manifest_sha256"
+elif [ "$weather_client_manifest_sha256" != none ]; then
+    set -- ./tests/integration/kvm-alpha-topology.sh --weather-client-bundle /home/vpci/weather-client.tar \
+        --weather-client-manifest-sha256 "$weather_client_manifest_sha256"
 else
     set -- env "$@" ./tests/integration/kvm-alpha-topology.sh
 fi
@@ -1754,12 +2081,18 @@ chmod 0700 "$GUEST_DRIVER"
 set -- -no-reboot
 case $scenario in wifi-mesh|wifi-link) set -- ;; esac
 guest_memory_mib=$(guest_memory_for_scenario)
-if [ "$guest_memory_mib" -gt 4096 ]; then
+runner_reserve_mib=1024
+if [ "$scenario" = content-provider ]; then
+    runner_reserve_mib=2048
+fi
+if [ "$guest_memory_mib" -gt 4096 ] || [ "$runner_reserve_mib" -eq 2048 ]; then
     # A read-only preflight snapshot, not a host memory reservation. Refuse
-    # before spawning QEMU if the larger model fixture cannot fit plus 1 GiB.
+    # before QEMU unless the guest plus its selected host reserve fits. The
+    # standalone and joined provider proofs require 2 GiB reserve; larger model
+    # fixtures keep their existing 1 GiB reserve. No guest/model limit increases.
     runner_available_kib=$(awk '$1 == "MemAvailable:" && $3 == "kB" {print $2; found++} END {if (found != 1) exit 1}' /proc/meminfo)
     case $runner_available_kib in ''|*[!0-9]*) exit 69 ;; esac
-    if [ "$runner_available_kib" -lt "$(((guest_memory_mib + 1024) * 1024))" ]; then
+    if [ "$runner_available_kib" -lt "$(((guest_memory_mib + runner_reserve_mib) * 1024))" ]; then
         printf '%s\n' 'insufficient runner memory for the selected isolated fixture plus host reserve' >&2
         exit 69
     fi
@@ -1877,6 +2210,8 @@ done
 [ "$ssh_attempt" -lt 240 ] || { tail -c 131072 "$CONSOLE" >&2; exit 1; }
 ssh_base sudo -n cloud-init status --wait >/dev/null
 scp_to "$SOURCE_ARCHIVE" /home/vpci/source.tar.gz
+if [ -n "$browser_filter_bundle" ]; then scp_to "$BROWSER_FILTER_ARCHIVE" /home/vpci/browser-filter.tar; fi
+if [ -n "$weather_client_bundle" ]; then scp_to "$WEATHER_CLIENT_ARCHIVE" /home/vpci/weather-client.tar; fi
 if [ -n "$native_runtime_path" ]; then scp_to "$native_runtime_path" /home/vpci/native-runtime.tar.gz; fi
 if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative-code-proposal ]; then scp_to "$CODE_ARCHIVE" /home/vpci/cooperative-code.tar; fi
 if [ -n "$mpquic_path" ]; then scp_to "$mpquic_path" /home/vpci/volparossa-mpquic; fi
@@ -1920,6 +2255,18 @@ driver_time_bound=2400s
 [ "$scenario" != signal-backup ] || driver_time_bound=7200s
 [ "$scenario" != signal-backup-fragments ] || driver_time_bound=7200s
 case $scenario in
+    content-provider)
+        if [ -n "$weather_client_bundle" ]; then
+            ssh_bounded "$driver_time_bound" /home/vpci/guest-driver.sh "$expected_commit" "$SOURCE_SHA256" \
+                "$MPQUIC_SHA256" "$PACKAGE_SHA256" "$scenario" weather-client "$WEATHER_CLIENT_ARCHIVE_SHA256" "$WEATHER_CLIENT_MANIFEST_SHA256"
+        elif [ -n "$browser_filter_bundle" ]; then
+            ssh_bounded "$driver_time_bound" /home/vpci/guest-driver.sh "$expected_commit" "$SOURCE_SHA256" \
+                "$MPQUIC_SHA256" "$PACKAGE_SHA256" "$scenario" "$BROWSER_FILTER_ARCHIVE_SHA256" "$BROWSER_FILTER_MANIFEST_SHA256"
+        else
+            ssh_bounded "$driver_time_bound" /home/vpci/guest-driver.sh "$expected_commit" "$SOURCE_SHA256" \
+                "$MPQUIC_SHA256" "$PACKAGE_SHA256" "$scenario"
+        fi
+        ;;
     agent-native-coding|agent-native-editor)
         ssh_bounded "$driver_time_bound" /home/vpci/guest-driver.sh "$expected_commit" "$SOURCE_SHA256" \
             "$MPQUIC_SHA256" "$PACKAGE_SHA256" "$scenario" "$NATIVE_RUNTIME_SHA256"

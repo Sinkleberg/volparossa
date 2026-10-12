@@ -161,6 +161,11 @@ content_provider_site_run() {
         -- test -r "$site_client_cache"; then fail CONTENT_SITE_CONSUMER_CACHE_EXPOSED; fi
     # Preserve the two-publication site proof above before adding a third tiny publication.
     content_provider_filter_cold_run
+    if [ -n "${weather_client_bundle:-}" ]; then
+        # Preserve the existing publication-count proof. Acquire/publish the
+        # separate public forecast only now, before this route is disconnected.
+        weather_client_delivery_run
+    fi
     site_cache_before=$(stat -Lc '%d:%i' "$site_client_cache") || fail CONTENT_SITE_CACHE_IDENTITY_UNAVAILABLE
     content_provider_site_cache_only_run
     site_cache_after=$(stat -Lc '%d:%i' "$site_client_cache") || fail CONTENT_SITE_CACHE_IDENTITY_UNAVAILABLE

@@ -62,6 +62,7 @@ impl ParallelDownload {
                 break;
             }
             if self.peers[index].state == PeerState::Active && self.peers[index].pending.is_none() {
+                self.peers[index].resource_retired = true;
                 self.finish_peer(index);
                 active -= 1;
             }
@@ -108,7 +109,10 @@ impl ParallelDownload {
     fn finish_probe(&mut self, index: usize, beneficial: bool) {
         self.peers[index].probing = false;
         if !beneficial {
-            self.finish_peer(index);
+            // Throughput says nothing about possession of untested complementary shards.
+            // Stop speculative credits, but retain bounded gap coverage until exhausted
+            // or resource pressure requires closure. This lease still counts at full width.
+            self.peers[index].coverage_only = true;
             self.growth_blocked = true;
         }
         self.probe_baseline = None;
@@ -125,7 +129,7 @@ impl ParallelDownload {
             .count()
     }
 
-    fn eligible(&self, index: usize) -> bool {
+    pub(super) fn eligible(&self, index: usize) -> bool {
         self.chunks
             .iter()
             .any(|chunk| !chunk.complete && !chunk.attempted.contains(&index))

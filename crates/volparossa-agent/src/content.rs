@@ -20,6 +20,7 @@ mod object_policy;
 mod parallel;
 mod private_storage;
 mod recent;
+mod rediscovery;
 #[cfg(test)]
 mod refresh_tests;
 mod replication;
@@ -759,68 +760,7 @@ impl ContentRuntime {
         policy: &volparossa_policy::VerifiedManifest,
         control_peer: libp2p::PeerId,
     ) -> Result<(Vec<String>, u64), ContentError> {
-        if complete(manifest, store)? {
-            return Ok((Vec::new(), 0));
-        }
-        let mut used = std::collections::BTreeSet::new();
-        let mut attempted = std::collections::BTreeSet::new();
-        let mut bytes = 0_u64;
-        if let Some(scope) = recent::RecentProviderScope::for_route(context, policy).await {
-            let recent = context
-                .content
-                .refresh_recent_provider_hints(scope, &context.discovery, Duration::from_secs(1))
-                .await;
-            attempted.extend(recent.iter().map(|provider| provider.peer_id));
-            let (providers, received) =
-                Self::pull_providers(context, manifest, store, policy, recent).await?;
-            used.extend(providers);
-            bytes = received;
-            if complete(manifest, store)? {
-                return Ok((used.into_iter().collect(), bytes));
-            }
-        }
-        let discovered = context
-            .discovery
-            .discover_content_providers(control_peer, 16)
-            .await;
-        let state = context.state.read().await;
-        if !state.roles().client
-            || state
-                .active_policy(unix_millis())
-                .as_ref()
-                .map(volparossa_policy::VerifiedManifest::policy_hash)
-                != Some(policy.policy_hash())
-        {
-            return Err(ContentError::Policy);
-        }
-        drop(state);
-        let providers = match discovered {
-            Ok(providers) => providers,
-            Err(DiscoveryError::Invalid) => return Err(ContentError::Invalid),
-            Err(DiscoveryError::Invalidated) => return Err(ContentError::Policy),
-            Err(
-                DiscoveryError::Busy
-                | DiscoveryError::Closed
-                | DiscoveryError::Timeout
-                | DiscoveryError::Unavailable,
-            ) => {
-                // A later unavailable capability search cannot erase verified earlier bytes.
-                // Native callers still require complete reconstruction; HTTPS fills only gaps.
-                if bytes > 0 {
-                    return Ok((used.into_iter().collect(), bytes));
-                }
-                return Err(ContentError::Unavailable);
-            }
-        };
-        let providers = providers
-            .into_iter()
-            .filter(|provider| !attempted.contains(&provider.peer_id))
-            .collect();
-        let (providers, received) =
-            Self::pull_providers(context, manifest, store, policy, providers).await?;
-        used.extend(providers);
-        bytes = bytes.checked_add(received).ok_or(ContentError::Invalid)?;
-        Ok((used.into_iter().collect(), bytes))
+        rediscovery::pull(context, manifest, store, policy, control_peer).await
     }
 
     /// Reuse the same bounded provider set after a name-metadata round; no second discovery.

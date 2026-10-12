@@ -71,6 +71,22 @@ jobs:
           python3 -B tests/integration/transaction-abci-contract-tests.py
           python3 -B tests/integration/transaction-abci-wiring-tests.py
 
+      - name: Check closed provider and Weather diagnostics without network access
+        run: |
+          python3 -B tests/integration/test-content-provider-worker-budget.py
+          python3 -B tests/integration/test-content-provider-resource-ready.py
+          python3 -B tests/integration/test-content-provider-pressure.py
+          python3 -B tests/integration/test-content-provider-pressure-smoke.py
+          python3 -B tests/integration/test-content-provider-pressure-shell.py
+          python3 -B tests/integration/test-content-provider-pressure-wiring.py
+          sh -n tests/integration/content-provider-pressure-smoke.sh
+          node --version
+          node -e 'if (Number(process.versions.node.split(".")[0]) < 22) process.exit(1)'
+          node --test tests/integration/test-weather-source-observer.mjs
+          python3 -B tests/integration/test-weather-products-delivery.py
+          python3 -B tests/integration/test-weather-products-delivery-shell.py
+          python3 -B tests/integration/test-weather-client-runner.py
+
       - name: Check formatting and shell sources
         run: |
           cargo fmt --all -- --check

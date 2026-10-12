@@ -7,13 +7,828 @@ This is the repository's source of truth for implementation progress. A checked 
 detailed evidence ledger, including historical failures—not an installation guide.
 
 [Current work](#current-integration-and-active-work) ·
+[Execution plan](#execution-priorities-and-next-milestones) ·
 [Earlier milestones](#earlier-milestone-evidence) ·
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-07
+Last updated: 2026-10-12
 
 ## Current integration and active work
+
+### Execution priorities and next milestones
+
+Continue the existing core-cache and Weather integration; the prioritization
+revision does not restart development or interrupt useful work. Choose the next
+slice across repositories by shared blockers, architectural uncertainty and a
+demonstrable end-to-end result, not by the order of applications in the goal or
+the number of changes. Develop shared core functions with their actual consumers
+rather than waiting for the entire core to be complete.
+
+The immediate milestones build on the retained candidates and evidence below:
+
+| Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
+| --- | --- | --- |
+| Continue shared cache delivery — `volparossa`, `volparossa-weather` | Integrate the verified provider sequence, then resume joined Weather delivery. | The full sequence passes on `0f391c77`, including real CPU-pressure contraction and useful serial continuation. Independent raw-evidence reconstruction passes; the earlier failed result remains unchanged. Join the pressure fixture to PR227 and complete its integration checks. |
+| Continue weather field integration — `volparossa-weather`, `volparossa` | Deliver native precipitation and PM2.5/PM10 through the shared cache into Drizz.li, with correct source time windows, missing values, refresh and expiry. | The latest joined attempt on `9441b451` stops during the guest build because of development-host memory pressure, before any Weather request. Prepare execution away from the development host without uploading private inputs or bypassing source limits. Existing synthetic UI, temperature/wind and separate NOAA source results do not cover joined delivery. |
+| Extend the same provider to Overmorrow — `volparossa-weather`, `volparossa` | Deliver core-cache products into the actual client, then verify native packaging. | PR9–PR13 are merged with passing CI. Exact table extraction and a fresh full browser trial pass with synthetic products. A new immutable bundle with the corrected verifier passes capture, runtime and extracted-tree checks; the old bundle remains unchanged. Joined core delivery and native Android/iOS execution remain unverified. |
+
+The corrected standalone provider proof passes without weather downloads. The
+earlier joined trial stops at a shared-route failure; the later attempt with the
+corrected core stops during its build because of host memory pressure. Neither
+reaches Weather acquisition. Do not automatically retry source requests or route
+them through other peers to evade a source limit. The earlier ECMWF HTTP 429 and
+its bounded Retry-After diagnostics remain relevant to the next acquisition.
+Pressure retirement and useful serial continuation now pass in a separate phase
+of the complete `0f391c77` sequence. This does not prove that pressure has fallen
+before continuation, improved owner-task performance, or joined Weather delivery.
+The first pressure run remains failed; neither joined attempt reaches this phase.
+The Drizz.li/Weather candidate and frozen input
+bundle remain intact; Overmorrow's core delivery and native execution are still required. Keep shared interface
+changes under one owner and integrate dependent consumers together. Any new VM
+trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
+do not run competing heavy builds or lower that reserve.
+
+### Named fetch failure and route preservation
+
+The joined trial on `9b132f6c` fails before Weather acquisition at
+`content-provider-named-fetch`, with `CONTENT_NAME_FETCH_FAILED` and
+`CONTENT_UNAVAILABLE`. Both providers register successfully and named metadata
+passes verification. During the subsequent body fetch, the first MPTCP socket is
+ready at 04:02:53.433 UTC; the second receives a definitive helper `Kernel`
+rejection at 04:02:53.499. The client starts destroying the shared route two
+milliseconds later, followed by route-flow and TLS failures. No weather-source
+request or client rendering is reached.
+
+Source inspection identifies the propagation defect: the client converts every
+acquisition error to `AcquireUnconfirmed`, even a correlated rejection that
+issued no descriptor or flow capability. Its reservation then also marks route
+ownership uncertain on drop, forcing full context destruction and disrupting
+the sibling flow. The underlying kernel syscall and errno were not retained;
+route age, source-port collision or resource pressure must not be asserted as
+its cause.
+
+The correction preserves only authenticated, correlated `Kernel`, `Capacity`
+and `Unavailable` rejections. It releases the failed request's reserved slot
+without clearing another request's uncertainty. The existing bounded acquisition
+loop, selected route, deadlines and genuine MPTCP requirement remain unchanged.
+Cancellation, malformed replies, lost descriptor handoffs and ambiguous cleanup
+still require route retirement. Eleven targeted tests pass: seven retirement
+tests, three helper-protocol tests and the route-loss classification test.
+The tests exercise the production error conversion, real local sibling socket
+ownership and malformed replies; they do not substitute for MPTCP dataplane
+evidence. Formatting and independent review pass. The correction also passes
+the protected standalone trial below; the original failed joined run remains
+failed.
+
+Failure evidence is retained at
+`.git/ci-evidence/weather-overmorrow-joined.f58CgX/`. The source archive hash is
+`d877f84d62816886e301f29d460d58eb1ebd0a626e09993c8769153a3bad597c`;
+the aggregate report hash is
+`a2c9379b12f96623c95e527b57ffb4e6873337a0f35420be0e60ef2c1ca8c5e7`.
+Cleanup completes with zero owned objects; the VM, private scratch directory and
+forwarded test port are gone. Readable development-host network measurements are
+unchanged; firewall access was unavailable before and after, not verified equal.
+
+### Verified corrected provider baseline
+
+[Run `38204038877`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38204038877)
+passes on exact source `9441b4514ae0c66c6353158fdeb45579773c32fa`.
+Independent validation with that revision's schema-three checker reconstructs
+the complete aggregate from its raw evidence. Named fetch delivers 2,097,275
+bytes in nine chunks from two providers. Native and HTTPS adaptive phases each
+deliver 15,728,640 bytes in sixty chunks from three providers, with measured
+three-provider overlaps of 5.139 and 4.655 seconds. HTTPS uses one authenticated
+HEAD and no origin body or range requests.
+
+Late recovery completes in 11.096 seconds, with its gate released after 4.975
+seconds. Requester cancellation preserves independent cache-only delivery
+(165 ms), closes control IPC (7 ms), and drains the original agent and helper.
+All owned objects are removed; the disposable guest-root network state is
+unchanged. This is guest evidence, not a development-host comparison.
+
+Evidence is retained at
+`.git/ci-evidence/content-provider-hosted-9441.M6pG5O/`; the aggregate SHA-256 is
+`0d8cbd696240dd7d12f73545c4ef305b5b73e6a845620388a88bad3819d449a3`.
+Worker allowance remains twelve, with a peak of three leases and no pressure or
+continuation events. The run proves neither pressure recovery nor joined Weather
+delivery. CodeQL and Quality checks both pass for this exact revision.
+
+### Joined attempt stopped by host resource protection
+
+The next joined attempt uses the same proven core revision `9441b451` and the
+unchanged, verified Overmorrow input bundle. It exits with status 143 during the
+guest build after observations of memory pressure and falling available
+host memory. No topology or Weather-source request is reached. The attempt is
+aborted, not passed, and is not automatically restarted.
+
+The owned runner, VM and SSH supervisor are gone, the forwarded port is free,
+and the temporary VM files are removed. The base image and tracked source remain
+unchanged. DNS, routes, rules, addresses, forwarding settings, namespace names
+and WireGuard interface names match their initial observations. Full host-network
+equality is not proven: firewall access is unavailable and the link hash differs.
+That hash includes dynamic bridge timers, but the raw initial values were not
+retained, so the cause of the difference is not established.
+
+Evidence is retained at `.git/ci-evidence/weather-overmorrow-9441.PSl9Ws/`.
+The next preparation step is a reproducible hosted input recipe: the current
+workflow has no joined Weather input, and pinned public Node and Firefox
+acquisition plus decoder-build verification remain missing. Keep the existing
+private bundle outside published artifacts; a fresh build needs its own browser
+proof and bundle hash.
+
+### First pressure retirement trial
+
+The new phase uses the original sixty-chunk publication, three disjoint provider
+caches and the same protected route, but a fresh client cache. After observing
+three complete, hash-verified chunks, a guest-only controller starts two capless
+CPU workers on one guest CPU for at most ten seconds, including child cleanup.
+Three fixed 2 Mbit/s provider egress limits leave work in flight; the fixture
+restores only its own qdiscs before the enclosing route teardown. It does not
+alter production resource observations, admission rules, deadlines or device
+affinity.
+
+Passing requires real CPU-pressure observations, at least three initial worker
+leases followed by contraction to at most one, useful serial continuation after
+the first batch drains, full reconstruction, unchanged protected paths and
+privacy checks. The evidence does not claim that pressure has already fallen
+before continuation, or that owner-task performance has improved. The
+controller, separate production diagnostics and final object verification must
+agree; no one receipt substitutes for the others.
+
+Current provider reports use schema four and require this separate component.
+Earlier schema-one through schema-three results remain verifiable only through
+the explicit historical-report path; their original claims are unchanged.
+Focused controller, component, diagnostic, wiring and aggregate tests pass.
+The first [live pressure run](https://github.com/VOLPAROSSA/volparossa/actions/runs/38205593860)
+on `52a3a787` nevertheless fails at the component-evidence check. The checker
+requires generic DHT discovery events, while this phase performs three targeted
+provider refreshes. Its original raw evidence reproduces that rejection; it has
+not been rewritten as a successful report.
+
+The raw observations show a complete 15,728,640-byte, sixty-chunk transfer from
+three providers without origin fallback. Under CPU-only pressure, allowance
+falls from ten to one after a peak of three leases. Two serial continuations
+return thirty-one verified chunks (8,126,464 bytes). Both pressure workers are
+reaped, cleanup removes all owned objects, and the guest-root network state is
+unchanged. These observations do not constitute a passing aggregate: late
+recovery and cancellation are not reached in this run.
+
+Evidence is retained at `.git/ci-evidence/content-pressure-hosted.ao2q3z/`.
+The report SHA-256 is
+`c1bacb39e85b50e2fd2093e4aff00cd8f87e8b3b3561cdf3e92f0c1c383848ef`.
+The corrected pressure component uses schema two, with separate counters for
+generic queries, targeted lookup starts and finishes, and verified nonempty
+client responses. Counters cover only the actual fetch interval; an exact lookup
+finish alone cannot satisfy the check. The earlier generic discovery proof and
+all cold-cache, three-provider, pressure, continuation, route, privacy and
+cleanup requirements remain mandatory. A targeted lookup is not a DHT query.
+The correction passes 117 focused fixture checks and independent review.
+The new full protected trial below supplies its runtime evidence.
+The old raw result lacks these new counters and remains rejected rather than
+being upgraded after the fact.
+
+### Verified provider continuation under CPU pressure
+
+[Run `38207713645`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38207713645)
+passes on exact source `0f391c77a2b9ee72ec2df26cb398a03041ed314b`.
+Independent validation reconstructs the schema-four aggregate and schema-two
+pressure component from the raw artifacts; they match the published reports.
+
+During the separate pressure phase, worker allowance falls from twelve to one
+under measured CPU-only pressure, after a peak of three leases. Two useful
+serial continuations return thirty chunks, 7,864,320 bytes. The complete
+sixty-chunk object, 15,728,640 bytes, arrives from three providers in 57.462
+seconds without origin fallback. Targeted discovery records three starts,
+three finishes and three verified nonempty responses; generic DHT queries
+remain zero. Both pressure workers are reaped without forced kills, and no
+transfer workers remain active.
+
+The complete sequence also verifies healthy native and HTTPS parallel delivery,
+late complementary-provider discovery and requester cancellation. Healthy phases
+each return the same sixty-chunk object with actual three-provider payload
+overlaps of 4.647 and 4.300 seconds. HTTPS uses one authenticated TLS 1.3 HEAD
+and no origin body request. Late recovery releases its gate after 5.371 seconds
+and completes in 12.887 seconds. After requester cancellation, independent
+cache-only delivery completes in 116 ms and control IPC reaches EOF in 10 ms.
+
+Privacy checks retain the required relay paths. Cleanup removes all owned
+objects, and the disposable guest-root network state matches before and after.
+This is not evidence of development-host firewall equality, improved owner-task
+performance, recovery of CPU headroom, or joined Weather/browser delivery.
+
+Evidence is retained at
+`.git/ci-evidence/content-pressure-hosted-fixed.t5ru8b/`. The aggregate SHA-256 is
+`d25eb8460f7edc8f428c9d438db805b254f334608aa9842edc7f8b878c420872`;
+the pressure component SHA-256 is
+`5c2e2fc6044fc502f21c129022ab355f9a664878eac2388f9f24682d7e8e52c6`.
+
+### Verified cache delivery and remaining integration
+
+The earlier [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38199501353)
+on `0e23140b` **passes** the complete standalone provider sequence. Independent
+validation of the retained schema-three report and reconstructed component
+evidence confirms:
+
+- The signed-service readiness prerequisite completes in 3.015 seconds,
+  returning A's verified offer. No provider hints are sent; B stays off and the content cache
+  stays cold. The measured late-provider phase starts after this preparation.
+- The first A-only snapshot arrives 5.163 seconds after gate start; B activation
+  and gate removal finish by 5.246 seconds, within the original six-second gate. The fetch reconstructs
+  all nine chunks, 2,097,275 bytes, from two useful providers in 12.976 seconds,
+  without an origin fallback.
+- Native and cooperative HTTPS delivery each reconstruct sixty disjoint chunks,
+  15,728,640 bytes, from R3, R4 and R5. Actual three-provider payload overlaps are
+  4.913 and 4.479 seconds. HTTPS uses one authenticated HEAD and no origin body
+  or range requests.
+- Requester cancellation passes after the original thirty-second cooldown.
+  Independent cache-only delivery remains available, control EOF is observed,
+  and the original agent and owned helper terminate cleanly.
+- Privacy captures and cleanup pass: two distinct relay paths, no direct
+  client-to-exit traffic and zero remaining owned objects. The disposable
+  guest-root network state is identical before and after; this is guest
+  evidence, not a separate development-host firewall measurement.
+
+Both healthy parallel phases retain a worker allowance of twelve and peak at
+three leases. No pressure flags or continuation events occur. This run does
+**not** prove pressure retirement, recovery under load, Weather acquisition,
+browser delivery or general performance improvements.
+
+Evidence is retained at
+`.git/ci-evidence/content-provider-hosted-readiness.5siQDi/`. The aggregate report
+has SHA-256 `86466078298fcab6b6ae951fbd369b8ce0b28a2bda566cf238aa69a0deebd4a6`;
+the independently rebuilt adaptive report has SHA-256
+`fc691fe02e4f7b3bde36797a23cab01431b26fa9d22a41aabacf80eba0772841`.
+Commit `9b132f6c` subsequently pins the local test dependency to `=0.1.0` and
+updates documentation; runtime sources, validators and `Cargo.lock` are
+unchanged. The protected result remains attributed to its exact tested commit.
+Hosted [Quality checks for `9b132f6c`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38200580494)
+and the [documentation-only `726fe694`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38202461085)
+pass, as do both revisions' CodeQL checks. These results do not establish
+verification of the later route-preservation correction.
+
+### Readiness correction and client evidence
+
+The earlier [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38195177153)
+on `c63ddf36` is **failed overall**, at the late-provider `first-snapshot`
+stage. This time the broker changes from relay1 to relay2. Its first query
+returns empty after 1.151 seconds, with two dial failures and no verified offer.
+The second query returns an offer after another 5.063 seconds, or 6.214 seconds
+from the first request. The required first completed query with exactly one
+offer cannot then be established. No B activation or requester-cancellation
+proof follows. The logs establish the failed connections, not their exact cause
+or which bounded polling command timed out.
+
+A separate signed-service readiness prerequisite is now implemented in the
+fixture. It uses the existing typed `ContentCustodyDiscover` request, at most
+twice within one thirty-second deadline. No desired provider or address is sent;
+the fixture checks the returned signed A offer only afterward. It retains all
+attempts and separate real broker/client events, verifies unchanged routes and
+broker, keeps B off and leaves the content cache cold. Real owner-first interface
+accounting remains enabled; the role-isolated client adds no contribution queues.
+
+The measured first-one-offer and later-B-publication assertions start after
+preparation and retain the original six-second gate and 300-second fetch limits.
+The receipt explicitly says **warm control plane, cold content cache**, not cold
+discovery. Owned helper termination closes its typed socket and is reaped;
+preparation/setup time consumes the original deadline. Two Rust socket tests,
+seventeen late-provider tests, nineteen aggregate checks and ten existing inert
+cancellation checks pass, with an independent review. Current aggregate schema 3
+requires late-component schema 2 and its readiness evidence; historical schemas
+remain explicitly separate. The successful live trial above now verifies this
+sequence. No production address fix is claimed.
+
+The separate Overmorrow table trial now passes in the actual isolated Firefox
+CanvasKit UI using synthetic products. Earlier extraction assigned both tables
+to the last preceding title; Flutter can combine the metadata labels before the
+table children. The corrected verifier identifies tables by exact static ordered
+headers, then checks all original row/cell values and title-grouped metadata.
+It does not assert separate product DOM containers. Four weather and five
+particulate rows match before and after a real pointer refresh, with exactly two
+requests per product. Browser, fixture, profile and namespace cleanup pass.
+The retained report at Weather's `build/overmorrow-table-browser-04/report.json`
+has SHA-256 `3ed8ceeaf89aa22bb2c9fd656c9b4228dd5f75b12e87424820bd430dc9dc214d`.
+Five pure DOM regressions accompany the existing exact-value checks. This proves
+the corrected UI verifier, not core, origin, cold or native-mobile delivery.
+Old reports and the previous frozen bundle are unchanged; the new bundle below
+contains the corrected driver.
+
+The table correction is merged in Weather
+[PR12](https://github.com/VOLPAROSSA/volparossa-weather/pull/12), with passing
+component and CodeQL checks. A fresh full synthetic browser trial also passes
+on the current shared harness: ten requests per product, nine pointer refreshes,
+independent failures/expiry, detail navigation and complete cleanup. Its report
+SHA-256 is `48be438ea5fc932314648a6fd81b6b104b4b7b84734e8efaebccf6c20383f10b`.
+This full trial and the exact-table trial remain separate evidence. Its updated
+build record is merged in Weather
+[PR13](https://github.com/VOLPAROSSA/volparossa-weather/pull/13), with passing
+component and CodeQL checks.
+
+A new immutable version-three bundle is retained at
+`.git/ci-evidence/weather-overmorrow-inputs-v3-tables.JRK0OK/inputs.tar`:
+176 files, 455,025,966 payload bytes, archive SHA-256
+`2b896fde7cc6575dc809438c6fa0bf8f0f97d6362337f31d761156fedfbc3039`, manifest
+`0a9f81a54eb594af9884aebcdf79c03d8efb767447973f7ad40acb92844bf645`.
+Capture, runtime verification, extraction and tree verification pass without
+executing the bundled runtime or contacting weather sources. Only the full
+browser proof, build record, shared harness and corrected table driver differ
+from the previous bundle. The old archive hash is unchanged before and after
+capture. This prepares the joined trial; it does not prove its delivery path.
+
+Independent reconstruction of the earlier `c63ddf36` run validates native and cooperative
+HTTPS delivery of 15,728,640 bytes in sixty chunks from three providers. Their
+triple bulk overlaps are 4.023 and 4.489 seconds. HTTPS uses one authenticated
+HEAD and no origin body or range requests. Both worker allowances stay at eleven
+with no pressure flags; this does not exercise pressure-retirement recovery.
+Late-fetch cleanup reaps the requester and removes the gate. Guest-root
+snapshots are identical, SHA-256
+`31e9d7daf3831ccf018a040bafdf7973fd0e4de41920c81d729e2ec7caefc7b5`.
+Evidence is retained at `.git/ci-evidence/content-provider-hosted-c63.rDjHnL/`;
+the independently rebuilt adaptive report has SHA-256
+`5a38b175f257dedecd46e30628bd046b3f8a2aab270febf075badc6a4850ba69`.
+[Quality](https://github.com/VOLPAROSSA/volparossa/actions/runs/38195158877) and
+[CodeQL](https://github.com/VOLPAROSSA/volparossa/actions/runs/38195155580) pass
+for this exact source. No Weather acquisition is included.
+
+The pressure-retirement candidate now has separate, opt-in continuation
+diagnostics. They distinguish retired candidates, prepared tokens, real worker
+admissions and verified progress returned by successful receives, with worker
+counts observed before admission and after owned work drains. Failed or
+cancelled receives can already have written cache chunks: zero **returned**
+bytes is not a zero-traffic or zero-write claim. Normal logging stays unchanged;
+the diagnostic contains no content, paths, peer identities or raw pressure
+samples. Native and HTTPS phases export independent closed records alongside
+the unchanged worker-budget reports. Twelve focused Rust tests and sixteen
+extractor/fixture tests pass, including cancellation and a policy error after
+verified writes. Protected recovery under actual pressure remains unproved.
+
+The earlier [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38193112015)
+on `24463595` is **failed overall**, at the late-provider fixture's
+`first-snapshot` stage. A's offer is verified after 25 milliseconds, but the
+first discovery response reaches the client after 5.09 seconds. The fixture
+stops waiting at four seconds despite its six-second total gate budget.
+B is never activated; requester cancellation is not reached. The fetch is
+interrupted by cleanup, not reported as a completed product failure.
+
+The correction lets discovery, activation and release share the same absolute
+six-second deadline. Subprocesses receive only the remaining budget, capped at
+two seconds each; the 300-second fetch limit and production discovery limits
+are unchanged. Thirteen late-provider tests pass, including a reproduction of
+the 5.09-second response and expired discovery, activation and release cases.
+Nineteen aggregate checks and ten inert cancellation checks also pass. The
+subsequent `c63ddf36` run above exercises this correction but exposes the
+different first-empty-query condition. The successful `0e23140b` run above
+supersedes this earlier failure without changing the measured gate or deadline.
+
+Independent reconstruction again validates native and cooperative HTTPS:
+each delivers the exact 15,728,640-byte object in sixty chunks from three
+providers, with triple bulk overlap of 4.614 and 4.437 seconds. HTTPS uses one
+authenticated HEAD and no origin body or range requests. Both worker budgets
+remain at twelve with no pressure flags. All twelve role/control captures
+drain without drops; cleanup leaves zero owned objects. Evidence is retained
+at `.git/ci-evidence/content-provider-hosted-244.hTq3Mu/`.
+The rebuilt adaptive report has SHA-256
+`a08848a7371493e45e7e7b4d3599c3e9af2896dfda34216eabba60a41f3c88ce`.
+Guest-root snapshots are byte-identical, SHA-256
+`d99467378218274580a2abd6927f76651566e885d18c95dea576c5b5680f6f76`.
+For this source, both [Quality](https://github.com/VOLPAROSSA/volparossa/actions/runs/38193076296)
+and [CodeQL](https://github.com/VOLPAROSSA/volparossa/actions/runs/38193073338)
+pass. No Weather acquisition is included in this hosted trial.
+
+Weather source diagnostics now observe an existing, non-redirected HTTP 429
+response without another request or reading its body. Only the product,
+observation time and bounded Retry-After interpretation enter a closed failure
+receipt; raw headers, URLs and sidecar files are not exported. Missing, malformed
+or excessive advice remains explicitly unknown, and never enables automatic
+retry. The observer is a separately verified core fixture helper; the frozen
+Weather input bundle is unchanged. Sixteen Node, thirty-three product,
+thirteen shell and eighteen runner checks pass, including interrupted-file
+cleanup. This is diagnostic verification, not a successful joined Weather run.
+
+The preceding [hosted cache trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38190664934)
+remains **failed overall**, at `content-provider-requester-cancellation`.
+Independent reconstruction from its raw evidence validates the earlier native
+and cooperative-HTTPS transfers: each reconstructs 15,728,640 bytes in sixty
+chunks from three providers, with triple bulk overlap of 4.455 and 4.798 seconds.
+Neither transfer fetches origin body bytes. Both worker budgets stay at twelve
+with no resource-pressure flags, so these results do not establish live pressure
+recovery.
+
+Late recovery also passes: a second complementary provider activates after the
+first completed one-offer snapshot; two queries and three total verified offers
+lead to the exact 2,097,275-byte, nine-chunk object. Transfer takes 6.700 seconds;
+the temporary gate lasts 0.474 seconds. The original deadlines, protected paths,
+privacy captures and cleanup checks pass. This is recovery, not a late-provider
+concurrency or speed claim.
+
+The cancellation request never reaches the required pending bootstrap. Eight
+attempts report `PRESELECTION_OWNER_BUSY` while all disconnect probes report idle.
+The previous successful bootstrap starts a thirty-second admission cooldown;
+route disconnection does not clear it. The fixture starts its eight-second
+pending check inside that cooldown. The helper is resumed and fixture outputs
+are removed on failure; requester cancellation and shutdown are not yet proved.
+
+The corrected fixture waits a full thirty seconds on both production clocks
+after confirming the original services and idle client. Initial and final
+identity/status checks share one thirty-five-second absolute budget. Only then
+may it pause the helper; the actual eight-second pending-bootstrap,
+four-second cache-release and two-second control-shutdown gates are unchanged.
+Current cancellation receipts use schema 2 with the explicit prerequisite;
+old schema 1 receipts remain readable only through historical validation.
+Thirteen prerequisite tests, ten inert cancellation checks, nineteen aggregate
+checks and twelve late-recovery checks pass. Independent review confirms the
+clock, process-identity, cleanup and version boundaries. This is fixture
+verification, not yet a successful live cancellation result.
+
+For the same `ebf0d077` source, [CodeQL passes](https://github.com/VOLPAROSSA/volparossa/actions/runs/38190611286).
+[Quality](https://github.com/VOLPAROSSA/volparossa/actions/runs/38190613877)
+passes dependency/license checks, strict workspace Clippy, workspace tests and
+the namespace-backed step, but fails its final non-mutating harness check.
+That test extracted the embedded guest argument parser instead of the host
+dispatch after the case-arm order changed. A test-only correction now selects
+the unique host boundary, rejects four ambiguous/embedded variants, and passes
+the affected static contract script, syntax and ShellCheck. The product runner
+and argument/hash assertions are unchanged; the subsequent `24463595` Quality
+run passes this correction.
+
+Evidence is retained at `.git/ci-evidence/content-provider-hosted-ebf.dCSta4/`.
+The independently rebuilt adaptive and late reports have SHA-256
+`61cda7ef39469d86eb7cf12e997aee951afbe547fb438caed251a025c880d8f4` and
+`30279523964150d7af888f983f8ff334231002d5b6b2af98d66b738927611ac5`.
+The failed aggregate has SHA-256
+`3b538fddf1ed1e5bf86c7cc26cfcb2293867b3c315a2556a628e56db6a3712c0`.
+Cleanup leaves zero owned objects. Guest-root network snapshots are byte-identical,
+SHA-256 `8952811858ef8aec046d64c94d6c0c656e4eb98eb8ec143ece8b8f82ebef0f65`.
+This hosted result also passes the primary-Exit inventory prerequisite that failed
+in an older run; it does not diagnose that older failure. No Weather bundle or
+Weather source acquisition is included.
+
+Worker-budget diagnostics are now opt-in through one dedicated debug target.
+Each provider batch retains only bounded allowance and reservation counts,
+resource-capacity minima and closed pressure/unavailability flags from the same
+samples used for admission. No object, peer, route, path or user identifiers are
+added. Default logging remains unchanged. The disposable fixture exports separate
+native and HTTPS observations before transfer validation and finalizes interrupted
+observations after agent retirement; diagnostic failure cannot turn a failed
+transfer into a pass. Seventeen focused Rust tests pass, including four driver
+tests for three concurrent duplex streams without pressure, one under pressure,
+refused admission and release after interruption. Twelve extraction checks,
+eight existing adaptive-evidence checks and eighteen runner checks also pass.
+These are component results, not a new protected-network overlap result.
+The pressure thresholds, shared resource budget and packet-overlap gates
+are unchanged.
+
+The real diagnostic run on `7ad108c0211183abba0e27a7922849a0455c1d9c`
+identifies I/O pressure as the admission limit in both adaptive transfers. Each
+complete budget report records allowance one throughout, three admitted leases,
+peak concurrency one, no denied leases and zero active leases on return. Memory
+and FD capacity minima are twelve and twenty-nine workers respectively; CPU,
+memory and unavailable-observation flags are false. This establishes why these
+transfers were serialized, not which activity caused the underlying I/O pressure.
+Earlier batches in the same run had no pressure and allowed twelve workers,
+including an observed two-worker peak. The pressure therefore was not continuous
+since the build; it reappeared around adaptive preparation or execution.
+Inspect fixture storage and readiness before changing resources; do not bypass
+the owner's pressure protection to satisfy a concurrency test.
+
+Both transfers reconstruct 15,728,640 bytes in sixty chunks from three providers,
+with no origin body bytes or range requests. Their three-provider bulk windows
+have negative overlap: `-6,629,715,618 ns` native and `-5,983,140,384 ns` HTTPS.
+The earlier two-provider transfer passes its existing path/control checks and
+reconstructs 2,097,275 bytes in nine chunks, with `373,929,069 ns` bulk overlap;
+that does not satisfy the separate three-provider requirement. The run stops
+at `content-provider-adaptive-cleanup` with
+`CONTENT_PROVIDER_ADAPTIVE_EVIDENCE_INVALID`; late recovery and requester
+cancellation are not reached. The report is retained at
+`.git/ci-evidence/content-provider-budget-01.VUAE79/output/content-provider-smoke.json`,
+SHA-256 `c5dd6bebef5d803ccbba8dd4e5f11b8ddad86b824febe294f5882432b337dc19`.
+The separate native and HTTPS worker-budget reports are complete and observed.
+Cleanup leaves zero owned objects, with identical guest-root network-state
+hashes. The VM and its owned scratch overlay are removed. Development-host DNS
+and IPv4/IPv6 route hashes remain unchanged; host-firewall comparison remains
+unavailable. No weather origin was queried.
+
+The next fixture candidate waits for three consecutive guest-global PSI samples,
+one second apart, below the unchanged production pressure thresholds before each
+adaptive fetch. Its single thirty-second deadline fails visibly if readiness is
+unavailable. Fifteen focused checks pass, alongside the twelve budget-extraction,
+eight adaptive-evidence and eighteen runner checks. Bounded native/HTTPS receipts explicitly do
+not prove memory, FD or cgroup capacity. This adds no product delay or admission
+override: cache writes may reintroduce I/O pressure, and the live worker budget
+and three-provider packet-overlap requirements still decide the result.
+Its first launch attempt stops before VM boot at the unchanged memory preflight:
+the four-GiB guest plus two-GiB development-host reserve do not fit. The candidate
+is committed as `fa89523b0c49768d7c56c58f2cec3e0c902dccbd`; retry only when that
+capacity is genuinely available, without competing heavy jobs or reduced limits.
+The retained runner log is
+`.git/ci-evidence/content-provider-readiness-01.X2JNlh/runner.log`.
+
+The following real readiness run on clean source
+`a5e698ccb20c8d4a5288ca9d49e2286b1ff37019` passes the separate adaptive
+evidence validator. Native and cooperative-HTTPS transfers each reconstruct
+15,728,640 bytes in sixty chunks from three providers, with no origin body bytes
+or range requests. Their three-provider bulk windows overlap by
+`4,082,921,445 ns` and `4,552,924,112 ns` respectively. Both worker-budget
+receipts record three concurrent leases, no pressure flags or denied leases,
+and zero leases remaining on return. Each preparation reaches three consecutive
+acceptable PSI samples after about twelve seconds; the unchanged live admission
+policy and packet-overlap requirements still decide the result.
+
+The overall run remains **failed**: it stops at
+`content-provider-late-recovery-register-a` with
+`CONTENT_PROVIDER_LATE_CONTROL_CAPTURE_FAILED`. The observer's closed interface
+list accepts `cp0/cp1` and `ac0/ac1/ac2`, but omits the new `lc0/lc1` pair.
+It rejects startup before the late fetch begins, so neither late recovery nor
+requester cancellation is established. The aggregate report conservatively
+retains false completion flags; the successful adaptive result is separate.
+
+Evidence is retained under
+`.git/ci-evidence/content-provider-readiness-02.WgVnio/output/`:
+`content-provider-adaptive-evidence.json` has SHA-256
+`bde143d0f81a8b846a98edec6be3b668bfd3091ba60c3e97cac7c50f3e315e77`;
+the failed `content-provider-smoke.json` has SHA-256
+`ee54a50e5ec025a3c0dce877c437bf407e03a22de09eae7524eaa5cb47ef8047`.
+Cleanup leaves zero owned objects and unchanged guest-root network state.
+The VM and scratch overlay are removed; development-host DNS and IPv4/IPv6
+route hashes match their pre-run values. Host-firewall comparison remains
+unavailable. No weather origin was queried, and Overmorrow changes are excluded
+from this exact-source run.
+
+The capture parser now also accepts the exact `lc0/lc1` interface pair.
+Regression checks continue rejecting duplicate, reordered, mixed or extra
+interfaces, malformed endpoints and foreign protocol/peer traffic. Nineteen
+provider checks, ten inert cancellation checks, seven late-recovery checks and
+eleven observer checks pass. This fixture correction still needs a new live
+late-recovery result; it changes neither production admission nor privacy policy.
+
+The next standalone trial on clean source
+`c2fbcd8c7f14a4c917c2c7bfe721a0650e8d20c9` also passes the separate adaptive
+validator: each transfer reconstructs 15,728,640 bytes in sixty chunks from three
+providers without origin body bytes or range requests. Native bulk overlap is
+4,424,226,702 ns; cooperative-HTTPS overlap is 4,574,166,917 ns. The corrected
+late-provider observer starts, but the run then fails at
+`content-provider-late-recovery-fetch` with `CONTENT_PROVIDER_LATE_FETCH_FAILED`.
+No late fetch process or gate-installed receipt is produced. The exact generated
+gate is rejected by the nftables parser: the chain's closing brace has no
+separator before the table's closing brace. This is a fixture setup failure,
+not evidence that late rediscovery succeeded or failed during transfer.
+
+Evidence is retained under `.git/ci-evidence/content-provider-late-02.2GyayM/output/`.
+The separate adaptive report has SHA-256
+`c54d9aac85194fa6a3894978c368e39e7ad7114056596766e7d8e46a8ed468a9`;
+the failed aggregate report has SHA-256
+`ba0104fcf4c84387bc3695fb72c3a640298f62be5da19506c32b250c20e9aa6f`.
+Cleanup leaves zero owned objects and unchanged guest-root network state.
+The runner, VM and owned scratch overlay are gone; development-host DNS and
+IPv4/IPv6 route hashes match their baseline. Host-firewall comparison remains
+unavailable. No weather source was queried. Late recovery and requester
+cancellation remain open.
+
+The gate now separates the nested closing braces. Its exact old bytes fail the
+real nftables userspace parser; the corrected bytes pass parsing, then encounter
+the expected unprivileged netlink refusal. That check installs no rule and does
+not prove the live gate. Nine focused coordinator tests pass. Failures retain a
+closed stage/category and bounded exit code before cleanup, never raw exception
+text, commands or child stderr. The emergency collector also prioritizes that
+one fixed JSON filename within its unchanged size and privacy limits. Nineteen
+provider checks and ten inert cancellation checks pass, including bounded
+retention and rejected oversized/foreign-scenario evidence. The six-second gate,
+three-hundred-second transfer, gate-first cleanup and production behavior are
+unchanged; the actual late-provider trial is still required.
+
+The corrected-source trial on `a03c3c8fc865b8e1dfbf3caab745bcc27918fd4c`
+fails earlier, at `content-provider-adaptive-fetch`, with
+`CONTENT_PROVIDER_ADAPTIVE_RUNTIME_FETCH_FAILED`. The native request returns
+`CONTENT_UNAVAILABLE`, not a timeout. Its resource preflight and PSI readiness
+pass without reducing the four-GiB guest or two-GiB host reserve. Three provider
+leases are admitted concurrently, with a 4.388-second overlap in their observed
+bulk-payload windows. During the transfer, I/O pressure reduces worker allowance
+from twelve to one; no lease is denied, and all leases are released on return.
+Three discovery rounds each verify three offers, but only one worker batch runs.
+This is overlapping partial traffic, not complete reconstruction.
+
+Code inspection identifies a matching failure mode: pressure permanently closes
+idle surplus workers even when they have unattempted chunks, while subsequent
+discovery excludes those already-attempted providers. The trace supports this
+explanation but does not retain individual closure reasons or the final verified
+chunk count. A deterministic regression now reproduces the coverage loss over
+real chunk streams: three disjoint providers begin concurrently, allowance drops
+to one, and the existing coordinator receives only four of nine unique chunks.
+The new bounded-continuation path reconstructs all nine chunks in that regression.
+
+The earlier two-provider, HTTPS, site and filter checks pass and their component
+reports rebuild identically from the retained raw evidence. Adaptive HTTPS,
+late-provider recovery and cancellation are not reached. The failed aggregate
+report is retained under `.git/ci-evidence/content-provider-late-03.nV7eQv/output/`,
+SHA-256 `ec1694f4cd4e9133fbf84bd5a1b45de0f0a14c5011698990d1a17d3828fa07e3`.
+Cleanup leaves zero owned objects and unchanged guest-root network state. The
+runner, VM and scratch overlay are gone; development-host DNS and IPv4/IPv6 route
+hashes match the baseline. Host-firewall comparison remains unavailable. No
+weather source acquisition or joined Weather bundle is included.
+
+Locally pressure-retired providers now retain a sealed, single-use continuation.
+Only a clean first-attempt close qualifies. All original workers and leases must
+drain before serial continuation; current resource admission, protected-route
+context, original manifest identities and the absolute deadline remain binding.
+Known misses and spent request/byte budgets carry forward. Each eligible source
+gets at most one new connection, without recursive continuation or an additional
+transport retry. Resumed bytes are verified by the same cache writer and do not
+become a concurrent-batch performance sample. Production-coordinator duplex tests
+also cover unavailable resources, an expired deadline, failed or unclean streams
+and cancellation. This correction still needs the real protected-network trial.
+
+Independent final checks pass: thirteen content parallel-transfer tests, nine
+agent parallel-transfer tests, seven rediscovery tests and seven worker-budget
+tests. Strict Clippy passes for both changed crates with all targets/features;
+workspace formatting and diff checks also pass. The earlier PR227 Quality failure
+was nine narrow lint findings, now corrected without changing admission thresholds
+or the closed diagnostic schema. CodeQL passed on that earlier revision; the new
+revision still requires hosted checks.
+
+Use the hosted disposable `content-provider` proof for the next exact revision
+while the development host has insufficient available memory for the unchanged
+four-GiB guest plus two-GiB reserve. Do not reclaim the user's application memory
+or lower that reserve. This standalone scenario makes no Weather source request;
+the immutable joined Weather inputs remain ready for their separate trial.
+
+The late-provider validator now accepts two verified offers across separate
+snapshots: first A, then B. Discovery does not require A to reappear alongside B.
+The actual late activation, two distinct useful suppliers, complementary chunks,
+object hash, protected traffic, original deadline and bounded query count remain
+mandatory. Twelve focused late-recovery tests and nineteen aggregate tests pass,
+alongside ten inert cancellation checks. Negative cases still reject a missing B,
+one total offer, early activation, invalid payload/hash and deadline overflow.
+This removes a false rejection; it is not a live late-recovery result.
+
+The late-provider fixture uses a fresh publication, route and consumer cache.
+It registers the second complementary provider only after observing the first
+completed, single-offer discovery. A temporary provider-side gate is bounded to
+six seconds, below the unchanged ten-second connection timeout, and is removed
+before child-process cleanup. Seven coordinator/evidence tests, two Rust seed
+tests and nineteen aggregate-report tests pass, alongside ten cancellation
+checks. Current reports require this separate result; historical version-one
+reports remain explicitly readable. These checks validate the fixture, not live
+late-provider discovery or improved transfer speed. The existing concurrent
+transfer and privacy requirements remain mandatory.
+
+The standalone run on `9b602bb5c1558cb510f0746ca31b094083e7347c`
+builds successfully and completes both adaptive native and cooperative-HTTPS
+fetches: each reconstructs 15,728,640 bytes in sixty chunks from three providers,
+with no origin body bytes or range requests. The evidence validator then rejects
+the native result because its three 5%-to-75% bulk-payload windows do not overlap
+(`-6,849,213,952 ns`). The separate HTTPS windows also fail that requirement
+(`-6,581,197,091 ns`). Both captures report zero timing errors and packet-socket
+drops. This is successful reconstruction, not proven concurrent bulk transfer.
+The earlier two-provider native phase reconstructs 2,097,275 bytes in nine chunks;
+independent existing route/control checks pass and its bulk windows overlap by
+343,764,366 ns. That base result does not satisfy the three-provider requirement.
+Helper logs show that the three adaptive flow openings occur sequentially even
+though one discovery already returned all three providers. Later socket acquires
+take only milliseconds. The runtime uses concurrent drivers but deliberately
+limits admission to one worker under resource pressure or low memory/FD headroom.
+The retained evidence does not identify which budget condition applied here;
+record that decision in the next targeted proof before choosing a correction.
+The run stops at `content-provider-adaptive-cleanup` with
+`CONTENT_PROVIDER_ADAPTIVE_EVIDENCE_INVALID`; late recovery and requester
+cancellation are not reached. The failed report is retained at
+`.git/ci-evidence/content-provider-late-01.EmI8OY/output/content-provider-smoke.json`,
+SHA-256 `9fd02652bd74b9733bc9193c753edae9ee360b49d452a311655a43bfd7dc7bb9`.
+Cleanup leaves zero owned objects and unchanged guest-root network state.
+The VM and owned temporary overlay are removed; development-host DNS and
+IPv4/IPv6 route hashes match their pre-run values. A development-host firewall
+comparison remains unavailable. No weather origin was queried by this run.
+
+The next joined Weather candidate adds immutable bundle profile 3 for Overmorrow,
+without changing Drizz.li profiles 1 and 2. It reuses actual source acquisition,
+separate public weather/particulate publications and independent protected cold
+transfers. The production bridge serves the existing CanvasKit build; the new
+driver checks native timestamps and values in their actual ordered table cells,
+precipitation windows, per-product attribution and a real pointer refresh.
+Thirty bundle, twenty-six product-evidence, twelve shell and eighteen runner
+checks pass independently, alongside three Weather preparation and ten browser
+driver checks. The current synthetic UI/build proof binds the bundled assets;
+older ECMWF/NOAA receipts remain historical and cannot attest changed acquisition
+code. Real origin acquisition and joined UI delivery still require the live
+trial. A prior cold core fetch followed by UI use is not browser-triggered
+first-cold delivery. No SDK rebuild, renderer CDN, new scheduler, resource-limit
+increase or extra source request is introduced by this candidate.
+
+Weather [PR9](https://github.com/VOLPAROSSA/volparossa-weather/pull/9) is merged
+at `fe6eb4b92984ed5569bb2db7026414593fc392b8`. Its CI passes 120 core-contract,
+13 Drizz.li, seven Overmorrow Node and 47 Overmorrow Python checks, plus CodeQL.
+A stale-data test previously sampled the clock twice, occasionally exceeding
+the thirty-minute validity limit by one millisecond. Its corrected single-clock
+fixture retains both strict expiry rejection and stale-result rejection; no
+production freshness rule changes.
+
+Weather [PR10](https://github.com/VOLPAROSSA/volparossa-weather/pull/10) is merged
+at `88e5405e0fdd23a22a0e69999f6926d177a0b84e`. ECMWF now aborts its owned request
+and cancels unread response bodies after rejected status or headers; a stalled
+stream-cancellation promise cannot prolong the request deadline. Exact status,
+range and size checks, source permissions and the thirty-second deadline remain
+unchanged. Fifty-two focused ECMWF, wind and precipitation tests pass, alongside
+independent review and all PR checks. No new source request was made to test this
+cleanup correction.
+
+The actual synthetic Overmorrow browser trial now also passes with that updated
+module. `build/overmorrow-browser-08/report.json` has SHA-256
+`b5efb8726a4e0215b08958f65f214a475b303d1b2ebf19bd8a49a47d14c41875`.
+It retains the same sixty-one deployed files and exercises ten requests per
+product, pointer refresh, independent missing/stale/expiry states and complete
+browser/fixture cleanup. This is a new UI proof using the existing release build,
+not a new SDK build, real-origin acquisition, core-cache delivery or native-mobile
+result. Browser07 and its historical proof remain intact.
+
+The actual profile-three archive is retained at
+`.git/ci-evidence/weather-overmorrow-inputs-v3.2mYCGu/inputs.tar`:
+176 files, 455,024,116 payload bytes and 455,191,552 archive bytes.
+Its manifest SHA-256 is
+`da01dec6735c3084c3affb596531e798ed9ae21cbe1d52cf146bfda4dc8c4f29`;
+archive SHA-256 is
+`1f7cb371d04c546e17267f6ff94a113534cd58e4057c415756efb1725dc0fe63`.
+Capture, runtime eligibility, unpacking and exact-tree verification pass against
+private, byte-verified source copies and the existing pinned decoder. No runtime
+or origin executes during capture. This establishes reproducible trial inputs,
+not successful joined delivery or mobile execution.
+This archive predates PR10 and binds Browser07's older ECMWF module. Do not
+rewrite it or reuse its proof as evidence for the corrected module; a new capture
+must bind Browser08 and the corresponding current verification record.
+
+That updated record is merged in Weather
+[PR11](https://github.com/VOLPAROSSA/volparossa-weather/pull/11), at
+`513e01c641f988b6c3a5d9879acdad7e7ca7e309`, after passing all CI checks.
+It changes only the report and two semantic hashes from the actual Browser08
+trial; original build facts and unproven-delivery flags remain unchanged.
+The new immutable archive is
+`.git/ci-evidence/weather-overmorrow-inputs-v3-cleanup.b8FXQv/inputs.tar`:
+176 files, 455,024,391 payload bytes and 455,192,064 archive bytes.
+Its manifest SHA-256 is
+`b724a30c21f3a3915d44841b1baa7f19f48e05e7e46acbc4f443bd6ac1676148`;
+archive SHA-256 is
+`a7fa0c2bf4f179babc77adefb650a4d0b9b3da4f354428598106e6350ed705b9`.
+Capture, runtime eligibility, unpacking and exact-tree verification all pass;
+none executes the runtime or establishes new origin or joined delivery evidence.
+
+Weather [PR8](https://github.com/VOLPAROSSA/volparossa-weather/pull/8) is merged into
+`main` at `ce1e28696d47808bd2908242325d1da478cbf0a1`. Each Overmorrow product now
+has one 195-second deadline including local abort/drain, with up to five bounded
+busy-only retries. Request and response-body cancellation are tested; unconfirmed
+core-process cleanup keeps admission closed, even if scratch cleanup also fails.
+Twenty-three Flutter tests, fifty-four focused Node checks and thirty-seven Python
+harness checks pass. The new release build and actual isolated CanvasKit/browser
+trial pass with synthetic products and complete cleanup. The report hash is
+`dd0f4ae08d15eccb655d4c761593a1028a88277c5d53dc75fb09a77a0136aa71`;
+core/peer delivery and native mobile execution remain open. CI and security checks
+pass; the merged temporary branch is removed without deleting its worktree.
+
+The preceding Weather [PR7](https://github.com/VOLPAROSSA/volparossa-weather/pull/7), merged into
+`main` at `44b721fd42c86880f5a8838ae18efd2c8b2dd0a1`, includes the Overmorrow
+browser milestone. It connects the actual pinned Flutter app's provider dispatcher, phone/tablet layouts,
+forecast surface and air-quality detail route to the same local HTTP bridge.
+Its release build and sixteen synthetic Flutter tests pass, as do thirty-one
+HTTP checks and thirty-seven build/deployment/browser-harness checks. Native weather and particulate
+times, missing versus zero values and independent expiry are preserved. The
+self-hosted CanvasKit deployment contains 61 files and 22,953,908 bytes within
+the unchanged asset limits. The isolated Firefox trial now passes against the
+actual CanvasKit UI and local HTTP bridge with synthetic products: nine pointer
+refreshes each issue exactly one weather and one air-quality request. Independent
+failures/stale responses preserve the other valid product, idle expiry removes
+old values without another request, and the existing air-quality detail route
+opens without fetching again. The refresh control remains disabled while loading.
+Native timelines, missing observations/AQI, area and attribution are verified.
+Browser and fixture processes exit, the private profile is removed and the host
+network namespace is unchanged. The report at
+`volparossa-weather/.git/codex-weather-overmorrow/build/overmorrow-browser-06/report.json`
+has SHA-256 `d718fc9d8f6364fae6134a944f01cca3af8932ebe73e33224fdffcb3a40e5996`.
+This proves browser interaction, not peer delivery, native mobile execution or
+forecast accuracy. A shorter client timeout can still race the bridge's cleanup
+and make the next product temporarily busy; real cold delivery must cover that
+case. The existing frozen Drizz.li bundle remains valid, but new joined inputs
+must bind fresh proof to their actual bridge and preparer sources.
+
+Before merge, three CodeQL file-race findings were corrected: NOAA now inspects
+and reads one no-follow descriptor and executes its pinned bytes from private
+scratch; the preparation test also inspects and reads the same opened file.
+All 139 focused JavaScript tests and the PR's component/security checks pass.
+The relocated real ecCodes binary starts under the existing limits; that check
+does not replace a new origin/field-decode trial. Historical source receipts
+retain their original revisions and the frozen bundle is not rewritten.
+
+After each milestone, or when a substantive blocker changes, reassess the next
+shared dependency against the existing evidence and application worktrees.
+Protected compute for Code/Browser, private storage for Chat/Image/Cloud,
+message custody for Chat/Mail, public content for Map/Weather, and transaction
+or civic simulation dependencies remain in scope; this is not a new serial
+queue or a claim that those integrations are complete. Architecture-defining
+checks can proceed alongside useful integration when they do not conflict with
+shared interfaces or available resources.
+
+Keep this plan concise: record the selected milestone, affected repositories,
+dependencies and remaining blocker. When changing course, record why, where
+unfinished work is retained and what permits its continuation. No integration
+is interrupted solely because of this planning revision. Existing functionality,
+privacy boundaries and completion criteria are unchanged; local candidates and
+component checks do not become merged or end-to-end verified by appearing here.
 
 ### Browser consent cooperation and public filter snapshots
 
@@ -30,6 +845,10 @@ Browser [PR10](https://github.com/VOLPAROSSA/volparossa-browser/pull/10) adds an
 actual-upstream-source regression for Consent-O-Matic's navigation-status reset:
 the original source fails and a one-character in-memory correction passes. The
 signed extension is unchanged; no upstream contribution has yet been submitted.
+The revised contribution approach uses the original extension's voluntary site
+reporting, not a maintained fork or automatic submission of browsing data.
+Such reports can reveal the reported site's URL; they are not described as
+guaranteed anonymous. Bundling, settings and cooperation tests stay in Browser.
 
 The new `content filter-snapshot` command reuses the existing protected public-text
 fetch path with an independently selected publisher, name and exact manifest hash.
@@ -104,6 +923,487 @@ They are not an additional protected-peer or combined browser test. The
 same-account trust, source binding and expiry responsibilities; it does not claim
 extension identity, cross-restart trusted time, publication governance or the
 unfinished Firefox startup/resume filtering barrier.
+
+The optional combined Browser trial now has a fixed-inventory input transfer
+and an explicit hook in the protected-provider fixture. It reuses the real
+agent's private cache after the cold peer fetch, then requires actual Gecko
+broker retrieval, original signed-uBO asset loading, engine request probes,
+revocation and sticky opt-out. Only an explicitly supplied, hash-verified bundle
+can enable it. The browser and broker run as the disposable worker in nested
+namespaces; neither receives permission to read the agent cache directly.
+
+The Browser fixture passes 84 focused JavaScript checks and 34 Python checks;
+12 core transfer checks, thirteen runner argument/resource checks and 17 joined-proof
+and receipt-export checks also pass. These are preparatory component checks,
+**not a passed combined runtime trial**. The hook
+must still prove real control access after namespace mapping, end-to-end browser
+behavior and full cleanup. Automatic startup enrollment, native admission
+registration and expiry handling for already loaded rules remain open.
+
+The first local combined attempt used core source
+`82450eb84f96c66818c069c1b287f0633c2f46d5` and Browser bundle manifest
+`ea6dd5425ffec9c73e226eecee6aa71076c78cc40f537e59501cc1a8698e6c9b`.
+It was stopped during the guest Rust build: the disposable overlay under
+RAM-backed `/tmp` competed with the 4-GiB guest for development-host memory.
+No Browser runtime or combined acceptance was reached, and no Browser receipts
+were collected. The VM and its owned temporary overlay were removed; source
+trees, the base image and frozen inputs were preserved. This is an aborted
+preparation attempt, not evidence that the joined data path passed or failed.
+The corrected opt-in runner places this trial's scratch beside the workspace
+evidence, rejects a tmpfs/ramfs parent and requires available host memory for the
+unchanged 4-GiB guest plus a 2-GiB reserve before launch. This is a preflight
+snapshot, not a memory reservation. A fixed JSON-only export retains original
+receipts and their hashes, including failures, without exporting private logs,
+profiles or authority inputs.
+
+The second local attempt on `2e4f4527d669b104ed56d87184bb11ab73ccabe6`,
+using the same Browser input manifest, completed the guest build and reached the
+capability-free Client-namespace launcher, but failed with
+`BROWSER_FILTER_NATIVE_FAILED`. The original launch, source-inventory and input
+cleanup receipts were retained; neither the Browser report nor its outer-cleanup
+report was produced. Those missing reports do not establish whether failure
+occurred during preflight, execution or cleanup. This is a failed combined trial,
+not proof of a working Firefox-to-broker path. Evidence remains in the local
+`browser-filter-delivery-02.yaD4ng` collection. The VM and owned overlay were
+removed. A15 verifies unchanged disposable-guest root networking outside the
+owned namespaces, with matching before/after hash
+`13e338046f6a7e418c119f377258cc98664eb005cf89d8a5b6ff8aa8d44f6824`.
+
+Failure diagnosis now retains only a closed phase code and cleanup-failure flag,
+including failures before Browser output preparation. The emergency collector
+uses the same root-staged JSON validator and preserves incomplete status; it
+never exports raw Browser errors, logs or temporary authority. These additions
+improve the next trial's evidence, not the outcome of the failed second attempt.
+
+The guest recipe also had a namespace-parent permission defect: `ip netns add`
+could create `/run/netns` under `umask 077`, preventing the capability-free
+Browser worker from checking its own namespace identity. The opt-in fixture now
+creates a missing parent explicitly as root-owned `0755` and preserves an already
+safe parent; unsafe existing paths are rejected rather than changed. Six inert
+tests pass. This fixes the fresh-guest recipe, but the missing diagnostic from
+attempt two cannot prove it was that attempt's first failure. Browser namespace
+validation and private agent-cache permissions remain unchanged. A successful
+combined runtime trial is still required.
+
+The third local attempt on `e75f9231227b5400836a2693b4a20aefab67f24a`,
+with Browser input manifest
+`26f0716f2b5e75cf3cec0ba145b8d6e9a0b4b6583051aee374c22e1d87d5b8d2`,
+passed guest build and namespace-parent preparation but stopped earlier in the
+provider scenario at `CONTENT_PROVIDER_MPTCP_SELECTION_UNAVAILABLE`. No content
+transfer or Browser hook ran, so this attempt cannot verify the Browser fix or
+its new failure diagnostics. The retained `browser-filter-delivery-03.gqbzoq`
+collection records zero remaining owned objects and unchanged guest-root
+networking, with matching hash
+`abc03c0e46ecc703847d916133d7288ff6efdd22ee8dc88d62afcec308040f0e`.
+The VM and disposable overlay were removed. The retained Client inventory had
+R0/R1/R2 and only Exit2, whose fixture capacity is intentionally below the required
+route capacity; the primary Exit advertisement was missing. This explains the
+terminal `NO_ELIGIBLE_PATHS` result, but does not yet distinguish delayed discovery
+from a discovery defect.
+
+The provider scenario now waits at most 60 seconds for the exact R0/R1/R2 and
+primary Exit identities and roles in the Client's read-only advertisement
+inventory. Fourteen synthetic tests cover partial and malformed inventories,
+role substitutions, deadline handling and the closed diagnostic receipt. The
+original route selector, capacity requirements and terminal `NO_ELIGIBLE_PATHS`
+handling are unchanged. Inventory convergence is not proof of route readiness;
+the combined runtime must still pass before Browser integration is complete.
+
+The fourth local attempt on `e2aa069052f8181fb74f54645507426248a632cb`,
+using the same frozen Browser input manifest, observed all four required
+identities after 210 inventory queries and reached the Browser hook. It failed
+at `BROWSER_FILTER_NATIVE_FAILED`. This time the original report and outer
+cleanup survived: the failure operation is `browser_start`, with no completed
+browser probes or delivery receipts. The closed outer diagnostic records
+`wrapper` and `cleanup_failed: false`. The `browser_start` operation covers
+Firefox initialization and baseline extension/probe checks, so this report does
+not identify which of those failed. A started broker alone does not establish
+successful Firefox startup or filter delivery.
+
+The `browser-filter-delivery-04.G3DJR5` collection retains successful broker
+reaping, temporary-profile and input removal, zero remaining owned topology
+objects, and matching guest-root network-state hashes
+`558aace199b57512d8f96b624de8f70adab8c03a8712cec4070199c4810a4273`.
+The VM and its temporary disk were removed. Browser initialization/baseline diagnosis and a
+successful joined trial remain required; raw browser logs are not exported.
+
+The Browser driver records closed initialization/check subphases and
+error categories, while retaining the original failure through cleanup. The
+core validates those optional failure-only fields before exporting them. The
+latest local diagnostic changes distinguish WebDriver errors from malformed
+responses, framing failures, EOF, timeout and transport failures. Only fixed
+error codes and bounded locations in the pinned runtime may be retained; no
+raw response, error message or browser log is exported. The 49 Browser driver,
+23 joined-proof/export and 13 runner tests pass. The driver also corrects its
+fresh-profile check to treat an absent uBO `importedLists` key as the upstream
+default empty list. Explicit malformed values and unexpected lists remain
+rejected. This is a verified fixture defect, not proof of VM4's precise cause;
+no signed extension package or product filtering rule was changed.
+
+The fifth local attempt tested core `397b5b84aaaf6cdf7494829bdc0f8376ac404006`
+with frozen Browser manifest
+`8fd5239261e5a78501b9d8fb4a77e46e2fb5f275f20900cf7ffe954410e42329`.
+All four required identities converged after 203 inventory queries. The trial
+reached the Browser hook but failed at `BROWSER_FILTER_NATIVE_FAILED`; its new
+diagnostic narrows the failure to `session` / `command_error`, before extension
+baseline checks. The attempted `WebDriver:NewSession` command did not complete
+successfully. This does not establish its precise cause, and no browser probes
+or delivery receipts completed.
+
+The retained `browser-filter-delivery-05.KDUpgD` collection records broker reaping,
+profile/input removal, zero remaining owned topology objects and matching
+guest-root network hashes
+`f1146383d82ba978c0546b4e0f02f8268aaf25cb85b727c217387740579510fd`.
+The VM and temporary disk were removed. A subsequent loopback-only session-start
+probe using the same frozen runtime, original preferences and session parameters
+succeeded and shut Firefox down normally. Its receipt is retained in
+`browser-session-start-01.0EIlLL` with SHA-256
+`685683e29d023ac2c0cc5e30778164700feb875e8b5acc96ba2ebc8af11c3559`.
+It did not run a core, broker or full VM. The VM-specific failure remains
+unresolved; the more precise diagnostics have not yet been exercised in a new
+joined run. Joined filter delivery remains incomplete.
+
+### Weather provider and Drizz.li web integration
+
+The shared Weather provider from
+[PR5](https://github.com/VOLPAROSSA/volparossa-weather/pull/5) exposes temperature
+and wind on the original model time axis, retaining source evidence and the
+earliest forecast or signed publication expiry. Its core-cache adapter reuses
+the existing authenticated fetch path without an implicit origin or Open-Meteo
+fallback.
+
+Weather [PR6](https://github.com/VOLPAROSSA/volparossa-weather/pull/6) is merged
+in its own `main` at `ad9b788f2f284833e2ecdcaa1f4c60516c1bcef8`. It adds the
+pinned Drizz.li week-route integration and a fixed-area, loopback-only HTTP
+bridge to that adapter. The full app build and Svelte/TypeScript checks pass,
+alongside 46 Weather tests, 11 client/render tests and four browser-harness tests.
+An isolated real Firefox trial verifies initial display, refresh, missing/stale
+values, expiry, route guards and cleanup through the actual HTTP bridge with
+synthetic weather. Its
+[retained receipt](https://github.com/VOLPAROSSA/volparossa-weather/blob/537db8860d2d0567fb87c84782d23e50423620de/integrations/drizzli/browser-smoke.json)
+binds the final UI, bridge, fixture, build and runtime inputs. Static-file
+authorization uses the opened descriptor; the final browser trial includes that
+correction. The persistent bridge requires an explicitly initialized, owned cache
+with reuse enabled, rather than trying to create it again on every refresh.
+The final repository CI and CodeQL checks pass.
+
+The corrected joined KVM trial now proves one real temperature/wind publication
+reaching the browser and surviving refresh. The local proof fixture acquires public ECMWF data,
+publishes it to peers, requires a cold protected core transfer, and attempts to
+display and refresh the same publication through the production bridge in Drizz.li. Origin
+HTTPS acquisition is distinct from the subsequent overlay transfer. Explicit
+bundle selection, immutable input checks, private disk scratch and the existing
+4 GiB guest plus 2 GiB host-memory preflight are wired into the disposable runner;
+the ten runner and closed-export tests pass. The separate real-core browser
+driver has four Node preparation tests and eight inert Python tests, including
+exact display/refresh bindings to the cold publication. Ten bundle tests, ten
+joined-evidence tests and eleven inert shell/cleanup tests pass. The immutable
+168-file input bundle was captured and
+independently verified without executing a runtime; its manifest is
+`e77f3240ab93a836f3ef19393909e4d0809a2d1a75fd143613e6a476f858c905`
+and archive SHA-256 is
+`4843f20f8f47db5f82f5902217514c184dadc31d3e5fe7c19ca01238b65add68`.
+The first joined KVM trial ran core `c1418de71b0bb3d4d73600d84277d87df49189ac`
+with that bundle and failed at `weather-client-delivery-verify`
+(`WEATHER_CLIENT_BROWSER_FAILED`). Real origin acquisition passed for nine
+temperature/wind fields, producing a 7,149-byte forecast. The retained browser
+report stopped at its outer `inputs` phase, before bridge or browser execution;
+it does not prove a successful UI or independently recheckable cold transfer.
+A separate minimal namespace reproduction identifies an ownership-check defect:
+a root-owned executable becomes unmapped inside the unprivileged user namespace
+despite unchanged bytes and a read-only mount. A narrow verifier correction
+passes twelve focused tests, including the real minimal namespace case; it
+keeps strict outer ownership and checks the exact authorized executable through
+a read-only descriptor inside the namespace. The corrected Weather phase passes
+in the second trial described below; the complete topology run still fails later.
+
+The failed trial cleaned up all owned objects. Guest-root and host network state
+checks were unchanged. Retained local evidence is under
+`.git/ci-evidence/weather-client-delivery-01.Dc1jXf/output`; the closed smoke
+report SHA-256 is `9fc045370aa8831a4151c0a3a54febf7d97fd7f8c38164c1e0a0f3b7a01b843f`.
+The earlier synthetic browser result remains valid only for its pinned scope.
+
+The corrected fixture now validates and separately retains the protected cold
+transfer before starting the browser. Its closed receipt binds acquisition and
+publication bytes, core identity, provider traffic and privacy checks, and
+explicitly excludes UI or end-to-end success. Fourteen helper tests and twelve
+shell tests pass, including preservation across a later invalid UI receipt;
+these targeted tests establish fixture behavior independently of the live trial.
+
+The second joined trial on core `93dc2a64bd7157a77ee1837e4b8375f9b222fac6`
+uses bundle manifest `a3dab90657e742ce181994cb0be6741eccaaaaf63464026a09da67b49db7cb6e`.
+Its Weather phase passes: nine real ECMWF fields produce a 7,149-byte forecast,
+then a protected cold transfer obtains those same bytes from a peer after the
+publisher sources are removed, with zero origin requests or bytes in that phase.
+The actual Drizz.li page and production bridge display and refresh the exact
+publication, bound by matching hashes; browser, bridge, viewer, private state
+and agent-cache identity checks pass. This does not prove a browser-triggered
+cold fetch, simultaneous bulk throughput on two subflows, precipitation delivery,
+AQI, or a complete weather service. Origin acquisition occurs outside the overlay.
+
+Evidence is retained under `.git/ci-evidence/weather-client-delivery-02.kusV5m/output`:
+`weather-client-delivery-evidence.json` has SHA-256
+`f8a0a792e8e392cc8981c293b548bcec34852255cbad6b5aa7f6e3fc39d659d4`,
+and its browser report hash is
+`a869419e5302cb079240f68acbe327f46157c63c102d427b1701b48b38e5836b`.
+The **overall runner exits 1** afterwards at the separate 15 MiB adaptive-provider
+fetch with `CONTENT_UNAVAILABLE`. It must not be described as an all-green topology
+run. A15 reports unchanged state outside the owned disposable namespaces, and the
+runner and QEMU exit.
+
+A deterministic regression reproduces one cause of incomplete adaptive transfer:
+a peer rejected by the speed probe still owns untested complementary chunks,
+but closing it leaves only six of nine chunks. The local correction retains that
+already-counted peer for gap coverage, after ordinary active peers have attempted
+the missing chunk. It does not grant extra credits, duplicate an in-flight request
+or extend the original deadline. Nine parallel-transfer tests pass, including
+all nine complementary chunks, no speculative payload from a redundant peer,
+single-owner assignment and hard-pressure partial progress. Hard pressure can
+still stop a transfer; the final reassembly gate explicitly rejects the incomplete
+object rather than calling it complete. The correction has an independent review
+but still requires a new live topology run; the earlier failing receipt is retained.
+
+In a separate Weather candidate, native precipitation acquisition now passes for
+IFS and AIFS Single with the pinned decoder. The shared provider preserves source
+accumulation windows and missing values. Its updated Drizz.li component passes
+five actual render/compiler tests, the full type check and a networkless build.
+An isolated Firefox run now also passes with synthetic precipitation, preserving
+missing, zero and 0.01 mm values and native windows through initial display and
+refresh. Expiry, route guards and complete cleanup pass. The separate Weather
+receipt `integrations/drizzli/precipitation-browser-smoke.json` has SHA-256
+`cb972cbf4b3930c87df017865c68b1da88f1fa81ed48f23008dd623ba5051a58`;
+it explicitly makes no origin, core or overlay-delivery claim. A subsequent
+baseline temperature/wind run on the same new build also passes.
+The Weather air-quality candidate now has a separate NOAA GEFS-Aerosols
+PM2.5/PM10 contract, exact-range source adapter and shared core-cache consumer.
+A real CLI/decoder trial verifies two native instantaneous forecast points
+(steps 3 and 6) using 2,841,174 field bytes; it does not derive AQI or observations.
+A separate [native forecast receipt](https://github.com/VOLPAROSSA/volparossa-weather/blob/f5accb1c674aa2bd2eaec00e36ccbc4c393b51a0/third_party/noaa-gefs-future-smoke.json)
+records steps 3, 6, 12, 24 and 48 from the 2026-10-11 00:00 UTC run, acquired
+at 18:13 UTC that day. Steps 24 and 48 were still in the future at acquisition.
+Ten native fields total 6,357,433 bytes and produce an 8,773-byte forecast.
+This verifies source acquisition and the production decoder, not forecast
+accuracy, observations, peer delivery or browser display.
+Ninety-one Weather tests pass, including subprocess-based cache/CLI boundaries,
+query/expiry checks and cancellation. The particulate core-cache tests use a
+synthetic core process; real particulate overlay delivery remains unproved.
+Overmorrow, additional location selection, precipitation delivery and
+complete application delivery remain required work. Absent fields are never
+substituted with zero.
+
+The next local Weather slice connects that separate particulate product to the
+actual Drizz.li week route through `/api/volparossa/air-quality`. Owner-selected
+weather and particulate configurations must use the same public area, while
+their publishers, source runs, native times and expiry remain independent.
+Both endpoints use one bounded retrieval slot, no origin fallback and no browser
+selection of locations or publishers. Timeout failure follows backend cancellation
+cleanup; the next product request does not race a still-occupied slot.
+
+The complete client type check and networkless production build pass. A total
+of 126 targeted Node tests (including eight actual Svelte render/compiler tests)
+and thirteen inert harness checks pass. The actual isolated Firefox trial with
+synthetic precipitation and PM2.5/PM10 also passes: eleven requests per product,
+exact missing/zero concentrations, independent native timestamps, refresh,
+separate expiry/failure handling, route guards and complete private-state/process
+cleanup. The same build passes the existing temperature/wind scenario with AQ
+unconfigured. Weather's retained `integrations/drizzli/air-quality-browser-smoke.json`
+has SHA-256 `7977c31ad53d5ed12455ec7147daf220a05987aca71273344a3a536fe0a76d3d`.
+This is real UI and HTTP-bridge evidence with synthetic values, not a new NOAA
+origin trial or precipitation/particulate peer-delivery result. The frozen
+temperature/wind inputs for the outstanding core topology rerun are unchanged.
+
+The local v2 input-bundle preparation now preserves the complete precipitation
+and particulate module set, both application licences, source overlays, staged
+copies and the pinned decoder/runtime. It checks exact provenance groups against
+the combined browser receipt and the separate ECMWF and NOAA acquisition
+receipts. Capturing a file does not establish that it has run in the joined test.
+The actual 193-file archive (433,030,799 payload bytes) passes capture, readonly
+unpack and a complete tree recheck. Its manifest SHA-256 is
+`6165442537ddacf0e287118447670a285ac2d1cb1bf33fa37afe42bfaa037b28`;
+archive SHA-256 is
+`97facd0bd87160094774143d016cc4e6659fb69fe984280e3a1812a2c7de3989`.
+The earlier v1 archive still passes unchanged. Twenty bundle tests and 37
+existing delivery/shell/runner checks pass, including the new profile gate.
+Four Weather preparation tests also pass after their temporary test copies were
+updated to include the imported particulate modules; no assertion was relaxed.
+
+The two-product joined driver now acquires both products before publishing,
+creates distinct publications and agent caches, and removes both original
+forecasts and the publisher identity before either cold fetch. Each product
+requires its own drained packet/control captures, selected protected route,
+byte-matched receipt and private-cache checks. The browser then checks both
+provider responses, initial panels and refresh against those cold receipts.
+Native NOAA timestamps remain independent of ECMWF. The driver now requests
+IFS leads 3, 9, 24 and 48 hours and NOAA leads 3, 6, 12, 24 and 48 hours:
+sixteen weather fields and ten particulate fields. It checks exact native
+validity times and requires future coverage during acquisition, browser
+preparation and final proof creation. Earlier forecast points are not relabelled
+as current observations. This correction leaves the frozen Weather inputs and
+time budgets unchanged; future coverage in the joined live trial remains to be
+demonstrated. Seventeen targeted driver tests, eight shell-contract tests and
+fourteen unchanged v1-delivery tests pass. They cover clock boundaries, native
+validity, acquisition timing, cold-byte and browser-expectation binding, and
+historical evidence validation without consulting the current clock.
+
+A shared 840-second post-acquisition budget bounds publication, transfers and
+browser work, without extending either signed 900-second publication or source
+expiry. Helper timeouts allow bounded descendant cleanup before a hard kill.
+Closed cold-transfer evidence is retained before browser preparation, and
+interruption cleanup attempts every owned resource independently. Eighty-two
+core bundle/driver/shell/runner tests and the seven Weather preparation plus
+sixteen browser-driver tests pass; cross-repository checks confirm the matching
+report contract. The wider Weather check passes 133 Node tests.
+
+Both topology runners now accept exactly the validated v1 and v2 input profiles,
+selecting the matching driver. The updated 193-file archive has 433,046,126
+payload bytes, manifest SHA-256
+`ec789a95fb07e2eba17f87253f7387acd4a5c488a23703c1d90f11808a48d102`
+and archive SHA-256
+`f1509e305236e37afecfc7287e517c99a6714487f036af4b25db5770a0bc5493`.
+Capture, full runtime-input verification, read-only unpack and tree verification
+pass; the frozen v1 archive remains unchanged and accepted. This is fixture and
+input evidence, not a completed live two-product trial.
+
+The subsequent local run on `c8b57d94dd21e8db6a08f961228cccc530aa873d`
+passed the unchanged memory gate, built the core in the disposable VM, and
+established the protected route. It failed at the earlier base content fetch
+with `CONTENT_PROVIDER_RUNTIME_FETCH_FAILED`, before Weather acquisition.
+Both stores were registered locally, but the one discovery snapshot recorded
+only one verified provider offer. Only that provider, holding five of nine chunks,
+returned application data; the complementary four-chunk provider received no
+application request. The failed fetch retained no completed transfer receipt.
+A completed discovery query is not a complete provider catalogue. The evidence
+establishes the incomplete snapshot; a publication/convergence race is the
+likely cause, not a separately proven DHT diagnosis.
+
+The failed local report is retained at
+`.git/ci-evidence/weather-products-delivery-01.TH6yxN/output/content-provider-smoke.json`
+with SHA-256 `3a4a9c7243e1b77508a5f5d5a578bb75f3b1ecf36505aef4525258526eb15a1a`.
+Cleanup reports zero owned objects and unchanged guest-root network state outside
+the test namespaces. The runner and QEMU exited. This report contains no Weather
+transfer, UI, adaptive-provider or full-alpha success.
+
+The separate [CI run 38163595466](https://github.com/VOLPAROSSA/volparossa/actions/runs/38163595466)
+on the same source failed earlier with `CONTENT_PROVIDER_INVENTORY_UNAVAILABLE`:
+the relay advertisements and second Exit appeared, but the required primary Exit
+did not. Its artifact retains successful cleanup and unchanged guest-root state.
+Current logs do not distinguish a missing primary publication from later
+provider-index propagation. Neither a longer readiness wait nor substituting
+the second Exit is an established fix. The previous pre-VM fixture failure
+in [run 38162824767](https://github.com/VOLPAROSSA/volparossa/actions/runs/38162824767)
+is fixed by `c8b57d94`; that correction does not resolve either live failure.
+This is a historical hosted result on `c8b57d94`, not a check of the current
+branch head. Later local runs reach the provider inventory, but do not establish
+that the hosted environment now passes it.
+
+The candidate now retries completed capability snapshots when verified chunks
+are missing: at most three generic discovery rounds and sixteen unique provider
+candidates, including recent hints. All batches share one absolute 300-second
+transfer budget inside the unchanged 600-second operation limit. Previously
+verified chunks remain in the same cache, and publication, policy, control-relay
+and route-context authority are checked between rounds. There is no new origin
+or direct-peer fallback. Native fetch and explicit HTTPS `PeersFirst` use this
+coordinator; other source-selection strategies are unchanged.
+
+Seven targeted coordinator/stream tests pass, including late complementary
+discovery, exact reconstruction without duplicate bytes, the complete-cache and
+single-provider fast paths, bounds, errors, invalidation, deadlines and
+cancellation. These tests use signed manifests and real chunk streams, with
+controlled discovery snapshots. Five existing parallel-transfer tests and four
+recent-provider tests also pass, including partial progress at the transfer
+deadline and cleanup before fallback. These checks do not establish live DHT convergence or
+resolve the separate CI primary-Exit failure. A new exact-source topology trial
+remains required before either live failure is described as fixed.
+
+The next local run on `5f82f619cca8c4e6e621d01bcc3269e41a499ba8` builds
+successfully and completes the base native fetch: 2,097,275 bytes in nine chunks
+from the two complementary providers, with no origin bytes. Independent checks
+of the retained receipts, selected route, control traffic and drained packet
+captures pass. The two bulk-payload windows overlap by 643,330,579 ns. Both
+offers arrived in one discovery query, so this run does not prove late-provider
+recovery, per-subflow bulk aggregation or a speed improvement.
+
+The run then stops before Weather acquisition with `WEATHER_CLIENT_PROFILE_INVALID`,
+recorded under the preceding `content-provider-filter-cold` phase. Preflight
+verified the 0600 archive as its VM owner, but later profile dispatch called the
+strict reader as root, which rejects that non-root owner. This is a test-driver
+ownership-context error, not evidence of a malformed frozen bundle. No Weather
+or adaptive-transfer success is claimed. The report remains at
+`.git/ci-evidence/weather-products-delivery-02.w9hxuJ/output/content-provider-smoke.json`,
+SHA-256 `62adcc7bc20002ead79e5cd1a75fb8d5022f9dabe9dc93a7814343febd6916b9`.
+Cleanup retains zero owned objects and unchanged guest-root network state.
+The development host's DNS and IPv4/IPv6 route hashes also match their pre-run
+values; a host-firewall comparison was unavailable without additional privilege.
+
+Profile dispatch now mirrors preflight: root-owned archives are checked as root,
+and VM-user-owned archives as that user. Other owners and failed checks remain
+rejected; parser rules, archive bytes and downstream root-owned unpacking are
+unchanged. The profile check also has its own reported phase. All 43 focused
+checks pass (22 bundle, nine products shell and 12 legacy shell tests), including
+the reproduced owner mismatch and closed failure paths; ShellCheck passes too.
+The subsequent joined trial verifies that correction, as described below.
+
+The next local run on `cc5f355843dd35f7b30a162759cbe37b89904c9d` passes
+profile dispatch, source-tree verification and publisher initialization, then
+fails at `weather-products-delivery-acquire` with
+`WEATHER_PRODUCTS_ACQUISITION_FAILED`. Before that failure, the base protected
+fetch again reconstructs 2,097,275 bytes in nine chunks from two complementary
+providers. Independent route, control and packet-capture checks pass; bulk-payload
+windows overlap by 456,007,223 ns. Both offers arrive in one discovery query,
+so late rediscovery, adaptive transfer and Weather delivery remain unproved.
+
+The failure report is retained at
+`.git/ci-evidence/weather-products-delivery-03.TTYTlI/output/content-provider-smoke.json`,
+SHA-256 `011636021ae8d6d55db208b5991b16c34807f6c427744bbbe70e36639e96ac62`.
+Cleanup reports zero owned objects and unchanged guest-root network state;
+the VM and temporary overlay are removed. Development-host DNS and IPv4/IPv6
+route hashes match the pre-run values. This does not add a development-host
+firewall comparison.
+
+The retained report does not identify the acquisition substep that failed.
+The helper emits only a generic failure, and the success-only atomic exporter
+rejects that acquisition record before copying any Weather receipts. The
+topology and emergency collectors then lose otherwise valid Weather diagnostics.
+The correction separates closed failure diagnostics from atomic success evidence
+and retains independently validated tree/cleanup receipts without exporting raw
+process logs. Nine fixed acquisition stages identify the failing product and
+step; the shell retains command exit status, including missing or invalid
+diagnostics. Both collectors require a complete, validated failure export and
+preserve failure status. The existing runner still discards subprocess stderr,
+so stage diagnostics do not identify native upstream error codes. Seventy-eight
+focused tests pass: 23 products helper, 11 products shell, 18 runner, 14 legacy
+helper and 12 legacy shell tests. Independent review passes, shell syntax is valid
+and comparison against the committed baseline finds no new ShellCheck findings.
+
+A separate native source probe uses the same verified frozen inputs, IFS run
+`2026-10-11T00:00:00.000Z`, requested fields and leads. It stops before decoding
+with `EXACT_RANGE_REQUIRED`. One bounded header check at `2026-10-11T20:23:26.986Z`
+validates the index but receives HTTP 429 for the first 654,404-byte field range;
+the response body is cancelled without consumption. `Retry-After` was not
+captured, so its value is unknown. The closed diagnostic remains in
+`.git/ci-evidence/weather-ecmwf-source-diagnostic.apV8R0/http-header-diagnostic.json`,
+SHA-256 `504fae8c9c230ba502ef568acfa5f4c5cc78a1441832b6ebfda0fd75a968235a`.
+This establishes source rate limiting during the probe, not the lost VM error's
+exact cause. No further source retry or joined VM was launched after that check.
+
+### Citizen procedure simulation
+
+Citizen [PR1](https://github.com/VOLPAROSSA/volparossa-citizen/pull/1) is merged
+in its own `main` at `43ef0ce916dd7ba0542710bc90705acdd4d2dd16`.
+The dependency-free executable uses synthetic identities and an immutable
+all-eligible electorate, distinct from registered accounts and turnout.
+One-third support starts voting; two-thirds yes adopts, two-thirds no rejects,
+and other results are indeterminate. An indeterminate result permits an explicit
+new procedure after three calendar years, with a fresh electorate snapshot and
+renewed support. UTC, closing-time and leap-day conventions are documented
+simulation assumptions, not new confirmed policy.
+
+Twenty-one independently rerun tests pass, including the actual deterministic
+CLI demo, rounding boundaries, duplicates, ineligible participation, time
+windows and repeat-state preservation. This is a single-process reference
+workflow, not real-person authentication, secret voting, cryptographic tally
+verification, distributed recovery, core integration or legal authority.
+Those remain incomplete. See the [application overview](applications/APPLICATIONS.md#citizen).
 
 ### Bank and Transaction layer implementation
 
