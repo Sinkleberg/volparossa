@@ -574,19 +574,46 @@ class MaintenanceEvidence(unittest.TestCase):
     def test_closed_source_bound_bundle_reuses_actual_network_proof_contracts(self):
         value = fixture()
         CHECK['validate_evidence'](value)
-        CHECK['validate_report'](report(value), '1' * 40)
+        CHECK['validate_report'](report(value), '1' * 40, historical=True)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             OLD['write_evidence'](root, value)
             (root / 'private-storage-maintenance-lifecycle.json').write_text(json.dumps(value['lifecycle']))
             self.assertEqual(CHECK['evidence'](root), value)
-            self.assertEqual(set(CHECK['EXPORT_NAMES']) - {
+            consumer_only = set(CHECK['CONSUMERS']['EXPORT_NAMES']) - set(CHECK['F']['EXPORT_NAMES'])
+            self.assertEqual(set(CHECK['EXPORT_NAMES']) - consumer_only - {
                 'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json',
                 'private-storage-maintenance-lifecycle-failure.json'},
                 {p.name for p in root.iterdir()})
             (root / 'private-storage-fragments-restored_usage.json').write_text('{}')
             with self.assertRaises(ValueError):
                 CHECK['evidence'](root)
+
+    def test_current_report_requires_both_proofs_from_the_same_topology(self):
+        consumers = runpy.run_path(str(HERE / 'test-storage-consumer-maintenance-evidence.py'))['fixture']()
+        original = fixture()
+        # Bind this synthetic consumer fixture to the original fixture's scope.
+        for name in ('expected_peers', 'layout', 'isolation'):
+            consumers[name] = copy.deepcopy(original[name])
+        combined = dict(report(original), schema_version=3, consumers=consumers)
+        CHECK['validate_report'](combined, '1' * 40)
+        with self.assertRaises(ValueError):
+            CHECK['validate_report'](report(original), '1' * 40)
+        for mutation in (lambda v: v.pop('consumers'), lambda v: v['consumers'].update(success=False),
+                lambda v: v['maintenance'].update(success=False),
+                lambda v: v['consumers']['deleted_usage'][0].update(leases=1),
+                lambda v: v['consumers']['expected_peers'].update(client='differentPeer'),
+                lambda v: v.update(schema_version=2)):
+            invalid = copy.deepcopy(combined)
+            mutation(invalid)
+            with self.assertRaises((ValueError, KeyError)):
+                CHECK['validate_report'](invalid, '1' * 40)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'report.json'
+            path.write_text(json.dumps(report(original)))
+            result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                'report', str(path), '1' * 40], capture_output=True, timeout=5)
+            self.assertNotEqual(result.returncode, 0, 'historical v2 must not pass the current CLI gate')
 
     def test_missing_core_authority_cursor_and_stop_proofs_never_pass(self):
         for mutate in (
@@ -631,7 +658,7 @@ class MaintenanceEvidence(unittest.TestCase):
             invalid = report(fixture())
             mutate(invalid)
             with self.assertRaises(ValueError):
-                CHECK['validate_report'](invalid, '1' * 40)
+                CHECK['validate_report'](invalid, '1' * 40, historical=True)
 
     def test_stale_redundancy_receipts_do_not_end_partial_repair(self):
         keys = ['1' * 64, '2' * 64, '3' * 64]
@@ -657,6 +684,7 @@ class MaintenanceEvidence(unittest.TestCase):
                          'fragment-set/fragments.json', 'fragment-set/placement-authorizations.json',
                          'maintenance/enrollment.json', 'maintenance/checkpoint.json', 'foreground/archive.json',
                          'flow-upload.json', 'flow-restore.json', 'flow-finish.json',
+                         'flow-consumer-publish.json', 'flow-consumer-exercise.json', 'flow-consumer-finish.json',
                          'fragment-set/fragment-0000/copy-2/archive.json',
                          'fragment-set/fragment-0000/.handoff-journal-X1/copy/archive.json',
                          'fragment-set/fragment-0000/.handoff-transfer-X2/survivor-1',
@@ -670,6 +698,11 @@ class MaintenanceEvidence(unittest.TestCase):
             self.assertEqual(sentinel.read_text(), 'retain')
             self.assertTrue((root / 'identity.key').exists())
             (root / 'unexpected-link').unlink()
+            add('flow-consumer-unknown.json')
+            with self.assertRaises(ValueError):
+                CHECK['cleanup'](root)
+            self.assertTrue((root / 'identity.key').exists())
+            (root / 'flow-consumer-unknown.json').unlink()
             self.assertTrue(all(CHECK['cleanup'](root).values()))
             self.assertFalse(root.exists())
             self.assertTrue(all(CHECK['cleanup'](root).values()))

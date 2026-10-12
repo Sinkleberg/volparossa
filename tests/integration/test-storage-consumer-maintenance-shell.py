@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+"""Inert orchestration contracts; not actual application or network evidence."""
+from pathlib import Path
+import subprocess
+import unittest
+
+HERE = Path(__file__).resolve().parent
+SCRIPT = HERE / 'storage-consumer-maintenance-smoke.sh'
+TEXT = SCRIPT.read_text()
+
+
+class ConsumerShell(unittest.TestCase):
+    def test_parses_and_sourcing_does_not_start_or_provision_anything(self):
+        subprocess.run(['sh', '-n', str(SCRIPT)], check=True, capture_output=True, timeout=5)
+        result = subprocess.run(['sh', '-eu', '-c', '. "$1"', 'inert', str(SCRIPT)],
+            check=True, capture_output=True, timeout=5)
+        self.assertEqual((result.stdout, result.stderr), (b'', b''))
+
+    def test_worker_loses_privileges_and_has_bounded_cancellation(self):
+        runner = TEXT.split('private_storage_consumer_private() {', 1)[1].split('\n}', 1)[0]
+        for required in ('--kill-after=30s 2400s setpriv', '--reuid="$WORKER_UID"',
+                '--regid="$WORKER_GID"', '--groups="$custody_control_gid"',
+                '--inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs',
+                'STORAGE_PROOF_BASELINE_MS', 'STORAGE_PROOF_ROUTE_SCOPE'):
+            self.assertIn(required, runner)
+        self.assertNotIn('eval ', TEXT)
+        self.assertNotIn('sudo ', TEXT)
+
+    def test_each_consumer_phase_gets_its_own_actual_network_observation(self):
+        phase = TEXT.split('private_storage_consumer_phase() {', 1)[1].split('\n}', 1)[0]
+        self.assertIn('case $1 in publish|exercise|finish)', phase)
+        self.assertIn('flow-minimum "$consumer_phase"', phase)
+        self.assertIn('private_storage_fragments_phase_start "consumer-$consumer_phase"', phase)
+        self.assertIn('"$WORK/runtime-exit/control/agent.sock" "$storage_user"', phase)
+        self.assertLess(phase.index('private_storage_fragments_phase_start'),
+            phase.index('private_storage_consumer_private "$consumer_phase"'))
+        self.assertLess(phase.index('private_storage_consumer_private "$consumer_phase"'),
+            phase.index('private_storage_fragments_phase_finish "$consumer_minimum"'))
+
+    def test_same_provider_stores_are_withdrawn_before_read_and_reopened_before_delete(self):
+        run = TEXT.split('private_storage_consumer_run() {', 1)[1]
+        ordered = ('CONSUMER_INITIAL_STORE_NOT_EMPTY', 'CONSUMER_OWNER_PARENT_NOT_NEW',
+            'private_storage_fragments_reopen relay4 relay5 relay3',
+            'private_storage_consumer_private prepare', 'private_storage_consumer_phase publish',
+            'private_storage_fragments_usage consumer_uploaded_usage',
+            'private_storage_fragments_reopen relay5 relay3', 'CONSUMER_SOURCE_STILL_SERVING',
+            'CONSUMER_SURVIVOR_NOT_SERVING', 'private_storage_consumer_phase exercise',
+            'private_storage_fragments_usage consumer_restored_usage',
+            'private_storage_fragments_reopen relay4 relay5 relay3',
+            'private_storage_consumer_phase finish', 'private_storage_fragments_usage consumer_deleted_usage',
+            'CONSUMER_PROVIDER_CLEANUP_INCOMPLETE', 'private_storage_consumer_cleanup')
+        offset = 0
+        for fragment in ordered:
+            offset = run.index(fragment, offset) + len(fragment)
+        self.assertEqual(run.count('all(.[]; . == {reserved_bytes:0,committed_bytes:0,leases:0})'), 2)
+
+    def test_local_cleanup_does_not_claim_remote_deletion_or_remove_a_broad_tree(self):
+        cleanup = TEXT.split('private_storage_consumer_cleanup() {', 1)[1].split('\n}', 1)[0]
+        self.assertIn('consumer_private_cleanup_complete:-no', cleanup)
+        self.assertIn('private_storage_consumer_private cleanup "$consumer_user"', cleanup)
+        self.assertIn('rmdir "$WORK/u" || return 1', cleanup)
+        self.assertNotIn('rm -', TEXT)
+        self.assertNotIn('consumer-binding.json', TEXT)
+        self.assertNotIn('remote_cleanup_confirmed:true', TEXT)
+
+    def test_current_agent_cannot_read_new_owner_root_or_any_provider_store(self):
+        run = TEXT.split('private_storage_consumer_run() {', 1)[1]
+        self.assertIn('--property=MainPID --value volparossa-alpha-agent@client.service', run)
+        self.assertIn('--target "$consumer_client_pid" --mount setpriv', run)
+        self.assertIn('-- test -r "$WORK/state-client/identity.key" || fail CONSUMER_POSITIVE_ISOLATION_FAILED', run)
+        self.assertIn('for consumer_private in "$consumer_user"', run)
+        for peer in ('relay4', 'relay5', 'relay3'):
+            self.assertIn(f'"$WORK/state-{peer}/private-store"', run)
+        self.assertIn('-- test -r "$consumer_private"; then fail CONSUMER_LOCAL_SHORTCUT', run)
+        self.assertLess(run.index('CONSUMER_LOCAL_SHORTCUT'), run.index('private_storage_consumer_private prepare'))
+        self.assertIn('"$WORK/storage-consumer-isolation.json"', run)
+
+
+if __name__ == '__main__':
+    unittest.main()

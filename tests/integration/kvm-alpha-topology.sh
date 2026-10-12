@@ -1169,7 +1169,11 @@ if [ "$private_storage_fragments" = yes ]; then
 fi
 if [ "$private_storage_maintenance" = yes ]; then
     for maintenance_fixture in private-storage-maintenance-smoke.sh private-storage-maintenance-smoke.py \
-        private-storage-log-sampler.py content-provider-readiness.py; do
+        private-storage-log-sampler.py content-provider-readiness.py \
+        storage-consumer-maintenance-smoke.sh storage-consumer-maintenance-smoke.py \
+        storage-consumer-maintenance.mjs storage-consumer-maintenance-pins.json \
+        storage-consumer-maintenance-evidence.py storage-consumer-maintenance-provision.py \
+        image-snapshot-provision.py agent-private-task-code.py agent-private-task-code-pins.json; do
         [ -f "$source_directory/tests/integration/$maintenance_fixture" ] \
             && [ ! -L "$source_directory/tests/integration/$maintenance_fixture" ] || exit 69
     done
@@ -2279,6 +2283,9 @@ cleanup() {
     if [ "$private_storage_maintenance" = yes ] && command -v private_storage_maintenance_join >/dev/null 2>&1; then
         private_storage_maintenance_join || original_status=1
     fi
+    if [ "$private_storage_maintenance" = yes ] && command -v private_storage_consumer_cleanup >/dev/null 2>&1; then
+        private_storage_consumer_cleanup || original_status=1
+    fi
     if [ "$private_storage_fragments" = yes ] && [ "$signal_backup_fragments" = no ] \
         && command -v private_storage_fragments_cleanup >/dev/null 2>&1; then
         private_storage_fragments_cleanup || original_status=1
@@ -2778,6 +2785,8 @@ fi
 if [ "$private_storage_maintenance" = yes ]; then
     # shellcheck source=tests/integration/private-storage-maintenance-smoke.sh
     . "$source_directory/tests/integration/private-storage-maintenance-smoke.sh"
+    # shellcheck source=tests/integration/storage-consumer-maintenance-smoke.sh
+    . "$source_directory/tests/integration/storage-consumer-maintenance-smoke.sh"
 fi
 if [ "$signal_backup_fragments" = yes ]; then
     # shellcheck source=tests/integration/signal-backup-fragments-smoke.sh
@@ -3024,9 +3033,16 @@ if [ "$private_storage_fragments" = yes ]; then
         "$WORK/bin/private-storage-fragments-smoke.py"
 fi
 if [ "$private_storage_maintenance" = yes ]; then
-    for maintenance_script in private-storage-maintenance-smoke.py private-storage-log-sampler.py content-provider-readiness.py; do
+    for maintenance_script in private-storage-maintenance-smoke.py private-storage-log-sampler.py content-provider-readiness.py \
+        storage-consumer-maintenance-smoke.py storage-consumer-maintenance.mjs \
+        storage-consumer-maintenance-evidence.py storage-consumer-maintenance-provision.py \
+        image-snapshot-provision.py agent-private-task-code.py; do
         install -o root -g root -m 0555 "$source_directory/tests/integration/$maintenance_script" "$WORK/bin/$maintenance_script"
     done
+    install -o root -g root -m 0444 "$source_directory/tests/integration/storage-consumer-maintenance-pins.json" \
+        "$WORK/bin/storage-consumer-maintenance-pins.json"
+    install -o root -g root -m 0444 "$source_directory/tests/integration/agent-private-task-code-pins.json" \
+        "$WORK/bin/agent-private-task-code-pins.json"
 fi
 if [ "$image_snapshot" = yes ] || [ "$cloud_private_file" = yes ] || [ "$cloud_private_upload" = yes ]; then
     install -o root -g root -m 0555 "$source_directory/tests/integration/image-snapshot-smoke.py" \
@@ -6290,6 +6306,8 @@ start_privacy_observers() {
         private-storage-replicas-upload-privacy|private-storage-replicas-failover-privacy|private-storage-replicas-finish-privacy)
             [ "$private_storage_replicas" = yes ] || return 1 ;;
         private-storage-fragments-lifecycle-privacy)
+            [ "$private_storage_maintenance" = yes ] || return 1 ;;
+        private-storage-fragments-consumer-publish-privacy|private-storage-fragments-consumer-exercise-privacy|private-storage-fragments-consumer-finish-privacy)
             [ "$private_storage_maintenance" = yes ] || return 1 ;;
         private-storage-fragments-upload-privacy|private-storage-fragments-restore-privacy|private-storage-fragments-finish-privacy)
             [ "$private_storage_fragments" = yes ] || return 1 ;;

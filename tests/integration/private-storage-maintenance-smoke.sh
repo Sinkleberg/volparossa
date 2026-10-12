@@ -127,17 +127,19 @@ private_storage_maintenance_finalize_report() {
         fi
     fi
     optional_json_evidence "$WORK/private-storage-maintenance-evidence.json" >"$WORK/handoff-report-evidence.part"
+    optional_json_evidence "$WORK/storage-consumer-evidence.json" >"$WORK/handoff-report-consumers.part"
     optional_json_evidence "$WORK/a15-evidence.json" >"$WORK/handoff-report-host.part"
     jq -cn --arg revision "$expected_commit" --arg run "$RUN_ID" --arg phase "$PHASE" --arg blocker "$OBSERVED_BLOCKER" \
         --argjson status "$maintenance_status" --slurpfile evidence "$WORK/handoff-report-evidence.part" \
+        --slurpfile consumers "$WORK/handoff-report-consumers.part" \
         --slurpfile host "$WORK/handoff-report-host.part" --argjson complete "$CLEANUP_COMPLETE" \
         --argjson remaining "$REMAINING_OWNED_OBJECTS" '
-      {schema_version:2,report_kind:"volparossa-private-storage-maintenance",source_revision:$revision,run_id:$run,
-       phase:$phase,runner_exit_status:$status,maintenance:$evidence[0],
-       success:($status == 0 and $evidence[0].success == true and $complete and $remaining == 0 and $host[0].unchanged == true),
+      {schema_version:3,report_kind:"volparossa-private-storage-maintenance",source_revision:$revision,run_id:$run,
+       phase:$phase,runner_exit_status:$status,maintenance:$evidence[0],consumers:$consumers[0],
+       success:($status == 0 and $evidence[0].success == true and $consumers[0].success == true and $complete and $remaining == 0 and $host[0].unchanged == true),
        observed_blocker:(if $blocker == "NONE" then null else $blocker end),
        cleanup:{complete:$complete,remaining_owned_objects:$remaining},host_state:($host[0] | del(.acceptance_id)),
-       scope:"Explicit finite owner enrollment, actual core idle turns, protected renewal/repair, owner EOF and foreground revocation; same owner across disposable core restart, SIGTERM pause and fresh owner resume; conservative charge, two B/C reconstructions and all-copy deletion. Synthetic opaque data; no encryption, device-diversity, reciprocal credit, contribution resizing or full-alpha proof."}' \
+       scope:"Finite owner enrollment and protected renewal/repair across core restart, SIGTERM/resume and foreground revocation. Separate pinned Image encrypted snapshot and Cloud authenticated DAV-body restoration after A withdrawal, with retained original authority, actual replacement custody and independent zero provider usage. Synthetic inputs only; no running Immich/OpenCloud account server, independent-device availability, reciprocal credit, contribution resizing or full-alpha proof."}' \
         >"$WORK/private-storage-maintenance-smoke.json" || return 1
     maintenance_exports=$(python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" export-names) || return 1
     for maintenance_name in $maintenance_exports; do

@@ -434,7 +434,10 @@ class CoveredExitLogs(unittest.TestCase):
         checker = runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))
         self.assertFalse(any('flow-upload' in name or 'log-sampler' in name for name in checker['EXPORT_NAMES']))
         guest = (HERE / 'kvm-alpha-topology.sh').read_text()
-        self.assertIn('for maintenance_script in private-storage-maintenance-smoke.py private-storage-log-sampler.py content-provider-readiness.py;', guest)
+        staging = guest.split('for maintenance_script in ', 1)[1].split('\n    done', 1)[0]
+        for script in ('private-storage-maintenance-smoke.py', 'private-storage-log-sampler.py',
+                'content-provider-readiness.py'):
+            self.assertIn(script, staging)
         self.assertIn('"$WORK/bin/$maintenance_script"', guest)
         self.assertIn('|| { [ "$private_storage_maintenance" = yes ] && [ "$node" = exit ]; }', guest)
         self.assertIn('chgrp volparossa-users "$WORK/runtime-$node/control"', guest)

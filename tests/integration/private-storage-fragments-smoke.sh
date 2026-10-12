@@ -252,6 +252,9 @@ private_storage_fragments_run() {
         >"$WORK/private-storage-fragments-finish.json" || fail FRAGMENTS_FINISH_FAILED
     private_storage_fragments_phase_finish 16
     private_storage_fragments_usage deleted_usage
+    if [ "${private_storage_maintenance:-no}" = yes ]; then
+        private_storage_consumer_run
+    fi
     benchmark_disconnect_route private-storage-fragments || fail FRAGMENTS_ROUTE_CLEANUP_FAILED
     private_storage_fragments_cleanup || fail FRAGMENTS_PRIVATE_CLEANUP_FAILED
     if [ "${cloud_private_upload:-no}" = yes ]; then

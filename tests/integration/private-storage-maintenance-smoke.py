@@ -17,6 +17,7 @@ import time
 
 F = runpy.run_path(str(Path(__file__).with_name('private-storage-fragments-smoke.py')))
 SAMPLER = runpy.run_path(str(Path(__file__).with_name('private-storage-log-sampler.py')))
+CONSUMERS = runpy.run_path(str(Path(__file__).with_name('storage-consumer-maintenance-evidence.py')))
 read, require = F['read'], F['require']
 private_root, private_file, create, invoke, unlock = (F[key] for key in
     ('private_root', 'private_file', 'create', 'invoke', 'unlock'))
@@ -42,6 +43,7 @@ EXPORT_NAMES = tuple(name for name in F['EXPORT_NAMES'] if name not in
     'private-storage-fragments-lifecycle-gates.json',
     'content-provider-adaptive-private-storage-fragments-lifecycle-control.json',
     *(f'private-storage-fragments-lifecycle-privacy-{role}.json' for role in F['ROLES']))
+EXPORT_NAMES = tuple(dict.fromkeys((*EXPORT_NAMES, *CONSUMERS['EXPORT_NAMES'])))
 SCOPE_FALSE = ('independent_failure_domains_proven', 'network_contribution_credit',
     'archive_encryption_proven', 'automatic_archive_discovery', 'automatic_grant_refresh',
     'contribution_resize_proven', 'full_alpha_acceptance_claimed')
@@ -1023,6 +1025,7 @@ def cleanup(path):
                 else:
                     allowed = ((depth == 0 and child.name in F['FILES'] | {'foreground.bin', 'foreground-grant.bin',
                             'flow-upload.json', 'flow-restore.json', 'flow-finish.json', 'flow-lifecycle.json',
+                            'flow-consumer-publish.json', 'flow-consumer-exercise.json', 'flow-consumer-finish.json',
                             'lifecycle-working.json', 'lifecycle-unavailable.json', 'lifecycle-result.json'})
                         or (depth == 1 and child.name in ('fragments.json', 'placement-authorizations.json',
                             'enrollment.json', 'checkpoint.json', 'archive.json'))
@@ -1143,14 +1146,23 @@ def evidence(work):
     return value
 
 
-def validate_report(report, revision):
+def validate_report(report, revision, *, historical=False):
+    # Historical v2 reports describe only the original opaque fixture. They
+    # remain inspectable, but never satisfy the current combined CLI gate.
     require(re.fullmatch('[0-9a-f]{40}', revision) and report['source_revision'] == revision
-        and report['schema_version'] == 2 and report['report_kind'] == 'volparossa-private-storage-maintenance'
+        and report['schema_version'] == (2 if historical else 3)
+        and report['report_kind'] == 'volparossa-private-storage-maintenance'
         and report['success'] is True and report['runner_exit_status'] == 0
         and report['phase'] == 'private-storage-maintenance-complete' and report['observed_blocker'] is None
         and report['cleanup'] == dict(complete=True, remaining_owned_objects=0)
         and report['host_state']['unchanged'] is True, 'source-bound cleanup missing')
     validate_evidence(report['maintenance'])
+    if not historical:
+        CONSUMERS['validate_evidence'](report['consumers'])
+        require(all(report['maintenance'][name] == report['consumers'][name]
+            for name in ('expected_peers', 'layout', 'isolation'))
+            and report['maintenance']['deleted_usage'] == report['consumers']['initial_usage'],
+            'consumer continuation does not match original topology')
 
 
 def main(args):

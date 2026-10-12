@@ -40,7 +40,11 @@ class Wiring(unittest.TestCase):
         start = guest.index('if [ "$private_storage_maintenance" = yes ]; then\n    for maintenance_fixture')
         block = guest[start:guest.index('\nfi', start) + 3]
         names = ('private-storage-maintenance-smoke.sh', 'private-storage-maintenance-smoke.py',
-            'private-storage-log-sampler.py', 'content-provider-readiness.py')
+            'private-storage-log-sampler.py', 'content-provider-readiness.py',
+            'storage-consumer-maintenance-smoke.sh', 'storage-consumer-maintenance-smoke.py',
+            'storage-consumer-maintenance.mjs', 'storage-consumer-maintenance-pins.json',
+            'storage-consumer-maintenance-evidence.py', 'storage-consumer-maintenance-provision.py',
+            'image-snapshot-provision.py', 'agent-private-task-code.py', 'agent-private-task-code-pins.json')
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             directory = root / 'tests/integration'
@@ -133,6 +137,57 @@ class Wiring(unittest.TestCase):
                 self.assertFalse(receipt['success'])
                 self.assertFalse(receipt['cleanup']['verified'])
                 self.assertIsNone(receipt['host_state']['unchanged'])
+
+    def test_emergency_deduplicates_only_identical_named_receipts(self):
+        diagnostics, names = DIAGNOSTICS(), set(M['EXPORT_NAMES'])
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            home, opt = base / 'home', base / 'opt'
+            published = home / 'alpha-output'
+            work = opt / ('va.' + 'a' * 32 + '.Abc123')
+            for root in (published, work):
+                root.mkdir(parents=True)
+                for name in names:
+                    (root / name).write_text('{}\n')
+                (root / 'consumer-binding.json').write_text('PRIVATE_MUST_NOT_EXPORT')
+            distinct = 'storage-consumer-finish.json'
+            (work / distinct).write_text('{"passed":false}\n')
+            archive = diagnostics['collect'](home, opt, 'a' * 40, SCENARIO, 124,
+                cgroups=base / 'missing-cgroups', proc=base / 'missing-proc')
+            with tarfile.open(archive, 'r:gz') as bundle:
+                self.assertEqual(set(bundle.getnames()), {f'published/{name}' for name in names}
+                    | {f'work-1/{distinct}', 'vm-incomplete.json'})
+                for entry in bundle.getmembers():
+                    self.assertNotIn(b'PRIVATE_MUST_NOT_EXPORT', bundle.extractfile(entry).read())
+
+    def test_emergency_keeps_terminal_receipts_first_without_raising_bounds(self):
+        diagnostics = DIAGNOSTICS()
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            home, opt = base / 'home', base / 'opt'
+            roots = [home / 'alpha-output', *(opt / ('va.' + str(i) * 32 + '.Abc123') for i in range(4))]
+            names = set(M['EXPORT_NAMES'])
+            for index, root in enumerate(roots):
+                root.mkdir(parents=True)
+                for name in names:
+                    (root / name).write_text(json.dumps({'root': index}))
+                (root / 'current-phase').write_text('storage-consumer-exercise\n')
+                # Never export an unfinished JSON object or its truncated tail.
+                (root / 'storage-consumer-prepare.json').write_text('{"partial":')
+                (root / 'storage-consumer-publish.json').write_text('x' * (diagnostics['FILE_LIMIT'] + 1))
+            archive = diagnostics['collect'](home, opt, 'a' * 40, SCENARIO, 124,
+                cgroups=base / 'missing-cgroups', proc=base / 'missing-proc')
+            with tarfile.open(archive, 'r:gz') as bundle:
+                receipt = json.load(bundle.extractfile('vm-incomplete.json'))
+                self.assertLessEqual(len(receipt['diagnostics']['files']), 128)
+                self.assertLessEqual(receipt['diagnostics']['captured_bytes'], diagnostics['TOTAL_LIMIT'])
+                self.assertTrue(all(not item['truncated'] for item in receipt['diagnostics']['files']))
+                for label in ('published', *(f'work-{i}' for i in range(1, 5))):
+                    for name in ('storage-consumer-finish.json', 'private-storage-maintenance-lifecycle-failure.json',
+                            'private-storage-fragments-consumer_deleted_usage.json'):
+                        self.assertIn(f'{label}/{name}', bundle.getnames())
+                self.assertFalse(any(name.endswith(('storage-consumer-prepare.json', 'storage-consumer-publish.json'))
+                    for name in bundle.getnames()))
 
 
 class OwnerLifecycle(unittest.TestCase):

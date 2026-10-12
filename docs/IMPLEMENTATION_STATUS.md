@@ -30,7 +30,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. After bounding the internal dex pool, the latest build still loses its daemon; it observes Java CPU time at the existing limit but no heap-exhaustion marker. Cleanup passes. A scoped app-only CPU-budget trial is next, with unchanged memory and wall-time bounds; the earlier kill cause remains unproved. APK, offline rebuild, launch, refresh and expiry still need proof. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. The scoped CPU-budget trial reaches the 900-second build deadline at dex merging; process drain and policy/staging cleanup are unconfirmed. Investigate task timing and the pinned D8 implementation before another resource change. APK, offline rebuild, launch, refresh and expiry still need proof. Synthetic products are not mobile core-delivery evidence; iOS remains open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232 retains finite authorization and durable state. The latest protected trial fails a retained-custody assertion at core loss; its combined failure code does not distinguish byte accounting from fragment/copy/placement changes. Separate those observations before changing acceptance or production behavior. Image PR6 and Cloud PR13 add shared owner supervision and foreground coordination with passing local checks; real consumer maintenance and reciprocal capacity proof remain open. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
 
@@ -79,8 +79,17 @@ commands a 1,800-second per-process CPU budget at the single outer boundary;
 the 900-second wall deadline, memory cap/reserve, heap and concurrency remain
 unchanged. An insufficient inherited hard limit is rejected before launch.
 All 126 targeted inert Python/Node checks and independent review pass.
-The [new exact-source trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38282437155)
-must still establish actual build and installed-app behavior.
+The [twelfth exact-source trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38282437155)
+fails at `public-acquisition-build` with `PHASE_DEADLINE` after 900.130 seconds.
+The last logged task is `mergeExtDexDebug`; that is not a measurement of time
+spent in that task alone. A sampled Java process reaches 1,662.590 CPU seconds
+under the actual 1,800-second limit, while peak aggregate RSS remains below
+4 GiB at 3,988,389,888 bytes. These observations do not identify an internal D8
+or garbage-collection cause. Nine original step-log hashes match. Process drain,
+policy removal and staging removal remain unconfirmed; unchanged host network
+namespace and restored KVM access are separate results, not complete cleanup.
+No APK, offline rebuild or installed-app behavior has been proved. The next
+step is bounded task/implementation analysis, not a blind retry or limit increase.
 
 The first [maintenance trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38251889540)
 produces no topology artifact because preflight fails before the VM or Rust
@@ -172,12 +181,27 @@ at `9cb94fbb` reuses those exact bytes for catalog/upload access; 101 tests pass
 and three explicitly staged SDK tests are skipped. Both are independently
 reviewed draft candidates. Their local process/contract checks, including
 synthetic GPG operations, do not prove real peer-backed consumer maintenance.
-After the current core-restart failure is understood and fixed, extend the same
-maintenance topology with separately pinned consumers: a real encrypted Image
-snapshot restore and an authenticated Cloud catalog DAV read, each through its
-maintained adapter with local ciphertext removed. Bind both new source revisions,
-protected flows, unchanged enrollment/charge and complete cleanup in new receipts;
-do not replace earlier Image/Cloud trial pins or repeat their browser builds.
+The new consumer continuation is wired into the maintenance topology after the
+original archive has been deleted. It stages those exact Image/Cloud sources,
+their licenses and the verified Node runtime only inside the disposable guest.
+It exercises an encrypted Image snapshot restore and an authenticated Cloud
+catalog DAV read through the maintained adapters, after removing local ciphertext
+and taking the first provider offline. Fresh finite grants do not reserve storage
+credit. The same original enrollment remains in use through repair, foreground
+reads and renewed retention; restored ciphertext must decrypt to the synthetic
+application inputs. The first provider's retained data remains charged until
+its store returns and all copies are deleted.
+
+Current acceptance requires both the original maintenance proof and this
+continuation in one schema-3 report, bound to the same peers, route and isolation.
+Each consumer phase has its own packet/control observations and drained protected
+flow counters; actual provider usage must begin and end at zero. Local private
+cleanup is checked separately. Historical schema-2 reports remain inspectable
+but cannot pass the new acceptance gate. The consumer driver, wrapper, provisioning
+and evidence checks have passed targeted inert tests and independent review;
+all 133 targeted Python/Node checks and shell syntax checks pass. The combined
+live trial has not yet passed. Earlier Image/Cloud pins and browser
+proofs are unchanged, and this is not a running Immich or OpenCloud account server.
 New Cloud uploads are not automatically enrolled by this first read-focused
 slice and must not be presented as maintained uploads.
 

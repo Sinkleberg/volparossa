@@ -1102,6 +1102,24 @@ MAINTENANCE_NAMES = (FRAGMENTS_NAMES - {"private-storage-fragments-smoke.json", 
     *(f"private-storage-fragments-lifecycle-privacy-{role}.json"
       for role in ("client", "relay0", "relay1", "relay2", "exit")),
 }
+MAINTENANCE_NAMES |= {f"storage-consumer-{name}.json" for name in (
+    "provision", "prepare", "publish", "exercise", "finish", "withdrawal",
+    "private-cleanup", "evidence", "isolation")
+} | {f"private-storage-fragments-consumer_{name}_usage.json" for name in (
+    "uploaded", "restored", "deleted")
+} | {name for phase in ("publish", "exercise", "finish") for name in (
+    f"private-storage-fragments-consumer-{phase}-layout.json",
+    f"private-storage-fragments-consumer-{phase}-live-selection.json",
+    f"private-storage-fragments-consumer-{phase}-gates.json",
+    f"content-provider-adaptive-private-storage-fragments-consumer-{phase}-control.json",
+    *(f"private-storage-fragments-consumer-{phase}-privacy-{role}.json"
+      for role in ("client", "relay0", "relay1", "relay2", "exit")),
+)}
+MAINTENANCE_PRIORITY_NAMES = {
+    name for name in MAINTENANCE_NAMES if name.startswith("storage-consumer-")
+    or name.startswith("private-storage-maintenance-") or name.endswith("_usage.json")
+    or name.endswith("private_cleanup.json")
+} | {"host-state-before.json", "host-state-after.json", "guest-exit-status", "current-phase"}
 
 SIGNAL_FRAGMENT_NAMES = {"a01-expected-peers.json", "signal-backup-provision.json",
     "signal-backup-private_cleanup.json", "host-state-before.json", "host-state-after.json",
@@ -1390,6 +1408,7 @@ def collect(home, opt, revision, scenario, guest_status,
     target = Path(tempfile.mkdtemp(prefix="alpha-incomplete.", dir=home))
     entries = []
     seen_sources = set()
+    seen_maintenance_bytes = set()
     total = 0
     browser_names = set()
     if scenario == "browser-network":
@@ -1430,6 +1449,8 @@ def collect(home, opt, revision, scenario, guest_status,
             candidates.append((opt / "volparossa-image/provision.json", "driver/image-snapshot-provision.json"))
         elif scenario in ("cloud-private-file", "cloud-private-upload"):
             candidates.append((opt / "volparossa-cloud/provision.json", f"driver/{scenario}-provision.json"))
+        elif scenario == "private-storage-maintenance":
+            candidates.append((opt / "volparossa-storage-consumers/provision.json", "driver/storage-consumer-provision.json"))
     roots = [(home / "alpha-output", "published")]
     pattern = "vu.*" if scenario == "cloud-private-upload" else "va.*"
     name_pattern = r"vu\.[A-Za-z0-9]{6}" if scenario == "cloud-private-upload" else r"va\.[0-9a-f]{32}\.[A-Za-z0-9]{6}"
@@ -1438,6 +1459,13 @@ def collect(home, opt, revision, scenario, guest_status,
             roots.append((path, f"work-{len(roots)}"))
             if len(roots) == 5:
                 break
+    if scenario == "private-storage-maintenance":
+        # Keep terminal receipts before packet evidence across both published
+        # and interrupted work roots, under the existing 128-file/byte bounds.
+        for root, label in roots:
+            if root.is_dir() and not root.is_symlink():
+                candidates.extend((root / name, f"{label}/{name}")
+                    for name in sorted(MAINTENANCE_PRIORITY_NAMES))
     if scenario == "content-provider":
         # Keep the aggregate outcome/terminal phase even if later diagnostics
         # fill the unchanged emergency file budget.
@@ -1650,6 +1678,20 @@ def collect(home, opt, revision, scenario, guest_status,
         if observed is None:
             continue
         data, original_size = observed
+        if scenario == "private-storage-maintenance":
+            if original_size > len(data):
+                continue  # A truncated JSON tail is not structured evidence.
+            if relative.endswith(".json"):
+                try:
+                    json.loads(data)
+                except (ValueError, UnicodeError, RecursionError):
+                    continue
+            # Published and work copies of the same original bytes need only
+            # one slot. Never deduplicate different contents or different names.
+            identity = (Path(relative).name, data)
+            if identity in seen_maintenance_bytes:
+                continue
+            seen_maintenance_bytes.add(identity)
         if path.name in BROWSER_FILTER_NAMES | WEATHER_CLIENT_NAMES | WEATHER_PRODUCTS_NAMES | WEATHER_PRODUCTS_FAILURE_NAMES | LATE_PROVIDER_NAMES | PRESSURE_PROVIDER_NAMES and original_size > len(data):
             continue  # Preserve complete validated original bytes, never a JSON tail.
         if path.name in PRESSURE_PROVIDER_NAMES:
@@ -1940,7 +1982,7 @@ fi
 if [ "$scenario" = agent-public-network-sources ]; then
     sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends openssl
 fi
-if [ "$scenario" = image-snapshot ] || [ "$scenario" = cloud-private-file ] || [ "$scenario" = cloud-private-upload ]; then
+if [ "$scenario" = image-snapshot ] || [ "$scenario" = cloud-private-file ] || [ "$scenario" = cloud-private-upload ] || [ "$scenario" = private-storage-maintenance ]; then
     sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends gpg gpg-agent gpgconf tar
 fi
 if [ "$scenario" = agent-cooperative-browser ] || [ "$scenario" = agent-cooperative-browser-discovered ] || [ "$scenario" = browser-network ] || [ "$scenario" = cloud-private-file ] || [ "$scenario" = cloud-private-upload ] || [ "$browser_filter_manifest_sha256" != none ] || [ "$weather_client_manifest_sha256" != none ]; then
@@ -2000,6 +2042,10 @@ if [ "$scenario" = signal-backup ] || [ "$scenario" = signal-backup-fragments ];
 elif [ "$scenario" = image-snapshot ]; then
     guest_phase image-runtime-provision
     sudo -n python3 -B tests/integration/image-snapshot-provision.py provision --download
+elif [ "$scenario" = private-storage-maintenance ]; then
+    guest_phase storage-consumer-runtime-provision
+    sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download
+    /opt/volparossa-node/bin/node --test tests/integration/test-storage-consumer-maintenance.mjs
 elif [ "$scenario" = cloud-private-upload ]; then
     guest_phase cloud-upload-runtime-provision
     sudo -n python3 -B tests/integration/cloud-private-upload-provision.py provision --download
