@@ -4,6 +4,37 @@ Original VOLPAROSSA source in this repository is licensed under GPL-3.0-only. De
 vendored components retain their own licenses. This file is a provenance record, not a substitute
 for the license text shipped by each upstream project.
 
+## Public SNP verifier fixture trial
+
+The disposable public-fixture workflow selects
+[`virtee/sev`](https://github.com/virtee/sev) version 8.0.0 at exact commit
+`a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5`, tree
+`636379a232b75ad3c0f2a079acc1788dc13a920f`. The upstream Apache-2.0
+[license](third_party/licenses/virtee-sev-8.0.0-Apache-2.0.txt) is retained
+unchanged. One explicit lockfile-only correction is applied as described below.
+This is a source-built CI probe,
+not a production dependency, prebuilt worker or task-release authority.
+
+The [exact pinset](tests/integration/protected-compute-verifier-pins.json)
+records bytes and SHA-256 for the original Cargo.toml, Cargo.lock, license,
+four-test target and public Milan certificate/report inputs. The original
+lockfile remains available unchanged in the verified upstream Git commit.
+The pinned commit updates the `rand` package to `0.8.8` but leaves
+`num-bigint-dig 0.8.6` referring to absent `rand 0.8.5`. The
+[fixture preparer](tests/integration/protected-compute-verifier.py) changes
+only that one reference to `rand 0.8.8`, without changing any package version,
+checksum or executable source. Both lockfiles are 66,223 bytes: original SHA-256
+`fe1511ef932c1a54d0cd70ac470b41de8357ab2efca9ed6b3a4ea22c3b7d3bd0`,
+effective SHA-256 `7b7dbf853cecf44a8d2a6b51283012b446db97600f4e19af36a1c642b8bfa7cb`.
+Schema-two pins and result receipts distinguish both identities; only this exact
+unstaged change is accepted after pristine-source verification. Rust 1.85.0,
+`--locked` and the `snp,crypto_nossl` feature selection
+are explicit; native compilation is confined to the disposable hosted runner.
+The compiler comes from the pinned-version Rust toolchain distribution, not a
+reproduced compiler source build. The upstream checkout and dependency sources
+retain their own notices there; neither binaries nor a vendored dependency tree
+are distributed by this change. See [trial scope and remaining requirements](docs/development/PROTECTED_COMPUTE_VERIFIER.md).
+
 ## CometBFT ABCI transaction adapter inputs
 
 The TEST-only transaction adapter generates its wire bindings from the official
