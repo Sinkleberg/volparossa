@@ -25,6 +25,7 @@
 //! fallback. The public upstream report is useful for signature regression tests
 //! but cannot satisfy a new random session challenge.
 
+mod cert_profile;
 mod endorsement;
 mod session;
 mod snp;
@@ -48,7 +49,7 @@ pub enum EvidenceError {
     /// The fixed reference chain or report signature did not verify.
     #[error("attestation signature verification failed")]
     Signature,
-    /// Authenticated VCEK metadata does not match the supported report profile.
+    /// Certificate algorithms or authenticated VCEK claims do not match the profile.
     #[error("attestation endorsement binding failed")]
     Endorsement,
     /// A reference certificate is not valid at the owner's current time.
@@ -102,7 +103,7 @@ const OUTSTANDING: [OutstandingAppraisal; 5] = [
 
 /// Authentic signature statements rooted in the fixed upstream reference chain.
 /// Fields are private; there is no deserializer, public constructor or raw Debug.
-/// VCEK product, hardware-ID and reported-TCB extensions are also bound.
+/// Certificate algorithms and VCEK product, hardware-ID and reported-TCB are checked.
 /// This is not an RFC 5280 appraisal or a worker-admission decision.
 pub struct SignatureFacts {
     report_sha256: [u8; 32],

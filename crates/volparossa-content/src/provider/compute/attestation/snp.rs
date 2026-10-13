@@ -7,7 +7,9 @@ use sev::{
 };
 use sha2::{Digest as _, Sha256};
 
-use super::{EvidenceError, MAX_VCEK_BYTES, REPORT_BYTES, SignatureFacts, endorsement};
+use super::{
+    EvidenceError, MAX_VCEK_BYTES, REPORT_BYTES, SignatureFacts, cert_profile, endorsement,
+};
 
 /// Verify exact raw SNP v2 report and certificate signatures against the pinned
 /// upstream Milan reference roots. No caller-supplied root is accepted.
@@ -44,10 +46,18 @@ pub fn verify_milan_v2_signature_facts(
     (&chain, &report)
         .verify()
         .map_err(|_| EvidenceError::Signature)?;
+    // The upstream verifier performs the actual cryptography. Separately bind
+    // the declared algorithms to that exact supported scheme before any facts.
+    let leaf_certificate = chain.vek.clone().into();
+    cert_profile::check_chain(
+        &chain.ca.ark.clone().into(),
+        &chain.ca.ask.clone().into(),
+        &leaf_certificate,
+    )?;
     // A signature alone does not bind the leaf's chip/firmware claims to the
     // signed report. Use REPORTED_TCB, the version that derives this VCEK.
     endorsement::check_claims(
-        &chain.vek.clone().into(),
+        &leaf_certificate,
         received.try_into().map_err(|_| EvidenceError::Encoding)?,
     )?;
     Ok(SignatureFacts {

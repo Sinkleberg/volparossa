@@ -32,7 +32,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Exercise the installed Android app and verify its actual refresh and expiry behavior. | PR19 remains separate from the web proof. Trial `38449624135` on `e9dfbdca` passes both APK builds, network isolation, installation and app-process startup, then fails in the read-only VM observer. Candidate `6e2937af` adds closed observer subphases without broader app rights or longer deadlines; actual trial `38455347639` is running. Native widget behavior, refresh, expiry and iOS remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's trial `38441174652` on `ff0ddd38` passes the separate core restart/repair and two restores, but Cloud deposit remains incomplete with seven pre-READY rejections. Candidate `599a4595` adds closed initial-agent observations and consumer profile 3; actual trial `38453132258` is running. Authority, deadlines, charging and acceptance criteria are unchanged. Consumer repair, restore, deletion and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
-| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | The fourteen-test signature/session verifier is integrated through PR236. PR238 adds authenticated VCEK chip and reported-TCB bindings; trial `38451987434` on `285e53a7` passes 22 actual Rust tests and targeted Clippy with the committed lock unchanged, and Quality `38451997453` passes. CodeQL's aggregate check fails on a test-only Vec operation; replacement `2ebf27af` retains all 44 mutations and requires new hosted checks. Full appraisal, worker admission and actual protected execution remain open. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
+| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | PR238's authenticated VCEK chip and reported-TCB bindings are merged. Trial `38455979301` on `2ebf27af` passes 22 actual Rust tests and targeted Clippy; Quality `38455986117` and CodeQL `38455982386`, including its aggregate check, pass. The next candidate adds certificate-algorithm consistency, with 28 named tests awaiting hosted execution. Full appraisal, worker admission and actual protected execution remain open. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
 
 Image [PR8](https://github.com/VOLPAROSSA/volparossa-image/pull/8) and Cloud
 [PR15](https://github.com/VOLPAROSSA/volparossa-cloud/pull/15) now retain optional,
@@ -84,7 +84,13 @@ as a logging sink; the reported trace does not identify certificate formatting
 or actual log output. The test-only replacement constructs the same ten
 remaining claims explicitly and checks their count. It changes neither the
 production verifier nor the 44 mutation cases. No alert suppression or check
-bypass is used; a passing analysis on the replacement is still required.
+bypass is used. The replacement's CodeQL run `38455982386` and aggregate check
+`115499039213` now pass with zero reported findings. Trial `38455979301` repeats
+all 22 actual core tests and targeted Clippy; its original artifact matches
+SHA-256 `45f9d08431c11a6c3db5dd10656dbeff9dc18bf5245a0444c6b0e3fc7bd2c2e2`.
+Quality `38455986117` passes 3,589 tests with seven ignored, including all 22
+named compute tests. Namespace-backed internal skips are not live datapath
+proof. PR238 is merged; the prior failed trace remains historical evidence.
 
 The successful hosted Drizz.li trial supersedes neither the earlier failed route
 trial nor the local build aborted for host memory pressure; both remain recorded
@@ -101,15 +107,22 @@ do not run competing heavy builds or lower that reserve.
 
 ### Protected compute verifier preparation
 
-The next candidate extends the integrated verifier with VCEK product, chip-ID
-and reported-firmware binding. Its eight new consistency and signature-boundary
-tests join the original fourteen in an explicitly versioned hosted trial.
-Source review and the existing ten public-RSA scope checks pass; actual Rust
-compilation, the expanded test run and Clippy remain pending. No dependency or
-lockfile changes are required. The [endorsement scope](development/PROTECTED_COMPUTE_VERIFIER.md#binding-endorsement-claims-to-the-report)
-keeps certificate-path appraisal, current revocation, authorized roots/workloads
-and protected execution outstanding. This software work proceeds while Android
-and storage run their existing hosted integration trials.
+The integrated verifier binds VCEK product, chip-ID and reported firmware to
+the exact signed report. The next candidate checks certificate-algorithm
+consistency: PSS/SHA-384, MGF1/SHA-384, salt 48, trailer 1, matching signature
+identifiers and the VCEK's declared P-384 key. Six additional tests join the
+existing 22 in an explicitly versioned schema-four hosted trial. The 51 inert
+harness checks and ten public-RSA scope checks pass. Original trial `38466325432`
+on `bb8d49c0` compiles and passes all 28 actual Rust tests, but targeted Clippy
+fails on three similar-name warnings and two statement-style warnings. Its
+15-file artifact has SHA-256
+`4a8d1b218b1a2dc0fdd5b04d4c138d40a40994b155a3cf0c473fb0aa15b8c350`;
+the schema-four result remains failed. The behavior-preserving name/style
+correction needs its own hosted verification. Dependencies, features and the
+lockfile are unchanged. The [certificate-profile scope](development/PROTECTED_COMPUTE_VERIFIER.md#checking-certificate-algorithm-declarations)
+keeps all five appraisal obligations, current revocation, authorized roots and
+workloads, and protected execution outstanding. This software work proceeds
+alongside the existing Android and storage integration trials.
 
 Suitable confidential-computing hardware is not currently available. This
 blocks live protected-worker acceptance, not the Android/storage integrations
