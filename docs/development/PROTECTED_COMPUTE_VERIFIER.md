@@ -23,7 +23,8 @@ The selected upstream test target executes four public Milan fixtures:
 
 These are upstream public samples, not newly generated hardware reports or
 VOLPAROSSA users' data. No `/dev/sev` device, private model, task input or secret is
-used. This is not yet a production dependency or an attestation backend.
+used. This standalone upstream trial supplies no production admission backend;
+the separately tested core integration is described below.
 
 The [pinset](../../tests/integration/protected-compute-verifier-pins.json)
 records the exact source tree, nine original file hashes, and the corrected
@@ -84,7 +85,7 @@ not a trustworthy worker or confidential task.
 
 The separate [core module](../../crates/volparossa-content/src/provider/compute/attestation.rs)
 verifies exact received report bytes and binds a fresh, finite owner challenge
-to a proposed session key. [Core trial 38432553365](https://github.com/VOLPAROSSA/volparossa/actions/runs/38432553365)
+to a proposed session key. [Core trial 38439280941](https://github.com/VOLPAROSSA/volparossa/actions/runs/38439280941)
 passes fourteen tests and targeted Clippy. The tests combine real public
 signature fixtures with explicitly synthetic session-state checks; they do
 not prove a guest possesses the proposed key or can execute a private task.

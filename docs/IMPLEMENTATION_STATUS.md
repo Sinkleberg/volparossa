@@ -30,9 +30,9 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38427081376` on `463d1ada` stops before installation: the fixed observer's first link query returns 11,967 bytes, then strict JSON parsing rejects a missing comma at position 5,435. The cause of the malformed command output remains unproven. Closed diagnostics identify this boundary without exporting interface data. Process drain, private cleanup and KVM restoration pass. Component run `38427090612` passes independently; app launch, refresh, expiry and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's trial `38416109564` on `f09e7718` passes the separate core repair/restart scenario, two complete hash-verified B/C restores and deletion of all eleven core copies. Consumer acceptance still fails: Cloud create succeeds, but deposit returns `retained_operation_incomplete`. Its underlying transfer cause is not retained. Quality `38417397926` passes on `7bfdae85`; that does not prove consumer repair, restore or deletion. Cloud PR234's longer continuation waits for this correction. Original authority, grants and deadlines remain unchanged. Reciprocal capacity remains separate outstanding work. |
-| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | Public verifier trial `38324431627` passes four pinned SNP chain/report fixtures. Core trial `38432553365` passes dependency resolution, feature checks, all fourteen actual Rust signature/session tests and targeted Clippy. The exact tested lockfile is now adopted; locked-only CI, license collection and a guarded public-RSA advisory scope are prepared for broader integration checks. Full appraisal, worker admission and actual protected execution remain open. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38438989104` on `cd13a93a` passes the APK build and offline rebuild, then stops before installation. The first basic link query returns complete, valid JSON, but strict metadata validation rejects it as `link_unknown`; the particular failed predicate is not retained. Cleanup, host namespace preservation and KVM restoration pass. Component run `38438997884` passes separately. The next correction must identify the rejected metadata without weakening isolation. App launch, refresh, expiry and iOS remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's original trial `38416109564` passes the separate core restart/repair, two source-free restores and eleven-copy deletion, then fails at Cloud deposit with no retained transfer cause. Candidate `ff0ddd38` adds closed transfer diagnostics and explicit consumer profile 2. Quality `38437985964` passes, including all 620 CLI tests and both corrected expiry assertions. Actual maintenance trial `38441174652` is running on that candidate; consumer repair, restore and deletion remain unproven. Cloud PR234 waits for this shared integration. Original authority, grants and deadlines remain unchanged; reciprocal capacity remains separate outstanding work. |
+| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | Public verifier trial `38324431627` passes four pinned SNP fixtures. Core trial `38439280941` on `22c42f29` passes committed-lock acquisition, feature checks, fourteen actual Rust signature/session tests and targeted Clippy. Independent API review finds no private-input-release authority in the resulting evidence. Quality `38439289610` passes workspace, dependency and license checks; its three live namespace proofs self-skip under runner policy. Full appraisal, worker admission and actual protected execution remain open. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
 
 Image [PR8](https://github.com/VOLPAROSSA/volparossa-image/pull/8) and Cloud
 [PR15](https://github.com/VOLPAROSSA/volparossa-cloud/pull/15) now retain optional,
@@ -41,8 +41,8 @@ tests; Cloud `f51b49b8` reuses those exact source bytes and passes 34 targeted
 contract, provenance and maintenance checks. The reports contain fixed error
 categories and bounded copy indexes, not raw output or private paths. These
 component checks do not resolve the failed live deposit. The new core producer
-and an explicitly versioned consumer trial remain to be compiled and exercised;
-historical source pins and evidence are preserved.
+now passes compilation and workspace tests; the explicitly versioned consumer
+trial is running. Historical source pins and evidence are preserved.
 
 The successful hosted Drizz.li trial supersedes neither the earlier failed route
 trial nor the local build aborted for host memory pressure; both remain recorded
@@ -223,8 +223,34 @@ not reached. The original log ZIP SHA-256 is
 `fb79d362b1b31fcaebb37da65645761371105ca24528f099bfdc88b34d5de03d`.
 The narrow correction adds `version = "=8.0.0"` beside the unchanged exact Git
 revision and updates the manifest guards; it does not waive wildcard checks or
-change Cargo.lock, dependency source, features or advisory policy. Broader
-hosted acceptance remains pending.
+change Cargo.lock, dependency source, features or advisory policy. The subsequent
+hosted results are recorded below.
+
+The corrected committed-lock [trial `38439280941`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38439280941)
+on `22c42f293e75820da7a4bb03ef864740a5ea5661` passes all fourteen Rust tests
+and targeted Clippy. All fifteen original artifact members and fourteen report
+file bindings verify; original and effective locks equal the committed bytes,
+with an empty diff. Artifact SHA-256 is
+`f51432cff67e2662a7d875bc77c86004ad3e370069659da97e8b450345fe2ada`;
+original log ZIP SHA-256 is
+`d31027dc73771eb8babe9306d42d3ac7efae18c669c0c25f1c94b69eeff92398`.
+Independent review of the module, tests and call sites finds no conversion of
+signature or binding evidence into worker admission or private-task authority.
+The five outstanding appraisal obligations remain explicit. Broader
+[Quality `38439289610`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38439289610)
+passes all nineteen workflow steps, including the actual advisory-scope guard,
+root and fuzz dependency audits, license collection, workspace Clippy and tests,
+and the non-mutating harness. Original checkout `cd89bb11735716618312dc2ce135963e4725f34a`
+joins base `d9144484` and exact candidate `22c42f29`; its tree
+`ed16baa5ad39188f494fddb6bd441a8ae45c4940` equals the candidate tree.
+The original log ZIP SHA-256 is
+`67491399ff1839a2afb285cd2b34f878d94902f045d787c131b669bc3bf00bad`.
+All three live namespace proofs self-skip because the runner denies user
+namespaces. Seven workspace tests remain explicitly ignored. These checks do
+not establish a new live datapath or protected execution on another device.
+[PR236](https://github.com/VOLPAROSSA/volparossa/pull/236) integrates this bounded
+verifier/session milestone into `main` as `3bdadd9de64c35622e065a999596f49165e328be`;
+the merge tree is identical to the tested candidate tree above.
 
 ### Public Overmorrow build and joined delivery
 
