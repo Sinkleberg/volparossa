@@ -254,6 +254,12 @@ the reviewed advisory restriction is unchanged. See the
 [candidate scope](development/PROTECTED_COMPUTE_VERIFIER.md#supplied-certificate-path-and-revocation-candidate)
 and [third-party provenance](../THIRD_PARTY_LICENSES.md#supplied-milan-revocation-list).
 
+The first candidate's separate Quality run `38480852150` passes formatting,
+dependency and license checks but stops at three missing test-statement
+semicolons under strict Clippy; workspace tests are not reached. Those three
+statements are corrected without disabling the lint. Repository gates and the
+targeted verifier trial must both pass on the final source.
+
 The integrated verifier binds VCEK product, chip-ID and reported firmware to
 the exact signed report. It also checks certificate-algorithm
 consistency: PSS/SHA-384, MGF1/SHA-384, salt 48, trailer 1, matching signature

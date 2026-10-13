@@ -373,7 +373,7 @@ fn synthetic_revocation_entries_cannot_hide_ask_or_change_issuer_scope() {
             1 => changed.tbs_cert_list.revoked_certificates = Some(vec![entry.clone(); 2]),
             2 => {
                 changed.tbs_cert_list.revoked_certificates =
-                    Some(vec![entry.clone(); MAX_REVOKED + 1])
+                    Some(vec![entry.clone(); MAX_REVOKED + 1]);
             }
             3 => {
                 entry.serial_number = chain().1.tbs_certificate.serial_number;
@@ -385,11 +385,11 @@ fn synthetic_revocation_entries_cannot_hide_ask_or_change_issuer_scope() {
                     4 => selected.revocation_date = time(START + 1),
                     5 => {
                         selected.crl_entry_extensions =
-                            Some(vec![extension("2.5.29.29", &[0x30, 0])])
+                            Some(vec![extension("2.5.29.29", &[0x30, 0])]);
                     }
                     _ => {
                         selected.crl_entry_extensions =
-                            Some(vec![extension("2.5.29.21", &[10, 1, 8])])
+                            Some(vec![extension("2.5.29.21", &[10, 1, 8])]);
                     }
                 }
             }
