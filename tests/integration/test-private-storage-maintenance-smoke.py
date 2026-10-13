@@ -1150,5 +1150,212 @@ class MaintenanceEvidence(unittest.TestCase):
             self.assertEqual(sentinel.read_text(), 'retain')
 
 
+class UploadFailureProjection(unittest.TestCase):
+    def setUp(self):
+        self.namespace = CHECK['upload_invoke'].__globals__
+        self.state = patch.dict(self.namespace, UPLOAD_DIAGNOSTIC=None, STAGE='upload',
+            LIFECYCLE_DIAGNOSTIC=None, SAMPLER_DIAGNOSTIC={})
+        self.state.start()
+        self.addCleanup(self.state.stop)
+
+    @staticmethod
+    def report(version=2, failures=1):
+        diagnostic = dict(version=version, omitted_failures=0, failures=[])
+        for index in range(failures):
+            failure = dict(fragment_index=index // 2, copy_index=index % 2,
+                operation='reserve', stage='agent_ready', category='agent_rejected',
+                agent_code='CONTENT_UNAVAILABLE')
+            if version == 2:
+                failure['agent_detail'] = dict(stage='route_connect', deadline_scope='none')
+            diagnostic['failures'].append(failure)
+        return dict(operation='private_storage_fragments_deposit', operation_complete=False,
+            fragment_count=4, copies_per_fragment=2, deposit_diagnostics=diagnostic,
+            providers=[dict(provider_key='PRIVATE_KEY')], private_path='PRIVATE_PATH')
+
+    def observe(self, report, operation='deposit'):
+        raw = json.dumps(report).encode() if type(report) is dict else report
+        return CHECK['upload_observation'](operation, 1, raw, b'PRIVATE_STDERR')
+
+    def test_exact_call_labels_and_both_existing_diagnostic_versions(self):
+        for version in (1, 2):
+            for count in (0, 1, 8):
+                source = self.report(version, count)
+                for operation in CHECK['UPLOAD_OPERATIONS']:
+                    with self.subTest(version=version, count=count, operation=operation):
+                        value = self.observe(source, operation)
+                        self.assertEqual(set(value), {'operation', 'exit_status', 'stdout_state',
+                            'stderr_state', 'deposit_diagnostics_state', 'deposit_diagnostics'})
+                        self.assertEqual(value['operation'], operation)
+                        self.assertEqual(value['exit_status'], 1)
+                        applicable = operation in ('deposit', 'redeposit')
+                        self.assertEqual(value['deposit_diagnostics_state'],
+                            'observed' if applicable else 'not_applicable')
+                        self.assertEqual(value['deposit_diagnostics'],
+                            source['deposit_diagnostics'] if applicable else None)
+                        self.assertNotIn('PRIVATE', json.dumps(value))
+
+    def test_invalid_missing_oversized_and_duplicate_reports_never_export_raw_data(self):
+        mutations = [
+            lambda v: v.update(operation='PRIVATE_OPERATION'),
+            lambda v: v.update(operation_complete=True),
+            lambda v: v.update(operation_complete=0),
+            lambda v: v.update(fragment_count=True),
+            lambda v: v.update(copies_per_fragment=3),
+            lambda v: v.update(deposit_diagnostics=None),
+            lambda v: v['deposit_diagnostics'].update(version=True),
+            lambda v: v['deposit_diagnostics'].update(version=3),
+            lambda v: v['deposit_diagnostics'].update(omitted_failures=1),
+            lambda v: v['deposit_diagnostics'].update(raw='PRIVATE_PAYLOAD'),
+            lambda v: v['deposit_diagnostics']['failures'].append(
+                copy.deepcopy(v['deposit_diagnostics']['failures'][0])),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(fragment_index=4),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(copy_index=True),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(raw='PRIVATE_PAYLOAD'),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(operation='PRIVATE_PATH'),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(stage='PRIVATE_PATH'),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(category='PRIVATE_ERROR'),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(agent_code='PRIVATE_CODE'),
+            lambda v: v['deposit_diagnostics']['failures'][0].pop('agent_detail'),
+            lambda v: v['deposit_diagnostics']['failures'][0]['agent_detail'].update(raw='PRIVATE_KEY'),
+        ]
+        for change in mutations:
+            report = self.report()
+            change(report)
+            value = self.observe(report)
+            self.assertEqual(value['deposit_diagnostics_state'], 'invalid')
+            self.assertIsNone(value['deposit_diagnostics'])
+            self.assertNotIn('PRIVATE', json.dumps(value))
+        for raw in (b'PRIVATE_INVALID_JSON', b'[]', b'{"operation":1,"operation":2}',
+                    b' ' * 16385, b'\xff', b'[' * 1100):
+            value = self.observe(raw)
+            self.assertEqual(value['deposit_diagnostics_state'], 'invalid')
+            self.assertIsNone(value['deposit_diagnostics'])
+        value = self.observe(self.report(failures=9))
+        self.assertEqual(value['deposit_diagnostics_state'], 'invalid')
+        source = self.report()
+        source.pop('deposit_diagnostics')
+        self.assertEqual(self.observe(source)['deposit_diagnostics_state'], 'missing')
+        raw = json.dumps(self.report()).encode()
+        for size, expected in ((16384, 'observed'), (16385, 'invalid')):
+            value = CHECK['upload_observation']('deposit', 1, raw, b'x' * size)
+            self.assertEqual(value['deposit_diagnostics_state'], expected)
+        padded = raw + b' ' * (16384 - len(raw))
+        self.assertEqual(self.observe(padded)['deposit_diagnostics_state'], 'observed')
+        self.assertEqual(self.observe(padded + b' ')['stdout_state'], 'oversize')
+
+    def test_projection_uses_the_same_closed_agent_deadline_matrix(self):
+        stages = ('unobserved', 'route_connect', 'control_selection', 'provider_lookup',
+            'provider_cardinality', 'offer_validity', 'stream_open', 'tls_handshake', 'challenge')
+        for stage in stages:
+            for scope in ('none', 'operation', 'exchange'):
+                for code in ('CONTENT_INVALID', 'CONTENT_UNAVAILABLE', 'CONTENT_BUSY', 'CONTENT_POLICY'):
+                    report = self.report()
+                    failure = report['deposit_diagnostics']['failures'][0]
+                    failure.update(agent_code=code, agent_detail=dict(stage=stage, deadline_scope=scope))
+                    valid = (stage != 'unobserved' or scope == 'operation') \
+                        and (scope != 'exchange' or stage in stages[-3:]) \
+                        and (scope == 'none' or code == 'CONTENT_UNAVAILABLE')
+                    self.assertEqual(self.observe(report)['deposit_diagnostics_state'],
+                        'observed' if valid else 'invalid', (stage, scope, code))
+
+    def test_nonzero_observer_keeps_original_error_and_does_not_change_success(self):
+        invoke = CHECK['F']['invoke']
+        process = Mock(returncode=7)
+        process.communicate.return_value = (json.dumps(self.report()).encode(), b'PRIVATE_STDERR')
+        process.poll.return_value = 7
+        for problem in (ValueError('PRIVATE_ERROR'), TypeError('PRIVATE_ERROR'),
+                        SystemExit('PRIVATE_ERROR'), KeyboardInterrupt()):
+            observer = Mock(side_effect=problem)
+            with patch.object(CHECK['subprocess'], 'Popen', return_value=process):
+                with self.assertRaisesRegex(ValueError, '^private replica CLI operation failed$'):
+                    invoke('private-cli', 'private-socket', [], deadline=900, failure_observer=observer)
+            observer.assert_called_once_with(7, *process.communicate.return_value)
+            process.communicate.assert_called_with(timeout=900)
+        process.returncode = process.poll.return_value = 0
+        process.communicate.return_value = (b'{"ok":true}', b'')
+        observer = Mock(side_effect=AssertionError('must not run on success'))
+        with patch.object(CHECK['subprocess'], 'Popen', return_value=process):
+            self.assertEqual(invoke('private-cli', 'private-socket', [], failure_observer=observer), {'ok': True})
+        observer.assert_not_called()
+        process.terminate.assert_not_called()
+
+    def test_failure_is_this_call_not_the_previous_deposit_or_secondary_sampler(self):
+        process = Mock(returncode=7)
+        process.communicate.return_value = (json.dumps(self.report()).encode(), b'PRIVATE_STDERR')
+        process.poll.return_value = 7
+        with patch.object(CHECK['subprocess'], 'Popen', return_value=process):
+            with self.assertRaises(ValueError) as failure:
+                CHECK['upload_invoke']('deposit', 'private-cli', 'private-socket', [], deadline=900)
+        self.namespace['SAMPLER_DIAGNOSTIC'].update(phase='final_drain', operation='route_query',
+            code='process', samples=1, completed=0, failed=0)
+        value = CHECK['failure_receipt'](failure.exception)
+        self.assertEqual((value['version'], value['code'], value['upload']['operation']), (3, 'cli_exit', 'deposit'))
+        self.assertEqual(value['upload']['deposit_diagnostics_state'], 'observed')
+        self.assertEqual(value['sampler']['phase'], 'final_drain')
+        original = subprocess.TimeoutExpired('PRIVATE_COMMAND', 900)
+        process.communicate.side_effect = original
+        with patch.object(CHECK['subprocess'], 'Popen', return_value=process):
+            with self.assertRaises(subprocess.TimeoutExpired) as failure:
+                CHECK['upload_invoke']('progress', 'private-cli', 'private-socket', [], deadline=900)
+        self.assertIs(failure.exception, original)
+        value = CHECK['failure_receipt'](failure.exception)
+        self.assertEqual(value['code'], 'cli_timeout')
+        self.assertEqual(value['upload']['operation'], 'progress')
+        self.assertIsNone(value['upload']['exit_status'])
+        self.assertIsNone(value['upload']['deposit_diagnostics'])
+        self.assertNotIn('PRIVATE', json.dumps(value))
+        self.namespace['STAGE'] = 'restore'
+        historical = CHECK['failure_receipt'](ValueError('private replica CLI operation failed'))
+        self.assertEqual(historical['version'], 2)
+        self.assertNotIn('upload', historical)
+
+    def test_fragment_upload_labels_preserve_calls_deadlines_and_short_circuit(self):
+        upload = CHECK['F']['upload']
+        namespace = upload.__globals__
+        expected = ['create', 'deposit', 'progress', 'redeposit', 'renew', 'status']
+        for stop in [None, *expected]:
+            seen = []
+            def invoke(operation, binary, socket, arguments, **options):
+                seen.append((operation, arguments[:3], options))
+                if operation == stop:
+                    raise ValueError('private replica CLI operation failed')
+                return {}
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'input.bin').write_bytes(b'inert')
+                with patch.dict(namespace, validate_cli=Mock(), existing=lambda root: [],
+                        identity_digest=Mock(return_value=b''), create=Mock(), check_identity=Mock(),
+                        staged_files_absent=Mock(), private_file=Mock()):
+                    if stop is None:
+                        upload(root, 'private-cli', 'private-socket', ['a', 'b', 'c'], invoke_operation=invoke)
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'private replica CLI operation failed'):
+                            upload(root, 'private-cli', 'private-socket', ['a', 'b', 'c'], invoke_operation=invoke)
+            labels = expected if stop is None else expected[:expected.index(stop) + 1]
+            self.assertEqual([item[0] for item in seen], labels)
+            for operation, command, options in seen:
+                self.assertEqual(command, ['storage', 'fragments', 'deposit' if operation == 'redeposit' else operation])
+                self.assertEqual(options, {} if operation in ('create', 'status') else {'deadline': 900})
+
+    def test_foreground_seed_is_separate_and_a_new_upload_clears_stale_observation(self):
+        process = Mock(returncode=1)
+        process.communicate.return_value = (json.dumps(self.report()).encode(), b'PRIVATE_STDERR')
+        process.poll.return_value = 1
+        self.namespace['UPLOAD_DIAGNOSTIC'] = self.observe(self.report())
+        with patch.dict(CHECK['F'], upload=Mock(return_value={})), \
+                patch.dict(self.namespace, peer_args=lambda *args: []), \
+                patch.object(CHECK['subprocess'], 'Popen', return_value=process):
+            with self.assertRaises(ValueError) as failure:
+                CHECK['upload'](Path('/private'), 'private-cli', 'private-socket', ['a', 'b', 'c'])
+            value = CHECK['failure_receipt'](failure.exception)
+        self.assertEqual(value['upload']['operation'], 'foreground_seed')
+        self.assertEqual(value['upload']['deposit_diagnostics_state'], 'not_applicable')
+        self.assertIsNone(value['upload']['deposit_diagnostics'])
+        with patch.dict(CHECK['F'], upload=Mock(side_effect=OSError('PRIVATE_PATH'))):
+            with self.assertRaises(OSError) as failure:
+                CHECK['upload'](Path('/private'), 'private-cli', 'private-socket', ['a', 'b', 'c'])
+        self.assertNotIn('upload', CHECK['failure_receipt'](failure.exception))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -59,6 +59,8 @@ REPAIR_DIAGNOSTIC = None
 REPAIR_TURNS = []
 SAMPLER_DIAGNOSTIC = {}
 LIFECYCLE_DIAGNOSTIC = None
+UPLOAD_DIAGNOSTIC = None
+UPLOAD_OPERATIONS = ('create', 'deposit', 'progress', 'redeposit', 'renew', 'status', 'foreground_seed')
 SUPERVISOR_STAGES = ('bind_slots', 'control_query', 'control_match', 'broker_validated',
     'control_snapshot', 'control_validate_before', 'control_rebind',
     'control_verified', 'route_scope',
@@ -487,11 +489,70 @@ def failure_receipt(error):
         return dict(version=2, success=False, kind='private-storage-maintenance-lifecycle-failure',
             code='sampler_failure' if isinstance(error, SAMPLER['SamplerFailure']) else failure_code(error),
             **LIFECYCLE_DIAGNOSTIC, sampler=SAMPLER_DIAGNOSTIC or None)
-    return dict(version=2, success=False, kind='private-storage-maintenance-failure', stage=STAGE,
+    upload = UPLOAD_DIAGNOSTIC if STAGE == 'upload' else None
+    return dict(version=3 if upload is not None else 2, success=False,
+        kind='private-storage-maintenance-failure', stage=STAGE,
         code='sampler_failure' if isinstance(error, SAMPLER['SamplerFailure']) else failure_code(error),
         turn=TURN_DIAGNOSTIC, retirement=RETIREMENT_DIAGNOSTIC,
         retirement_turns=RETIREMENT_TURNS, repair=REPAIR_DIAGNOSTIC, repair_turns=REPAIR_TURNS,
-        sampler=SAMPLER_DIAGNOSTIC or None)
+        sampler=SAMPLER_DIAGNOSTIC or None, **(dict(upload=upload) if upload is not None else {}))
+
+
+def upload_observation(operation, exit_status=None, stdout=None, stderr=None):
+    """Project only this failed call; never return raw reports, identities or errors."""
+    require(operation in UPLOAD_OPERATIONS, 'invalid upload operation')
+    applicable = operation in ('deposit', 'redeposit')
+    value = dict(operation=operation, exit_status=exit_status if type(exit_status) is int
+        and -128 <= exit_status <= 255 else None,
+        stdout_state='unavailable' if stdout is None else 'bounded' if len(stdout) <= 16384 else 'oversize',
+        stderr_state='unavailable' if stderr is None else 'bounded' if len(stderr) <= 16384 else 'oversize',
+        deposit_diagnostics_state='unavailable' if applicable else 'not_applicable',
+        deposit_diagnostics=None)
+    if not applicable or stdout is None:
+        return value
+    value['deposit_diagnostics_state'] = 'invalid'
+    if value['stdout_state'] != 'bounded' or value['stderr_state'] == 'oversize':
+        return value
+    try:
+        # Reject duplicate keys too: this is a diagnostic projection, not a
+        # second interpretation of ambiguous externally controlled JSON.
+        def unique(pairs):
+            result = {}
+            for key, child in pairs:
+                require(key not in result, 'duplicate upload field')
+                result[key] = child
+            return result
+
+        report = json.loads(stdout, object_pairs_hook=unique)
+        require(type(report) is dict
+            and report.get('operation') == 'private_storage_fragments_deposit'
+            and report.get('operation_complete') is False
+            and type(report.get('fragment_count')) is int and report['fragment_count'] == 4
+            and type(report.get('copies_per_fragment')) is int and report['copies_per_fragment'] == 2,
+            'upload report binding')
+        if 'deposit_diagnostics' not in report:
+            value['deposit_diagnostics_state'] = 'missing'
+            return value
+        diagnostic = report['deposit_diagnostics']
+        require(type(diagnostic) is dict, 'invalid deposit diagnostics')
+        CONSUMERS['APP']['validate_deposit_diagnostics'](diagnostic, diagnostic.get('version'))
+        value.update(deposit_diagnostics_state='observed', deposit_diagnostics=diagnostic)
+    except (ValueError, TypeError, KeyError, UnicodeError, RecursionError):
+        pass
+    return value
+
+
+def upload_invoke(operation, binary, socket, arguments, **options):
+    global UPLOAD_DIAGNOSTIC
+    # Assign before spawn/communicate, so timeout or local I/O cannot inherit
+    # the preceding call's label or receipt. Observer lifetime is one call.
+    UPLOAD_DIAGNOSTIC = upload_observation(operation)
+
+    def failed(status, stdout, stderr):
+        global UPLOAD_DIAGNOSTIC
+        UPLOAD_DIAGNOSTIC = upload_observation(operation, status, stdout, stderr)
+
+    return invoke(binary, socket, arguments, failure_observer=failed, **options)
 
 
 def validate_lifecycle_failure(value):
@@ -1136,16 +1197,18 @@ def prepare(root, binary, client, provider_a, provider_b, provider_c, key_a, key
 
 
 def upload(root, binary, client, keys):
-    global STAGE
+    global STAGE, UPLOAD_DIAGNOSTIC
     STAGE = 'upload'
+    UPLOAD_DIAGNOSTIC = None
     # Existing real foreground deposit/retry/renew/progress, immutable identity checks,
     # and deletion of the original local bytes. Grants reserve no extra physical bytes.
-    uploaded = F['upload'](root, binary, client, keys)
-    foreground = invoke(binary, client, ['storage', 'peer', 'deposit', *peer_args(root, keys[1]),
+    uploaded = F['upload'](root, binary, client, keys, invoke_operation=upload_invoke)
+    foreground = upload_invoke('foreground_seed', binary, client, ['storage', 'peer', 'deposit', *peer_args(root, keys[1]),
         '--grant', root / 'foreground-grant.bin', '--input', root / 'foreground.bin',
         '--sha256', hashlib.sha256(FG).hexdigest(), '--already-encrypted', '--lifetime-seconds', 5400])
     require(foreground['committed'] is True and foreground['stored_bytes'] == len(FG), 'foreground seed')
     (root / 'foreground.bin').unlink()
+    UPLOAD_DIAGNOSTIC = None
     STAGE = 'enroll'
     arguments = ['storage', 'fragments', 'maintenance', 'enroll', '--enrollment', root / 'maintenance',
         '--state', root / 'fragment-set', '--from-provider-key', keys[0], '--authorization-seconds', 6000,
