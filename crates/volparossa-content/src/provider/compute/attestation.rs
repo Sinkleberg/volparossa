@@ -25,6 +25,7 @@
 //! fallback. The public upstream report is useful for signature regression tests
 //! but cannot satisfy a new random session challenge.
 
+mod endorsement;
 mod session;
 mod snp;
 
@@ -47,6 +48,9 @@ pub enum EvidenceError {
     /// The fixed reference chain or report signature did not verify.
     #[error("attestation signature verification failed")]
     Signature,
+    /// Authenticated VCEK metadata does not match the supported report profile.
+    #[error("attestation endorsement binding failed")]
+    Endorsement,
     /// A reference certificate is not valid at the owner's current time.
     #[error("attestation certificate validity failed")]
     CertificateTime,
@@ -76,8 +80,9 @@ pub enum EvidenceError {
 pub enum OutstandingAppraisal {
     /// The reference roots are not independently authorized production policy.
     ProductionRootAuthorization,
-    /// Full certificate profile/issuer/critical extensions and VCEK product,
-    /// hardware-ID and TCB OID bindings still require appraisal.
+    /// Full certificate-path profile and issuer appraisal remain outstanding.
+    /// VCEK product, hardware-ID and reported-TCB extension bindings are checked;
+    /// this narrower check does not discharge the entire certificate obligation.
     EndorsementProfileAndChipBinding,
     /// Current authenticated AMD CRL and its scope/time/issuer are not checked.
     CurrentVendorRevocation,
@@ -97,6 +102,7 @@ const OUTSTANDING: [OutstandingAppraisal; 5] = [
 
 /// Authentic signature statements rooted in the fixed upstream reference chain.
 /// Fields are private; there is no deserializer, public constructor or raw Debug.
+/// VCEK product, hardware-ID and reported-TCB extensions are also bound.
 /// This is not an RFC 5280 appraisal or a worker-admission decision.
 pub struct SignatureFacts {
     report_sha256: [u8; 32],

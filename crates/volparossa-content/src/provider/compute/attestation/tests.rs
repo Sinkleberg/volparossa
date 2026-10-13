@@ -4,6 +4,12 @@
 use std::time::{Duration, Instant};
 
 use sha2::{Digest as _, Sha256};
+use x509_cert::{
+    Certificate as X509Certificate,
+    der::{Decode as _, Encode as _, asn1::OctetString},
+    ext::Extension,
+    spki::ObjectIdentifier,
+};
 
 use super::{session::Stamp, *};
 
@@ -89,6 +95,242 @@ fn real_public_signatures_return_only_incomplete_facts() {
             .outstanding_appraisal()
             .contains(&OutstandingAppraisal::CurrentVendorRevocation)
     );
+}
+
+fn public_vcek() -> X509Certificate {
+    X509Certificate::from_der(VCEK).unwrap()
+}
+
+fn vcek_extension<'a>(certificate: &'a mut X509Certificate, suffix: &str) -> &'a mut Extension {
+    let oid = ObjectIdentifier::new(&format!("1.3.6.1.4.1.3704.1.{suffix}")).unwrap();
+    certificate
+        .tbs_certificate
+        .extensions
+        .as_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|extension| extension.extn_id == oid)
+        .unwrap()
+}
+
+fn extension_bytes(certificate: &mut X509Certificate, suffix: &str, raw: &[u8]) {
+    vcek_extension(certificate, suffix).extn_value = OctetString::new(raw).unwrap();
+}
+
+fn claims(certificate: &X509Certificate, raw: &[u8]) -> Result<(), EvidenceError> {
+    endorsement::check_claims(certificate, raw.try_into().unwrap())
+}
+
+#[test]
+fn endorsement_public_fixture_binds_all_milan_claims() {
+    let raw = report();
+    assert_eq!(&raw[0x180..0x188], &[3, 0, 0, 0, 0, 0, 8, 115]);
+    assert_eq!(claims(&public_vcek(), &raw), Ok(()));
+    assert!(verify_milan_v2_signature_facts(&raw, VCEK).is_ok());
+    // Extension order has no meaning; this is a parse-only consistency check.
+    let mut reordered = public_vcek();
+    reordered
+        .tbs_certificate
+        .extensions
+        .as_mut()
+        .unwrap()
+        .reverse();
+    assert_eq!(claims(&reordered, &raw), Ok(()));
+}
+
+#[test]
+fn endorsement_requires_complete_unique_noncritical_known_extensions() {
+    let raw = report();
+    for index in 0..11 {
+        for mutation in 0..4 {
+            let mut cert = public_vcek();
+            // Keep a failed fixture assumption free of certificate debug output.
+            let Some(extensions) = cert.tbs_certificate.extensions.as_mut() else {
+                panic!("public fixture requires certificate extensions");
+            };
+            assert_eq!(extensions.len(), 11);
+            match mutation {
+                0 => {
+                    // Build the missing-claim fixture in the original order.
+                    *extensions = extensions
+                        .iter()
+                        .enumerate()
+                        .filter(|(position, _)| *position != index)
+                        .map(|(_, extension)| extension.clone())
+                        .collect();
+                    assert_eq!(extensions.len(), 10);
+                }
+                1 => {
+                    extensions[index] = extensions[(index + 1) % 11].clone();
+                }
+                2 => {
+                    extensions[index].critical = true;
+                }
+                _ => {
+                    extensions[index].extn_id = ObjectIdentifier::new_unwrap("1.2.3.4");
+                }
+            }
+            assert_eq!(claims(&cert, &raw), Err(EvidenceError::Endorsement));
+        }
+    }
+    let mut cert = public_vcek();
+    cert.tbs_certificate.extensions = None;
+    assert_eq!(claims(&cert, &raw), Err(EvidenceError::Endorsement));
+    cert.tbs_certificate.extensions = Some(Vec::new());
+    assert_eq!(claims(&cert, &raw), Err(EvidenceError::Endorsement));
+    let mut cert = public_vcek();
+    let extra = cert.tbs_certificate.extensions.as_ref().unwrap()[0].clone();
+    cert.tbs_certificate
+        .extensions
+        .as_mut()
+        .unwrap()
+        .push(extra);
+    assert_eq!(claims(&cert, &raw), Err(EvidenceError::Endorsement));
+}
+
+#[test]
+fn endorsement_integer_der_and_ranges_are_canonical() {
+    let raw = report();
+    let malformed: &[&[u8]] = &[
+        &[],
+        &[2, 0],
+        &[2, 1, 255],
+        &[2, 2, 0, 0],
+        &[2, 1, 0, 0],
+        &[4, 1, 0],
+        &[2, 2, 1, 0],
+        &[2, 0x81, 1, 0],
+    ];
+    for suffix in ["1", "3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7", "3.8"] {
+        for malformed in malformed {
+            let mut cert = public_vcek();
+            extension_bytes(&mut cert, suffix, malformed);
+            assert_eq!(claims(&cert, &raw), Err(EvidenceError::Endorsement));
+        }
+    }
+    // Even matching, canonical unsupported firmware components are refused.
+    for (suffix, offset) in [("3.1", 0), ("3.2", 1), ("3.3", 6)] {
+        for value in [128_u8, 255] {
+            let mut cert = public_vcek();
+            let mut raw = raw.clone();
+            extension_bytes(&mut cert, suffix, &value.to_der().unwrap());
+            raw[0x180 + offset] = value;
+            assert_eq!(claims(&cert, &raw), Err(EvidenceError::Endorsement));
+        }
+    }
+    // Microcode is allowed the full byte range, including canonical sign padding.
+    for value in [0_u8, 127, 128, 255] {
+        let mut cert = public_vcek();
+        let mut raw = raw.clone();
+        extension_bytes(&mut cert, "3.8", &value.to_der().unwrap());
+        raw[0x187] = value;
+        assert_eq!(claims(&cert, &raw), Ok(()));
+    }
+}
+
+#[test]
+fn endorsement_product_version_and_raw_hwid_are_not_interchangeable() {
+    let raw = report();
+    for version in [1_u8, 2, 255] {
+        let mut cert = public_vcek();
+        extension_bytes(&mut cert, "1", &version.to_der().unwrap());
+        assert_eq!(claims(&cert, &raw), Err(EvidenceError::Endorsement));
+    }
+    for product in [
+        "Milan",
+        "Genoa-A0",
+        "Milan-b0",
+        "Milan-00",
+        "Milan-B00",
+        "Milan-B0\0",
+    ] {
+        let mut cert = public_vcek();
+        let mut value = vec![0x16, u8::try_from(product.len()).unwrap()];
+        value.extend_from_slice(product.as_bytes());
+        extension_bytes(&mut cert, "2", &value);
+        assert_eq!(claims(&cert, &raw), Err(EvidenceError::Endorsement));
+    }
+    let mut cert = public_vcek();
+    extension_bytes(&mut cert, "2", b"\x0c\x08Milan-B0");
+    assert_eq!(claims(&cert, &raw), Err(EvidenceError::Endorsement));
+    let chip = &raw[0x1a0..0x1e0];
+    let wrapped = OctetString::new(chip).unwrap().to_der().unwrap();
+    for wrong in [&chip[..63], &wrapped, &[0; 64], &[0; 8]] {
+        let mut cert = public_vcek();
+        extension_bytes(&mut cert, "4", wrong);
+        assert_eq!(claims(&cert, &raw), Err(EvidenceError::Endorsement));
+    }
+}
+
+#[test]
+fn endorsement_tcb_uses_exact_reported_component_order() {
+    // Explicitly synthetic edits test consistency only, never authentication.
+    let mut cert = public_vcek();
+    let mut raw = report();
+    for (suffix, offset, value) in [
+        ("3.1", 0, 11_u8),
+        ("3.2", 1, 22),
+        ("3.3", 6, 33),
+        ("3.8", 7, 144),
+    ] {
+        extension_bytes(&mut cert, suffix, &value.to_der().unwrap());
+        raw[0x180 + offset] = value;
+    }
+    for range in [0x38..0x40, 0x1e0..0x1e8, 0x1f0..0x1f8] {
+        raw[range].fill(99); // current, committed and launch cannot substitute.
+    }
+    assert_eq!(claims(&cert, &raw), Ok(()));
+    for (suffix, offset) in [("3.4", 2), ("3.5", 3), ("3.6", 4), ("3.7", 5)] {
+        let mut cert = cert.clone();
+        let mut raw = raw.clone();
+        extension_bytes(&mut cert, suffix, &1_u8.to_der().unwrap());
+        raw[0x180 + offset] = 1;
+        assert_eq!(claims(&cert, &raw), Err(EvidenceError::Endorsement));
+    }
+}
+
+#[test]
+fn endorsement_mismatched_chip_or_each_spl_is_rejected() {
+    let cert = public_vcek();
+    for offset in (0x1a0..0x1e0).chain(0x180..0x188) {
+        let mut raw = report();
+        raw[offset] ^= 1;
+        assert_eq!(claims(&cert, &raw), Err(EvidenceError::Endorsement));
+    }
+}
+
+#[test]
+fn endorsement_mutation_cannot_bypass_signature_verification() {
+    let raw = report();
+    let mut cert = public_vcek();
+    // The metadata predicate alone accepts this syntactically valid Milan claim.
+    // Version-two reports cannot prove a stepping comparison. Changed signed
+    // certificate bytes must still fail at the actual cryptographic entrypoint.
+    extension_bytes(&mut cert, "2", b"\x16\x08Milan-B1");
+    assert_eq!(claims(&cert, &raw), Ok(()));
+    assert_eq!(
+        verify_milan_v2_signature_facts(&raw, &cert.to_der().unwrap()).err(),
+        Some(EvidenceError::Signature)
+    );
+    let mut raw = raw;
+    raw[0x180] ^= 1;
+    assert_eq!(
+        verify_milan_v2_signature_facts(&raw, VCEK).err(),
+        Some(EvidenceError::Signature)
+    );
+}
+
+#[test]
+fn endorsement_consistency_never_clears_remaining_appraisal() {
+    let facts = verify_milan_v2_signature_facts(&report(), VCEK).unwrap();
+    assert_eq!(facts.outstanding_appraisal(), &OUTSTANDING);
+    assert_eq!(facts.outstanding_appraisal().len(), 5);
+    assert_eq!(
+        EvidenceError::Endorsement.to_string(),
+        "attestation endorsement binding failed"
+    );
+    // No certificate/chip identifier is included in the closed error text.
+    assert!(!EvidenceError::Endorsement.to_string().contains("Milan"));
 }
 
 #[test]

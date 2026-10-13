@@ -101,6 +101,16 @@ do not run competing heavy builds or lower that reserve.
 
 ### Protected compute verifier preparation
 
+The next candidate extends the integrated verifier with VCEK product, chip-ID
+and reported-firmware binding. Its eight new consistency and signature-boundary
+tests join the original fourteen in an explicitly versioned hosted trial.
+Source review and the existing ten public-RSA scope checks pass; actual Rust
+compilation, the expanded test run and Clippy remain pending. No dependency or
+lockfile changes are required. The [endorsement scope](development/PROTECTED_COMPUTE_VERIFIER.md#binding-endorsement-claims-to-the-report)
+keeps certificate-path appraisal, current revocation, authorized roots/workloads
+and protected execution outstanding. This software work proceeds while Android
+and storage run their existing hosted integration trials.
+
 Suitable confidential-computing hardware is not currently available. This
 blocks live protected-worker acceptance, not the Android/storage integrations
 or software preparation. A separate public-fixture CI candidate now pins

@@ -7,7 +7,7 @@ use sev::{
 };
 use sha2::{Digest as _, Sha256};
 
-use super::{EvidenceError, MAX_VCEK_BYTES, REPORT_BYTES, SignatureFacts};
+use super::{EvidenceError, MAX_VCEK_BYTES, REPORT_BYTES, SignatureFacts, endorsement};
 
 /// Verify exact raw SNP v2 report and certificate signatures against the pinned
 /// upstream Milan reference roots. No caller-supplied root is accepted.
@@ -44,6 +44,12 @@ pub fn verify_milan_v2_signature_facts(
     (&chain, &report)
         .verify()
         .map_err(|_| EvidenceError::Signature)?;
+    // A signature alone does not bind the leaf's chip/firmware claims to the
+    // signed report. Use REPORTED_TCB, the version that derives this VCEK.
+    endorsement::check_claims(
+        &chain.vek.clone().into(),
+        received.try_into().map_err(|_| EvidenceError::Encoding)?,
+    )?;
     Ok(SignatureFacts {
         report_sha256: Sha256::digest(received).into(),
         vcek_sha256: Sha256::digest(vcek_der).into(),
@@ -93,7 +99,7 @@ pub(super) fn exact_report(received: &[u8]) -> Result<AttestationReport, Evidenc
             .map_err(|_| EvidenceError::Encoding)?,
     );
     // Restrict to the legacy Milan layout and VCEK, not masked-chip/VLEK/unsigned.
-    // Version 2 has no CPUID product field; product/OID appraisal remains separate.
+    // Version 2 has no CPUID product field; do not invent a stepping comparison.
     if report.vmpl != 0
         || report.sig_algo != 1
         || key & !1 != 0
