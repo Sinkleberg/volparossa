@@ -17,6 +17,27 @@ M = runpy.run_path(str(HERE / 'storage-consumer-maintenance-provision.py'))
 
 
 class ConsumerProvision(unittest.TestCase):
+    def test_explicit_profile_two_keeps_historical_pins_and_adds_only_required_import(self):
+        old, current = M['load_pins'](), M['load_pins'](2)
+        self.assertEqual(current['version'], 2)
+        self.assertEqual(current['runtime'], old['runtime'])
+        self.assertEqual(current['sources']['image']['revision'], 'fa0438747b79bf29e49a2fe65116cb166ebe10df')
+        self.assertEqual(current['sources']['cloud']['revision'], 'f51b49b84af404cc8dd6e377e0545e2ca1ea4569')
+        self.assertEqual(set(current['sources']['cloud']['files']) - set(old['sources']['cloud']['files']),
+            {'src/storage-upload-maintenance.mjs'})
+        self.assertEqual(set(old['sources']['cloud']['files']) - set(current['sources']['cloud']['files']), set())
+        self.assertEqual(set(current['sources']['image']['files']), set(old['sources']['image']['files']))
+        self.assertNotEqual(M['pins_path'](), M['pins_path'](2))
+        for version in (True, 0, 3, '2'):
+            with self.assertRaises(ValueError):
+                M['load_pins'](version)
+        for changed in (old, dict(current, version=1)):
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / 'pins.json'
+                path.write_text(json.dumps(changed))
+                with patch.dict(M['load_pins'].__globals__, PINS_V2=path), self.assertRaises(ValueError):
+                    M['load_pins'](2)
+
     def test_exact_sources_runtime_licenses_and_same_adapter(self):
         pins = M['load_pins']()
         self.assertEqual(set(pins['sources']), {'image', 'cloud'})

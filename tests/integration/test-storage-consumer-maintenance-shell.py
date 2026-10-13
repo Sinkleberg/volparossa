@@ -54,6 +54,14 @@ private_storage_replicas_serve relay4 "$3"
         self.assertNotIn('eval ', TEXT)
         self.assertNotIn('sudo ', TEXT)
 
+    def test_current_consumer_explicitly_selects_matching_profile_at_all_boundaries(self):
+        runner = (HERE / 'run-alpha-topology-vm.sh').read_text()
+        guest = (HERE / 'kvm-alpha-topology.sh').read_text()
+        self.assertIn('storage-consumer-maintenance-provision.py provision --download --profile-version 2', runner)
+        self.assertIn('storage-consumer-maintenance-smoke.py" "$@" --profile-version 2', TEXT)
+        self.assertIn('"$source_directory/tests/integration/storage-consumer-maintenance-pins-v2.json"', guest)
+        self.assertIn('"$WORK/bin/storage-consumer-maintenance-pins-v2.json"', guest)
+
     def test_each_consumer_phase_gets_its_own_actual_network_observation(self):
         phase = TEXT.split('private_storage_consumer_phase() {', 1)[1].split('\n}', 1)[0]
         self.assertIn('case $1 in publish|exercise|finish)', phase)

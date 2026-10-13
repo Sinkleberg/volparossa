@@ -10,6 +10,26 @@ use volparossa_local_control::{
     control_request::Operation, read_response, write_request,
 };
 
+/// Typed rejection retained for closed, caller-owned diagnostics. The peer supplied
+/// code must be allowlisted before being included in a machine-readable report.
+#[derive(Debug)]
+pub(crate) struct AgentRejected {
+    pub(crate) diagnostic_code: String,
+    result: ControlResult,
+}
+
+impl std::fmt::Display for AgentRejected {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "agent rejected request: {} ({:?})",
+            self.diagnostic_code, self.result
+        )
+    }
+}
+
+impl std::error::Error for AgentRejected {}
+
 /// Sends one typed operation and validates correlation and result metadata.
 pub async fn request(socket: &Path, operation: Operation) -> Result<ControlResponse> {
     let (_, _, response) = begin_request(socket, operation).await?;
@@ -52,10 +72,11 @@ pub(crate) async fn finish_request(
     let result = ControlResult::try_from(response.result)
         .map_err(|_| anyhow::anyhow!("agent returned an unknown result"))?;
     if result != ControlResult::Ok {
-        bail!(
-            "agent rejected request: {} ({result:?})",
-            response.diagnostic_code
-        );
+        return Err(AgentRejected {
+            diagnostic_code: response.diagnostic_code,
+            result,
+        }
+        .into());
     }
     Ok(response)
 }

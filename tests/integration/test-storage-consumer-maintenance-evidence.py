@@ -98,11 +98,11 @@ def attach_transition(value, *, changed=True, consumer=True):
     return value
 
 
-def fixture(*, previous=False):
+def fixture(*, previous=False, profile_version=1):
     """Complete *synthetic* input for parent aggregate tests, never live proof."""
-    pins = M['PROVISIONER']['load_pins']()
-    provision = dict(version=1, kind='storage-consumer-maintenance-runtime-provision', success=True,
-        pins=pins, pins_sha256=hashlib.sha256(M['PROVISIONER']['PINS'].read_bytes()).hexdigest(),
+    pins = M['PROVISIONER']['load_pins'](profile_version)
+    provision = dict(version=profile_version, kind='storage-consumer-maintenance-runtime-provision', success=True,
+        pins=pins, pins_sha256=hashlib.sha256(M['PROVISIONER']['pins_path'](profile_version).read_bytes()).hexdigest(),
         tools={name: dict(package=name, package_version='1.0-1', bytes=1234, sha256='a' * 64)
             for name in ('gpg', 'gpg-agent', 'gpgconf', 'tar')},
         guest_only=True, source_files_verified=True, runtime_files_verified=True, shared_adapter_verified=True,
@@ -369,6 +369,19 @@ class ControlTransition(unittest.TestCase):
 
 
 class ConsumerEvidence(unittest.TestCase):
+    def test_new_profile_has_independent_source_binding_without_replacing_historical_provision(self):
+        old, current = fixture(), fixture(profile_version=2)
+        M['validate_evidence'](old)
+        M['validate_evidence'](current)
+        self.assertNotEqual(old['provision_sha256'], current['provision_sha256'])
+        self.assertEqual(old['provision']['version'], 1)
+        self.assertEqual(current['provision']['version'], 2)
+        for version, pins in ((1, current['provision']['pins']), (2, old['provision']['pins'])):
+            value = copy.deepcopy(current['provision'])
+            value.update(version=version, pins=pins)
+            with self.assertRaises(ValueError):
+                M['validate_provision'](value)
+
     def reject(self, mutate, code=None):
         value = fixture()
         mutate(value)

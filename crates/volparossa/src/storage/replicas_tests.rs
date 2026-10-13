@@ -364,6 +364,15 @@ async fn replica_two_real_stores_resume_failover_and_delete_without_consuming_su
     assert_eq!(partial["uncertain_payload_bytes"], length);
     assert_eq!(partial["committed_payload_bytes"], length);
     assert_eq!(partial["physical_payload_charge_upper_bound"], 2 * length);
+    assert_eq!(
+        partial["deposit_diagnostics"],
+        serde_json::json!({
+            "version": 1, "omitted_failures": 0, "failures": [{
+                "fragment_index": null, "copy_index": 0, "operation": "reserve",
+                "stage": "agent_terminal", "category": "io", "agent_code": null
+            }]
+        })
+    );
     assert!(set.copy(0).unwrap().journal.lease.is_none());
     drop(set);
     first.stop().await;
@@ -381,6 +390,12 @@ async fn replica_two_real_stores_resume_failover_and_delete_without_consuming_su
         .unwrap();
     assert_eq!(completed["operation_complete"], true);
     assert_eq!(completed["committed_payload_bytes"], 2 * length);
+    assert_eq!(
+        completed["deposit_diagnostics"],
+        serde_json::json!({
+            "version": 1, "omitted_failures": 0, "failures": []
+        })
+    );
     for (index, original) in identities.iter().enumerate() {
         assert_eq!(
             &set.copy(index)

@@ -31,13 +31,13 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38325586905` on `bafbd03a` passes both APK builds, then fails at the first link-metadata query with access denied, before installation; cleanup passes. Candidate `dfc477a3` adds fixed read-only guest-observer commands, strict identity checks and a separate package-UID probe without extra app privileges. All 157 inert tests pass; actual trial `38416448364` is running. App launch, refresh, expiry and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Trial `38326191629` on `1a1dbd82` proves the separate core lifecycle, control-relay replacement, two source-free restores and deletion of all eleven retained copies. It then fails during Cloud publishing, before consumer repair/read/delete. The next candidate distinguishes the failed application operation and closed core result without exporting private output. Image/Cloud pins, grants, deadlines and acceptance requirements stay unchanged; complete consumer acceptance remains open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Trial `38416109564` on `f09e7718` passes the separate core lifecycle, control-relay replacement, two source-free restores and deletion of all eleven retained copies. Cloud create then succeeds but deposit remains incomplete, before consumer repair/read/delete. The reviewed candidate retains closed core transfer diagnostics and uses explicit consumer profile 2 with Image `fa043874` and Cloud `f51b49b8`; historical profile 1 remains unchanged. The 118 targeted wiring checks pass. Authority, deadlines and acceptance requirements are unchanged; compilation and complete consumer acceptance remain open. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | PR235 is merged in main. Public verifier trial `38324431627` passes four pinned SNP chain/report fixtures, including tampered inputs. Worker admission, task-bound authorization and actual protected execution are not implemented by this probe. A separate core signature-facts/session-binding candidate still needs dependency resolution and actual Rust tests. No suitable confidential-computing server is currently available; preparation proceeds alongside Android and storage. |
 
 ### Current corrections awaiting hosted proof
 
-The latest [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38326191629)
+The earlier [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38326191629)
 on `1a1dbd82` passes the core storage sequence, then fails at
 `cloud_publish / publish_operation`. The original consumer receipt does not
 distinguish create from deposit or identify the returned core status. Consumer
@@ -73,6 +73,31 @@ failure receipts remain distinct from historical schema-one evidence. Fourteen
 inert Node tests and twenty Python tests pass, including independent review.
 The next actual trial must identify and resolve the Cloud failure; neither a
 larger quota nor a longer deadline is justified by the current evidence.
+
+The following [trial `38416109564`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38416109564)
+on `f09e7718` again passes core restart/repair, two complete source-free restores
+and deletion of all eleven core copies. Cloud create succeeds, then deposit
+returns `retained_operation_incomplete`; the original transfer error was not
+retained. Consumer repair, restore and deletion remain unproved. The original
+71-member artifact matches SHA-256
+`edf34b055d964228bfaa43a25da6741318b8cf2c57d246b9c55a752775d61477`.
+[Quality `38417397926`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38417397926)
+passes on `7bfdae85`, separately from that failed consumer scenario.
+
+The next candidate retains typed owner-side deposit boundaries, closed error
+categories and observed agent rejection codes, limited to eight copy failures
+plus the exact omitted count. It does not export error text, paths, keys or
+provider identities, infer a quota denial, or change accounting, authority,
+deadlines or retries. Six new Rust tests and the extended real Unix/SQLite
+lost-terminal test await hosted compilation and execution.
+
+Explicit consumer profile 2 pins Image `fa043874` and Cloud `f51b49b8`, using
+the same reviewed adapter bytes. Profile 1 and its original pins are unchanged.
+Schema-three failure evidence carries validated diagnostics or an explicit
+missing/invalid state; successful component checks cannot upgrade historical
+failures. The 118 targeted Node/Python wiring checks pass; Image's 44 adapter
+and Cloud's 34 focused checks pass separately. The complete live consumer
+scenario still requires a new hosted trial.
 
 The preceding [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38323695908)
 on `f7269a9b` stops in `storage-maintenance-targeted-tests`, before topology setup.

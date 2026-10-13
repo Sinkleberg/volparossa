@@ -17,6 +17,7 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 PINS = HERE / 'storage-consumer-maintenance-pins.json'
+PINS_V2 = HERE / 'storage-consumer-maintenance-pins-v2.json'
 BASE = runpy.run_path(str(HERE / 'image-snapshot-provision.py'))
 require, digest, verify_files = (BASE[key] for key in ('require', 'digest', 'verify_files'))
 SOURCES = {name: Path('/opt') / ('volparossa-' + name) for name in ('image', 'cloud')}
@@ -24,6 +25,8 @@ RUNTIME = Path('/opt/volparossa-node')
 RECEIPT = Path('/opt/volparossa-storage-consumers')
 REVISIONS = dict(image='aade424c3e96d0934edbddf31d2434757aa08564',
     cloud='9cb94fbb83e9f503ff5a66d43ed814f556d4a3af')
+DIAGNOSTIC_REVISIONS = dict(image='fa0438747b79bf29e49a2fe65116cb166ebe10df',
+    cloud='f51b49b84af404cc8dd6e377e0545e2ca1ea4569')
 FILES = {
     'image': frozenset(('scripts/immich_snapshot.py', 'scripts/snapshot-storage.mjs',
         'src/core-storage.mjs', 'LICENSE')),
@@ -35,20 +38,30 @@ FILES = {
         'vendor/volparossa-image/core-storage.mjs', 'vendor/volparossa-image/LICENSE',
         'third_party/volparossa-image-source.json', 'THIRD_PARTY_LICENSES.md', 'LICENSE')),
 }
+DIAGNOSTIC_FILES = dict(FILES, cloud=FILES['cloud'] | {'src/storage-upload-maintenance.mjs'})
 VENDORED = {'scripts/immich_snapshot.py': 'vendor/volparossa-image/immich_snapshot.py',
     'src/core-storage.mjs': 'vendor/volparossa-image/core-storage.mjs',
     'LICENSE': 'vendor/volparossa-image/LICENSE'}
 
 
-def load_pins():
-    pins = json.loads(PINS.read_text())
+def pins_path(profile_version=1):
+    require(type(profile_version) is int and profile_version in (1, 2))
+    return PINS if profile_version == 1 else PINS_V2
+
+
+def load_pins(profile_version=1):
+    path = pins_path(profile_version)
+    revisions = REVISIONS if profile_version == 1 else DIAGNOSTIC_REVISIONS
+    files = FILES if profile_version == 1 else DIAGNOSTIC_FILES
+    require(all(re.fullmatch('[a-f0-9]{40}', revision) for revision in revisions.values()))
+    pins = json.loads(path.read_text())
     require(set(pins) == {'version', 'sources', 'runtime'} and type(pins['version']) is int
-        and pins['version'] == 1 and set(pins['sources']) == set(SOURCES)
+        and pins['version'] == profile_version and set(pins['sources']) == set(SOURCES)
         and pins['runtime'] == BASE['loader']()['load_pins']()['runtime'])
     for name, source in pins['sources'].items():
         require(set(source) == {'repository', 'revision', 'files'}
             and source['repository'] == 'https://github.com/VOLPAROSSA/volparossa-' + name
-            and source['revision'] == REVISIONS[name] and set(source['files']) == FILES[name])
+            and source['revision'] == revisions[name] and set(source['files']) == files[name])
         for record in source['files'].values():
             require(set(record) == {'bytes', 'sha256'} and type(record['bytes']) is int
                 and 0 < record['bytes'] <= 131072
@@ -67,10 +80,11 @@ def guard():
         require(root.resolve() == root and not root.exists() and not root.is_symlink())
 
 
-def verify_vendor(pins):
+def verify_vendor(pins, profile_version=1):
     source = SOURCES['cloud'] / 'third_party/volparossa-image-source.json'
     vendor = json.loads(source.read_text())
-    require(vendor['version'] == 1 and vendor['revision'] == REVISIONS['image']
+    revisions = REVISIONS if profile_version == 1 else DIAGNOSTIC_REVISIONS
+    require(vendor['version'] == 1 and vendor['revision'] == revisions['image']
         and vendor['repository'] == pins['sources']['image']['repository']
         and vendor['license'] == 'GPL-3.0-only' and vendor['local_modifications'] is False
         and set(vendor['files']) == set(VENDORED))
@@ -80,8 +94,8 @@ def verify_vendor(pins):
             and digest(SOURCES['image'] / original) == digest(SOURCES['cloud'] / local))
 
 
-def provision():
-    pins = load_pins()
+def provision(profile_version=1):
+    pins = load_pins(profile_version)
     guard()
     os.umask(0o077)
     runtime_stage = BASE['loader']()
@@ -94,7 +108,7 @@ def provision():
                 f"https://raw.githubusercontent.com/VOLPAROSSA/volparossa-{name}/{source['revision']}/{path}",
                 SOURCES[name] / path, record)
         verify_files(SOURCES[name], source['files'])
-    verify_vendor(pins)
+    verify_vendor(pins, profile_version)
     with tempfile.TemporaryDirectory(prefix='storage-consumer-node.', dir='/opt') as temporary:
         archive = Path(temporary) / 'node.tar.xz'
         runtime_stage['fetch'](pins['runtime']['url'], archive, pins['runtime'])
@@ -103,8 +117,8 @@ def provision():
     verify_files(RUNTIME, pins['runtime']['files'])
     require(subprocess.check_output([str(RUNTIME / 'bin/node'), '--version'], text=True,
         timeout=10, env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'}).strip() == 'v24.19.0')
-    report = dict(version=1, kind='storage-consumer-maintenance-runtime-provision', success=True,
-        pins=pins, pins_sha256=digest(PINS), tools=tools, guest_only=True,
+    report = dict(version=profile_version, kind='storage-consumer-maintenance-runtime-provision', success=True,
+        pins=pins, pins_sha256=digest(pins_path(profile_version)), tools=tools, guest_only=True,
         source_files_verified=True, runtime_files_verified=True, shared_adapter_verified=True,
         original_licenses_retained=True, storage_enrollment_created=False,
         peer_storage_proven=False, application_restore_proven=False,
@@ -121,10 +135,12 @@ def main():
     parser.add_argument('action', choices=('provision',))
     parser.add_argument('--download', action='store_true', required=True,
         help='explicit guest-only pinned Image/Cloud sources and Node runtime download')
-    parser.parse_args()
-    print(json.dumps(dict(plan='guest-only-pinned-storage-consumers', revisions=REVISIONS,
+    parser.add_argument('--profile-version', type=int, choices=(1, 2), default=1)
+    args = parser.parse_args()
+    revisions = REVISIONS if args.profile_version == 1 else DIAGNOSTIC_REVISIONS
+    print(json.dumps(dict(plan='guest-only-pinned-storage-consumers', revisions=revisions,
         sdk_or_browser_provisioned=False, storage_enrollment_created=False)), flush=True)
-    provision()
+    provision(args.profile_version)
     print('Pinned consumers verified; application restoration and peer maintenance are not yet tested')
 
 

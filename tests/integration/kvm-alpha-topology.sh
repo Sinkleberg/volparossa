@@ -1171,7 +1171,7 @@ if [ "$private_storage_maintenance" = yes ]; then
     for maintenance_fixture in private-storage-maintenance-smoke.sh private-storage-maintenance-smoke.py \
         private-storage-log-sampler.py content-provider-readiness.py \
         storage-consumer-maintenance-smoke.sh storage-consumer-maintenance-smoke.py \
-        storage-consumer-maintenance.mjs storage-consumer-maintenance-pins.json \
+        storage-consumer-maintenance.mjs storage-consumer-maintenance-pins.json storage-consumer-maintenance-pins-v2.json \
         storage-consumer-maintenance-evidence.py storage-consumer-maintenance-provision.py \
         image-snapshot-provision.py agent-private-task-code.py agent-private-task-code-pins.json; do
         [ -f "$source_directory/tests/integration/$maintenance_fixture" ] \
@@ -3041,6 +3041,8 @@ if [ "$private_storage_maintenance" = yes ]; then
     done
     install -o root -g root -m 0444 "$source_directory/tests/integration/storage-consumer-maintenance-pins.json" \
         "$WORK/bin/storage-consumer-maintenance-pins.json"
+    install -o root -g root -m 0444 "$source_directory/tests/integration/storage-consumer-maintenance-pins-v2.json" \
+        "$WORK/bin/storage-consumer-maintenance-pins-v2.json"
     install -o root -g root -m 0444 "$source_directory/tests/integration/agent-private-task-code-pins.json" \
         "$WORK/bin/agent-private-task-code-pins.json"
 fi

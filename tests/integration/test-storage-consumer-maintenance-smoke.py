@@ -67,7 +67,89 @@ def write(path, data=b'{}'):
     path.chmod(0o600)
 
 
+def diagnostic_failure():
+    return dict(version=3, kind='storage-consumer-maintenance', phase='publish', passed=False,
+        provision_sha256=PROVISION, stage='cloud_publish', code='publish_operation', cleanup_confirmed=False,
+        publish_observation=dict(version=2, app='cloud', operation='deposit', status='incomplete',
+            code='retained_operation_incomplete', local_process_joined=True,
+            core_report_present=True, core_operation_complete=False,
+            deposit_diagnostics_state='observed', deposit_diagnostics=dict(version=1, omitted_failures=0,
+                failures=[dict(fragment_index=2, copy_index=1, operation='reserve', stage='agent_terminal',
+                    category='io', agent_code=None)])))
+
+
 class ConsumerReceipts(unittest.TestCase):
+    def test_current_deposit_failure_survives_exact_child_call_and_retained_bytes(self):
+        value = diagnostic_failure()
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=2), value)
+        with self.assertRaises(ValueError):
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=1)
+        calls = []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            def child(command, _):
+                calls.append(command)
+                return 1, raw, b'PRIVATE-NOT-EXPORTED'
+            with patch.dict(G, run_child=child, PROFILE_VERSION=2):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(calls[0][-2:], ['--profile-version', '2'])
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertEqual(caught.exception.report['node_report_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+
+    def test_current_diagnostic_rejects_unbounded_unknown_private_or_duplicate_records(self):
+        mutations = [lambda d: d.update(version=True), lambda d: d.update(omitted_failures=1),
+            lambda d: d.update(failures=d['failures'] * 9), lambda d: d.update(failures=d['failures'] * 2),
+            lambda d: d.update(raw='PRIVATE'), lambda d: d['failures'][0].update(raw='PRIVATE'),
+            lambda d: d['failures'][0].update(fragment_index=4), lambda d: d['failures'][0].update(copy_index=2),
+            lambda d: d['failures'][0].update(fragment_index=True), lambda d: d['failures'][0].update(operation='PRIVATE'),
+            lambda d: d['failures'][0].update(stage='PRIVATE'), lambda d: d['failures'][0].update(category='PRIVATE'),
+            lambda d: d['failures'][0].update(agent_code='CONTENT_POLICY'),
+            lambda d: d['failures'][0].update(category='agent_rejected'),
+            lambda d: d['failures'][0].update(category='agent_rejected', agent_code='PRIVATE')]
+        for mutate in mutations:
+            value = diagnostic_failure()
+            mutate(value['publish_observation']['deposit_diagnostics'])
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+        value = diagnostic_failure()
+        d = value['publish_observation']['deposit_diagnostics']
+        d['failures'] = [dict(d['failures'][0], fragment_index=i // 2, copy_index=i % 2) for i in range(8)]
+        M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+        d['failures'][0].update(category='agent_rejected', agent_code='unknown')
+        M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+
+    def test_diagnostic_failure_versions_and_missing_invalid_states_do_not_downgrade(self):
+        for state in ('missing', 'invalid'):
+            value = diagnostic_failure()
+            value['publish_observation'].update(status='complete', code='ok', core_operation_complete=True,
+                deposit_diagnostics_state=state, deposit_diagnostics=None)
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+            value['publish_observation']['deposit_diagnostics'] = {'private': 'NO'}
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+        for mutate in (lambda v: v.update(version=2), lambda v: v.update(version=True),
+                lambda v: v['publish_observation'].update(version=1),
+                lambda v: v['publish_observation'].update(deposit_diagnostics_state='not_applicable'),
+                lambda v: v['publish_observation'].update(core_operation_complete=True),
+                lambda v: v['publish_observation'].update(core_operation_complete=1)):
+            value = diagnostic_failure()
+            mutate(value)
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+        value = diagnostic_failure()
+        value['version'] = 2
+        observed = value['publish_observation']
+        observed['version'] = 1
+        del observed['deposit_diagnostics_state'], observed['deposit_diagnostics']
+        M['validate_node_report'](value, 'publish', PROVISION, profile_version=1)
+        with self.assertRaises(ValueError):
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+
     def test_exact_phase_geometry_and_original_ciphertext_accounting(self):
         M['validate_node_report'](prepared(), 'prepare', PROVISION)
         for phase in ('publish', 'exercise', 'finish'):
@@ -305,7 +387,7 @@ class ConsumerOrchestration(unittest.TestCase):
         # The guest stages individual files, not this whole checkout. Exercise
         # the actual runpy/load_pins closure in that same sparse arrangement.
         names = ('storage-consumer-maintenance-smoke.py', 'storage-consumer-maintenance-provision.py',
-            'storage-consumer-maintenance-pins.json', 'image-snapshot-provision.py',
+            'storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json', 'image-snapshot-provision.py',
             'agent-private-task-code.py', 'agent-private-task-code-pins.json',
             'private-storage-fragments-smoke.py', 'private-storage-replicas-smoke.py',
             'private-storage-peer-smoke.py', 'content-provider-https-smoke.py',
@@ -318,6 +400,7 @@ class ConsumerOrchestration(unittest.TestCase):
                     patch.object(urllib.request, 'urlopen') as download:
                 loaded = runpy.run_path(str(root / names[0]))
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](), M['PROVISIONER']['load_pins']())
+                self.assertEqual(loaded['PROVISIONER']['load_pins'](2), M['PROVISIONER']['load_pins'](2))
                 self.assertEqual(loaded['FLOW_MINIMUM'], M['FLOW_MINIMUM'])
                 for absent in ('image-snapshot-provision.py', 'agent-private-task-code.py', 'agent-private-task-code-pins.json'):
                     (root / absent).unlink()
@@ -328,6 +411,17 @@ class ConsumerOrchestration(unittest.TestCase):
                 spawn.assert_not_called()
                 execute.assert_not_called()
                 download.assert_not_called()
+
+    def test_profile_selection_is_explicit_and_reset_between_independent_cli_calls(self):
+        import io
+        from contextlib import redirect_stdout
+        with redirect_stdout(io.StringIO()):
+            M['main'](['flow-minimum', 'publish', '--profile-version', '2'])
+            self.assertEqual(G['PROFILE_VERSION'], 2)
+            M['main'](['flow-minimum', 'publish'])
+            self.assertEqual(G['PROFILE_VERSION'], 1)
+        with self.assertRaises(ValueError):
+            M['main'](['flow-minimum', 'publish', '--profile-version', '3'])
 
     def test_preparation_creates_only_original_finite_authority_from_exact_cipher_size(self):
         original, calls, owners = prepared(), [], iter(('4' * 64, '5' * 64))

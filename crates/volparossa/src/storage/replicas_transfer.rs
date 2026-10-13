@@ -12,6 +12,7 @@ use volparossa_content::private_storage::protocol::{StorageOperation, VerifiedSt
 
 use super::{
     super::{
+        diagnostics::{Boundary, Diagnostics, Operation as DiagnosticOperation, Stage},
         state::{self, LockedJournal},
         transfer,
     },
@@ -59,6 +60,7 @@ pub(super) async fn deposit_selected(
 ) -> Result<serde_json::Value> {
     set.check_owner(signer)?;
     let mut outcomes = Vec::new();
+    let mut diagnostics = Diagnostics::default();
     let mut completed = 0;
     let mut eligible = 0;
     for index in 0..set.data.copies.len() {
@@ -71,29 +73,50 @@ pub(super) async fn deposit_selected(
             continue;
         }
         eligible += 1;
-        let Ok((mut retained, grant)) = copy_for_owner(set, index, signer) else {
-            outcomes.push("unavailable_or_grant_invalid");
-            continue;
+        let (mut retained, grant) = match copy_for_owner(set, index, signer) {
+            Ok(value) => value,
+            Err(error) => {
+                diagnostics.push(
+                    index,
+                    &error,
+                    Boundary {
+                        operation: DiagnosticOperation::Prepare,
+                        stage: Stage::JournalOpen,
+                    },
+                );
+                outcomes.push("unavailable_or_grant_invalid");
+                continue;
+            }
         };
         set.begin(index)?;
-        if transfer::deposit_retained(socket, &grant, signer, &mut retained, input)
-            .await
-            .is_ok()
-        {
-            set.confirm(index, &retained.journal)?;
-            completed += 1;
-            outcomes.push("committed");
-        } else {
-            // Last acknowledged prefixes remain in archive.json; retries reuse that same archive.
-            outcomes.push("incomplete_retained_for_retry");
+        match transfer::deposit_retained(socket, &grant, signer, &mut retained, input).await {
+            Ok(()) => {
+                set.confirm(index, &retained.journal)?;
+                completed += 1;
+                outcomes.push("committed");
+            }
+            Err(error) => {
+                diagnostics.push(
+                    index,
+                    &error,
+                    Boundary {
+                        operation: DiagnosticOperation::Prepare,
+                        stage: Stage::Unknown,
+                    },
+                );
+                // Last acknowledged prefixes remain in archive.json; retries reuse that same archive.
+                outcomes.push("incomplete_retained_for_retry");
+            }
         }
     }
-    finish_report(
+    let mut report = finish_report(
         set,
         "deposit",
         &outcomes,
         eligible != 0 && completed == eligible,
-    )
+    )?;
+    report["deposit_diagnostics"] = serde_json::to_value(diagnostics)?;
+    Ok(report)
 }
 
 pub(super) async fn refresh(

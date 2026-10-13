@@ -275,10 +275,10 @@ def validate_provision(value):
     false = ('storage_enrollment_created', 'peer_storage_proven', 'application_restore_proven',
         'sdk_or_browser_provisioned', 'immich_or_opencloud_server_started')
     keys(value, ('version', 'kind', 'success', 'pins', 'pins_sha256', 'tools', *true, *false))
-    require(type(value['version']) is int and value['version'] == 1
+    require(type(value['version']) is int and value['version'] in (1, 2)
         and value['kind'] == 'storage-consumer-maintenance-runtime-provision' and value['success'] is True
-        and encoded(value['pins']) == encoded(PROVISIONER['load_pins']())
-        and value['pins_sha256'] == hashlib.sha256(PROVISIONER['PINS'].read_bytes()).hexdigest()
+        and encoded(value['pins']) == encoded(PROVISIONER['load_pins'](value['version']))
+        and value['pins_sha256'] == hashlib.sha256(PROVISIONER['pins_path'](value['version']).read_bytes()).hexdigest()
         and all(value[k] is True for k in true) and all(value[k] is False for k in false), 'consumer_provision')
     keys(value['tools'], ('gpg', 'gpg-agent', 'gpgconf', 'tar'))
     for name, tool in value['tools'].items():

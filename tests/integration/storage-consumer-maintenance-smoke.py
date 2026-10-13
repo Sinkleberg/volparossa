@@ -48,6 +48,7 @@ FAILURE_CODES = {'phase_deadline', 'authority_expired', 'authority_changed', 're
     'fragment_geometry', 'catalog_creation', 'configuration', 'input_changed', 'private_file', 'private_directory',
     'application_failed'}
 CANCELLED = False
+PROFILE_VERSION = 1
 
 
 class NodePhaseFailure(ValueError):
@@ -140,12 +141,13 @@ def digest_public(path, record):
 
 
 def tools():
-    pins = PROVISIONER['load_pins']()
+    pins = PROVISIONER['load_pins'](PROFILE_VERSION)
     raw = file_bytes(PROVISION, 65536, public=True)
     value = json.loads(raw)
-    require(value['version'] == 1 and value['kind'] == 'storage-consumer-maintenance-runtime-provision'
+    require(type(value['version']) is int and value['version'] == PROFILE_VERSION
+        and value['kind'] == 'storage-consumer-maintenance-runtime-provision'
         and value['success'] is True and value['pins'] == pins
-        and value['pins_sha256'] == hashlib.sha256((HERE / 'storage-consumer-maintenance-pins.json').read_bytes()).hexdigest()
+        and value['pins_sha256'] == hashlib.sha256(PROVISIONER['pins_path'](PROFILE_VERSION).read_bytes()).hexdigest()
         and all(value[key] is True for key in ('guest_only', 'source_files_verified', 'runtime_files_verified',
             'shared_adapter_verified', 'original_licenses_retained'))
         and all(value[key] is False for key in ('storage_enrollment_created', 'peer_storage_proven',
@@ -186,18 +188,41 @@ LIFECYCLE = {'observed_old_owner_absent_while_foreground_active', 'observed_paus
     'confirmed_copy_retentions_advanced', 'completed_turn_observed'}
 
 
-def validate_node_report(value, phase, provision, prepared=None):
+def validate_deposit_diagnostics(value):
+    keys(value, ('version', 'failures', 'omitted_failures'))
+    require(type(value['version']) is int and value['version'] == 1
+        and type(value['omitted_failures']) is int and value['omitted_failures'] == 0
+        and type(value['failures']) is list and len(value['failures']) <= 8, 'deposit_diagnostics')
+    seen = set()
+    for failure in value['failures']:
+        keys(failure, ('fragment_index', 'copy_index', 'operation', 'stage', 'category', 'agent_code'))
+        require(count(failure['fragment_index'], 0, 3) and count(failure['copy_index'], 0, 1)
+            and failure['operation'] in ('prepare', 'reserve', 'progress', 'append', 'finalize', 'renew', 'read_range', 'delete')
+            and failure['stage'] in ('journal_open', 'authorization', 'agent_ready', 'challenge', 'signed_request',
+                'wire_receipt', 'agent_terminal', 'accounting', 'local_input', 'receipt_validation', 'journal_save', 'deadline', 'unknown')
+            and failure['category'] in ('io', 'timeout', 'protocol', 'agent_rejected', 'invalid', 'busy', 'store', 'unknown')
+            and (failure['agent_code'] in ('CONTENT_INVALID', 'CONTENT_UNAVAILABLE', 'CONTENT_BUSY', 'CONTENT_POLICY', 'unknown')
+                if failure['category'] == 'agent_rejected' else failure['agent_code'] is None), 'deposit_diagnostics')
+        identity = (failure['fragment_index'], failure['copy_index'])
+        require(identity not in seen, 'deposit_diagnostics')
+        seen.add(identity)
+
+
+def validate_node_report(value, phase, provision, prepared=None, *, profile_version=None):
     require(phase in PHASES and type(value) is dict and type(value.get('passed')) is bool, 'node_report')
     expected_version = 1
     if not value['passed']:
         fields = ('version', 'kind', 'phase', 'passed', 'provision_sha256', 'stage', 'code', 'cleanup_confirmed')
         if 'publish_observation' in value:
-            expected_version = 2
             fields += ('publish_observation',)
             observed = value['publish_observation']
+            diagnostic = type(observed) is dict and type(observed.get('version')) is int and observed['version'] == 2
+            expected_version = 3 if diagnostic else 2
+            require(profile_version is None or diagnostic == (profile_version == 2), 'publish_profile')
             keys(observed, ('version', 'app', 'operation', 'status', 'code', 'local_process_joined',
-                'core_report_present', 'core_operation_complete'))
-            require(type(observed['version']) is int and observed['version'] == 1
+                'core_report_present', 'core_operation_complete',
+                *(('deposit_diagnostics_state', 'deposit_diagnostics') if diagnostic else ())))
+            require(type(observed['version']) is int and observed['version'] == (2 if diagnostic else 1)
                 and observed['app'] in ('image', 'cloud') and observed['operation'] in ('create', 'deposit')
                 and phase == 'publish' and value['stage'] == observed['app'] + '_publish'
                 and value['code'] in ('publish_operation', 'phase_deadline'), 'publish_observation')
@@ -208,8 +233,20 @@ def validate_node_report(value, phase, provision, prepared=None):
                 and all(observed[key] is None or type(observed[key]) is bool
                     for key in ('local_process_joined', 'core_operation_complete'))
                 and (observed['core_report_present'] or observed['core_operation_complete'] is None)
-                and not (observed['status'] == 'complete' and observed['local_process_joined'] is True),
+                and (diagnostic or not (observed['status'] == 'complete' and observed['local_process_joined'] is True)),
                 'publish_observation')
+            if diagnostic:
+                state, deposit = observed['deposit_diagnostics_state'], observed['deposit_diagnostics']
+                require(state in ('observed', 'missing', 'invalid', 'not_applicable')
+                    and (state == 'not_applicable') == (observed['operation'] == 'create'), 'deposit_diagnostics')
+                if state == 'observed':
+                    validate_deposit_diagnostics(deposit)
+                    require(observed['core_report_present'] and observed['core_operation_complete'] in (True, False)
+                        and (observed['core_operation_complete'] is False or not deposit['failures']), 'deposit_diagnostics')
+                else:
+                    require(deposit is None, 'deposit_diagnostics')
+                require(not (observed['status'] == 'complete' and observed['local_process_joined'] is True)
+                    or (observed['operation'] == 'deposit' and state in ('missing', 'invalid')), 'deposit_diagnostics')
         keys(value, fields)
         require(value['stage'] in STAGES and value['code'] in FAILURE_CODES and value['cleanup_confirmed'] is False, 'failure_report')
     else:
@@ -369,12 +406,15 @@ def validate_locations(root, binary, client, providers=None):
 
 
 def node_phase(root, phase, provision, deadline):
-    status, output, _ = run_child([NODE, HERE / 'storage-consumer-maintenance.mjs', phase, root], deadline)
+    command = [NODE, HERE / 'storage-consumer-maintenance.mjs', phase, root]
+    if PROFILE_VERSION == 2:
+        command += ['--profile-version', '2']
+    status, output, _ = run_child(command, deadline)
     value = json.loads(output)
     prepared = None if phase == 'prepare' else private_json(root / 'storage-consumer-prepare.json')
     if prepared is not None:
         validate_node_report(prepared, 'prepare', provision)
-    validate_node_report(value, phase, provision, prepared)
+    validate_node_report(value, phase, provision, prepared, profile_version=PROFILE_VERSION)
     require(status == (0 if value['passed'] else 1), 'node_exit')
     retained = file_bytes(root / f'storage-consumer-{phase}.json', MAX_REPORT)
     require(json.loads(retained) == value, 'retained_node_report')
@@ -535,6 +575,11 @@ def cleanup(root):
 
 
 def main(arguments):
+    global PROFILE_VERSION
+    PROFILE_VERSION = 1
+    if len(arguments) >= 2 and arguments[-2:] == ['--profile-version', '2']:
+        PROFILE_VERSION = 2
+        arguments = arguments[:-2]
     if len(arguments) == 2 and arguments[0] == 'flow-minimum':
         require(arguments[1] in FLOW_MINIMUM, 'phase')
         print(FLOW_MINIMUM[arguments[1]])

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import test from 'node:test';
 import { boundedFile, fixtureBytes, ForegroundObservation, MAX_CIPHER, PHASES, PLAIN_BYTES,
-  consumerFailureReport, parseProcStat, replacementReady, requirePublishComplete, retainedSnapshot,
+  consumerFailureReport, depositDiagnostic, parseProcStat, replacementReady, requirePublishComplete, retainedSnapshot,
   retentionAdvanced, validateCheckpoint, validateStorage } from './storage-consumer-maintenance.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -29,13 +29,73 @@ function storage(kind = 'repaired') {
   } };
 }
 
-function publishFailure(value, app = 'cloud', operation = 'deposit', aborted = false) {
-  try { requirePublishComplete(value, app, operation); assert.fail('expected rejection'); }
+function publishFailure(value, app = 'cloud', operation = 'deposit', aborted = false, profileVersion = 1) {
+  try { requirePublishComplete(value, app, operation, profileVersion); assert.fail('expected rejection'); }
   catch (error) {
     assert.equal(error.code, 'publish_operation');
     return consumerFailureReport({ provision: 'a'.repeat(64), stage: `${app}_publish`, signal: { aborted } }, 'publish', error);
   }
 }
+
+const transferFailure = () => ({ fragment_index: 2, copy_index: 1, operation: 'reserve',
+  stage: 'agent_terminal', category: 'io', agent_code: null });
+const diagnostics = (failures = [transferFailure()]) => ({ version: 1, failures, omitted_failures: 0 });
+
+test('explicit profile 2 retains bounded actual-call transfer context without raw bridge output', () => {
+  for (const app of ['image', 'cloud']) {
+    const value = { status: 'incomplete', code: 'retained_operation_incomplete', local_process_joined: true,
+      storage: { operation_complete: false, deposit_diagnostics: diagnostics(), private_path: 'SECRET' } };
+    const result = publishFailure(value, app, 'deposit', false, 2);
+    assert.equal(result.version, 3);
+    assert.deepEqual(result.publish_observation, { version: 2, app, operation: 'deposit', status: 'incomplete',
+      code: 'retained_operation_incomplete', local_process_joined: true, core_report_present: true,
+      core_operation_complete: false, deposit_diagnostics_state: 'observed', deposit_diagnostics: diagnostics() });
+    assert.doesNotMatch(JSON.stringify(result), /SECRET|private_path/u);
+    assert.equal(publishFailure(value, app).version, 2);
+  }
+  const rejected = { ...transferFailure(), category: 'agent_rejected', agent_code: 'CONTENT_POLICY' };
+  assert.deepEqual(depositDiagnostic(diagnostics([rejected])).failures, [rejected]);
+  const all = Array.from({ length: 8 }, (_, i) => ({ ...transferFailure(), fragment_index: Math.floor(i / 2), copy_index: i % 2 }));
+  assert.equal(depositDiagnostic(diagnostics(all)).failures.length, 8);
+});
+
+test('profile 2 does not call missing malformed or contradictory diagnostic a successful deposit', () => {
+  const complete = { status: 'complete', code: 'ok', local_process_joined: true,
+    storage: { operation_complete: true, deposit_diagnostics: diagnostics([]) } };
+  assert.doesNotThrow(() => requirePublishComplete(complete, 'cloud', 'deposit', 2));
+  assert.doesNotThrow(() => requirePublishComplete({ status: 'complete', local_process_joined: true }, 'image', 'create', 2));
+  for (const [value, state] of [[{ ...complete, storage: { operation_complete: true } }, 'missing'],
+    [{ ...complete, storage: { ...complete.storage, deposit_diagnostics: diagnostics() } }, 'invalid'],
+    [{ ...complete, storage: { ...complete.storage, operation_complete: false } }, 'invalid']]) {
+    const result = publishFailure(value, 'cloud', 'deposit', false, 2);
+    assert.equal(result.publish_observation.deposit_diagnostics_state, state);
+    assert.equal(result.publish_observation.deposit_diagnostics, null);
+    assert.equal(result.passed, false);
+  }
+  const created = publishFailure({ status: 'failed', code: 'core_failed' }, 'image', 'create', false, 2);
+  assert.equal(created.publish_observation.deposit_diagnostics_state, 'not_applicable');
+  assert.equal(created.publish_observation.deposit_diagnostics, null);
+});
+
+test('deposit diagnostics reject oversized duplicate forged and private fields without echoing them', () => {
+  const mutations = [d => { d.version = true; }, d => { d.omitted_failures = 1; },
+    d => { d.failures = Array(9).fill(transferFailure()); }, d => { d.failures.push(transferFailure()); },
+    d => { d.raw = 'SECRET'; }, d => { d.failures[0].raw = 'SECRET'; },
+    d => { d.failures[0].fragment_index = 4; }, d => { d.failures[0].copy_index = 2; },
+    d => { d.failures[0].operation = '/SECRET'; }, d => { d.failures[0].stage = '/SECRET'; },
+    d => { d.failures[0].category = '/SECRET'; }, d => { d.failures[0].agent_code = 'CONTENT_POLICY'; },
+    d => { d.failures[0].category = 'agent_rejected'; },
+    d => { d.failures[0].category = 'agent_rejected'; d.failures[0].agent_code = 'SECRET'; }];
+  for (const mutate of mutations) {
+    const value = diagnostics(); mutate(value);
+    assert.throws(() => depositDiagnostic(value), /deposit_diagnostics/u);
+    const report = publishFailure({ status: 'incomplete', local_process_joined: true,
+      storage: { operation_complete: false, deposit_diagnostics: value } }, 'cloud', 'deposit', false, 2);
+    assert.equal(report.publish_observation.deposit_diagnostics_state, 'invalid');
+    assert.equal(report.publish_observation.deposit_diagnostics, null);
+    assert.doesNotMatch(JSON.stringify(report), /SECRET/u);
+  }
+});
 
 test('publish rejection identifies the exact app and operation with closed bridge observations', () => {
   for (const app of ['image', 'cloud']) for (const operation of ['create', 'deposit']) {

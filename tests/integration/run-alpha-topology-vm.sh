@@ -2059,7 +2059,7 @@ elif [ "$scenario" = image-snapshot ]; then
     sudo -n python3 -B tests/integration/image-snapshot-provision.py provision --download
 elif [ "$scenario" = private-storage-maintenance ]; then
     guest_phase storage-consumer-runtime-provision
-    sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download
+    sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download --profile-version 2
     /opt/volparossa-node/bin/node --test tests/integration/test-storage-consumer-maintenance.mjs
 elif [ "$scenario" = cloud-private-upload ]; then
     guest_phase cloud-upload-runtime-provision
