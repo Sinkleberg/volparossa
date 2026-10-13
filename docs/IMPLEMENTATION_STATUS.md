@@ -12,7 +12,7 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-13
+Last updated: 2026-10-14
 
 ## Current integration and active work
 
@@ -30,8 +30,8 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Exercise the installed Android app and verify its actual refresh and expiry behavior. | PR19 remains separate from the web proof. Trial `38467527452` on `44a48235` now passes read-only observer readiness, then fails at `initial-native-products`. It does not establish mounted-widget, refresh or expiry behavior. Component run `38467535168` passes. The next step is to identify the failed operation without weakening app acceptance or increasing its rights. iOS remains open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | PR232 candidate `a5f5abb7` passes Quality `38461709170`, including all sixteen new diagnostic regressions, and CodeQL `38461701471`. Actual profile-three trial `38466019672` is running. The earlier `599a4595` trial failed during the primary fragment upload, before consumer maintenance. Authority, deadlines, charging and acceptance criteria are unchanged. Consumer repair, restore, deletion and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
+| Native Overmorrow — `volparossa-weather` | Exercise the installed Android app and verify its actual refresh and expiry behavior. | PR19 remains separate from the web proof. Trial `38471918136` on `d4c1a30c` reaches the read-only observer and both product requests, but observes no required tables or matching metadata in sixteen collections. Component run `38471928142` passes separately. The next step is to distinguish HTTP, parsing and screen-state failures without weakening acceptance or increasing app rights. Refresh, expiry and iOS remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | PR232's actual profile-three trial `38466019672` on `a5f5abb7` passes the separate base-storage sequence, but Cloud publication fails at one TLS and four provider-lookup boundaries. That revision's Quality and CodeQL pass. Candidate `20e957b4` corrects provider-refresh scheduling; its six new regressions require hosted verification. Consumer repair, restore, deletion and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | PR238's authenticated VCEK chip and reported-TCB bindings and PR240's certificate-algorithm consistency are merged. Trial `38467309647` on `530d3c81` passes all 28 actual Rust tests and targeted Clippy; Quality `38467316376` and CodeQL `38467310454`, including its aggregate check, pass. Full appraisal, worker admission and actual protected execution remain open. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
 
 ### Storage maintenance verification
@@ -55,6 +55,32 @@ datapath proof. The latest harness also passes 172 inert checks. The combined
 live scenario remains a separate gate; component checks do not resolve a failed
 deposit or prove consumer maintenance.
 
+The [actual trial on `a5f5abb7`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38466019672)
+fails at `storage-consumer-publish`. Cloud records one `tls_handshake` failure
+during append, then four `provider_lookup` failures during reserve. All five
+are correlated `CONTENT_UNAVAILABLE` rejections. These are failure boundaries,
+not established inner causes; `deadline_scope=none` does not rule out an
+internal TLS or discovery timeout. The original 71-member artifact matches
+SHA-256 `1d2230fe6bde1048aba73f88f99e3b9889d47cacd432c8253b3085690b22c36d`.
+
+Its base-storage receipts independently pass the exact candidate's validator:
+upload, restart/resume, replacement, two byte-verified restores and deletion
+of all eleven copy records, with zero final base-provider usage. Disposable
+cleanup leaves zero owned objects and unchanged surrounding guest network
+state. Partial consumer remote deletion and zero consumer custody remain
+unproven. These results do not turn the combined trial into a success or prove
+full Image/Cloud restoration.
+
+Source review identifies a separate scheduling defect: awaiting provider
+registration inside the accept-loop branch can stall new TLS connections.
+Candidate `20e957b4` retains one cancellable refresh future while continuing
+to poll accepts and stop requests, and rechecks cancellation after waiting for
+policy state. Six new regressions cover pending registration, real TCP/TLS,
+no overlap, recovery, stop, fatal failure and expired offers. Source review
+and formatting pass; hosted compilation and execution remain required.
+This is not yet a demonstrated cause or remedy for the failed Cloud trial.
+Authority, deadlines, retries and the four-session bound are unchanged.
+
 The intervening [trial on `599a4595`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38453132258)
 passes the 29 selected Rust tests and builds the production binaries, then fails
 at `private-storage-fragments-upload`, before maintenance or either consumer.
@@ -64,8 +90,8 @@ Cleanup reports one remaining owned object, so this attempt does not prove
 complete cleanup. Its original 21-member artifact matches SHA-256
 `759ab3bc82175ece49211b37e458ed67be38c7941780d67dd08412c66ca606a8`.
 Candidate `a5f5abb7` retains only the primary upload's bounded, closed diagnostic
-projection without masking its original failure. Its actual trial is still
-required before claiming upload or maintenance success.
+projection without masking its original failure. Its later trial above reaches
+Cloud publication; the older upload failure remains evidence for its own revision.
 
 The original [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38441174652)
 retains all seven failures without omitted entries. It does not retain the agent's
@@ -81,10 +107,26 @@ these scoped successes do not change the combined trial's failure.
 
 ### Installed Android verification
 
-The latest [trial on `44a48235`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38467527452)
+The [trial on `d4c1a30c`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38471918136)
+passes acquisition and clean offline APK builds, installation and read-only
+observer readiness. It fails at `initial-native-products/products_unobserved`
+after 19,777 ms. The fixture observes one weather request and one air-quality
+request, but sixteen collections find neither required table nor matching
+metadata. Request counts alone do not prove HTTP success or successful parsing;
+the reason for the missing widgets remains unknown. Refresh and expiry are not
+reached. All recorded app, forwarding, VM, process and KVM cleanup checks pass.
+The original 46-member artifact matches SHA-256
+`aaecda268d0e3780d884354ce66c376a1c0065ff73b0d6d4f65a6db573ce1bab`.
+
+The new schema-two failure observation exports only closed stages, bounded
+counters and booleans, not raw private data. Its 47 Node and 13 preparer tests
+pass in the original hosted trial; component run `38471928142` also passes on
+an identical merge tree. These checks do not establish installed-app acceptance.
+
+The preceding [trial on `44a48235`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38467527452)
 reaches `initial-native-products` after read-only observer readiness. It then
 fails after 22,839 ms, with no completed product checks or mounted-widget proof.
-That phase currently has no detailed failure classification; it does not
+That revision has no detailed failure classification for this phase; it does not
 identify whether collection, control or an assertion failed. App, forwarding,
 VM, private emulator directories, process and KVM cleanup pass. The original
 46-member artifact matches SHA-256
