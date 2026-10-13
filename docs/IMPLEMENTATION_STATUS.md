@@ -30,10 +30,10 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38314299583` on `6fb0114c` passes isolated AVD creation and both APK builds, then stops the installed-app phase at its 3 GiB aggregate memory cap; process drain and full cleanup are not confirmed. Candidate `cdf604e` gives only that phase 4 GiB, retaining its existing resource reserves and other limits. Actual trial `38316868986` has failed; its original reports are being inspected. Separate component CI passes 305 tests. Installation, launch, refresh, expiry and iOS remain unproved. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38325586905` on `bafbd03a` passes both APK builds, then fails at the first link-metadata query with access denied, before installation; cleanup passes. Candidate `dfc477a3` adds fixed read-only guest-observer commands, strict identity checks and a separate package-UID probe without extra app privileges. All 157 inert tests pass; actual trial `38416448364` is running. App launch, refresh, expiry and iOS remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Trial `38326191629` on `1a1dbd82` proves the separate core lifecycle, control-relay replacement, two source-free restores and deletion of all eleven retained copies. It then fails during Cloud publishing, before consumer repair/read/delete. The next candidate distinguishes the failed application operation and closed core result without exporting private output. Image/Cloud pins, grants, deadlines and acceptance requirements stay unchanged; complete consumer acceptance remains open. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
+| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | PR235 is merged in main. Public verifier trial `38324431627` passes four pinned SNP chain/report fixtures, including tampered inputs. Worker admission, task-bound authorization and actual protected execution are not implemented by this probe. A separate core signature-facts/session-binding candidate still needs dependency resolution and actual Rust tests. No suitable confidential-computing server is currently available; preparation proceeds alongside Android and storage. |
 
 ### Current corrections awaiting hosted proof
 
@@ -594,6 +594,60 @@ passes; native execution is the next separate client milestone. Keep shared
 interface changes under one owner and integrate dependent consumers together. Any new VM
 trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
+
+### Protected compute verifier preparation
+
+Suitable confidential-computing hardware is not currently available. This
+blocks live protected-worker acceptance, not the Android/storage integrations
+or software preparation. A separate public-fixture CI candidate now pins
+`virtee/sev` at `a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5`, the original
+lockfile plus one explicit dependency-reference correction, and four SNP
+chain/report tests. The successful [fourth attempt](https://github.com/VOLPAROSSA/volparossa/actions/runs/38324431627)
+on exact `5c4ecba25700ef75dacbddae920c8c819a496ef4` verifies the original
+source and fixed lock correction, acquires dependencies with `--locked`, and
+compiles and executes all four named fixtures with Rust/Cargo 1.85.0 and
+`--locked --offline`. Both pipeline exits are zero; all four tests pass with
+none failed, ignored or filtered. Its 22 inert harness checks also pass.
+Original logs, the schema-two receipt and all six artifact members have been
+independently checked. The artifact matches GitHub's SHA-256
+`a50d2650078eb76c49c20bcea37bb3f72abbce3e0b484f1020742d19692edd19`;
+the original log ZIP has SHA-256
+`c8f3db5726debfe3de61ffacdabd550c3ce537eb00ec61f999fb58dd8b8e9eda`.
+This establishes only the stated public-fixture compatibility, not a trusted
+worker or private execution.
+
+The first hosted attempt
+[`38321426228`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38321426228)
+at `65decfc3` passes source/fixture verification, then stops before compilation
+because Cargo finds the parent core workspace. The second attempt
+[`38321719271`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38321719271)
+at `e547c066` fails before job creation: `runner.temp` is not supported in
+job-level `env`. No job, compiler run or artifact exists for that attempt.
+
+The third attempt
+[`38322166464`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38322166464)
+at `7bbe0950` uses the same external checkout path in the three permitted step
+contexts. All fifteen inert tests and exact source/fixture checks pass. Cargo
+1.85.0 then refuses dependency acquisition with `--locked`, reporting that the
+original upstream lockfile needs updating. No compilation or cryptographic test
+ran in that attempt. The original failure retains its unchanged source and lockfile.
+The original artifact contains only `rustc.txt` and `cargo.txt` (630-byte ZIP,
+SHA-256 `cd425ab034d7b27117f66998322850c2018f091af2bdf69361b233587eea1ba7`,
+matching the API digest); the original eleven-member log ZIP is retained with
+SHA-256 `770c4589980f587f8c0975103b8bff2fea38ebf4b05f514e04253d356091539c`.
+
+Static inspection confirms the lockfile mismatch: `num-bigint-dig 0.8.6` names
+absent `rand 0.8.5`, while the pinned commit replaces that package with `0.8.8`.
+The correction changes only this reference to the already pinned version.
+Pristine upstream, its committed original lock hash and the exact effective lock
+hash are checked separately; all other source/index/untracked changes are
+rejected. Schema-two receipts distinguish upstream from effective inputs and
+are produced only after four actual passing tests, never from preparation.
+All 22 inert tests pass locally and in the successful hosted trial above.
+Rust 1.85.0, source/fixture pins, test selection and `--locked` remain unchanged.
+No protected worker, remote private-task release or B04 completion is claimed.
+Public peer tasks and the current local private service remain unchanged.
+See [the bounded trial and missing admission checks](development/PROTECTED_COMPUTE_VERIFIER.md).
 
 ### Public Overmorrow build and joined delivery
 
