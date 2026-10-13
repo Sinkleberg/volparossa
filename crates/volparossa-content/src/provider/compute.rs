@@ -4,6 +4,7 @@
 //! The backend owns authorization, actual worker leases and cancellation. This module
 //! never opens sockets, chooses a dataset, executes code or grants tool permissions.
 
+pub mod attestation;
 pub mod dataset;
 mod protocol;
 mod transcript;

@@ -45,4 +45,5 @@ allow = [
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+# Reference signature verifier only; Cargo.toml pins the complete revision.
+allow-git = ["https://github.com/virtee/sev"]

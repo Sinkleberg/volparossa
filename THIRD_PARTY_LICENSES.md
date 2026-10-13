@@ -35,6 +35,31 @@ reproduced compiler source build. The upstream checkout and dependency sources
 retain their own notices there; neither binaries nor a vendored dependency tree
 are distributed by this change. See [trial scope and remaining requirements](docs/development/PROTECTED_COMPUTE_VERIFIER.md).
 
+The separate core [signature-facts module](crates/volparossa-content/src/provider/compute/attestation.rs)
+selects the same exact `sev` revision with default features disabled and only
+`snp,crypto_nossl`. It uses upstream Milan ARK/ASK bytes as cryptographic reference
+roots, not as independently authorized production trust. Its two unchanged
+public regression inputs are copied from `tests/certs_data/` into
+`crates/volparossa-content/tests/fixtures/snp/`: `report_milan.hex` (2,368 bytes,
+SHA-256 `3d956e9104969a038031a6b63dd6c4b60000619d37702065994f7da76f88ae7d`)
+and `vcek_milan.der` (1,360 bytes, SHA-256
+`3bbfb6ee259f75a95d13168cfdf2e034181bb93c7c016825731cbe8ea16c95e1`). They
+remain Apache-2.0 inputs under the unchanged upstream license linked above.
+`x509-cert` is constrained to 0.2.5 (Apache-2.0 OR MIT) from
+[RustCrypto formats](https://github.com/RustCrypto/formats/tree/x509-cert/v0.2.5/x509-cert)
+for certificate validity access; it is also the version in the pinned upstream
+lockfile. The workspace lockfile still needs a bounded hosted resolution and
+review. The standalone probe's corrected lockfile and passing tests are not a
+workspace dependency lock or a compile result for this new module.
+
+The module has no vendor-collateral downloader or task-release hook. Current AMD
+revocation, VCEK extension-to-chip/TCB binding and complete endorsement appraisal
+remain explicit outstanding requirements. AMD's
+[VCEK and KDS specification 57230](https://docs.amd.com/v/u/en-US/57230), revision
+1.05, identifies the product CRL endpoint and certificate extensions. Those
+vendor inputs are distinct from local authorization of roots and workload code;
+neither is supplied by a peer assertion or a successful signature check.
+
 ## CometBFT ABCI transaction adapter inputs
 
 The TEST-only transaction adapter generates its wire bindings from the official

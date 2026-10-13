@@ -30,9 +30,9 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38323147074` on `fae274e0` passes acquisition and both APK builds, then fails its first guest-network observation with an ADB permission error, before installation. Both route families remain unobserved; the failed query is not yet distinguished. Process drain, private cleanup, KVM restoration and unchanged host network namespace pass. Diagnose the fixed query without relaxing isolation; app launch, refresh, expiry and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's trial `38318750829` on `fd9130e6` fails a retained-copy fixture gate: the original eight charged copies coexist with one unattempted intent. Candidate `f7269a9b` binds that exact signed intent and its later continuity; trial `38323695908` must establish the complete transition, repair and consumer acceptance. Cloud PR234 incorporates the same correction at `32f36e2b`; its longer continuation waits for that proof. Original authority, grants and deadlines are unchanged. Reciprocal capacity remains separate outstanding work. |
-| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | Public verifier trial `38324431627` passes the four pinned SNP chain/report fixtures, including tampered inputs. Worker admission, task-bound authorization and actual protected execution are not implemented by this probe. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
+| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38416448364` on `dfc477a3` passes acquisition, both APK builds and the fixed observer's preconditions. The first link query returns, but processing fails before installation; the parser cause remains unknown. Process drain, private cleanup, KVM restoration and unchanged host network namespace pass. Closed parser diagnostics are the next correction, without relaxing isolation; app launch, refresh, expiry and iOS remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's trial `38416109564` on `f09e7718` passes the separate core repair/restart scenario, two complete hash-verified B/C restores and deletion of all eleven core copies. Consumer acceptance still fails: Cloud create succeeds, but deposit returns `retained_operation_incomplete`. Its underlying transfer cause is not retained. Quality `38417397926` passes on `7bfdae85`; that does not prove consumer repair, restore or deletion. Cloud PR234's longer continuation waits for this correction. Original authority, grants and deadlines remain unchanged. Reciprocal capacity remains separate outstanding work. |
+| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | Public verifier trial `38324431627` passes four pinned SNP chain/report fixtures. The next candidate moves strict report parsing, public signature verification and fresh owner-session binding into the core, with fourteen Rust tests awaiting hosted compilation and execution. Full appraisal, worker admission and actual protected execution remain open. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
 
 The successful hosted Drizz.li trial supersedes neither the earlier failed route
 trial nor the local build aborted for host memory pressure; both remain recorded
@@ -100,6 +100,31 @@ Rust 1.85.0, source/fixture pins, test selection and `--locked` remain unchanged
 No protected worker, remote private-task release or B04 completion is claimed.
 Public peer tasks and the current local private service remain unchanged.
 See [the bounded trial and missing admission checks](development/PROTECTED_COMPUTE_VERIFIER.md).
+
+### Core attestation and owner session candidate
+
+The separate `feature/protected-compute-admission` candidate brings the pinned
+SNP verifier into `volparossa-content`. It validates exact report framing and
+reserved fields before checking the public certificate chain and report signature.
+A fresh, bounded owner challenge binds the proposed session key, measurement,
+minimum SVN, policy identifier and expiry. Cancellation, elapsed time and a
+non-refundable attempt budget constrain reuse. Successful binding produces
+evidence, **not permission to release a private task**.
+
+Production trust-root authorization, certificate chip/TCB extensions, current
+revocation information, vendor TCB policy and approved workload/key provenance
+remain explicit missing appraisal steps. The candidate neither admits workers
+nor provides a protected model-execution channel. Its public fixture tests and
+explicitly synthetic binding tests cannot establish those capabilities.
+
+Twenty-seven inert orchestration tests pass. The fourteen Rust tests and targeted
+Clippy check still require a real hosted run. That workflow starts from the
+unchanged workspace lockfile, retains Cargo's actual resolution and accepts only
+the new verifier dependencies and specifically documented feature edges. Existing
+package versions, checksums and all other dependency edges must remain unchanged.
+After resolution, compilation and tests use `--locked --offline`; this is not an
+OS network sandbox or confidential-computing environment. No Rust build or
+hardware trial has run on the development host.
 
 ### Public Overmorrow build and joined delivery
 
