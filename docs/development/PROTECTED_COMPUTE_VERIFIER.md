@@ -172,6 +172,59 @@ datapaths.
 No dependencies, features, lockfile, appraisal obligations or execution
 permissions change. This is not complete certificate-path validation.
 
+## Supplied certificate path and revocation candidate
+
+The next candidate makes the supplied Milan ARK revocation list a mandatory
+input to `PendingSession::verify_and_bind`. It checks the fixed legacy
+ARK–ASK–VCEK path: issuer names, CA constraints, signing usage, supported
+extensions, key identifiers and certificate validity. It is a closed Milan
+profile, not a general-purpose X.509 validator.
+
+The pinned ASK's signed KeyUsage bytes are `03020104`: certificate signing
+with an extra zero named bit. Re-encoding the decoded flags produces
+`03020204`, so byte equality after re-encoding would reject this vendor
+certificate. The closed legacy profile requires the original ASK bytes (and
+ARK `03020106`) plus their exact decoded rights. It does not admit arbitrary
+padding, additional rights or normalized replacement certificates. Other
+extensions retain canonical decoding; actual chain signatures remain required.
+
+The bounded, canonical DER revocation list must have a valid ARK signature and
+cover the path's ASK. Unsupported scope, delta lists, malformed entries,
+revocation and invalid time windows reject the attempt. Its actual
+PSS/SHA-384 signature is checked with the already pinned `rsa =0.9.10`, now
+also a direct dependency; no package version changes. The public-key-only
+advisory guard covers this second verification path.
+
+Session binding rechecks time and cancellation after cryptographic work. The
+result expires at the earliest challenge deadline, certificate expiry or CRL
+`nextUpdate`; supplying collateral never renews an owner's authority. A bound
+result still leaves four explicit obligations: authorized production roots,
+individual VCEK status and collateral freshness, vendor TCB/local policy, and
+authorized workload/key origin. A valid ASK-scope list is not proof that a VCEK
+is unrevoked or that no newer vendor information exists.
+
+The public AMD CRL fixture's real signature verifies independently with
+OpenSSL. Twelve new Rust tests cover that signature, tampering, path and scope
+rejection, revocation entries and finite session binding. Synthetic negative
+certificates and session facts do not authenticate a worker. Schema-five
+receipts require all forty named tests, unchanged committed dependencies and
+targeted Clippy; historical schemas one through four remain replayable.
+The 58 inert receipt/harness checks and eleven RSA-scope checks pass locally.
+The [first hosted trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38480770163)
+on `1fd84495` compiles but fails seven of forty tests at `Endorsement`; 33 pass,
+none are ignored, and Clippy is not reached. Its original 13-member artifact
+has SHA-256 `323c16d00c1d09197e32d8b813bc23de2963ca9892768de5b64b6dce57ad55e6`.
+Source inspection and the pinned DER encoder identify the ASK KeyUsage
+re-encoding mismatch above. The correction adds an explicit positive pinned
+path before synthetic mutations, a normalization regression and rejection of
+other encodings, rights and CA roles. The same forty actual tests and targeted
+Clippy must pass on the corrected candidate; this failed run remains failed.
+
+See [the collateral provenance](../../THIRD_PARTY_LICENSES.md#supplied-milan-revocation-list)
+for the fixture's exact digest, issuer and validity window. This change adds no
+collateral downloader, protected worker, admission permit or private-input
+release. The hardware trial below remains required.
+
 ## What is still needed before private tasks can run remotely
 
 Certificate and report signatures are necessary but insufficient. A complete

@@ -1,10 +1,10 @@
 name: Protected compute core evidence
-run-name: Core public signature certificate profile endorsement consistency and fresh session binding only
+run-name: Core public Milan path vendor CRL and fresh session binding only
 
 on:
   workflow_dispatch:
   push:
-    branches: [feature/protected-compute-admission, feature/protected-compute-endorsement, feature/protected-compute-cert-profile]
+    branches: [feature/protected-compute-admission, feature/protected-compute-endorsement, feature/protected-compute-cert-profile, feature/protected-compute-collateral]
     paths:
       - .github/workflows/protected-compute-admission.yml
       - Cargo.toml
@@ -31,7 +31,7 @@ defaults:
 
 jobs:
   public-core-tests:
-    if: github.ref == 'refs/heads/feature/protected-compute-admission' || github.ref == 'refs/heads/feature/protected-compute-endorsement' || github.ref == 'refs/heads/feature/protected-compute-cert-profile'
+    if: github.ref == 'refs/heads/feature/protected-compute-admission' || github.ref == 'refs/heads/feature/protected-compute-endorsement' || github.ref == 'refs/heads/feature/protected-compute-cert-profile' || github.ref == 'refs/heads/feature/protected-compute-collateral'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -58,7 +58,7 @@ jobs:
         run: python3 -B tests/integration/protected-compute-admission.py fetch
       - name: Validate actual offline resolved verifier features
         run: python3 -B tests/integration/protected-compute-admission.py metadata
-      - name: Execute exactly twenty-eight core evidence tests offline
+      - name: Execute exactly forty core evidence tests offline
         run: python3 -B tests/integration/protected-compute-admission.py test
       - name: Check targeted core module and test compilation with Clippy
         run: python3 -B tests/integration/protected-compute-admission.py clippy

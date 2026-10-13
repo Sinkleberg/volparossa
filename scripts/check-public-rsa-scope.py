@@ -3,8 +3,9 @@
 """Fail-closed tripwire for one reviewed public-verification-only advisory scope.
 
 RUSTSEC-2023-0071 is NOT patched. The pinned SEV cert_nossl verifier uses
-RsaPublicKey -> PSS/SHA-384 VerifyingKey -> verify_digest -> rsa_encrypt(e, n),
-never RSA private-key operations. Changes require renewed source review, not a
+RsaPublicKey -> PSS/SHA-384 VerifyingKey -> verify_digest -> rsa_encrypt(e, n).
+The exact hashed collateral module uses that same public-only path for ARK CRLs;
+neither path performs RSA private-key operations. Changes require source review, not a
 broader exception. This is a source/graph guard, not a general Rust call analyzer.
 """
 import copy
@@ -24,10 +25,13 @@ REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 RSA_CHECKSUM = "b8573f03f5883dcaebdfcf4725caa1ecb9c15b2ef50c43a07b816e06799bb12d"
 SNP = Path("crates/volparossa-content/src/provider/compute/attestation/snp.rs")
 SNP_CHECKSUM = "f28d155494fea478f77d524b700d111bf64d3d268d07f4bd49b8be5b0f33f90e"
+COLLATERAL = SNP.with_name("collateral.rs")
+COLLATERAL_CHECKSUM = "c718d3fb5f1d58795ede17ad3e7e34871d3cb95331e39994e1744fc924b78b24"
 CONTENT = Path("crates/volparossa-content/Cargo.toml")
 MARKER = "  # Root-only public RSA exception: scripts/check-public-rsa-scope.py must pass."
 SEV_MANIFEST = dict(version="=8.0.0", git=GIT, rev=REVISION, **{"default-features": False},
     features=["snp", "crypto_nossl"])
+RSA_MANIFEST = dict(version="=0.9.10", **{"default-features": False}, features=["std"])
 CRYPTO = {"p384": "0.13.1", "rsa": "0.9.10", "sha2": "0.10.9", "x509-cert": "0.2.5"}
 
 
@@ -48,12 +52,13 @@ def one(packages, name):
 
 def verify_repository(root):
     require(hashlib.sha256((root / SNP).read_bytes()).hexdigest() == SNP_CHECKSUM)
+    require(hashlib.sha256((root / COLLATERAL).read_bytes()).hexdigest() == COLLATERAL_CHECKSUM)
     # This sole existing fixture import is test-only, not another production user.
     parent = root / SNP.parent.with_suffix(".rs")
     require(re.search(r"#\[cfg\(test\)\]\s*mod tests;", parent.read_text()) is not None)
     fixture = SNP.parent / "tests.rs"
     for path in (root / "crates").rglob("*.rs"):
-        if path.relative_to(root) not in (SNP, fixture):
+        if path.relative_to(root) not in (SNP, COLLATERAL, fixture):
             require(re.search(r"\b(?:sev|rsa)\b", path.read_text()) is None)
 
     def dependencies(value, location):
@@ -71,15 +76,17 @@ def verify_repository(root):
     for manifest in manifests:
         observed.extend((manifest.relative_to(root).as_posix(), loc, declaration)
             for loc, declaration in dependencies(read_toml(manifest), ()))
-    require(observed == [("Cargo.toml", ("workspace", "dependencies", "sev"), SEV_MANIFEST),
+    require(observed == [("Cargo.toml", ("workspace", "dependencies", "rsa"), RSA_MANIFEST),
+        ("Cargo.toml", ("workspace", "dependencies", "sev"), SEV_MANIFEST),
+        (CONTENT.as_posix(), ("dependencies", "rsa"), {"workspace": True}),
         (CONTENT.as_posix(), ("dependencies", "sev"), {"workspace": True})])
     lock = read_toml(root / "Cargo.lock")["package"]
     rsa, sev = one(lock, "rsa"), one(lock, "sev")
     require((rsa["version"], rsa["source"], rsa["checksum"]) == ("0.9.10", REGISTRY, RSA_CHECKSUM))
     require((sev["version"], sev["source"]) == ("8.0.0", SOURCE))
-    for child, parent_name in (("rsa", "sev"), ("sev", "volparossa-content")):
+    for child, parent_names in (("rsa", ["sev", "volparossa-content"]), ("sev", ["volparossa-content"])):
         parents = [p["name"] for p in lock if any(d.split()[0] == child for d in p.get("dependencies", []))]
-        require(parents == [parent_name])
+        require(parents == parent_names)
     require(not any(p["name"] in ("rsa", "sev") for p in read_toml(root / "fuzz/Cargo.lock")["package"]))
 
 
@@ -111,10 +118,11 @@ def verify_metadata(root, metadata, fuzz):
         require(package["name"] == name and package["version"] == version and package["source"] == REGISTRY
             and dep["dep_kinds"] == [dict(kind=None, target=None)] and dep["pkg"] in nodes
             and any(p["name"] == name and p["version"] == version and p.get("source") == REGISTRY for p in lock))
-    for child, parent in ((rsa, sev), (sev, content)):
+    for child, parents in ((rsa, [sev, content]), (sev, [content])):
         incoming = [(n["id"], d) for n in nodes.values() for d in n["deps"] if d["pkg"] == child["id"]]
-        require(incoming == [(parent["id"], dict(name=child["name"], pkg=child["id"],
-            dep_kinds=[dict(kind=None, target=None)]))])
+        require(sorted(incoming, key=lambda value: value[0]) == sorted(
+            [(parent["id"], dict(name=child["name"], pkg=child["id"],
+                dep_kinds=[dict(kind=None, target=None)])) for parent in parents], key=lambda value: value[0]))
         require(child["id"] in nodes)
 
 

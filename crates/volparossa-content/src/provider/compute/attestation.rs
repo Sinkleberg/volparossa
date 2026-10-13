@@ -13,8 +13,10 @@
 //! that the key was generated or retained inside a particular guest program.
 //! Never use a private prompt/code/content hash as the public policy identifier.
 //!
-//! A later release layer must first appraise authenticated vendor collateral and
-//! independently authorized roots/workload code, then establish possession of a
+//! Session binding includes the fixed legacy Milan path and a supplied, signed,
+//! time-valid ARK CRL covering the ASK, not general VCEK revocation or proof of
+//! latest collateral. A later release layer must still appraise independently
+//! authorized roots, current vendor/TCB policy and workload code, then establish possession of a
 //! guest-generated key in that measured code. Exact task acceptance (fresh task
 //! ID, input, permissions, limits and expiry) belongs **inside** that encrypted
 //! session, with an authenticated accept response before execution. This module
@@ -25,11 +27,14 @@
 //! fallback. The public upstream report is useful for signature regression tests
 //! but cannot satisfy a new random session challenge.
 
+mod cert_path;
 mod cert_profile;
+mod collateral;
 mod endorsement;
 mod session;
 mod snp;
 
+pub use collateral::VendorCrlFacts;
 pub use session::{
     BoundSessionEvidence, PendingSession, SessionLimits, SessionOwner, session_report_data,
 };
@@ -39,6 +44,8 @@ pub use snp::verify_milan_v2_signature_facts;
 pub const REPORT_BYTES: usize = 1184;
 /// Maximum DER certificate size accepted before any ASN.1 or signature work.
 pub const MAX_VCEK_BYTES: usize = 8192;
+/// Maximum supplied complete ARK CRL DER size before parsing or signature work.
+pub const MAX_CRL_BYTES: usize = 64 * 1024;
 
 /// Closed errors: never contain peer certificate bytes, chip IDs or report data.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -55,6 +62,9 @@ pub enum EvidenceError {
     /// A reference certificate is not valid at the owner's current time.
     #[error("attestation certificate validity failed")]
     CertificateTime,
+    /// CRL scope, validity or an applicable revoked-certificate entry failed.
+    #[error("attestation revocation appraisal failed")]
+    Revocation,
     /// The caller supplied invalid finite owner limits or public expectations.
     #[error("invalid attestation session configuration")]
     Configuration,
@@ -75,7 +85,7 @@ pub enum EvidenceError {
     Unavailable,
 }
 
-/// Obligations not discharged by either signature facts or fresh binding.
+/// Remaining obligations are explicit for each level of authenticated evidence.
 /// No caller-supplied boolean or replacement root can clear these obligations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutstandingAppraisal {
@@ -87,6 +97,8 @@ pub enum OutstandingAppraisal {
     EndorsementProfileAndChipBinding,
     /// Current authenticated AMD CRL and its scope/time/issuer are not checked.
     CurrentVendorRevocation,
+    /// ASK-scope ARK CRL does not prove VCEK status or that collateral is newest.
+    VcekRevocationAndCollateralFreshness,
     /// Reported TCB versus current vendor advisories and owner minima is unchecked.
     VendorTcbAndLocalPolicy,
     /// Measurement/key bytes do not prove the approved workload's key provenance.
@@ -97,6 +109,13 @@ const OUTSTANDING: [OutstandingAppraisal; 5] = [
     OutstandingAppraisal::ProductionRootAuthorization,
     OutstandingAppraisal::EndorsementProfileAndChipBinding,
     OutstandingAppraisal::CurrentVendorRevocation,
+    OutstandingAppraisal::VendorTcbAndLocalPolicy,
+    OutstandingAppraisal::AuthorizedWorkloadAndKeyOrigin,
+];
+
+const BOUND_OUTSTANDING: [OutstandingAppraisal; 4] = [
+    OutstandingAppraisal::ProductionRootAuthorization,
+    OutstandingAppraisal::VcekRevocationAndCollateralFreshness,
     OutstandingAppraisal::VendorTcbAndLocalPolicy,
     OutstandingAppraisal::AuthorizedWorkloadAndKeyOrigin,
 ];

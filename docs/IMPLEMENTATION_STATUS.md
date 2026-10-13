@@ -30,9 +30,9 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Exercise the installed Android app and verify its actual refresh and expiry behavior. | PR19 remains separate from the web proof. Trial `38471918136` on `d4c1a30c` reaches the read-only observer and both product requests, but observes no required tables or matching metadata in sixteen collections. Component run `38471928142` passes separately. The next step is to distinguish HTTP, parsing and screen-state failures without weakening acceptance or increasing app rights. Refresh, expiry and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | PR232's actual profile-three trial `38466019672` on `a5f5abb7` passes the separate base-storage sequence, but Cloud publication fails at one TLS and four provider-lookup boundaries. That revision's Quality and CodeQL pass. Candidate `20e957b4` corrects provider-refresh scheduling; its six new regressions require hosted verification. Consumer repair, restore, deletion and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
-| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | PR238's authenticated VCEK chip and reported-TCB bindings and PR240's certificate-algorithm consistency are merged. Trial `38467309647` on `530d3c81` passes all 28 actual Rust tests and targeted Clippy; Quality `38467316376` and CodeQL `38467310454`, including its aggregate check, pass. Full appraisal, worker admission and actual protected execution remain open. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
+| Native Overmorrow — `volparossa-weather` | Exercise the installed Android app and verify its actual refresh and expiry behavior. | PR19's trial `38477028643` rejects both acquisition times as future. Candidate `471d24f` prepares immutable products once per phase and checks both clocks and actual background entry within their original validity windows. Its 65 Node and 15 Python checks pass; Android trial `38482209254` is running. Flutter/web `38477819758` passes separately. Native refresh, background expiry and iOS remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | PR232's prior actual trial `38466019672` passes base storage but fails Cloud publication. Candidate `20e957b4` passes all eight refresh regressions, strict workspace Clippy and CodeQL. Original actual trial `38477713017` is running; consumer repair, restore, deletion and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
+| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | PR238 and PR240 are merged. PR242 adds the fixed Milan path and authenticated ASK-scope revocation collateral. First actual trial `38480770163` compiles but passes only 33/40 tests: a pinned ASK KeyUsage encoding mismatch is being corrected without broadening certificate rights. Full appraisal, admission and protected execution remain open. No suitable confidential-computing server is available; software preparation continues alongside Android and storage. Local service and public peer tasks are not substitutes. |
 
 ### Storage maintenance verification
 
@@ -77,7 +77,13 @@ Candidate `20e957b4` retains one cancellable refresh future while continuing
 to poll accepts and stop requests, and rechecks cancellation after waiting for
 policy state. Six new regressions cover pending registration, real TCP/TLS,
 no overlap, recovery, stop, fatal failure and expired offers. Source review
-and formatting pass; hosted compilation and execution remain required.
+and formatting pass. Hosted Quality `38474639369` also passes strict workspace
+Clippy and all eight named refresh regressions, including these six additions.
+Its 101 test summaries contain 3,650 passing invocations, including existing
+child invocations, zero failures and seven ignores; this is not a count of
+unique tests. CodeQL `38474633922` passes all four analyses and its separate
+aggregate check. Internally skipped namespace probes are not datapath proof.
+The original actual trial `38477713017` on the same candidate is running.
 This is not yet a demonstrated cause or remedy for the failed Cloud trial.
 Authority, deadlines, retries and the four-session bound are unchanged.
 
@@ -106,6 +112,35 @@ unchanged. The original 71-member artifact matches API SHA-256
 these scoped successes do not change the combined trial's failure.
 
 ### Installed Android verification
+
+The [trial on `84d06151`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38477028643)
+receives successful HTTP responses, completes both bodies and decodes both JSON
+products. Each fails the strict validator as `futureAcquired`, with the app's
+clock before the product's acquisition time. Sixteen collections find no product
+tables; refresh and expiry are not reached. The observed comparison does not
+establish the clock offset or its cause. All recorded driver, emulator, process,
+network-namespace and KVM cleanup checks pass. The original 46-member artifact
+matches SHA-256
+`de9606bfcbfbadb7f0711c92fcf0b36bfd5756df7015fa197a32a1dded3b48e7`.
+
+The fixture currently regenerates acquisition times on the host for each GET,
+while the app validates them against the guest clock. The next native-only
+correction prepares one immutable pair per phase and checks both clocks against
+the original validity window before existing app actions. No clock writes,
+backdating, extra fetches, longer lifetimes or relaxed production validation are
+planned. Before backgrounding, both short-lived products must still be valid;
+preparation and readiness consume their original 4,500 ms lifetime.
+
+The separate [Flutter/web trial on `331b65cd`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38477819758)
+passes all 23 Dart tests, the offline web build, the ordinary Firefox trial and
+the separate exact initial/refresh table trial. Cleanup passes. Its original
+34-member artifact matches SHA-256
+`b6989ffc1b1435ea2af9416b1d9fa28c69f884438de8d802b4e8b574cc321f6f`.
+Component run `38477723942` also passes on the identical candidate tree.
+This is synthetic browser evidence, not native acceptance, live core delivery
+or origin acquisition. `331b65cd` changes only a missing `await` in a test;
+the original web trial `38477128867` on `84d06151` remains a compile failure.
+That test-only correction does not relabel Android's original failure as a pass.
 
 The [trial on `d4c1a30c`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38471918136)
 passes acquisition and clean offline APK builds, installation and read-only
@@ -194,6 +229,36 @@ trial still requires the unchanged 4 GiB guest plus 2 GiB host-memory reserve;
 do not run competing heavy builds or lower that reserve.
 
 ### Protected compute verifier preparation
+
+The next candidate checks the supported legacy Milan certificate path and a
+supplied, ARK-signed complete revocation list for its ASK. The owner session API
+requires those bytes and rechecks their validity after cryptographic work;
+collateral can shorten but never extend the original session deadline.
+Individual VCEK status, newest collateral, production trust and authorized
+workloads remain explicit obligations. There is still no worker admission or
+private-input release.
+
+The authentic public CRL signature verifies independently with OpenSSL. The
+candidate adds twelve Rust cases, for forty required by schema-five receipts;
+58 inert harness checks and eleven public-RSA scope checks pass. First hosted
+trial `38480770163` on `1fd84495` compiles, then reports 33 passes and seven
+`Endorsement` failures; Clippy is not reached. The original artifact is retained
+as `323c16d00c1d09197e32d8b813bc23de2963ca9892768de5b64b6dce57ad55e6`.
+The pinned ASK's KeyUsage includes a zero named bit that the library omits when
+re-encoding. The correction requires its exact signed legacy bytes and exact
+rights, leaving generic extension decoding and signature checks unchanged.
+Positive-path and encoding regressions must pass with all forty actual tests
+on the corrected candidate. The only lockfile change adds a direct
+edge to the existing `rsa =0.9.10` package for public signature verification;
+the reviewed advisory restriction is unchanged. See the
+[candidate scope](development/PROTECTED_COMPUTE_VERIFIER.md#supplied-certificate-path-and-revocation-candidate)
+and [third-party provenance](../THIRD_PARTY_LICENSES.md#supplied-milan-revocation-list).
+
+The first candidate's separate Quality run `38480852150` passes formatting,
+dependency and license checks but stops at three missing test-statement
+semicolons under strict Clippy; workspace tests are not reached. Those three
+statements are corrected without disabling the lint. Repository gates and the
+targeted verifier trial must both pass on the final source.
 
 The integrated verifier binds VCEK product, chip-ID and reported firmware to
 the exact signed report. It also checks certificate-algorithm
