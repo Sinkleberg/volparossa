@@ -30,12 +30,35 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Exercise the installed Android app and verify its actual refresh and expiry behavior. | PR19 remains separate from the web proof. Trial `38458960244` on `e3350e96` passes both APK builds, isolation and installation, then records `app_start / adb_signal / SIGKILL`. The diagnostic identifies the failed command, not the cause of the signal. All 38 lightweight checks pass; widget behavior, refresh, expiry and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume authorized maintenance and restore through a consumer after provider replacement. | PR232's trial `38453132258` on `599a4595` fails in the initial base upload, before the consumer sequence. The original report does not retain the failed CLI suboperation; one cleanup object also remains unidentified. `9faf9c6b` retains the closed primary upload observation. `d1efc64e` addresses separate Clippy failures without changing authority or deadlines. New hosted Clippy, the sixteen Rust regressions and combined consumer acceptance remain required. |
+| Native Overmorrow — `volparossa-weather` | Exercise the installed Android app and verify its actual refresh and expiry behavior. | PR19 remains separate from the web proof. Trial `38471918136` on `d4c1a30c` reaches the read-only observer and both product requests, but observes no required tables or matching metadata in sixteen collections. Component run `38471928142` passes separately. Widget behavior, refresh, expiry and iOS remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume authorized maintenance and restore through a consumer after provider replacement. | PR232's trial `38466019672` on `a5f5abb7` passes the separate base-storage sequence, but Cloud publication fails at one TLS and four provider-lookup boundaries. Quality `38461709170` passes all sixteen diagnostic regressions; CodeQL also passes. The new refresh-scheduling correction and six regressions require hosted verification. Consumer repair, restore, deletion and reciprocal capacity remain unproven. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | PR236 and PR238 are integrated in main. Candidate `2ebf27af` passes 22 actual signature/session/endorsement tests, targeted Clippy, workspace Quality and the separate CodeQL aggregate. Full certificate and revocation appraisal, authorized worker admission and actual protected execution remain open. No suitable confidential-computing server is available; public fixtures and ordinary cloud runners do not prove confidential hardware. |
 
-### Latest results and pending checks
+### Current provider refresh correction
+
+The original [trial on `a5f5abb7`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38466019672)
+fails during Cloud publication after one `tls_handshake` and four
+`provider_lookup` failures. These closed observations do not establish their
+inner causes. Its separately validated base-storage receipts pass upload,
+restart/resume, replacement, two byte-verified restores and deletion of all
+eleven copy records with zero final base-provider usage. Disposable cleanup
+leaves zero owned objects and unchanged surrounding guest network state;
+partial consumer remote deletion remains unproven. The original 71-member
+artifact matches SHA-256
+`1d2230fe6bde1048aba73f88f99e3b9889d47cacd432c8253b3085690b22c36d`.
+
+Source review identifies a separate scheduling defect: awaiting provider
+registration inside the accept-loop branch can stall new TLS connections.
+The correction retains one cancellable refresh future while continuing to
+poll accepts and stop requests. Cancellation is rechecked after waiting for
+policy state. Six new regressions cover pending registration, real TCP/TLS,
+no overlap, recovery, stop, fatal failure and expired offers. Source review
+and formatting pass; hosted compilation and execution remain required.
+This is not yet a demonstrated cause or remedy for the failed Cloud trial.
+Authority, deadlines, retries and the four-session bound are unchanged.
+
+### Earlier results and checks
 
 The latest [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38453132258)
 fails during the initial opaque-file upload, before owner maintenance or Image/Cloud
@@ -770,8 +793,13 @@ as a logging sink; the reported trace does not identify certificate formatting
 or actual log output. The test-only replacement constructs the same ten
 remaining claims explicitly and checks their count. It changes neither the
 production verifier nor the 44 mutation cases. No alert suppression or check
-bypass is used. The replacement subsequently passes all four analyses and the
-separate aggregate on `2ebf27af`, as recorded in the latest results above.
+bypass is used. The replacement's CodeQL run `38455982386` and aggregate check
+`115499039213` now pass with zero reported findings. Trial `38455979301` repeats
+all 22 actual core tests and targeted Clippy; its original artifact matches
+SHA-256 `45f9d08431c11a6c3db5dd10656dbeff9dc18bf5245a0444c6b0e3fc7bd2c2e2`.
+Quality `38455986117` passes 3,589 tests with seven ignored, including all 22
+named compute tests. Namespace-backed internal skips are not live datapath
+proof. PR238 is merged; the prior failed trace remains historical evidence.
 
 The successful hosted Drizz.li trial supersedes neither the earlier failed route
 trial nor the local build aborted for host memory pressure; both remain recorded
@@ -788,15 +816,22 @@ do not run competing heavy builds or lower that reserve.
 
 ### Protected compute verifier preparation
 
-PR238 extends the integrated verifier with VCEK product, chip-ID and
-reported-firmware binding. Its eight new consistency and signature-boundary
-tests join the original fourteen; all 22 pass in the explicitly versioned hosted
-trial on `2ebf27af`. Actual Rust compilation, targeted Clippy, workspace Quality
-and CodeQL pass. The endorsement change preserves the pinned dependencies and
-lockfile. The [endorsement scope](development/PROTECTED_COMPUTE_VERIFIER.md#binding-endorsement-claims-to-the-report)
-keeps certificate-path appraisal, current revocation, authorized roots/workloads
-and protected execution outstanding. This is integrated verifier software, not
-evidence of a confidential worker executing a private task.
+The integrated verifier binds VCEK product, chip-ID and reported firmware to
+the exact signed report. The next candidate checks certificate-algorithm
+consistency: PSS/SHA-384, MGF1/SHA-384, salt 48, trailer 1, matching signature
+identifiers and the VCEK's declared P-384 key. Six additional tests join the
+existing 22 in an explicitly versioned schema-four hosted trial. The 51 inert
+harness checks and ten public-RSA scope checks pass. Original trial `38466325432`
+on `bb8d49c0` compiles and passes all 28 actual Rust tests, but targeted Clippy
+fails on three similar-name warnings and two statement-style warnings. Its
+15-file artifact has SHA-256
+`4a8d1b218b1a2dc0fdd5b04d4c138d40a40994b155a3cf0c473fb0aa15b8c350`;
+the schema-four result remains failed. The behavior-preserving name/style
+correction needs its own hosted verification. Dependencies, features and the
+lockfile are unchanged. The [certificate-profile scope](development/PROTECTED_COMPUTE_VERIFIER.md#checking-certificate-algorithm-declarations)
+keeps all five appraisal obligations, current revocation, authorized roots and
+workloads, and protected execution outstanding. This software work proceeds
+alongside the existing Android and storage integration trials.
 
 Suitable confidential-computing hardware is not currently available. This
 blocks live protected-worker acceptance, not the Android/storage integrations

@@ -3,8 +3,9 @@
 """Disposable hosted verification of the committed lock and public core tests.
 
 No hardware access, worker admission, private task release or local Cargo entrypoint.
-Schemas 1/2 retain fourteen-test historical replay; hosted schema 3 additionally
-checks endorsement consistency. None of these profiles supplies worker admission.
+Schemas 1/2 retain fourteen-test replay and schema 3 its twenty-two-test endorsement
+profile. Hosted schema 4 additionally checks certificate algorithms in twenty-eight
+tests. None of these profiles supplies worker admission.
 """
 import difflib
 import hashlib
@@ -90,6 +91,14 @@ ENDORSEMENT_TESTS = TESTS + tuple(PREFIX + name for name in (
     'endorsement_mutation_cannot_bypass_signature_verification',
     'endorsement_consistency_never_clears_remaining_appraisal',
 ))
+CERTIFICATE_PROFILE_TESTS = ENDORSEMENT_TESTS + tuple(PREFIX + name for name in (
+    'certificate_profile_public_chain_and_report_keep_incomplete_facts',
+    'certificate_profile_outer_algorithm_mutations_are_rejected_with_signed_bytes_unchanged',
+    'certificate_profile_synthetic_pss_parameters_are_closed',
+    'certificate_profile_synthetic_inner_outer_mismatch_is_rejected',
+    'certificate_profile_synthetic_spki_requires_p384_byte_aligned_point',
+    'certificate_profile_preserves_signature_and_session_gates',
+))
 MAX_LOCK = 1024 * 1024
 MAX_LOG = 2 * 1024 * 1024
 MAX_METADATA = 16 * 1024 * 1024
@@ -99,26 +108,27 @@ SCOPE = dict(public_inputs_only=True, hardware_attestation=False, full_appraisal
 EXPORTS = ('source.json', 'original-Cargo.lock', 'effective-Cargo.lock', 'Cargo.lock.diff',
     'resolution.json', 'resolved-metadata.json', 'tests.json', 'clippy.json', 'report.json',
     'rustc.txt', 'cargo.txt', 'resolve.log', 'metadata.log', 'tests.log', 'clippy.log')
-# Retain the established export names. In schemas 2/3 both lock snapshots are the
+# Retain the established export names. In schemas 2/3/4 both lock snapshots are the
 # committed bytes, the diff is empty, and resolution.json records a locked fetch.
 LOCK_POLICY = 'committed-lock-unchanged'
 
 
-def evidence_schema(*, historical=False, endorsement=False):
+def evidence_schema(*, historical=False, endorsement=False, certificate_profile=False):
     require(type(historical) is bool and type(endorsement) is bool
-        and not (historical and endorsement), 'evidence_profile')
-    return 3 if endorsement else 1 if historical else 2
+        and type(certificate_profile) is bool
+        and sum((historical, endorsement, certificate_profile)) <= 1, 'evidence_profile')
+    return 4 if certificate_profile else 3 if endorsement else 1 if historical else 2
 
 
-def envelope(kind, *, historical=False, endorsement=False, **fields):
-    value = dict(schema_version=evidence_schema(historical=historical, endorsement=endorsement), kind=kind, **fields)
+def envelope(kind, *, historical=False, endorsement=False, certificate_profile=False, **fields):
+    value = dict(schema_version=evidence_schema(historical=historical, endorsement=endorsement, certificate_profile=certificate_profile), kind=kind, **fields)
     if not historical:
         value['lock_policy'] = LOCK_POLICY
     return value
 
 
-def source_receipt(selected, *, historical=False, endorsement=False):
-    return envelope('core-attestation-source', historical=historical, endorsement=endorsement,
+def source_receipt(selected, *, historical=False, endorsement=False, certificate_profile=False):
+    return envelope('core-attestation-source', historical=historical, endorsement=endorsement, certificate_profile=certificate_profile,
         source=selected, scope=SCOPE, tests_executed=False)
 
 
@@ -369,9 +379,9 @@ def metadata_projection(raw, effective):
     return projection
 
 
-def verify_tests(raw, *, endorsement=False):
-    evidence_schema(endorsement=endorsement)
-    names = ENDORSEMENT_TESTS if endorsement else TESTS
+def verify_tests(raw, *, endorsement=False, certificate_profile=False):
+    evidence_schema(endorsement=endorsement, certificate_profile=certificate_profile)
+    names = CERTIFICATE_PROFILE_TESTS if certificate_profile else ENDORSEMENT_TESTS if endorsement else TESTS
     count = len(names)
     text = raw.decode('utf-8')
     observed = re.findall(r'^test (\S+) \.\.\. (\S+)[ \t]*$', text, re.M)
@@ -381,7 +391,8 @@ def verify_tests(raw, *, endorsement=False):
     require(len(results) == 1 and re.fullmatch(r'ok\. ' + str(count)
         + r' passed; 0 failed; 0 ignored; 0 measured; [0-9]+ filtered out; finished in [0-9.]+s\s*', results[0]), 'test_summary')
     return dict(names=list(names), passed=count, failed=0, ignored=0,
-        scope='public crypto and endorsement consistency fixtures and explicitly synthetic binding-state unit tests'
+        scope='public crypto, certificate algorithm profile and endorsement consistency fixtures and explicitly synthetic structure and binding-state unit tests'
+            if certificate_profile else 'public crypto and endorsement consistency fixtures and explicitly synthetic binding-state unit tests'
             if endorsement else 'public crypto fixtures and explicitly synthetic binding-state unit tests')
 
 
@@ -391,7 +402,8 @@ def hosted():
         and os.environ.get('GITHUB_REPOSITORY') == 'VOLPAROSSA/volparossa'
         and os.environ.get('GITHUB_WORKFLOW') == 'Protected compute core evidence'
         and os.environ.get('GITHUB_REF') in ('refs/heads/feature/protected-compute-admission',
-            'refs/heads/feature/protected-compute-endorsement')
+            'refs/heads/feature/protected-compute-endorsement',
+            'refs/heads/feature/protected-compute-cert-profile')
         and os.getuid() != 0, 'disposable_branch_only')
 
 
@@ -509,34 +521,34 @@ def check_effective(work):
     return selected
 
 
-def check_committed(work, *, endorsement=False):
+def check_committed(work, *, endorsement=False, certificate_profile=False):
     selected, original = source()
     evidence = work / 'evidence'
     require(read(evidence / 'original-Cargo.lock', MAX_LOCK) == original, 'original_lock_retained')
-    require(json.loads(read(evidence / 'source.json', MAX_LOCK)) == source_receipt(selected, endorsement=endorsement),
+    require(json.loads(read(evidence / 'source.json', MAX_LOCK)) == source_receipt(selected, endorsement=endorsement, certificate_profile=certificate_profile),
         'source_receipt')
     return selected, original
 
 
-def locked_fetch_receipt(selected, original, effective, outcome, log, *, endorsement=False):
-    return envelope('core-attestation-committed-lock-fetch', endorsement=endorsement, source=selected,
+def locked_fetch_receipt(selected, original, effective, outcome, log, *, endorsement=False, certificate_profile=False):
+    return envelope('core-attestation-committed-lock-fetch', endorsement=endorsement, certificate_profile=certificate_profile, source=selected,
         command=outcome, original=digest(original), effective=digest(effective), scope=SCOPE,
         log=digest(log), tests_executed=False, committed_lock_unchanged=original == effective,
         passed=False)
 
 
-def check_lock(work, *, historical=False, endorsement=False):
-    evidence_schema(historical=historical, endorsement=endorsement)
+def check_lock(work, *, historical=False, endorsement=False, certificate_profile=False):
+    evidence_schema(historical=historical, endorsement=endorsement, certificate_profile=certificate_profile)
     if historical:
         return check_effective(work)
-    selected, original = check_committed(work, endorsement=endorsement)
+    selected, original = check_committed(work, endorsement=endorsement, certificate_profile=certificate_profile)
     evidence = work / 'evidence'
     effective = read(evidence / 'effective-Cargo.lock', MAX_LOCK)
     require(original == effective, 'committed_lock_changed')
     require(read(evidence / 'Cargo.lock.diff', MAX_LOCK) == b'', 'lock_diff_changed')
     value = json.loads(read(evidence / 'resolution.json', MAX_LOCK))
     expected = locked_fetch_receipt(selected, original, effective, value['command'],
-        read(evidence / 'resolve.log', MAX_LOG), endorsement=endorsement)
+        read(evidence / 'resolve.log', MAX_LOG), endorsement=endorsement, certificate_profile=certificate_profile)
     expected['passed'] = True
     require(value == expected, 'locked_fetch_required')
     command_ok(value['command'])
@@ -549,22 +561,22 @@ def toolchain_version(raw, tool):
         and '\nrelease: 1.85.0\n' in '\n' + text + '\n', 'toolchain_version')
 
 
-def prepare(work, *, historical=False, endorsement=False):
-    evidence_schema(historical=historical, endorsement=endorsement)
+def prepare(work, *, historical=False, endorsement=False, certificate_profile=False):
+    evidence_schema(historical=historical, endorsement=endorsement, certificate_profile=certificate_profile)
     selected, original = source()
     work.mkdir(mode=0o700)
     evidence = work / 'evidence'
     evidence.mkdir(mode=0o700)
     write(evidence / 'original-Cargo.lock', original)
-    record(evidence / 'source.json', source_receipt(selected, historical=historical, endorsement=endorsement))
+    record(evidence / 'source.json', source_receipt(selected, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile))
     for tool in ('rustc', 'cargo'):
         outcome = run([tool, '+1.85.0', '--version', '--verbose'], evidence / (tool + '.txt'), 30)
         command_ok(outcome)
         toolchain_version(read(evidence / (tool + '.txt'), 32768), tool)
 
 
-def fetch(work, *, endorsement=False):
-    selected, original = check_committed(work, endorsement=endorsement)
+def fetch(work, *, endorsement=False, certificate_profile=False):
+    selected, original = check_committed(work, endorsement=endorsement, certificate_profile=certificate_profile)
     evidence = work / 'evidence'
     outcome = run(['cargo', '+1.85.0', 'fetch', '--locked', '--manifest-path', str(ROOT / 'Cargo.toml')],
         evidence / 'resolve.log', 300)
@@ -575,11 +587,11 @@ def fetch(work, *, endorsement=False):
     require(len(diff) <= MAX_LOCK, 'lock_diff_bound')
     write(evidence / 'Cargo.lock.diff', diff)
     result = locked_fetch_receipt(selected, original, effective, outcome,
-        read(evidence / 'resolve.log', MAX_LOG), endorsement=endorsement)
+        read(evidence / 'resolve.log', MAX_LOG), endorsement=endorsement, certificate_profile=certificate_profile)
     try:
         command_ok(outcome)
         require(original == effective, 'committed_lock_changed')
-        check_committed(work, endorsement=endorsement)
+        check_committed(work, endorsement=endorsement, certificate_profile=certificate_profile)
         result['passed'] = True
     except ValueError as error:
         result['error'] = str(error)
@@ -588,19 +600,19 @@ def fetch(work, *, endorsement=False):
         record(evidence / 'resolution.json', result)
 
 
-def metadata(work, *, historical=False, endorsement=False):
-    selected = check_lock(work, historical=historical, endorsement=endorsement)
+def metadata(work, *, historical=False, endorsement=False, certificate_profile=False):
+    selected = check_lock(work, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile)
     evidence = work / 'evidence'
     outcome = run(['cargo', '+1.85.0', 'metadata', '--locked', '--offline', '--format-version', '1',
         '--filter-platform', 'x86_64-unknown-linux-gnu'], evidence / 'metadata.log', 120,
         stdout=work / 'metadata.json')
-    result = envelope('core-attestation-resolved-metadata', historical=historical, endorsement=endorsement, source=selected,
+    result = envelope('core-attestation-resolved-metadata', historical=historical, endorsement=endorsement, certificate_profile=certificate_profile, source=selected,
         command=outcome, log=digest(read(evidence / 'metadata.log', MAX_LOG)), passed=False, scope=SCOPE)
     try:
         command_ok(outcome)
         result['projection'] = metadata_projection(read(work / 'metadata.json', MAX_METADATA),
             read(ROOT / 'Cargo.lock', MAX_LOCK))
-        check_lock(work, historical=historical, endorsement=endorsement)
+        check_lock(work, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile)
         result['passed'] = True
     except MetadataPolicyError as error:
         result['projection'] = error.projection
@@ -610,13 +622,13 @@ def metadata(work, *, historical=False, endorsement=False):
         record(evidence / 'resolved-metadata.json', result)
 
 
-def check_metadata(work, *, historical=False, endorsement=False):
+def check_metadata(work, *, historical=False, endorsement=False, certificate_profile=False):
     value = json.loads(read(work / 'evidence/resolved-metadata.json', MAX_LOCK))
     require(value['passed'] is True and value['scope'] == SCOPE, 'metadata_required')
-    require(value['schema_version'] == evidence_schema(historical=historical, endorsement=endorsement)
+    require(value['schema_version'] == evidence_schema(historical=historical, endorsement=endorsement, certificate_profile=certificate_profile)
         and value['kind'] == 'core-attestation-resolved-metadata', 'metadata_schema')
     if not historical:
-        require(value['lock_policy'] == LOCK_POLICY and value['source'] == check_lock(work, endorsement=endorsement),
+        require(value['lock_policy'] == LOCK_POLICY and value['source'] == check_lock(work, endorsement=endorsement, certificate_profile=certificate_profile),
             'metadata_source')
     command_ok(value['command'])
     require(value['projection'] == metadata_projection(read(work / 'metadata.json', MAX_METADATA),
@@ -624,9 +636,9 @@ def check_metadata(work, *, historical=False, endorsement=False):
     return value
 
 
-def execute(work, phase, *, historical=False, endorsement=False):
-    selected = check_lock(work, historical=historical, endorsement=endorsement)
-    check_metadata(work, historical=historical, endorsement=endorsement)
+def execute(work, phase, *, historical=False, endorsement=False, certificate_profile=False):
+    selected = check_lock(work, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile)
+    check_metadata(work, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile)
     argv = ['cargo', '+1.85.0']
     if phase == 'test':
         argv += ['test', '--locked', '--offline', '-p', 'volparossa-content', '--lib', PREFIX,
@@ -637,22 +649,22 @@ def execute(work, phase, *, historical=False, endorsement=False):
         tests = json.loads(read(work / 'evidence/tests.json', 32768))
         require(tests['passed'] is True, 'tests_required')
         if not historical:
-            require(tests['schema_version'] == evidence_schema(endorsement=endorsement) and tests['lock_policy'] == LOCK_POLICY
+            require(tests['schema_version'] == evidence_schema(endorsement=endorsement, certificate_profile=certificate_profile) and tests['lock_policy'] == LOCK_POLICY
                 and tests['source'] == selected and tests['scope'] == SCOPE
-                and tests['tests'] == verify_tests(read(work / 'evidence/tests.log', MAX_LOG), endorsement=endorsement),
+                and tests['tests'] == verify_tests(read(work / 'evidence/tests.log', MAX_LOG), endorsement=endorsement, certificate_profile=certificate_profile),
                 'tests_receipt')
             command_ok(tests['command'])
         argv += ['clippy', '--locked', '--offline', '-p', 'volparossa-content', '--lib', '--tests', '--', '-D', 'warnings']
         name, deadline = 'clippy', 600
     evidence = work / 'evidence'
     outcome = run(argv, evidence / (name + '.log'), deadline)
-    result = envelope('core-attestation-' + name, historical=historical, endorsement=endorsement, command=outcome,
+    result = envelope('core-attestation-' + name, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile, command=outcome,
         source=selected, log=digest(read(evidence / (name + '.log'), MAX_LOG)), passed=False, scope=SCOPE)
     try:
         command_ok(outcome)
-        check_lock(work, historical=historical, endorsement=endorsement)
+        check_lock(work, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile)
         if phase == 'test':
-            result['tests'] = verify_tests(read(evidence / 'tests.log', MAX_LOG), endorsement=endorsement)
+            result['tests'] = verify_tests(read(evidence / 'tests.log', MAX_LOG), endorsement=endorsement, certificate_profile=certificate_profile)
         result['passed'] = True
     except ValueError as error:
         result['error'] = str(error)
@@ -661,12 +673,12 @@ def execute(work, phase, *, historical=False, endorsement=False):
         record(evidence / (name + '.json'), result)
 
 
-def verify_evidence(work, records, files, *, historical=False, endorsement=False):
+def verify_evidence(work, records, files, *, historical=False, endorsement=False, certificate_profile=False):
     """Reconstruct success from retained original bytes, not a caller's pass flag."""
     evidence = work / 'evidence'
     require(set(files) == set(EXPORTS) - {'report.json'}, 'evidence_closure')
-    selected = check_lock(work, historical=historical, endorsement=endorsement)
-    require(records['source.json'] == source_receipt(selected, historical=historical, endorsement=endorsement), 'source_receipt')
+    selected = check_lock(work, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile)
+    require(records['source.json'] == source_receipt(selected, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile), 'source_receipt')
     original = read(evidence / 'original-Cargo.lock', MAX_LOCK)
     effective = read(evidence / 'effective-Cargo.lock', MAX_LOCK)
     resolution = records['resolution.json']
@@ -676,13 +688,13 @@ def verify_evidence(work, records, files, *, historical=False, endorsement=False
         require(resolution['delta'] == lock_delta(original, effective), 'resolution_receipt')
     else:
         expected = locked_fetch_receipt(selected, original, effective, resolution['command'],
-            read(evidence / 'resolve.log', MAX_LOG), endorsement=endorsement)
+            read(evidence / 'resolve.log', MAX_LOG), endorsement=endorsement, certificate_profile=certificate_profile)
         expected['passed'] = True
         require(resolution == expected and original == effective, 'locked_fetch_receipt')
     expected_diff = ''.join(difflib.unified_diff(original.decode().splitlines(True), effective.decode().splitlines(True),
         fromfile='original-Cargo.lock', tofile='effective-Cargo.lock')).encode()
     require(read(evidence / 'Cargo.lock.diff', MAX_LOCK) == expected_diff, 'lock_diff_changed')
-    require(check_metadata(work, historical=historical, endorsement=endorsement) == records['resolved-metadata.json'], 'metadata_receipt')
+    require(check_metadata(work, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile) == records['resolved-metadata.json'], 'metadata_receipt')
     for name, log in (('resolution', 'resolve'), ('resolved-metadata', 'metadata'),
             ('tests', 'tests'), ('clippy', 'clippy')):
         value = records[name + '.json']
@@ -690,7 +702,7 @@ def verify_evidence(work, records, files, *, historical=False, endorsement=False
             'stage_receipt')
         if not historical:
             kind = 'core-attestation-committed-lock-fetch' if name == 'resolution' else 'core-attestation-' + name
-            require(value['schema_version'] == evidence_schema(endorsement=endorsement) and value['lock_policy'] == LOCK_POLICY
+            require(value['schema_version'] == evidence_schema(endorsement=endorsement, certificate_profile=certificate_profile) and value['lock_policy'] == LOCK_POLICY
                 and value['kind'] == kind, 'stage_schema')
             if name != 'resolution':  # The complete locked-fetch shape was checked above.
                 keys = {'schema_version', 'kind', 'lock_policy', 'source', 'command', 'log', 'passed', 'scope'}
@@ -698,13 +710,13 @@ def verify_evidence(work, records, files, *, historical=False, endorsement=False
                 require(set(value) == keys, 'stage_schema')
         command_ok(value['command'])
         require(value['log'] == files[log + '.log'], 'stage_log_changed')
-    require(records['tests.json']['tests'] == verify_tests(read(evidence / 'tests.log', MAX_LOG), endorsement=endorsement), 'tests_receipt')
+    require(records['tests.json']['tests'] == verify_tests(read(evidence / 'tests.log', MAX_LOG), endorsement=endorsement, certificate_profile=certificate_profile), 'tests_receipt')
     for tool in ('rustc', 'cargo'):
         toolchain_version(read(evidence / (tool + '.txt'), 32768), tool)
 
 
-def receipt(work, *, historical=False, endorsement=False):
-    evidence_schema(historical=historical, endorsement=endorsement)
+def receipt(work, *, historical=False, endorsement=False, certificate_profile=False):
+    evidence_schema(historical=historical, endorsement=endorsement, certificate_profile=certificate_profile)
     evidence = work / 'evidence'
     records, files = {}, {}
     for name in EXPORTS:
@@ -716,11 +728,11 @@ def receipt(work, *, historical=False, endorsement=False):
                 records[name] = json.loads(raw)
     successful = False
     try:
-        verify_evidence(work, records, files, historical=historical, endorsement=endorsement)
+        verify_evidence(work, records, files, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile)
         successful = True
     except (OSError, ValueError, KeyError, TypeError, StopIteration):
         pass  # Keep original stage/log evidence; missing or inconsistent is not success.
-    record(evidence / 'report.json', envelope('core-attestation-public-tests', historical=historical, endorsement=endorsement,
+    record(evidence / 'report.json', envelope('core-attestation-public-tests', historical=historical, endorsement=endorsement, certificate_profile=certificate_profile,
         source=records.get('source.json', {}).get('source'), files=files, passed=successful,
         stages={name: records.get(name, {}).get('passed') for name in
             ('resolution.json', 'resolved-metadata.json', 'tests.json', 'clippy.json')},
@@ -735,11 +747,11 @@ def main(args):
     work = workdir()
     cargo_env(work)
     if args[0] == 'prepare':
-        prepare(work, endorsement=True)
+        prepare(work, certificate_profile=True)
     elif args[0] in ('test', 'clippy'):
-        execute(work, args[0], endorsement=True)
+        execute(work, args[0], certificate_profile=True)
     else:
-        globals()[args[0]](work, endorsement=True)
+        globals()[args[0]](work, certificate_profile=True)
 
 
 if __name__ == '__main__':
