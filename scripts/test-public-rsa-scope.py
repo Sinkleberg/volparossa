@@ -130,6 +130,20 @@ class PublicRsaScope(unittest.TestCase):
             self.fuzz["packages"] = [dict(name=name)]
             with self.assertRaises(ValueError): M.verify_metadata(self.root, self.meta, self.fuzz)
 
+    def test_sev_manifest_requires_exact_version_alongside_git_revision(self):
+        path = self.root / "Cargo.toml"
+        original = path.read_text()
+        selected = 'sev = { version = "=8.0.0", '
+        self.assertIn(selected, original)
+        for version in (None, "*", "8.0.0", "^8.0.0", "=8.0.1"):
+            replacement = 'sev = { ' if version is None else f'sev = {{ version = "{version}", '
+            path.write_text(original.replace(selected, replacement))
+            try:
+                with self.subTest(version=version), self.assertRaises(ValueError):
+                    M.verify_repository(self.root)
+            finally:
+                path.write_text(original)
+
     def test_lock_manifest_source_and_test_boundary_mutations(self):
         cases = [("Cargo.lock", M.RSA_CHECKSUM, "0" * 64),
             ("Cargo.lock", M.SOURCE, M.SOURCE.replace(M.REVISION, "0" * 40)),

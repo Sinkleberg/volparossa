@@ -26,7 +26,7 @@ SNP = Path("crates/volparossa-content/src/provider/compute/attestation/snp.rs")
 SNP_CHECKSUM = "b813b945a38d53a36fe95d2c138e38420ec51a7f1e486e42fcba7963197dc726"
 CONTENT = Path("crates/volparossa-content/Cargo.toml")
 MARKER = "  # Root-only public RSA exception: scripts/check-public-rsa-scope.py must pass."
-SEV_MANIFEST = dict(git=GIT, rev=REVISION, **{"default-features": False},
+SEV_MANIFEST = dict(version="=8.0.0", git=GIT, rev=REVISION, **{"default-features": False},
     features=["snp", "crypto_nossl"])
 CRYPTO = {"p384": "0.13.1", "rsa": "0.9.10", "sha2": "0.10.9", "x509-cert": "0.2.5"}
 

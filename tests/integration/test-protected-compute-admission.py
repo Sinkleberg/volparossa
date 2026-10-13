@@ -368,6 +368,21 @@ class ProbeContracts(unittest.TestCase):
             git(root, 'add', '--', 'Cargo.lock')
             with self.assertRaisesRegex(ValueError, 'source_changed'): P.source(effective=True)
 
+    def test_source_requires_exact_sev_version_alongside_git_revision(self):
+        for version in (None, '*', '8.0.0', '^8.0.0', '=8.0.1'):
+            with source_fixture() as (root, _, _, _), self.subTest(version=version):
+                path = root / 'Cargo.toml'
+                original = path.read_text()
+                selected = 'sev = { version = "=8.0.0", '
+                self.assertIn(selected, original)
+                replacement = 'sev = { ' if version is None else f'sev = {{ version = "{version}", '
+                path.write_text(original.replace(selected, replacement))
+                git(root, 'add', '--', 'Cargo.toml')
+                git(root, 'commit', '-qm', 'inert SEV version mutation')
+                with patch.dict(os.environ, {'GITHUB_SHA': git(root, 'rev-parse', 'HEAD')}):
+                    with self.assertRaisesRegex(ValueError, 'sev_selection'):
+                        P.source()
+
     def test_source_rejects_extra_changes_hidden_changes_modes_and_wrong_head(self):
         for kind in ('source', 'untracked', 'ignored', 'assume', 'mode', 'head'):
             with source_fixture() as (root, _, _, _), self.subTest(kind=kind):

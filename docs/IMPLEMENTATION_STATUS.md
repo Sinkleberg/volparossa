@@ -195,7 +195,7 @@ before granting a temporary root-only exception. The ordinary deny configuration
 and separate fuzz graph have no RSA exception. See the
 [advisory scope](../THIRD_PARTY_LICENSES.md#rsa-advisory-scope).
 
-Thirty-eight inert workflow tests, four license-collector tests and nine advisory
+Thirty-nine inert workflow tests, four license-collector tests and ten advisory
 scope tests pass locally, with independent review. Broader hosted workspace and
 packaging checks remain pending. These checks are not an OS network sandbox or
 confidential-computing environment; the passing targeted trial does not claim a
@@ -203,6 +203,28 @@ complete workspace or private-worker integration. Hardware attestation, full
 appraisal, private input release and protected execution remain explicitly false
 in the original receipt. No Rust build or hardware trial has run on the
 development host.
+
+The first committed-lock run,
+[`38436742088`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38436742088)
+at `c7c2fb64`, passes all fourteen Rust tests and targeted Clippy. Both lock
+snapshots are byte-identical to the committed lock and the diff is empty. All
+fifteen original artifact members and their source/file bindings verify;
+artifact SHA-256 is
+`181f8aaf52a580a818d45fa7600ed47b386b7b8375a3e2a8f46ba43d815b72ac`.
+This establishes the new fixed-lock workflow, not the remaining protected-worker
+requirements.
+
+The broader [Quality run `38436778079`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38436778079)
+uses PR merge `eab818e3` with the same tree as `c7c2fb64`. The actual metadata/RSA
+scope guard and root advisory/license/source checks pass, but cargo-deny's ban
+check rejects the missing version constraint on the pinned Git dependency.
+Later fuzz audit, packaging, workspace Clippy/tests and namespace checks are
+not reached. The original log ZIP SHA-256 is
+`fb79d362b1b31fcaebb37da65645761371105ca24528f099bfdc88b34d5de03d`.
+The narrow correction adds `version = "=8.0.0"` beside the unchanged exact Git
+revision and updates the manifest guards; it does not waive wildcard checks or
+change Cargo.lock, dependency source, features or advisory policy. Broader
+hosted acceptance remains pending.
 
 ### Public Overmorrow build and joined delivery
 

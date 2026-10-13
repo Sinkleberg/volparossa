@@ -159,7 +159,7 @@ def source(*, effective=False):
     require(not git('diff', '--no-ext-diff', '--no-textconv', '--summary', 'HEAD', '--'), 'source_mode')
     manifest = tomllib.loads(read(ROOT / 'Cargo.toml', 32768).decode())
     selected = manifest['workspace']['dependencies']['sev']
-    require(selected == {'git': 'https://github.com/virtee/sev', 'rev': REV,
+    require(selected == {'version': '=8.0.0', 'git': 'https://github.com/virtee/sev', 'rev': REV,
         'default-features': False, 'features': ['snp', 'crypto_nossl']}, 'sev_selection')
     require(manifest['workspace']['dependencies']['x509-cert'] ==
         {'version': '=0.2.5', 'default-features': False, 'features': ['std']}, 'x509_selection')
