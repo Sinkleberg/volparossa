@@ -129,7 +129,7 @@ private-input release nor worker admission.
 
 ## Checking certificate algorithm declarations
 
-The next candidate checks the fixed Milan chain's algorithm declarations after
+The integrated verifier checks the fixed Milan chain's algorithm declarations after
 actual cryptographic verification and before returning signature facts. Both
 signature identifiers must agree and name the supported PSS profile: SHA-384,
 MGF1/SHA-384, a 48-byte salt and trailer 1. The VCEK must declare a P-384 EC key
@@ -155,9 +155,20 @@ on `bb8d49c0` compiles and passes all 28 actual Rust tests with zero failed or
 ignored, but fails targeted Clippy on three similar-name warnings, duplicate
 match arms and a missing statement semicolon. Its schema-four report correctly
 remains failed. The correction changes names and equivalent statement style,
-not profile checks or test cases; hosted verification of that correction remains
-pending. The original 15-file artifact matches SHA-256
+not profile checks or test cases. The original 15-file artifact matches SHA-256
 `4a8d1b218b1a2dc0fdd5b04d4c138d40a40994b155a3cf0c473fb0aa15b8c350`.
+
+[Trial 38467309647](https://github.com/VOLPAROSSA/volparossa/actions/runs/38467309647)
+on corrected candidate `530d3c81` passes all 28 named Rust tests and targeted
+Clippy. Its original 15-file artifact matches SHA-256
+`971fd9f8a12979fa42ac02df48e8391189e1b22fc0c5eab6d0398749fc9431e0`;
+the committed, original and effective lockfiles are byte-identical. CodeQL
+`38467310454` passes all four analyses and its separate aggregate check. Quality
+`38467316376` passes strict workspace Clippy and 3,595 workspace tests, with zero
+failures and seven ignored tests, plus six successful child invocations. The
+tested merge tree is identical to the candidate; all 28 attestation tests pass.
+PR240 is merged. The internally skipped namespace probes do not prove live
+datapaths.
 No dependencies, features, lockfile, appraisal obligations or execution
 permissions change. This is not complete certificate-path validation.
 
