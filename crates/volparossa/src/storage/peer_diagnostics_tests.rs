@@ -2,11 +2,11 @@
 
 use super::*;
 
-fn value(error: Error) -> serde_json::Value {
+fn value(error: &Error) -> serde_json::Value {
     let mut diagnostics = Diagnostics::default();
     diagnostics.push(
         1,
-        &error,
+        error,
         Boundary {
             operation: Operation::Prepare,
             stage: Stage::Unknown,
@@ -24,7 +24,7 @@ fn closed_diagnostic_preserves_typed_boundary_without_private_error_text() {
         StorageOperation::Finalize,
         Stage::JournalSave,
     ));
-    let report = value(error);
+    let report = value(&error);
     assert_eq!(
         report["failures"][0],
         serde_json::json!({
@@ -36,12 +36,12 @@ fn closed_diagnostic_preserves_typed_boundary_without_private_error_text() {
     for secret in ["private", "owner.key", "secret-key", "provider-id"] {
         assert!(!encoded.contains(secret));
     }
-    let unknown = value(anyhow::anyhow!("CONTENT_BUSY provider quota /secret"));
+    let unknown = value(&anyhow::anyhow!("CONTENT_BUSY provider quota /secret"));
     assert_eq!(unknown["failures"][0]["category"], "unknown");
     assert!(unknown["failures"][0]["agent_code"].is_null());
     // The real terminal reader wraps EOF in the typed local-control error.
     let closed = value(
-        Error::new(volparossa_local_control::ControlProtocolError::Io(
+        &Error::new(volparossa_local_control::ControlProtocolError::Io(
             io::Error::from(io::ErrorKind::UnexpectedEof),
         ))
         .context(Boundary::new(
@@ -67,7 +67,7 @@ fn all_wire_error_families_remain_observations_not_invented_provider_denials() {
         (WireError::Timeout, "timeout"),
     ];
     for (error, expected) in cases {
-        let report = value(Error::new(error).context(Boundary::new(
+        let report = value(&Error::new(error).context(Boundary::new(
             StorageOperation::Reserve { expires_at: 123 },
             Stage::WireReceipt,
         )));
@@ -107,7 +107,7 @@ async fn agent_code_requires_actual_correlated_rejection_and_is_closed() {
             .await
             .unwrap_err();
         let report =
-            value(error.context(Boundary::new(StorageOperation::Progress, Stage::AgentReady)));
+            value(&error.context(Boundary::new(StorageOperation::Progress, Stage::AgentReady)));
         assert_eq!(report["failures"][0]["category"], "agent_rejected");
         assert_eq!(report["failures"][0]["agent_code"], expected);
         assert!(!report.to_string().contains("private"));
@@ -122,7 +122,7 @@ async fn actual_timeout_error_is_typed_without_exporting_context_text() {
         .await
         .unwrap_err();
     let report = value(
-        Error::new(elapsed).context(Boundary::new(StorageOperation::Finalize, Stage::Deadline)),
+        &Error::new(elapsed).context(Boundary::new(StorageOperation::Finalize, Stage::Deadline)),
     );
     assert_eq!(report["failures"][0]["category"], "timeout");
     assert_eq!(report["failures"][0]["stage"], "deadline");
@@ -161,7 +161,7 @@ fn fragment_aggregation_retains_first_eight_failures_and_exact_omission_count() 
 
 #[test]
 fn diagnostic_enum_decoding_rejects_uncontrolled_fields_and_categories() {
-    let report = value(anyhow::anyhow!("synthetic"));
+    let report = value(&anyhow::anyhow!("synthetic"));
     for field in ["operation", "stage", "category", "agent_code"] {
         let mut changed = report.clone();
         changed["failures"][0][field] = "private-arbitrary-text".into();

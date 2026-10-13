@@ -99,6 +99,17 @@ failures. The 118 targeted Node/Python wiring checks pass; Image's 44 adapter
 and Cloud's 34 focused checks pass separately. The complete live consumer
 scenario still requires a new hosted trial.
 
+[Quality `38432837860`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38432837860)
+on `826f8101` passes dependency/license checks, then fails Clippy because the
+new diagnostic test helper takes an error by value without consuming it.
+Workspace tests are skipped. Its GitHub merge checkout has the same tree as
+the candidate. The original 18-member log archive has SHA-256
+`07879d5be96e72b72fff9f4d2c3cfe571a5913da9fc88024a805eb456871baf2`.
+The correction only borrows that test argument; assertions and production
+behavior are unchanged. Exact-file formatting and source review pass; hosted
+compilation and the new Rust regressions still need to pass before a new live
+consumer trial.
+
 The preceding [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38323695908)
 on `f7269a9b` stops in `storage-maintenance-targeted-tests`, before topology setup.
 Twelve owner tests pass; the waiting-for-core expiry test returns `Elapsed(())`
