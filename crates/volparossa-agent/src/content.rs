@@ -34,7 +34,7 @@ mod worker_budget;
 use replication::ReplicationRuntime;
 use replication_budget::Foreground;
 
-use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{future::Future, net::SocketAddr, path::PathBuf, pin::Pin, sync::Arc, time::Duration};
 
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use socket2::SockRef;
@@ -71,6 +71,38 @@ const OFFER_LIFETIME: u64 = 300;
 // Metadata admission only, shorter than the existing 15-second selector exchange.
 // The four-session serving bound still applies while a caller waits.
 const REGISTRY_SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(2);
+
+enum ProviderRefresh {
+    Withdrawn,
+    Registered(Result<(), DiscoveryError>),
+    InvalidOffer,
+}
+
+async fn refresh_provider_offer(
+    automatic: bool,
+    registry: &Mutex<PublicationRegistry>,
+    signer: &SigningKey,
+    endpoint: &ProviderEndpoint,
+    discovery: &DiscoveryControlHandle,
+) -> ProviderRefresh {
+    if automatic {
+        let registry = registry.lock().await;
+        if !registry.has_live_publications(now())
+            && !registry.has_mailbox()
+            && !registry.has_private_storage()
+            && !registry.has_custody()
+            && !registry.has_compute()
+        {
+            drop(registry);
+            let _ = discovery.withdraw_content_offer().await;
+            return ProviderRefresh::Withdrawn;
+        }
+    }
+    let Ok(offer) = make_offer(signer, endpoint.clone()) else {
+        return ProviderRefresh::InvalidOffer;
+    };
+    ProviderRefresh::Registered(discovery.register_content_offer(offer).await.map(|_| ()))
+}
 
 async fn provider_snapshot(
     registry: &Mutex<PublicationRegistry>,
@@ -428,34 +460,43 @@ impl ContentRuntime {
         let mut sessions = JoinSet::new();
         refresh.tick().await;
         let mut registration_pending = false;
+        // Keep the bounded discovery RPC owned here, not inside a select branch or
+        // a detached task: accepting TLS, joining sessions and stopping must remain
+        // pollable while its reply (or the automatic registry check) is pending.
+        let mut refresh_work: Option<Pin<Box<dyn Future<Output = ProviderRefresh> + Send + '_>>> =
+            None;
         loop {
             tokio::select! {
                 changed = stop.changed() => {
                     if changed.is_err() || *stop.borrow() { break; }
                 }
                 _ = refresh.tick() => {
-                    if automatic {
-                        let registry = registry.lock().await;
-                        if !registry.has_live_publications(now())
-                            && !registry.has_mailbox()
-                            && !registry.has_private_storage()
-                            && !registry.has_custody()
-                            && !registry.has_compute()
-                        {
-                            drop(registry);
-                            let _ = discovery.withdraw_content_offer().await;
-                            continue;
-                        }
+                    // Consume ticks while pending; only a timer tick, never completion
+                    // itself, may start another refresh. Never queue overlapping work.
+                    if refresh_work.is_none() {
+                        refresh_work = Some(Box::pin(refresh_provider_offer(
+                            automatic, &registry, &signer, &endpoint, &discovery,
+                        )));
                     }
-                    let Ok(offer) = make_offer(&signer, endpoint.clone()) else { break; };
-                    match discovery.register_content_offer(offer).await {
-                        Ok(_) => {
+                }
+                outcome = async {
+                    if let Some(work) = refresh_work.as_mut() {
+                        work.await
+                    } else {
+                        std::future::pending().await
+                    }
+                }, if refresh_work.is_some() => {
+                    refresh_work = None;
+                    match outcome {
+                        ProviderRefresh::Withdrawn => {}
+                        ProviderRefresh::InvalidOffer => break,
+                        ProviderRefresh::Registered(Ok(())) => {
                             if registration_pending {
                                 provider_event(events.as_ref(), "CONTENT_PROVIDER_REGISTRATION_RECOVERED").await;
                             }
                             registration_pending = false;
                         }
-                        Err(DiscoveryError::Busy | DiscoveryError::Timeout) => {
+                        ProviderRefresh::Registered(Err(DiscoveryError::Busy | DiscoveryError::Timeout)) => {
                             // Keep the exact bound listener/registry, not the old advertisement's
                             // authority. Discovery still expires/withdraws unrefreshed offers;
                             // clients still verify their independently signed offer's TTL.
@@ -463,7 +504,7 @@ impl ContentRuntime {
                             registration_pending = true;
                             provider_event(events.as_ref(), "CONTENT_PROVIDER_REGISTRATION_RETRY_PENDING").await;
                         }
-                        Err(_) => {
+                        ProviderRefresh::Registered(Err(_)) => {
                             provider_event(events.as_ref(), "CONTENT_PROVIDER_REGISTRATION_FAILED").await;
                             break;
                         }
@@ -495,6 +536,8 @@ impl ContentRuntime {
                 Some(_) = sessions.join_next(), if !sessions.is_empty() => {}
             }
         }
+        // Close any outstanding RPC reply before withdrawing the listener's offer.
+        drop(refresh_work);
         drop(listener);
         sessions.abort_all();
         while sessions.join_next().await.is_some() {}
