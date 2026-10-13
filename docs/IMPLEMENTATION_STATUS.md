@@ -88,8 +88,9 @@ The next candidate retains typed owner-side deposit boundaries, closed error
 categories and observed agent rejection codes, limited to eight copy failures
 plus the exact omitted count. It does not export error text, paths, keys or
 provider identities, infer a quota denial, or change accounting, authority,
-deadlines or retries. Six new Rust tests and the extended real Unix/SQLite
-lost-terminal test await hosted compilation and execution.
+deadlines or retries. The six new Rust tests and extended real Unix/SQLite
+lost-terminal test now pass in hosted Quality `38435177375`, with two separate
+expiry assertion failures described below.
 
 Explicit consumer profile 2 pins Image `fa043874` and Cloud `f51b49b8`, using
 the same reviewed adapter bytes. Profile 1 and its original pins are unchanged.
@@ -107,8 +108,26 @@ the candidate. The original 18-member log archive has SHA-256
 `07879d5be96e72b72fff9f4d2c3cfe571a5913da9fc88024a805eb456871baf2`.
 The correction only borrows that test argument; assertions and production
 behavior are unchanged. Exact-file formatting and source review pass; hosted
-compilation and the new Rust regressions still need to pass before a new live
-consumer trial.
+validation continued in the next run.
+
+[Quality `38435177375`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38435177375)
+on `12da0a5b` passes dependency/license gates and strict Clippy. The binary's
+620 tests report 618 passed and two failures. All six new diagnostics tests and
+the real lost-terminal resume/failover/delete test pass. Two maintenance-expiry
+assertions still compare the old inner reason to the new generic outer context;
+the original rejection is retained in the error chain. The combined reserve/renew
+test stops at reserve, so its renew subcase and later workspace binaries are not
+reached. Namespace-report and harness steps are also skipped.
+
+The original 19-member log ZIP passes CRC checks, SHA-256
+`8e349411f2e2082e411f3be61806c7af8130d342aa18d76801b854944e2ed1fe`.
+Actual merge checkout `e893cb74` has parents `d9144484` and `12da0a5b`, and the
+same tree as that head. The follow-up changes only the shared expiry test:
+assert the exact `SignedRequest` boundary and Progress/Reserve/Renew operation,
+then the unchanged root-cause string. It retains the socket-EOF proof that no
+operation was signed after rejection. No production authority, cap, timeout or
+expiry changes are made. Exact-file formatting and review pass; full hosted
+acceptance remains required before the next live consumer trial.
 
 The preceding [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38323695908)
 on `f7269a9b` stops in `storage-maintenance-targeted-tests`, before topology setup.
