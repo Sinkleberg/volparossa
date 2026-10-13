@@ -23,7 +23,7 @@ SOURCE = f"git+{GIT}?rev={REVISION}#{REVISION}"
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 RSA_CHECKSUM = "b8573f03f5883dcaebdfcf4725caa1ecb9c15b2ef50c43a07b816e06799bb12d"
 SNP = Path("crates/volparossa-content/src/provider/compute/attestation/snp.rs")
-SNP_CHECKSUM = "86f79f14b8abd73e45a9eadf019c38592ab30db3f3d6aa3dd54db9b86605957e"
+SNP_CHECKSUM = "54694656aa6d7cf20adb224bc3e0a7f13a41550f8392ec3ec65446b28e417350"
 CONTENT = Path("crates/volparossa-content/Cargo.toml")
 MARKER = "  # Root-only public RSA exception: scripts/check-public-rsa-scope.py must pass."
 SEV_MANIFEST = dict(version="=8.0.0", git=GIT, rev=REVISION, **{"default-features": False},

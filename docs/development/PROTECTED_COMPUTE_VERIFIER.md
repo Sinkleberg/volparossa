@@ -103,7 +103,7 @@ it is not treated as a patched general-purpose private-key implementation.
 
 ## Binding endorsement claims to the report
 
-The next core candidate checks the signed VCEK's product, chip identifier and
+The integrated core checks the signed VCEK's product, chip identifier and
 firmware-version extensions against the exact report before returning signature
 facts. It compares each component of `REPORTED_TCB`, not the current, committed
 or launch TCB. The existing certificate-size bound, pinned reference chain and
@@ -111,7 +111,7 @@ cryptographic verification remain unchanged.
 
 The parser follows [AMD KDS specification 57230 revision 1.05, section 3.1](https://docs.amd.com/api/khub/documents/U5H~LHvkigTowyppBkpyrA/content):
 canonical integers and IA5 product text, a raw 64-byte hardware identifier, zero
-reserved components, and the documented component ranges. This candidate's
+reserved components, and the documented component ranges. The
 supported leaf profile is intentionally narrower: exactly eleven known,
 noncritical AMD extensions. Additional extensions and other report/product
 profiles need separate review. A version-two report cannot establish a CPUID
@@ -120,10 +120,39 @@ stepping comparison.
 Eight additional tests cover valid public evidence, incomplete/duplicate
 extensions, encoding and range errors, identity/component mismatches and refusal
 to bypass actual signatures. Synthetic certificate edits test consistency only,
-not authentication. Hosted compilation and execution of the expanded 22-test set
-are pending. Schema-three receipts identify that set separately from the earlier
-14-test schemas. All five remaining appraisal obligations stay explicit; this
-check supplies neither private-input release nor worker admission.
+not authentication. [Trial 38455979301](https://github.com/VOLPAROSSA/volparossa/actions/runs/38455979301)
+on `2ebf27af` passes all 22 named Rust tests and targeted Clippy with the committed
+lockfile unchanged. Quality and CodeQL also pass; PR238 is merged. Schema-three
+receipts identify that set separately from the earlier 14-test schemas. All five
+remaining appraisal obligations stay explicit; this check supplies neither
+private-input release nor worker admission.
+
+## Checking certificate algorithm declarations
+
+The next candidate checks the fixed Milan chain's algorithm declarations after
+actual cryptographic verification and before returning signature facts. Both
+signature identifiers must agree and name the supported PSS profile: SHA-384,
+MGF1/SHA-384, a 48-byte salt and trailer 1. The VCEK must declare a P-384 EC key
+with a byte-aligned, uncompressed point. Existing cryptographic verification,
+not a point-shape check, establishes the valid public key and signatures.
+
+This follows [AMD 57230 revision 1.05, tables 7–9](https://docs.amd.com/api/khub/documents/U5H~LHvkigTowyppBkpyrA/content),
+[RFC 5280's signature-identifier agreement](https://datatracker.ietf.org/doc/html/rfc5280#section-4.1.1.2),
+[RFC 4055's hash and PSS parameters](https://datatracker.ietf.org/doc/html/rfc4055#section-3)
+and [RFC 5480's EC key identifiers](https://datatracker.ietf.org/doc/html/rfc5480#section-2).
+Absent and NULL SHA-384 parameters are supported. Trailer 1 may be omitted or
+explicit, as in the public AMD fixture; other values are rejected. Unknown,
+duplicate, reordered, implicit or trailing fields do not extend this profile.
+
+Six new tests join the existing 22. Five real API-negative cases retain the
+original signed certificate bytes and signature while changing its outer
+algorithm declaration. Separate synthetic structures exercise malformed
+parameters and key encodings; these edited certificates authenticate nothing.
+Schema-four receipts require exactly 28 named tests and preserve explicit replay
+of schemas one through three. The 51 inert harness checks and ten public-RSA
+scope checks pass; hosted compilation and actual Rust execution are pending.
+No dependencies, features, lockfile, appraisal obligations or execution
+permissions change. This is not complete certificate-path validation.
 
 ## What is still needed before private tasks can run remotely
 
