@@ -23,6 +23,7 @@ rusqlite.workspace = true
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sev.workspace = true
 sha2.workspace = true
 subtle.workspace = true
 tempfile.workspace = true
@@ -30,6 +31,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
 url.workspace = true
+x509-cert.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
