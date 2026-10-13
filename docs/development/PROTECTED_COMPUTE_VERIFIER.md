@@ -23,7 +23,8 @@ The selected upstream test target executes four public Milan fixtures:
 
 These are upstream public samples, not newly generated hardware reports or
 VOLPAROSSA users' data. No `/dev/sev` device, private model, task input or secret is
-used. This is not yet a production dependency or an attestation backend.
+used. This standalone upstream trial supplies no production admission backend;
+the separately tested core integration is described below.
 
 The [pinset](../../tests/integration/protected-compute-verifier-pins.json)
 records the exact source tree, nine original file hashes, and the corrected
@@ -79,6 +80,52 @@ workspace, context and original-lock attempts remain recorded in the
 
 This passing run establishes compatibility with the selected public fixtures,
 not a trustworthy worker or confidential task.
+
+## Core integration
+
+The separate [core module](../../crates/volparossa-content/src/provider/compute/attestation.rs)
+verifies exact received report bytes and binds a fresh, finite owner challenge
+to a proposed session key. [Core trial 38439280941](https://github.com/VOLPAROSSA/volparossa/actions/runs/38439280941)
+passes fourteen tests and targeted Clippy. The tests combine real public
+signature fixtures with explicitly synthetic session-state checks; they do
+not prove a guest possesses the proposed key or can execute a private task.
+
+The workspace adopts that trial's exact resolved lockfile. The current
+[core workflow](../../.github/workflows/protected-compute-admission.yml) fetches
+with `--locked`, requires the committed source and lockfile to remain unchanged,
+then checks actual resolved features and runs tests offline. Schema-two core
+receipts distinguish this fixed-lock verification from historical schema-one
+dependency resolution. Broader workspace integration remains a separate gate.
+
+The public-key-only use of the RSA dependency has an explicit, mechanically
+checked [advisory scope](../../THIRD_PARTY_LICENSES.md#rsa-advisory-scope);
+it is not treated as a patched general-purpose private-key implementation.
+
+## Binding endorsement claims to the report
+
+The integrated core checks the signed VCEK's product, chip identifier and
+firmware-version extensions against the exact report before returning signature
+facts. It compares each component of `REPORTED_TCB`, not the current, committed
+or launch TCB. The existing certificate-size bound, pinned reference chain and
+cryptographic verification remain unchanged.
+
+The parser follows [AMD KDS specification 57230 revision 1.05, section 3.1](https://docs.amd.com/api/khub/documents/U5H~LHvkigTowyppBkpyrA/content):
+canonical integers and IA5 product text, a raw 64-byte hardware identifier, zero
+reserved components, and the documented component ranges. This candidate's
+supported leaf profile is intentionally narrower: exactly eleven known,
+noncritical AMD extensions. Additional extensions and other report/product
+profiles need separate review. A version-two report cannot establish a CPUID
+stepping comparison.
+
+Eight additional tests cover valid public evidence, incomplete/duplicate
+extensions, encoding and range errors, identity/component mismatches and refusal
+to bypass actual signatures. Synthetic certificate edits test consistency only,
+not authentication. [Hosted trial 38455979301](https://github.com/VOLPAROSSA/volparossa/actions/runs/38455979301)
+on `2ebf27af` passes actual compilation, all 22 tests and targeted Clippy;
+workspace Quality and CodeQL also pass before integration through PR238.
+Schema-three receipts identify that set separately from the earlier 14-test
+schemas. All five remaining appraisal obligations stay explicit; this check
+supplies neither private-input release nor worker admission.
 
 ## What is still needed before private tasks can run remotely
 
