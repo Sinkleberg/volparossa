@@ -395,30 +395,58 @@ async fn live_turn_loss_reconnects_and_reconciles_original_journals_without_new_
 #[tokio::test]
 async fn finite_authority_expires_while_waiting_for_core_response_and_closes_connection() {
     let (temp, owner, mut enrollment, directory, peers) = fixture().await;
-    enrollment.expires = crate::storage::now().unwrap() + 1;
+    // Keep one finite signed deadline clear of signing/fsync and socket setup.
+    // Only after the real request arrives do we advance its derived Tokio timer;
+    // this tests waiting-socket cancellation, not elapsed wall-clock time.
+    enrollment.expires = crate::storage::now().unwrap() + 60;
     let enrollment = authorize(&directory, enrollment, &owner);
     let socket = temp.path().join("silent-core.sock");
     let listener = UnixListener::bind(&socket).unwrap();
-    let server = async {
+    let admission = async {
         let mut control = listener.accept().await.unwrap().0;
         let request = read_request(&mut control).await.unwrap();
-        assert!(matches!(
-            request.operation,
-            Some(Operation::PrivateStorageMaintenance(_))
-        ));
-        assert_eq!(
-            control.read(&mut [0]).await.unwrap(),
-            0,
-            "expired owner closes the actual waiting resource connection"
-        );
+        let Some(Operation::PrivateStorageMaintenance(admission)) = request.operation else {
+            panic!("owner did not request a maintenance allowance");
+        };
+        assert_eq!(admission.owner_key, enrollment.owner);
+        assert_eq!(admission.enrollment_id, enrollment.id);
+        assert_eq!(admission.maximum_bytes, enrollment.maximum_turn);
+        control
     };
     let owner_loop = serve_enrolled(&directory, &enrollment, &socket, &owner, None, pending());
-    let (result, ()) = timeout(Duration::from_secs(3), async {
-        tokio::join!(owner_loop, server)
+    tokio::pin!(owner_loop);
+    let mut control = timeout(Duration::from_secs(3), async {
+        tokio::select! {
+            result = &mut owner_loop => panic!("owner returned before admission: {result:?}"),
+            control = admission => control,
+        }
     })
     .await
-    .unwrap();
-    result.unwrap();
+    .expect("owner admission request did not arrive");
+    assert_eq!(status(&directory)["stage"], "waiting_for_core");
+    assert_eq!(status(&directory)["turns"], 0);
+    let remaining = enrollment
+        .expires
+        .checked_sub(crate::storage::now().unwrap())
+        .filter(|remaining| *remaining > 0)
+        .expect("signed authority expired before timer observation");
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(remaining + 1)).await;
+    tokio::time::resume();
+    // Do not carry the admission timeout across the virtual time jump. Poll the
+    // owner to completion before checking the resulting checkpoint and real EOF.
+    timeout(Duration::from_secs(3), &mut owner_loop)
+        .await
+        .expect("owner did not finish after its expiry timer")
+        .expect("owner expiry failed");
+    assert_eq!(
+        timeout(Duration::from_secs(3), control.read(&mut [0]))
+            .await
+            .expect("expired owner did not close the waiting resource socket")
+            .unwrap(),
+        0,
+        "expired owner closes the actual waiting resource connection"
+    );
     assert_eq!(status(&directory)["stage"], "enrollment_expired");
     assert_eq!(status(&directory)["turns"], 0);
     peers.stop().await;
