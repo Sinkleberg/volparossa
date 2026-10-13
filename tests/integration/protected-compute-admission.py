@@ -28,13 +28,18 @@ REGISTRY = 'registry+https://github.com/rust-lang/crates.io-index'
 # New package versions remain resolver output, not independent prior admission.
 DER = ('der', '0.7.10', REGISTRY)
 DER_FEATURE_EDGES = {'der_derive': (0, 7, 2), 'flagset': (0, 4, 3), 'pem-rfc7468': (0, 7, 0)}
-# RSA's manifest selects digest/oid and num-traits/libm. Both targets already
-# exist in the original workspace lock: admit only these exact retained nodes.
-RETAINED_FEATURE_EDGES = {
+# Exact feature edges selected by the verifier's crypto dependencies. The first
+# three targets already exist; num-bigint-dig additionally enables lazy_static's
+# spin_no_std feature. Only the exact observed target identities are admitted.
+EXACT_FEATURE_EDGES = {
     ('digest', '0.10.7', REGISTRY): (('const-oid', '0.9.6', REGISTRY),
         '9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292'),
     ('num-traits', '0.2.19', REGISTRY): (('libm', '0.2.16', REGISTRY),
         '071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841'),
+    ('generic-array', '0.14.7', REGISTRY): (('zeroize', '1.9.0', REGISTRY),
+        '85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a'),
+    ('lazy_static', '1.5.0', REGISTRY): (('spin', '0.9.9', REGISTRY),
+        'bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe'),
 }
 FEATURE_PROVENANCE = dict(
     x509_manifest='https://docs.rs/crate/x509-cert/0.2.5/source/Cargo.toml',
@@ -47,6 +52,14 @@ FEATURE_PROVENANCE = dict(
     digest_manifest_sha256='f0cc2fc18c6e7f3533658b9e59d71b55e641e7d8226e5d1b915a5e7c0a1d3f36',
     num_traits_manifest='https://docs.rs/crate/num-traits/0.2.19/source/Cargo.toml',
     num_traits_manifest_sha256='dd701a0da6cce7e6e047cc944b2330f3c5e48cd64329e10942ea7d9299d435be',
+    generic_array_archive='https://static.crates.io/crates/generic-array/generic-array-0.14.7.crate',
+    generic_array_manifest_sha256='4b5daed75505275d11f4854dd9172f910da61d9856ca2936d95e2e6e0c9040e4',
+    elliptic_curve_archive='https://static.crates.io/crates/elliptic-curve/elliptic-curve-0.13.8.crate',
+    elliptic_curve_manifest_sha256='ae28aa3db758a5b18bf9e4b1253082b2503067f41be65e0bf3dc89917fda3f76',
+    lazy_static_archive='https://static.crates.io/crates/lazy_static/lazy_static-1.5.0.crate',
+    lazy_static_manifest_sha256='7556429fefb497526c5abdaa2c36d8ce4eb86c23d72763eb396652b9eaffc210',
+    num_bigint_archive='https://static.crates.io/crates/num-bigint-dig/num-bigint-dig-0.8.6.crate',
+    num_bigint_manifest_sha256='04a7ed71706ef6637f12982772ee3772074df403647e74c4c5830fc823555257',
     sev_manifest='https://github.com/virtee/sev/blob/' + REV + '/Cargo.toml')
 PREFIX = 'provider::compute::attestation::tests::'
 TESTS = tuple(PREFIX + name for name in (
@@ -191,7 +204,7 @@ def lock_delta(original, effective):
     direct = {('sev', '8.0.0', SEV_SOURCE), ('x509-cert', '0.2.5', REGISTRY)}
     require(content in old and set(old) <= set(new) and direct <= set(new), 'existing_package_removed_or_changed')
     feature_edges = set()
-    retained_edges = {}
+    exact_edges = {}
     if DER in old:
         require(old[DER]['checksum'] == FEATURE_PROVENANCE['der_crate_sha256'], 'der_source')
         for name, minimum in DER_FEATURE_EDGES.items():
@@ -203,18 +216,18 @@ def lock_delta(original, effective):
                         candidates.append(key)
             require(len(candidates) == 1, 'der_feature_dependency')
             feature_edges.add(candidates[0])
-    for parent, (target, checksum) in RETAINED_FEATURE_EDGES.items():
+    for parent, (target, checksum) in EXACT_FEATURE_EDGES.items():
         if parent in old:
-            require(old[parent]['checksum'] == checksum and target in old, 'retained_feature_source')
-            retained_edges[parent] = target
+            require(old[parent]['checksum'] == checksum and target in new, 'exact_feature_source')
+            exact_edges[parent] = target
     for key, package in old.items():
         require({k: v for k, v in package.items() if k != 'dependencies'} ==
             {k: v for k, v in new[key].items() if k != 'dependencies'}, 'existing_package_metadata_changed')
         expected = old_edges[key] | direct if key == content else old_edges[key]
         if key == DER:
             expected = expected | feature_edges
-        if key in retained_edges:
-            expected = expected | {retained_edges[key]}
+        if key in exact_edges:
+            expected = expected | {exact_edges[key]}
         require(new_edges[key] == expected, 'existing_dependency_changed')
     added = set(new) - set(old)
     require(1 <= len(added) <= 128 and direct <= added, 'new_dependency_bound')
@@ -235,9 +248,9 @@ def lock_delta(original, effective):
         unlisted_existing_dependency_edges_unchanged=True,
         feature_edge_package='der@0.7.10', feature_edge_provenance=FEATURE_PROVENANCE,
         added_feature_edges=[dict(name=key[0], version=key[1], source=key[2]) for key in sorted(feature_edges)],
-        retained_feature_edges=[dict(parent_name=parent[0], parent_version=parent[1],
+        exact_feature_edges=[dict(parent_name=parent[0], parent_version=parent[1],
             target_name=target[0], target_version=target[1], source=REGISTRY)
-            for parent, target in sorted(retained_edges.items())],
+            for parent, target in sorted(exact_edges.items())],
         changed_direct_package='volparossa-content', new_direct_dependencies=['sev', 'x509-cert'])
 
 

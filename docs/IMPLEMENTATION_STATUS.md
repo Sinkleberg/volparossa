@@ -117,8 +117,23 @@ remain explicit missing appraisal steps. The candidate neither admits workers
 nor provides a protected model-execution channel. Its public fixture tests and
 explicitly synthetic binding tests cannot establish those capabilities.
 
-Twenty-seven inert orchestration tests pass. The fourteen Rust tests and targeted
-Clippy check still require a real hosted run. That workflow starts from the
+Twenty-eight inert orchestration tests pass. The first hosted attempt,
+[`38426933445`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38426933445)
+at `433753b2`, passes dependency acquisition but stops at the lock-delta gate
+before compilation. Independent inspection of its original artifact confirms
+that all 531 existing package identities, checksums and old dependency edges
+remain unchanged. All 29 added packages are reachable from the pinned verifier
+dependencies. Two additional feature edges were missing from the gate:
+`generic-array 0.14.7 -> zeroize 1.9.0` and
+`lazy_static 1.5.0 -> spin 0.9.9`. Checksum-matched published crate manifests
+confirm both selections; the correction allows only these exact target identities
+at their existing, checksum-pinned parents. The original nine-member artifact
+matches GitHub's SHA-256
+`b9b84de12594059e2f0ea67133b9c6e3138165f14f5ec4387de43490d195f0d6`.
+This failed precompile attempt is not verifier success.
+
+The fourteen Rust tests and targeted Clippy check still require successful hosted
+compilation and execution. That workflow starts from the
 unchanged workspace lockfile, retains Cargo's actual resolution and accepts only
 the new verifier dependencies and specifically documented feature edges. Existing
 package versions, checksums and all other dependency edges must remain unchanged.

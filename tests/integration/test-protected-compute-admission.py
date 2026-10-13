@@ -161,15 +161,15 @@ class ProbeContracts(unittest.TestCase):
         new[-2]['dependencies'].append('base 2.0.0')
         self.assertEqual(len(P.lock_delta(lock(old), lock(new))['added_packages']), 4)
 
-    def test_rsa_feature_edges_only_use_exact_existing_digest_and_numeric_targets(self):
+    def test_crypto_feature_edges_only_use_exact_selected_targets(self):
         old, new = fixture_packages()
-        for parent, (target, checksum) in P.RETAINED_FEATURE_EDGES.items():
+        for parent, (target, checksum) in P.EXACT_FEATURE_EDGES.items():
             pkg = package(parent[0], parent[1], ['base']); pkg['checksum'] = checksum
             old += [pkg, package(target[0], target[1])]
             new += [copy.deepcopy(pkg), package(target[0], target[1])]
             new[-2]['dependencies'].append(target[0])
         result = P.lock_delta(lock(old), lock(new))
-        self.assertEqual(len(result['retained_feature_edges']), 2)
+        self.assertEqual(len(result['exact_feature_edges']), 4)
         for kind in ('missing', 'extra', 'wrong_parent', 'changed_target', 'changed_parent'):
             changed = copy.deepcopy(new)
             if kind == 'missing': changed[5]['dependencies'].remove('const-oid')
@@ -177,6 +177,26 @@ class ProbeContracts(unittest.TestCase):
             elif kind == 'wrong_parent': changed[1]['dependencies'].append('const-oid')
             elif kind == 'changed_target': changed[6]['version'] = '0.9.7'
             else: changed[5]['checksum'] = 'f' * 64
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                P.lock_delta(lock(old), lock(changed))
+
+    def test_new_spin_feature_target_requires_exact_identity_and_verifier_closure(self):
+        old, new = fixture_packages()
+        parent = ('lazy_static', '1.5.0', P.REGISTRY)
+        target, checksum = P.EXACT_FEATURE_EDGES[parent]
+        pkg = package(parent[0], parent[1]); pkg['checksum'] = checksum
+        old.append(copy.deepcopy(pkg)); new.append(copy.deepcopy(pkg))
+        new[-1]['dependencies'].append('spin')
+        new[3]['dependencies'].append('lazy_static')
+        new.append(package(target[0], target[1]))
+        self.assertEqual(P.lock_delta(lock(old), lock(new))['exact_feature_edges'][0]['target_version'], '0.9.9')
+        for kind in ('version', 'source', 'missing_checksum', 'unrelated', 'wrong_parent'):
+            changed = copy.deepcopy(new)
+            if kind == 'version': changed[-1]['version'] = '0.9.10'
+            elif kind == 'source': changed[-1]['source'] = P.SEV_SOURCE
+            elif kind == 'missing_checksum': del changed[-1]['checksum']
+            elif kind == 'unrelated': changed[3]['dependencies'].remove('lazy_static')
+            else: changed[1]['dependencies'].append('spin')
             with self.subTest(kind=kind), self.assertRaises(ValueError):
                 P.lock_delta(lock(old), lock(changed))
 
