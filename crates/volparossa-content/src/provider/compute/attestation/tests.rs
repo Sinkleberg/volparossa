@@ -150,10 +150,10 @@ fn synthetic_profile(parameters: Option<Any>) -> Result<(), EvidenceError> {
 #[test]
 fn certificate_profile_public_chain_and_report_keep_incomplete_facts() {
     use sev::certs::snp::builtin::milan;
-    let ark = milan::ark().unwrap().into();
-    let ask = milan::ask().unwrap().into();
+    let root = milan::ark().unwrap().into();
+    let intermediate = milan::ask().unwrap().into();
     assert_eq!(
-        cert_profile::check_chain(&ark, &ask, &public_vcek()),
+        cert_profile::check_chain(&root, &intermediate, &public_vcek()),
         Ok(())
     );
     let facts = verify_milan_v2_signature_facts(&report(), VCEK).unwrap();
@@ -161,7 +161,7 @@ fn certificate_profile_public_chain_and_report_keep_incomplete_facts() {
     assert_eq!(facts.outstanding_appraisal().len(), 5);
     // Apply the algorithm check to both fixed roots, not only the leaf.
     for position in 0..2 {
-        let mut roots = [ark.clone(), ask.clone()];
+        let mut roots = [root.clone(), intermediate.clone()];
         roots[position].signature_algorithm.parameters = None;
         assert_eq!(
             cert_profile::check_chain(&roots[0], &roots[1], &public_vcek()),
@@ -252,9 +252,8 @@ fn synthetic_pss_mutation(mutation: u8) -> Any {
                 .unwrap();
             match index {
                 12 | 14 => algorithm.oid = ObjectIdentifier::new_unwrap("1.2.3.4"),
-                13 => algorithm.parameters = Some(encoded_any(&0_u8)),
+                13 | 16 => algorithm.parameters = Some(encoded_any(&0_u8)),
                 15 => algorithm.parameters = None,
-                16 => algorithm.parameters = Some(encoded_any(&0_u8)),
                 _ => {
                     let mut hash = algorithm
                         .parameters
@@ -361,7 +360,7 @@ fn certificate_profile_synthetic_spki_requires_p384_byte_aligned_point() {
             3 => {
                 spki.algorithm.parameters = Some(encoded_any(&ObjectIdentifier::new_unwrap(
                     "1.2.840.10045.3.1.7",
-                )))
+                )));
             }
             9 => spki.algorithm.parameters = Some(Any::null()),
             _ => {

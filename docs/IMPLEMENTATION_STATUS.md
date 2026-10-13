@@ -112,8 +112,13 @@ the exact signed report. The next candidate checks certificate-algorithm
 consistency: PSS/SHA-384, MGF1/SHA-384, salt 48, trailer 1, matching signature
 identifiers and the VCEK's declared P-384 key. Six additional tests join the
 existing 22 in an explicitly versioned schema-four hosted trial. The 51 inert
-harness checks and ten public-RSA scope checks pass; actual Rust compilation,
-the expanded test run and Clippy remain pending. Dependencies, features and the
+harness checks and ten public-RSA scope checks pass. Original trial `38466325432`
+on `bb8d49c0` compiles and passes all 28 actual Rust tests, but targeted Clippy
+fails on three similar-name warnings and two statement-style warnings. Its
+15-file artifact has SHA-256
+`4a8d1b218b1a2dc0fdd5b04d4c138d40a40994b155a3cf0c473fb0aa15b8c350`;
+the schema-four result remains failed. The behavior-preserving name/style
+correction needs its own hosted verification. Dependencies, features and the
 lockfile are unchanged. The [certificate-profile scope](development/PROTECTED_COMPUTE_VERIFIER.md#checking-certificate-algorithm-declarations)
 keeps all five appraisal obligations, current revocation, authorized roots and
 workloads, and protected execution outstanding. This software work proceeds

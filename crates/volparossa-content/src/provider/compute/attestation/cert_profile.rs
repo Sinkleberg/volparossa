@@ -25,14 +25,14 @@ const P384: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.132.0.34");
 
 /// Private consistency check: success cannot construct facts or bypass signatures.
 pub(super) fn check_chain(
-    ark: &Certificate,
-    ask: &Certificate,
-    vcek: &Certificate,
+    root: &Certificate,
+    intermediate: &Certificate,
+    leaf: &Certificate,
 ) -> Result<(), EvidenceError> {
-    for certificate in [ark, ask, vcek] {
+    for certificate in [root, intermediate, leaf] {
         check_signature(certificate)?;
     }
-    let spki = &vcek.tbs_certificate.subject_public_key_info;
+    let spki = &leaf.tbs_certificate.subject_public_key_info;
     if spki.algorithm.oid != EC
         || spki
             .algorithm

@@ -48,16 +48,16 @@ pub fn verify_milan_v2_signature_facts(
         .map_err(|_| EvidenceError::Signature)?;
     // The upstream verifier performs the actual cryptography. Separately bind
     // the declared algorithms to that exact supported scheme before any facts.
-    let vcek = chain.vek.clone().into();
+    let leaf_certificate = chain.vek.clone().into();
     cert_profile::check_chain(
         &chain.ca.ark.clone().into(),
         &chain.ca.ask.clone().into(),
-        &vcek,
+        &leaf_certificate,
     )?;
     // A signature alone does not bind the leaf's chip/firmware claims to the
     // signed report. Use REPORTED_TCB, the version that derives this VCEK.
     endorsement::check_claims(
-        &vcek,
+        &leaf_certificate,
         received.try_into().map_err(|_| EvidenceError::Encoding)?,
     )?;
     Ok(SignatureFacts {
