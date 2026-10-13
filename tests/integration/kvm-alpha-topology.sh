@@ -2353,8 +2353,17 @@ cleanup() {
             relay5 exit exit2; do
             cleanup_socket=$WORK/runtime-$cleanup_node/control/agent.sock
             [ -S "$cleanup_socket" ] || continue
+            cleanup_logs_status=0
             "$binary_directory/volparossa" --control-socket "$cleanup_socket" \
-                logs --limit 400 >"$WORK/logs-$cleanup_node.txt" 2>/dev/null || true
+                logs --limit 400 >"$WORK/logs-$cleanup_node.txt" 2>/dev/null || cleanup_logs_status=$?
+            if [ "$private_storage_maintenance" = yes ]; then
+                case $cleanup_node in client|relay0|relay1|relay2|relay3|relay4|relay5)
+                    # Existing query only. A failed/truncated capture must not
+                    # masquerade as a successful empty ring in the sidecar.
+                    printf '%s\n' "$cleanup_logs_status" \
+                        2>/dev/null >"$WORK/logs-$cleanup_node-cleanup-status.private" || true ;;
+                esac
+            fi
             "$binary_directory/volparossa" --control-socket "$cleanup_socket" \
                 peers >"$WORK/peers-$cleanup_node.txt" 2>/dev/null || true
             "$binary_directory/volparossa" --control-socket "$cleanup_socket" \

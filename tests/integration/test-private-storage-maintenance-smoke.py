@@ -20,6 +20,178 @@ OLD = runpy.run_path(str(HERE / 'test-private-storage-fragments-smoke.py'))
 CONSUMER_FIXTURE = runpy.run_path(str(HERE / 'test-storage-consumer-maintenance-evidence.py'))
 
 
+class ProviderEventDiagnostic(unittest.TestCase):
+    CODE = 'CONTENT_DISCOVERY_RESPONSE_TARGETS_UNAVAILABLE'
+
+    def test_every_allowlisted_event_exists_in_the_selected_product_source(self):
+        source = '\n'.join((HERE.parents[1] / path).read_text() for path in (
+            'crates/volparossa-agent/src/content.rs', 'crates/volparossa-agent/src/discovery/content.rs',
+            'crates/volparossa-agent/src/discovery/content/exact.rs'))
+        self.assertEqual(len(CHECK['PROVIDER_EVENT_CODES']), len(set(CHECK['PROVIDER_EVENT_CODES'])))
+        for code in CHECK['PROVIDER_EVENT_CODES']:
+            self.assertIn(f'"{code}"', source)
+
+    @staticmethod
+    def save(path, raw):
+        path.write_text(raw); path.chmod(0o600)
+
+    @classmethod
+    def event(cls, stamp=101, code=None):
+        return f'{stamp}\tlevel=1\tevent={code or cls.CODE}\tsession={"deadbeef" * 8}\tpath=7\n'
+
+    def observed(self, root, raw=None, status='0\n'):
+        self.save(root / 'logs-client-cleanup-status.private', status)
+        self.save(root / 'logs-client.txt', self.event() if raw is None else raw)
+        return CHECK['provider_events'](root, 'storage-consumer-publish', '100')
+
+    def test_exact_roles_allowlist_and_no_raw_identifiers_or_unknown_events(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for node in CHECK['PROVIDER_EVENT_ROLES'].values():
+                self.save(root / f'logs-{node}-cleanup-status.private', '0\n')
+                self.save(root / f'logs-{node}.txt', self.event(99) + self.event()
+                    + self.event(102, 'CONTENT_DISCOVERY_PRIVATE_SENTINEL') + self.event(103, 'UNRELATED'))
+            value = CHECK['provider_events'](root, 'storage-consumer-publish', '100')
+            CHECK['validate_provider_events'](value)
+            self.assertEqual(set(value['roles']), set(CHECK['PROVIDER_EVENT_ROLES']))
+            for row in value['roles'].values():
+                self.assertEqual((row['records'], row['stale_records'], row['fresh_records']), (4, 1, 3))
+                self.assertEqual(row['counts'][self.CODE], 1)
+                self.assertEqual(row['unrecognized_event_records'], 1)
+                self.assertTrue(row['window_covers_baseline'])
+            encoded = json.dumps(value)
+            for private in ('deadbeef', 'PRIVATE_SENTINEL', 'UNRELATED', str(root), 'session=', 'path='):
+                self.assertNotIn(private, encoded)
+            self.assertFalse(value['event_absence_proven'])
+            self.assertFalse(value['causal_attribution'])
+
+    def test_capture_status_is_required_and_failure_never_becomes_empty_ring(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.save(root / 'logs-client.txt', self.event())
+            value = CHECK['provider_events'](root, 'private_unknown_phase', '100')
+            self.assertEqual(value['phase'], 'unknown')
+            self.assertEqual(value['roles']['client']['state'], 'unqueried')
+            for code in (1, 77, 255):
+                row = self.observed(root, raw='', status=f'{code}\n')['roles']['client']
+                self.assertEqual(row['state'], 'query_failed')
+                self.assertEqual(row['query_exit_status'], code)
+                self.assertIsNone(row['records'])
+                self.assertIsNone(row['counts'])
+            row = self.observed(root, raw='')['roles']['client']
+            self.assertEqual((row['state'], row['records']), ('observed', 0))
+            self.assertFalse(row['window_covers_baseline'])
+            self.assertEqual(sum(row['counts'].values()), 0)
+
+    def test_invalid_capture_status_and_missing_log_are_distinct(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for raw in ('00\n', '-1\n', '256\n', '0\nPRIVATE', '0', 'true'):
+                with self.subTest(raw=raw):
+                    row = self.observed(root, status=raw)['roles']['client']
+                    self.assertEqual(row['state'], 'capture_invalid')
+                    self.assertIsNone(row['query_exit_status'])
+            self.save(root / 'logs-client-cleanup-status.private', '0\n')
+            (root / 'logs-client.txt').unlink()
+            self.assertEqual(CHECK['provider_events'](root, 'unknown', '100')['roles']['client']['state'], 'absent')
+
+    def test_baseline_is_bound_without_exporting_timestamp_or_unbound_counts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root)
+            for baseline, state in (('0', 'absent'), ('', 'absent'), ('-1', 'invalid'),
+                    ('0100', 'invalid'), ('1\nPRIVATE', 'invalid'), ('9' * 20, 'invalid')):
+                value = CHECK['provider_events'](root, 'storage-consumer-publish', baseline)
+                self.assertEqual(value['baseline_state'], state)
+                self.assertEqual(value['roles']['client']['state'], 'baseline_unavailable')
+                self.assertIsNone(value['roles']['client']['counts'])
+
+    def test_ring_capacity_and_uncovered_window_remain_observations_not_absence_proof(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            value = self.observed(root, raw=self.event() * 400)
+            row = value['roles']['client']
+            self.assertEqual(row['counts'][self.CODE], 400)
+            self.assertTrue(row['ring_at_capacity'])
+            self.assertFalse(row['window_covers_baseline'])
+            self.assertFalse(value['acceptance_evidence'])
+            self.assertEqual(self.observed(root, raw=self.event() * 401)['roles']['client']['state'], 'invalid')
+
+    def test_malformed_raw_paths_bounds_and_clock_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for raw in ('PRIVATE_PATH /secret/private\n', self.event().replace('path=7', 'path=/secret'),
+                    self.event().replace('event=', 'event=private.example/'), '\N{SNOWMAN}', 'x' * 131073):
+                with self.subTest(length=len(raw)):
+                    value = self.observed(root, raw=raw)
+                    self.assertEqual(value['roles']['client']['state'], 'invalid')
+                    self.assertIsNone(value['roles']['client']['counts'])
+                    self.assertNotIn('PRIVATE_PATH', json.dumps(value))
+                    self.assertNotIn('/secret', json.dumps(value))
+            for raw in (self.event(0), self.event(102) + self.event(101), self.event(10**19)):
+                self.assertEqual(self.observed(root, raw=raw)['roles']['client']['state'], 'clock_invalid')
+
+    def test_private_input_metadata_and_no_follow_boundaries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root)
+            path = root / 'logs-client.txt'
+            path.chmod(0o644)
+            self.assertEqual(CHECK['provider_events'](root, 'unknown', '100')['roles']['client']['state'], 'invalid')
+            path.chmod(0o600)
+            other = root / 'other'; path.rename(other); path.symlink_to(other)
+            self.assertEqual(CHECK['provider_events'](root, 'unknown', '100')['roles']['client']['state'], 'invalid')
+            path.unlink(); os.link(other, path)
+            self.assertEqual(CHECK['provider_events'](root, 'unknown', '100')['roles']['client']['state'], 'invalid')
+            path.unlink(); os.mkfifo(path, 0o600)
+            self.assertEqual(CHECK['provider_events'](root, 'unknown', '100')['roles']['client']['state'], 'invalid')
+
+    def test_closed_validator_rejects_mutation_and_boolean_counts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            value = self.observed(Path(temporary))
+            changes = ({'private_path': 'PRIVATE'}, {'version': True}, {'phase': 'PRIVATE'},
+                {'scope': 'failure_cause'}, {'acceptance_evidence': True}, {'event_absence_proven': True},
+                {'causal_attribution': True}, {'baseline_state': 'invalid'}, {'roles': {}})
+            for change in changes:
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    CHECK['validate_provider_events']({**value, **change})
+            for change in ({'records': True}, {'fresh_records': 401}, {'query_exit_status': True},
+                    {'query_exit_status': 1}, {'state': 'query_failed'}, {'raw': 'PRIVATE'},
+                    {'window_covers_baseline': True}, {'ring_at_capacity': True},
+                    {'counts': {self.CODE: 1}}, {'unrecognized_event_records': 1}):
+                invalid = copy.deepcopy(value); invalid['roles']['client'].update(change)
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    CHECK['validate_provider_events'](invalid)
+
+    def test_sidecar_failure_is_independent_of_existing_route_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root)
+            expected = CHECK['route_diagnostic'](root)
+            for error in (RuntimeError('PRIVATE_FAILURE'), KeyboardInterrupt()):
+                with patch.dict(CHECK['export_provider_events'].__globals__,
+                        provider_events=Mock(side_effect=error)), patch('builtins.print') as output:
+                    CHECK['main'](['route-diagnostic', str(root), 'storage-consumer-publish', '100'])
+                self.assertEqual(json.loads(output.call_args.args[0]), expected)
+                self.assertFalse((root / CHECK['PROVIDER_EVENTS_NAME']).exists())
+            with patch('os.replace', side_effect=OSError('PRIVATE_WRITE_FAILURE')), patch('builtins.print') as output:
+                CHECK['main'](['route-diagnostic', str(root), 'storage-consumer-publish', '100'])
+            self.assertEqual(json.loads(output.call_args.args[0]), expected)
+            self.assertFalse((root / 'maintenance-provider-events.part').exists())
+
+    def test_atomic_sidecar_and_export_validator_do_not_publish_private_or_duplicate_fields(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root)
+            CHECK['export_provider_events'](root, 'storage-consumer-publish', '100')
+            target = root / CHECK['PROVIDER_EVENTS_NAME']
+            value = CHECK['provider_events_file'](target)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            self.assertFalse((root / 'maintenance-provider-events.part').exists())
+            for raw in ('{"version":1,"version":1}', json.dumps({**value, 'path': '/PRIVATE'}), 'x' * 65537):
+                self.save(target, raw)
+                with self.assertRaises(ValueError): CHECK['provider_events_file'](target)
+                with patch('builtins.print') as output:
+                    CHECK['main'](['export-names', str(root)])
+                self.assertNotIn(CHECK['PROVIDER_EVENTS_NAME'], output.call_args.args[0].splitlines())
+
+
 class SupervisorDiagnostic(unittest.TestCase):
     def test_closed_schema_rejects_unknown_fields_values_statuses_and_false_acceptance(self):
         value = CHECK['supervisor_record']('control_match', 'failed', '1', 'different')
@@ -837,6 +1009,7 @@ class MaintenanceEvidence(unittest.TestCase):
             self.assertEqual(set(CHECK['EXPORT_NAMES']) - consumer_only - {
                 'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json',
                 'private-storage-maintenance-lifecycle-failure.json', 'private-storage-maintenance-route-diagnostic.json',
+            'private-storage-maintenance-provider-events.json',
                 'private-storage-maintenance-inventory.json', 'private-storage-maintenance-supervisor.json'},
                 {p.name for p in root.iterdir()} - {CHECK['CONSUMERS']['TRANSITION_NAME']})
             (root / 'private-storage-fragments-restored_usage.json').write_text('{}')
