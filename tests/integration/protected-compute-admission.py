@@ -254,28 +254,86 @@ def lock_delta(original, effective):
         changed_direct_package='volparossa-content', new_direct_dependencies=['sev', 'x509-cert'])
 
 
+class MetadataPolicyError(ValueError):
+    """A closed policy code plus already bounded public facts, never raw metadata."""
+
+    def __init__(self, code, projection):
+        super().__init__(code)
+        self.projection = projection
+
+
 def metadata_projection(raw, effective):
     require(len(raw) <= MAX_METADATA, 'metadata_bound')
     data = json.loads(raw)
-    packages, _ = lock_graph(effective)
+    packages, edges = lock_graph(effective)
     require(data.get('version') == 1 and isinstance(data.get('resolve'), dict), 'metadata_schema')
-    nodes = {node['id']: node for node in data['resolve']['nodes']}
-    selected = []
+    require(type(data.get('packages')) is list and 1 <= len(data['packages']) <= 1024
+        and type(data['resolve'].get('nodes')) is list and len(data['resolve']['nodes']) <= 1024,
+        'metadata_schema')
+    identities, nodes = {}, {}
     for package in data['packages']:
         key = (package['name'], package['version'], package.get('source') or '')
-        require(key in packages, 'metadata_package')
+        identity = package.get('id')
+        require(key in packages and type(identity) is str and 1 <= len(identity) <= 2048
+            and identity not in identities, 'metadata_package')
+        identities[identity] = key
+    for node in data['resolve']['nodes']:
+        identity = node.get('id')
+        require(type(identity) is str and identity in identities and identity not in nodes,
+            'metadata_node')
+        nodes[identity] = node
+    selected = []
+    for package in data['packages']:
+        key = identities[package['id']]
         if key[0] in ('sev', 'x509-cert'):
+            require(package['id'] in nodes, 'metadata_selection')
             features = nodes[package['id']]['features']
             require(type(features) is list and len(features) <= 32
-                and all(re.fullmatch('[A-Za-z0-9_/-]{1,80}', x) for x in features), 'metadata_features')
+                and all(type(x) is str and re.fullmatch('[A-Za-z0-9_+-]{1,80}', x) for x in features)
+                and len(set(features)) == len(features), 'metadata_features')
+            require(package['license'] is None or (type(package['license']) is str
+                and re.fullmatch('[A-Za-z0-9 .+()-]{1,128}', package['license'])), 'metadata_license')
+            require(package['rust_version'] is None or (type(package['rust_version']) is str
+                and re.fullmatch(r'[0-9]{1,3}\.[0-9]{1,3}(?:\.[0-9]{1,3})?', package['rust_version'])),
+                'metadata_rust_version')
             selected.append(dict(name=key[0], version=key[1], source=key[2],
                 license=package['license'], rust_version=package['rust_version'], features=sorted(features)))
+            if key[0] == 'sev':
+                dependencies = nodes[package['id']].get('deps')
+                require(type(dependencies) is list and len(dependencies) <= 256, 'metadata_dependencies')
+                observed, seen = [], set()
+                for dependency in dependencies:
+                    identity = dependency.get('pkg')
+                    require(type(identity) is str and identity in identities and identity in nodes
+                        and identity not in seen, 'metadata_dependency')
+                    seen.add(identity)
+                    target = identities[identity]
+                    require(target in edges[key], 'metadata_dependency_lock')
+                    kinds = dependency.get('dep_kinds')
+                    require(type(kinds) is list and 1 <= len(kinds) <= 16
+                        and all(type(kind) is dict and kind.get('kind') in (None, 'build', 'dev')
+                            and 'kind' in kind and 'target' in kind for kind in kinds), 'metadata_dependency_kind')
+                    # Package IDs and cfg/path strings stay private. Only an actual
+                    # unconditional normal edge under its expected library name counts.
+                    observed.append(dict(name=target[0], version=target[1], source=target[2],
+                        normal=any(kind['kind'] is None and kind['target'] is None for kind in kinds),
+                        unrenamed=dependency.get('name') == target[0].replace('-', '_')))
+                selected[-1]['dependencies'] = sorted(observed, key=lambda item: (item['name'], item['version'], item['source']))
     require(len(selected) == 2, 'metadata_selection')
-    sev = next(value for value in selected if value['name'] == 'sev')
-    require(sev['source'] == SEV_SOURCE and sev['version'] == '8.0.0'
-        and set(sev['features']) == {'snp', 'crypto_nossl', 'p384', 'rsa', 'sha2', 'x509-cert'}, 'actual_sev_features')
-    return dict(raw_metadata=digest(raw), selected_packages=selected,
+    projection = dict(raw_metadata=digest(raw), selected_packages=selected,
         format='cargo-metadata-1-public-projection', local_paths_exported=False)
+    sev = next(value for value in selected if value['name'] == 'sev')
+    # Pinned sev uses dep:p384/dep:rsa/dep:sha2/dep:x509-cert, which suppress
+    # implicit dependency-named features. Check named features and edges separately.
+    if not (sev['source'] == SEV_SOURCE and sev['version'] == '8.0.0'
+            and set(sev['features']) == {'snp', 'crypto_nossl'}):
+        raise MetadataPolicyError('actual_sev_features', projection)
+    for name in ('p384', 'rsa', 'sha2', 'x509-cert'):
+        targets = [item for item in sev['dependencies'] if item['name'] == name]
+        if not (len(targets) == 1 and targets[0]['source'] == REGISTRY
+                and targets[0]['normal'] and targets[0]['unrenamed']):
+            raise MetadataPolicyError('actual_sev_dependencies', projection)
+    return projection
 
 
 def verify_tests(raw):
@@ -471,6 +529,10 @@ def metadata(work):
             read(ROOT / 'Cargo.lock', MAX_LOCK))
         check_effective(work)
         result['passed'] = True
+    except MetadataPolicyError as error:
+        result['projection'] = error.projection
+        result['error'] = str(error)
+        raise
     finally:
         record(evidence / 'resolved-metadata.json', result)
 

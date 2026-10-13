@@ -39,6 +39,13 @@ def fixture_packages():
     return old, new
 
 
+def verifier_packages():
+    old, new = fixture_packages()
+    new[2]['dependencies'] += ['p384', 'rsa', 'sha2']
+    new += [package('p384', '0.13.1'), package('rsa', '0.9.10'), package('sha2', '0.10.9')]
+    return old, new
+
+
 def lock(packages):
     value = 'version = 4\n'
     for item in packages:
@@ -57,14 +64,22 @@ def test_log():
 
 
 def metadata_fixture(packages):
+    """Source-shaped synthetic metadata, not the failed runner's unretained array."""
+    _, edges = P.lock_graph(lock(packages))
+    identities = {P.package_key(item): 'fixture-id-' + str(i) for i, item in enumerate(packages)}
     result, nodes = [], []
     for i, item in enumerate(packages):
         identity = 'fixture-id-' + str(i)
         result.append(dict(id=identity, name=item['name'], version=item['version'],
             source=item.get('source'), license='Apache-2.0 OR MIT', rust_version='1.85.0',
-            manifest_path='/private/not-exported/Cargo.toml'))
-        nodes.append(dict(id=identity, features=['snp', 'crypto_nossl', 'p384', 'rsa', 'sha2', 'x509-cert']
-            if item['name'] == 'sev' else ['std']))
+            manifest_path='/private/not-exported/Cargo.toml',
+            features={'snp': [], 'crypto_nossl': ['dep:p384', 'dep:rsa', 'dep:sha2', 'dep:x509-cert']}
+                if item['name'] == 'sev' else {}))
+        dependencies = sorted(edges[P.package_key(item)])
+        nodes.append(dict(id=identity, features=['snp', 'crypto_nossl'] if item['name'] == 'sev' else ['std'],
+            dependencies=[identities[key] for key in dependencies],
+            deps=[dict(name=key[0].replace('-', '_'), pkg=identities[key],
+                dep_kinds=[dict(kind=None, target=None)]) for key in dependencies]))
     return dict(version=1, packages=result, resolve=dict(nodes=nodes))
 
 
@@ -83,7 +98,7 @@ def source_fixture():
         for name in ('Cargo.toml', 'crates/volparossa-content/Cargo.toml'):
             (root / name).write_bytes((P.ROOT / name).read_bytes())
             (root / name).chmod(0o600)
-        old, new = fixture_packages()
+        old, new = verifier_packages()
         (root / 'Cargo.lock').write_bytes(lock(old))
         (root / 'Cargo.lock').chmod(0o600)
         (root / 'other.rs').write_text('public synthetic source\n')
@@ -243,16 +258,63 @@ class ProbeContracts(unittest.TestCase):
             with self.assertRaises(ValueError): P.lock_graph(raw)
 
     def test_metadata_checks_actual_features_and_removes_paths(self):
-        _, new = fixture_packages()
+        _, new = verifier_packages()
         original = metadata_fixture(new)
         projected = P.metadata_projection(json.dumps(original).encode(), lock(new))
         self.assertNotIn('/private/', json.dumps(projected))
+        self.assertNotIn('fixture-id-', json.dumps(projected))
         self.assertFalse(projected['local_paths_exported'])
-        for features in (['snp'], ['snp', 'crypto_nossl', 'openssl'],
-                ['snp', 'crypto_nossl', 'p384', 'rsa', 'sha2', 'x509-cert', 'sev']):
+        sev = next(item for item in projected['selected_packages'] if item['name'] == 'sev')
+        self.assertEqual(sev['features'], ['crypto_nossl', 'snp'])
+        self.assertTrue(all(item['normal'] and item['unrenamed'] for item in sev['dependencies']))
+        self.assertTrue({'p384', 'rsa', 'sha2', 'x509-cert'} <= {item['name'] for item in sev['dependencies']})
+        for features in (['snp'], ['crypto_nossl'], ['snp', 'crypto_nossl', 'openssl'],
+                ['snp', 'crypto_nossl', 'default'], ['snp', 'crypto_nossl', 'sev'],
+                ['snp', 'crypto_nossl', 'hw_tests'], ['snp', 'crypto_nossl', 'dangerous_hw_tests'],
+                ['snp', 'crypto_nossl', 'p384', 'rsa', 'sha2', 'x509-cert']):
             bad = copy.deepcopy(original)
             bad['resolve']['nodes'][2]['features'] = features
-            with self.assertRaisesRegex(ValueError, 'actual_sev_features'):
+            with self.assertRaisesRegex(P.MetadataPolicyError, 'actual_sev_features') as caught:
+                P.metadata_projection(json.dumps(bad).encode(), lock(new))
+            observed = next(item for item in caught.exception.projection['selected_packages'] if item['name'] == 'sev')
+            self.assertEqual(observed['features'], sorted(features))
+
+    def test_metadata_requires_actual_normal_crypto_edges_bound_to_resolved_ids_and_lock(self):
+        _, new = verifier_packages()
+        original = metadata_fixture(new)
+        for name in ('p384', 'rsa', 'sha2', 'x509-cert'):
+            for kind in ('missing', 'unresolved', 'node_missing', 'wrong_target', 'wrong_lock_edge',
+                    'build_only', 'dev_only', 'conditional', 'renamed', 'duplicate'):
+                bad = copy.deepcopy(original)
+                dependencies = bad['resolve']['nodes'][2]['deps']
+                edge = next(item for item in dependencies if item['name'] == name.replace('-', '_'))
+                if kind == 'missing': dependencies.remove(edge)
+                elif kind == 'unresolved': edge['pkg'] = '/private/unresolved-id'
+                elif kind == 'node_missing':
+                    bad['resolve']['nodes'] = [node for node in bad['resolve']['nodes'] if node['id'] != edge['pkg']]
+                elif kind == 'wrong_target': edge['pkg'] = 'fixture-id-4'  # Another locked package, not this dependency.
+                elif kind == 'wrong_lock_edge': edge['pkg'] = 'fixture-id-1'  # Resolved, but not a sev lock edge.
+                elif kind == 'build_only': edge['dep_kinds'][0]['kind'] = 'build'
+                elif kind == 'dev_only': edge['dep_kinds'][0]['kind'] = 'dev'
+                elif kind == 'conditional': edge['dep_kinds'][0]['target'] = 'cfg(private_not_exported)'
+                elif kind == 'renamed': edge['name'] = 'private_not_exported'
+                else: dependencies.append(copy.deepcopy(edge))
+                with self.subTest(name=name, kind=kind), self.assertRaises(ValueError) as caught:
+                    P.metadata_projection(json.dumps(bad).encode(), lock(new))
+                if isinstance(caught.exception, P.MetadataPolicyError):
+                    self.assertNotIn('private', json.dumps(caught.exception.projection))
+
+    def test_metadata_projection_rejects_path_bearing_or_ambiguous_public_fields(self):
+        _, new = verifier_packages()
+        original = metadata_fixture(new)
+        for kind in ('features', 'duplicate_feature', 'license', 'rust_version', 'duplicate_node', 'duplicate_id'):
+            bad = copy.deepcopy(original)
+            if kind == 'features': bad['resolve']['nodes'][2]['features'].append('/private/feature')
+            elif kind == 'duplicate_feature': bad['resolve']['nodes'][2]['features'].append('snp')
+            elif kind in ('license', 'rust_version'): bad['packages'][2][kind] = '/private/field'
+            elif kind == 'duplicate_node': bad['resolve']['nodes'].append(copy.deepcopy(bad['resolve']['nodes'][2]))
+            else: bad['packages'].append(copy.deepcopy(bad['packages'][2]))
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
                 P.metadata_projection(json.dumps(bad).encode(), lock(new))
 
     def test_exact_test_selection_and_skips_cannot_be_relabelled(self):
@@ -420,6 +482,36 @@ class ProbeContracts(unittest.TestCase):
             with patch.object(P, 'run') as native, self.assertRaisesRegex(ValueError, 'metadata_required'):
                 P.execute(work, 'test')
             native.assert_not_called()
+
+    def test_metadata_policy_failure_retains_only_bounded_public_observations_and_blocks_tests(self):
+        for kind in ('features', 'dependency'):
+            with source_fixture() as (root, work, old, new), self.subTest(kind=kind):
+                (work / 'evidence').mkdir(parents=True)
+                P.write(work / 'evidence/original-Cargo.lock', lock(old))
+                P.write(work / 'evidence/effective-Cargo.lock', lock(new))
+                (root / 'Cargo.lock').write_bytes(lock(new))
+                observed = metadata_fixture(new)
+                if kind == 'features': observed['resolve']['nodes'][2]['features'].append('openssl')
+                else:
+                    node = observed['resolve']['nodes'][2]
+                    node['deps'] = [edge for edge in node['deps'] if edge['name'] != 'p384']
+                def fake_run(_argv, output, _deadline, *, stdout):
+                    P.write(stdout, json.dumps(observed).encode()); P.write(output, b'')
+                    return tool_outcome()
+                with patch.object(P, 'run', side_effect=fake_run), self.assertRaises(P.MetadataPolicyError):
+                    P.metadata(work)
+                raw = P.read(work / 'evidence/resolved-metadata.json', P.MAX_LOCK)
+                value = json.loads(raw)
+                self.assertFalse(value['passed']); self.assertEqual(value['command']['exit_status'], 0)
+                self.assertEqual(value['error'], 'actual_sev_features' if kind == 'features' else 'actual_sev_dependencies')
+                self.assertEqual(value['projection']['raw_metadata'], P.digest(json.dumps(observed).encode()))
+                self.assertLess(len(raw), 8192)
+                for secret in (b'/private/', b'fixture-id-', b'cfg(', b'manifest_path'):
+                    self.assertNotIn(secret, raw)
+                self.assertEqual(value['scope'], P.SCOPE)
+                with patch.object(P, 'run') as native, self.assertRaisesRegex(ValueError, 'metadata_required'):
+                    P.execute(work, 'test')
+                native.assert_not_called()
 
     def test_capture_runs_only_inert_python_and_preserves_exit_status(self):
         with tempfile.TemporaryDirectory() as tmp:
