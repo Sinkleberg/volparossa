@@ -88,12 +88,11 @@ impl Observation {
         // diagnostic wrapper must not shift the existing absolute deadline.
         let operation = timeout(duration, operation);
         async move {
-            match operation.await {
-                Ok(result) => result,
-                Err(_) => {
-                    self.deadline.store(scope as i32, Ordering::Relaxed);
-                    Err(ContentError::Unavailable)
-                }
+            if let Ok(result) = operation.await {
+                result
+            } else {
+                self.deadline.store(scope as i32, Ordering::Relaxed);
+                Err(ContentError::Unavailable)
             }
         }
     }

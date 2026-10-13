@@ -229,16 +229,17 @@ impl ContentRuntime {
             } else {
                 None
             };
-            remote(
+            Box::pin(remote(
                 &request,
                 context,
                 local,
                 request_id,
                 ready_sent,
                 &observation,
-            )
+            ))
             .await
         });
+        let operation = Box::pin(operation);
         let result = if let Some(turn) = &request.maintenance {
             tokio::select! {
                 biased;
@@ -438,25 +439,24 @@ async fn remote(
                 .ok_or(ContentError::Unavailable)
         })
         .await?;
-    observation
-        .budget(
-            Deadline::Exchange,
-            Duration::from_secs(remaining.min(MAX_AUTH_SECONDS)),
-            exchange(
-                request,
-                SelectedProvider {
-                    provider,
-                    policy,
-                    control,
-                },
-                context,
-                local,
-                id,
-                ready_sent,
-                observation,
-            ),
-        )
-        .await
+    Box::pin(observation.budget(
+        Deadline::Exchange,
+        Duration::from_secs(remaining.min(MAX_AUTH_SECONDS)),
+        exchange(
+            request,
+            SelectedProvider {
+                provider,
+                policy,
+                control,
+            },
+            context,
+            local,
+            id,
+            ready_sent,
+            observation,
+        ),
+    ))
+    .await
 }
 
 async fn exchange(
@@ -475,8 +475,8 @@ async fn exchange(
     } = selected;
     let current = route_current(context, &policy, control, request.peer).await?;
     let endpoint = provider.offer.endpoint();
-    let mut flow = observation
-        .requester_boundary(Stage::StreamOpen, local, async {
+    let mut flow = Box::pin(
+        observation.requester_boundary(Stage::StreamOpen, local, async {
             context
                 .routes
                 .open_content_stream(
@@ -487,8 +487,9 @@ async fn exchange(
                 )
                 .await
                 .map_err(|_| ContentError::Unavailable)
-        })
-        .await?;
+        }),
+    )
+    .await?;
     let mut remote = observation
         .requester_boundary(Stage::TlsHandshake, local, async {
             tls::connect(flow.stream_mut(), request.peer, &provider.offer)
