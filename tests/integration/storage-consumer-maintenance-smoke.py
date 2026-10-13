@@ -188,14 +188,35 @@ LIFECYCLE = {'observed_old_owner_absent_while_foreground_active', 'observed_paus
 
 def validate_node_report(value, phase, provision, prepared=None):
     require(phase in PHASES and type(value) is dict and type(value.get('passed')) is bool, 'node_report')
+    expected_version = 1
     if not value['passed']:
-        keys(value, ('version', 'kind', 'phase', 'passed', 'provision_sha256', 'stage', 'code', 'cleanup_confirmed'))
+        fields = ('version', 'kind', 'phase', 'passed', 'provision_sha256', 'stage', 'code', 'cleanup_confirmed')
+        if 'publish_observation' in value:
+            expected_version = 2
+            fields += ('publish_observation',)
+            observed = value['publish_observation']
+            keys(observed, ('version', 'app', 'operation', 'status', 'code', 'local_process_joined',
+                'core_report_present', 'core_operation_complete'))
+            require(type(observed['version']) is int and observed['version'] == 1
+                and observed['app'] in ('image', 'cloud') and observed['operation'] in ('create', 'deposit')
+                and phase == 'publish' and value['stage'] == observed['app'] + '_publish'
+                and value['code'] in ('publish_operation', 'phase_deadline'), 'publish_observation')
+            require(observed['status'] in ('complete', 'incomplete', 'failed', 'cancelled', 'timed_out', 'unknown')
+                and observed['code'] in ('ok', 'retained_operation_incomplete', 'invalid_core_report', 'core_failed',
+                    'cancelled', 'timed_out', 'report_too_large', 'restore_verification_failed', 'unknown')
+                and type(observed['core_report_present']) is bool
+                and all(observed[key] is None or type(observed[key]) is bool
+                    for key in ('local_process_joined', 'core_operation_complete'))
+                and (observed['core_report_present'] or observed['core_operation_complete'] is None)
+                and not (observed['status'] == 'complete' and observed['local_process_joined'] is True),
+                'publish_observation')
+        keys(value, fields)
         require(value['stage'] in STAGES and value['code'] in FAILURE_CODES and value['cleanup_confirmed'] is False, 'failure_report')
     else:
         keys(value, ('version', 'kind', 'phase', 'passed', 'provision_sha256', 'image', 'cloud', 'scope'))
         keys(value['scope'], SCOPE)
         require(all(value['scope'][key] is expected for key, expected in SCOPE.items()), 'scope')
-    require(type(value['version']) is int and value['version'] == 1
+    require(type(value['version']) is int and value['version'] == expected_version
         and value['kind'] == 'storage-consumer-maintenance' and value['phase'] == phase
         and value['provision_sha256'] == provision, 'node_identity')
     if not value['passed']:

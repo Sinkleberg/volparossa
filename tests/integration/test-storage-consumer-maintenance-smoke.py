@@ -147,6 +147,48 @@ class ConsumerReceipts(unittest.TestCase):
         self.assertNotIn('/private', json.dumps(value))
         self.assertEqual(M['failure_report'](['/private/key'])['phase'], 'invalid')
 
+    def test_closed_publish_observation_preserves_operation_without_exporting_raw_result(self):
+        value = dict(version=2, kind='storage-consumer-maintenance', phase='publish', passed=False,
+            provision_sha256=PROVISION, stage='cloud_publish', code='publish_operation', cleanup_confirmed=False,
+            publish_observation=dict(version=1, app='cloud', operation='deposit', status='incomplete',
+                code='retained_operation_incomplete', local_process_joined=True,
+                core_report_present=True, core_operation_complete=False))
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION), value)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            with patch.dict(G, run_child=lambda *_: (1, raw, b'PRIVATE-DO-NOT-EXPORT')):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+        cases = [lambda v: v.update(version=1), lambda v: v.update(stage='image_publish'),
+            lambda v: v.update(phase='exercise'), lambda v: v.update(code='application_failed'),
+            lambda v: v['publish_observation'].update(app='private-path'),
+            lambda v: v['publish_observation'].update(operation='restore'),
+            lambda v: v['publish_observation'].update(status='PRIVATE'),
+            lambda v: v['publish_observation'].update(code='PRIVATE'),
+            lambda v: v['publish_observation'].update(local_process_joined=1),
+            lambda v: v['publish_observation'].update(core_report_present=1),
+            lambda v: v['publish_observation'].update(core_operation_complete=1),
+            lambda v: v['publish_observation'].update(core_report_present=False),
+            lambda v: v['publish_observation'].update(status='complete'),
+            lambda v: v['publish_observation'].update(raw_storage={'path': 'PRIVATE'}),
+            lambda v: v['publish_observation'].update(version=True)]
+        for mutate in cases:
+            with self.subTest(mutate=mutate):
+                changed = copy.deepcopy(value)
+                mutate(changed)
+                with self.assertRaises(ValueError):
+                    M['validate_node_report'](changed, changed['phase'], PROVISION)
+        changed = copy.deepcopy(value)
+        changed['code'] = 'phase_deadline'
+        changed['publish_observation'].update(status='cancelled', code='cancelled',
+            core_report_present=False, core_operation_complete=None)
+        M['validate_node_report'](changed, 'publish', PROVISION)
+
 
 class ConsumerBoundaries(unittest.TestCase):
     def test_private_reader_enforces_real_size_mode_links_and_no_follow(self):

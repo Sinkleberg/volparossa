@@ -31,13 +31,50 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38314299583` on `6fb0114c` passes isolated AVD creation and both APK builds, then stops the installed-app phase at its 3 GiB aggregate memory cap; process drain and full cleanup are not confirmed. Candidate `cdf604e` gives only that phase 4 GiB, retaining its existing resource reserves and other limits. Actual trial `38316868986` has failed; its original reports are being inspected. Separate component CI passes 305 tests. Installation, launch, refresh, expiry and iOS remain unproved. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's trial `38323695908` on `f7269a9b` stops before topology setup: twelve targeted owner tests pass, while the waiting-for-core expiry test exceeds its three-second join timeout. The candidate observes the actual socket request before advancing only the test's virtual expiry timer. Production authority and timeouts are unchanged. The retained-intent correction, actual transition, completed repair and consumer acceptance still need the protected trial. Image PR6 and Cloud PR13 retain their original pins and checks. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Trial `38326191629` on `1a1dbd82` proves the separate core lifecycle, control-relay replacement, two source-free restores and deletion of all eleven retained copies. It then fails during Cloud publishing, before consumer repair/read/delete. The next candidate distinguishes the failed application operation and closed core result without exporting private output. Image/Cloud pins, grants, deadlines and acceptance requirements stay unchanged; complete consumer acceptance remains open. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | No suitable confidential-computing server is currently available; the user confirmed this on 2026-10-12. Prepare attestation and task-bound authorization, cancellation and resource limits, but hardware-backed acceptance still needs suitable capacity. Current local private service, ordinary VMs and public peer tasks do not prove this requirement. Android and storage work continue in parallel. |
 
 ### Current corrections awaiting hosted proof
 
-The latest [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38323695908)
+The latest [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38326191629)
+on `1a1dbd82` passes the core storage sequence, then fails at
+`cloud_publish / publish_operation`. The original consumer receipt does not
+distinguish create from deposit or identify the returned core status. Consumer
+repair, authenticated reads and deletion are not reached, so the complete run
+remains failed. Successful local cleanup does not prove deletion of those
+partially published consumer objects from providers.
+
+The separately validated core receipts prove daemon restart, unchanged owner
+authority and journals, a fresh owner resuming, and cursor progression
+`3 → 4 → 8 → 9`. Control switches from relay0 to relay2 with matching kernel
+and filter observations. Upload, lifecycle, restore and finish record
+74, 32, 44 and 29 completed MPTCP-TLS flows respectively, using two real relay
+paths with no direct client-to-exit packets, unexpected packets or capture
+drops. Two restores succeed without the original source or unavailable
+provider A. All eleven retained core copies are then deleted, with zero
+provider charges. The actual guest-root state is unchanged after cleanup.
+
+All 71 original proof members and their ZIP digest are checked:
+`98a17e682037e725b558a3d00e737507a56217cd9f5eef7784fbfceb6aa5d6f6`.
+The original log ZIP has SHA-256
+`9f250b34d945272512e507d59bb7fef2ac265bc77c195b13b7da12105406ea05`.
+[Quality 38326182328](https://github.com/VOLPAROSSA/volparossa/actions/runs/38326182328)
+passes on verified PR merge `abfde4f2` of main `3dcdffa0` and `1a1dbd82`:
+3,588 workspace tests pass, none fail and seven are ignored. The corrected
+finite-authority timer/socket test also passes in the actual guest's targeted
+13 owner, six agent and ten wire tests. Quality's three skipped namespace
+proofs are not substitutes for the separate live evidence above.
+
+The new consumer failure diagnostic records only fixed application/operation,
+status/code and boolean result observations. Unknown values remain unknown;
+it exports no raw core report, stderr, private journal or path. Schema-two
+failure receipts remain distinct from historical schema-one evidence. Fourteen
+inert Node tests and twenty Python tests pass, including independent review.
+The next actual trial must identify and resolve the Cloud failure; neither a
+larger quota nor a longer deadline is justified by the current evidence.
+
+The preceding [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38323695908)
 on `f7269a9b` stops in `storage-maintenance-targeted-tests`, before topology setup.
 Twelve owner tests pass; the waiting-for-core expiry test returns `Elapsed(())`
 at its three-second join timeout. Its original output does not identify which
@@ -55,7 +92,7 @@ bounded guards require the owner to finish, close the actual socket, retain zero
 turns and write `enrollment_expired`. The already-expired no-connect test remains.
 This is virtual-timer and socket-cancellation coverage, not evidence of elapsed
 wall-clock expiry. Production code, authority and runtime limits are unchanged;
-the correction still requires hosted compilation and execution.
+hosted compilation and execution now pass in `38326191629` as recorded above.
 
 [Quality 38323653485](https://github.com/VOLPAROSSA/volparossa/actions/runs/38323653485)
 passes on PR merge `3685f313` of main `3dcdffa0` and the original `f7269a9b`:
@@ -93,7 +130,7 @@ never exported. Production behavior, grants, deadlines, repair turns and
 network acceptance are unchanged. All 39 wiring and 37 maintenance tests pass,
 including independent review;
 their bound journal fixtures are explicitly synthetic, not cryptographic or
-network evidence. A new real trial is still required; other, more advanced
+network evidence. The later core sequence in `38326191629` passes; other, more advanced
 loss states are not admitted by this deliberately narrow fixture correction.
 
 The preceding [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38313487736)

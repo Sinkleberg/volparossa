@@ -8,7 +8,8 @@ import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import test from 'node:test';
 import { boundedFile, fixtureBytes, ForegroundObservation, MAX_CIPHER, PHASES, PLAIN_BYTES,
-  parseProcStat, replacementReady, retainedSnapshot, retentionAdvanced, validateCheckpoint, validateStorage } from './storage-consumer-maintenance.mjs';
+  consumerFailureReport, parseProcStat, replacementReady, requirePublishComplete, retainedSnapshot,
+  retentionAdvanced, validateCheckpoint, validateStorage } from './storage-consumer-maintenance.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const keys = [1, 2, 3].map(v => Buffer.alloc(32, v).toString('hex'));
@@ -27,6 +28,60 @@ function storage(kind = 'repaired') {
     fragments_with_confirmed_unexpired_copy: 4, fully_redundant_from_retained_receipts: true,
   } };
 }
+
+function publishFailure(value, app = 'cloud', operation = 'deposit', aborted = false) {
+  try { requirePublishComplete(value, app, operation); assert.fail('expected rejection'); }
+  catch (error) {
+    assert.equal(error.code, 'publish_operation');
+    return consumerFailureReport({ provision: 'a'.repeat(64), stage: `${app}_publish`, signal: { aborted } }, 'publish', error);
+  }
+}
+
+test('publish rejection identifies the exact app and operation with closed bridge observations', () => {
+  for (const app of ['image', 'cloud']) for (const operation of ['create', 'deposit']) {
+    const result = publishFailure({ status: 'incomplete', code: 'retained_operation_incomplete',
+      local_process_joined: true, storage: { operation_complete: false, private_key: 'DO-NOT-EXPORT' } }, app, operation);
+    assert.equal(result.version, 2);
+    assert.equal(result.passed, false);
+    assert.equal(result.cleanup_confirmed, false);
+    assert.deepEqual(result.publish_observation, { version: 1, app, operation,
+      status: 'incomplete', code: 'retained_operation_incomplete', local_process_joined: true,
+      core_report_present: true, core_operation_complete: false });
+    assert.ok(!JSON.stringify(result).includes('DO-NOT-EXPORT'));
+  }
+  assert.doesNotThrow(() => requirePublishComplete({ status: 'complete', local_process_joined: true }, 'cloud', 'create'));
+  assert.throws(() => requirePublishComplete({}, '/private/path', 'deposit'), /arguments/u);
+  assert.throws(() => requirePublishComplete({}, 'image', 'delete'), /arguments/u);
+});
+
+test('publish diagnostic maps unfamiliar data to unknown without treating a join as success', () => {
+  const result = publishFailure({ status: '/private/status', code: 'SECRET-CODE', local_process_joined: 1,
+    storage: { operation_complete: 'SECRET-COMPLETE' }, stderr: 'SECRET-STDERR' });
+  assert.deepEqual(result.publish_observation, { version: 1, app: 'cloud', operation: 'deposit',
+    status: 'unknown', code: 'unknown', local_process_joined: null, core_report_present: true,
+    core_operation_complete: null });
+  assert.doesNotMatch(JSON.stringify(result), /private|SECRET/u);
+  assert.equal(publishFailure({ status: 'complete', code: 'ok', local_process_joined: false })
+    .publish_observation.local_process_joined, false);
+  for (const value of [null, undefined, false, 'SECRET', { storage: ['SECRET'] }]) {
+    const current = publishFailure(value);
+    assert.equal(current.publish_observation.core_report_present, false);
+    assert.equal(current.publish_observation.core_operation_complete, null);
+    assert.doesNotMatch(JSON.stringify(current), /SECRET/u);
+  }
+});
+
+test('cancellation and unrelated exceptions cannot inherit or fabricate a publish observation', () => {
+  const ctx = { provision: 'a'.repeat(64), stage: 'cloud_publish', signal: { aborted: false } };
+  const forged = Object.assign(new Error('PRIVATE'), { code: 'publish_operation', observation: { secret: 'PRIVATE' } });
+  const report = consumerFailureReport(ctx, 'publish', forged);
+  assert.equal(report.version, 1);
+  assert.equal(Object.hasOwn(report, 'publish_observation'), false);
+  assert.doesNotMatch(JSON.stringify(report), /PRIVATE/u);
+  const cancelled = publishFailure({ status: 'cancelled', code: 'cancelled', local_process_joined: true }, 'image', 'create', true);
+  assert.equal(cancelled.code, 'phase_deadline');
+  assert.equal(cancelled.publish_observation.status, 'cancelled');
+});
 
 test('four explicit phases and distinct deterministic incompressible fixture identities', () => {
   assert.deepEqual(PHASES, ['prepare', 'publish', 'exercise', 'finish']);

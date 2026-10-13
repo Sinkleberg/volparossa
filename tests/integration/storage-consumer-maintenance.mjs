@@ -39,6 +39,41 @@ const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const fileSame = (a, b) => ['dev', 'ino', 'mode', 'uid', 'nlink', 'size', 'mtimeNs', 'ctimeNs'].every(k => a[k] === b[k]);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+const PUBLISH_STATUSES = new Set(['complete', 'incomplete', 'failed', 'cancelled', 'timed_out']);
+const PUBLISH_CODES = new Set(['ok', 'retained_operation_incomplete', 'invalid_core_report', 'core_failed',
+  'cancelled', 'timed_out', 'report_too_large', 'restore_verification_failed']);
+const observedBoolean = value => typeof value === 'boolean' ? value : null;
+class PublishFailure extends Error {
+  constructor(observation) {
+    super('publish_operation');
+    this.code = 'publish_operation';
+    this.observation = Object.freeze(observation);
+  }
+}
+
+// Observe only the closed bridge result returned by this exact call. Never
+// copy its raw storage report, paths, exceptions or private journal to evidence.
+export function requirePublishComplete(value, app, operation) {
+  check(['image', 'cloud'].includes(app) && ['create', 'deposit'].includes(operation), 'arguments');
+  if (value?.status === 'complete' && value.local_process_joined === true) return;
+  const report = value?.storage;
+  const present = report !== null && typeof report === 'object' && !Array.isArray(report);
+  throw new PublishFailure({ version: 1, app, operation,
+    status: PUBLISH_STATUSES.has(value?.status) ? value.status : 'unknown',
+    code: PUBLISH_CODES.has(value?.code) ? value.code : 'unknown',
+    local_process_joined: observedBoolean(value?.local_process_joined),
+    core_report_present: present,
+    core_operation_complete: present ? observedBoolean(report.operation_complete) : null });
+}
+
+export function consumerFailureReport(ctx, phase, error) {
+  const publish = error instanceof PublishFailure;
+  return { version: publish ? 2 : 1, kind: 'storage-consumer-maintenance', phase, passed: false,
+    provision_sha256: ctx.provision, stage: ctx.stage,
+    code: ctx.signal.aborted ? 'phase_deadline' : FAILURE_CODES.has(error.code) ? error.code : 'application_failed',
+    ...(publish ? { publish_observation: error.observation } : {}), cleanup_confirmed: false };
+}
+
 export function fixtureBytes(label) {
   check(['image', 'cloud'].includes(label), 'fixture_label');
   const result = Buffer.alloc(PLAIN_BYTES);
@@ -453,7 +488,7 @@ async function publish(ctx, m) {
         const value = name === 'image'
           ? await m.runSnapshotStorage({ operation, config: join(app, 'storage.json'), bundle: join(app, 'bundle') }, { signal: ctx.signal, storageFactory: factory })
           : await m.storePrivateFile(operation, { config: join(app, 'storage.json'), bundle: join(app, 'bundle') }, { signal: ctx.signal, storageFactory: factory });
-        check(value.status === 'complete' && value.local_process_joined === true, 'publish_operation');
+        requirePublishComplete(value, name, operation);
         if (operation === 'deposit') deposited = validateStorage(value, r.cipher_bytes, 'published');
       }
       if (name === 'cloud') {
@@ -628,10 +663,7 @@ export async function main(argv) {
   } catch (error) {
     // Export no raw app/core exception, command, path, key or process output.
     // A partial phase is never converted to success or a remote cleanup claim.
-    const report = { version: 1, kind: 'storage-consumer-maintenance', phase, passed: false,
-      provision_sha256: provision, stage: ctx.stage,
-      code: ctx.signal.aborted ? 'phase_deadline' : FAILURE_CODES.has(error.code) ? error.code : 'application_failed',
-      cleanup_confirmed: false };
+    const report = consumerFailureReport(ctx, phase, error);
     try { await writeJSON(join(root, `storage-consumer-${phase}.json`), report); } catch { /* Preserve original failure. */ }
     return report;
   } finally {
