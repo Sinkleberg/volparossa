@@ -32,7 +32,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38427081376` on `463d1ada` stops before installation: the fixed observer's first link query returns 11,967 bytes, then strict JSON parsing rejects a missing comma at position 5,435. The cause of the malformed command output remains unproven. Closed diagnostics identify this boundary without exporting interface data. Process drain, private cleanup and KVM restoration pass. Component run `38427090612` passes independently; app launch, refresh, expiry and iOS remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's trial `38416109564` on `f09e7718` passes the separate core repair/restart scenario, two complete hash-verified B/C restores and deletion of all eleven core copies. Consumer acceptance still fails: Cloud create succeeds, but deposit returns `retained_operation_incomplete`. Its underlying transfer cause is not retained. Quality `38417397926` passes on `7bfdae85`; that does not prove consumer repair, restore or deletion. Cloud PR234's longer continuation waits for this correction. Original authority, grants and deadlines remain unchanged. Reciprocal capacity remains separate outstanding work. |
-| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | Public verifier trial `38324431627` passes four pinned SNP chain/report fixtures. The next candidate moves strict report parsing, public signature verification and fresh owner-session binding into the core, with fourteen Rust tests awaiting hosted compilation and execution. Full appraisal, worker admission and actual protected execution remain open. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
+| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | Public verifier trial `38324431627` passes four pinned SNP chain/report fixtures. Core trial `38430813534` passes dependency resolution, feature checks and fourteen actual Rust signature/session tests, then fails three Clippy findings; their narrow correction awaits hosted verification. Full appraisal, worker admission and actual protected execution remain open. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
 
 Image [PR8](https://github.com/VOLPAROSSA/volparossa-image/pull/8) and Cloud
 [PR15](https://github.com/VOLPAROSSA/volparossa-cloud/pull/15) now retain optional,
@@ -156,8 +156,21 @@ the ZIP matches GitHub's SHA-256
 `e979353f8da137babd2ed40f9d33ff47dfd707c8daa4069f6287e137a93a7b63`.
 Rust tests and Clippy were again skipped.
 
-The fourteen Rust tests and targeted Clippy check still require successful hosted
-compilation and execution. That workflow starts from the
+The third attempt,
+[`38430813534`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38430813534)
+at `66025d9e`, passes the lock-delta and actual feature checks, compiles the core
+and passes all fourteen targeted Rust tests. Clippy then fails on two missing
+documentation backticks and a timestamp passed by value. The narrow correction
+formats those identifiers and makes only the internal `Stamp` value copyable;
+owners, pending challenges and evidence are not made cloneable. The complete
+run remains failed until the corrected candidate passes. All fifteen original
+artifact members and their source/lock/log bindings verify; the ZIP matches
+GitHub's SHA-256
+`7b2764c1beecf946984d1f27f33a8c110bcbffedd12a63ef53bd3d1bbdf55cde`.
+These tests establish public cryptographic fixture verification and synthetic
+binding behavior, not protected task execution or worker admission.
+
+The workflow starts from the
 unchanged workspace lockfile, retains Cargo's actual resolution and accepts only
 the new verifier dependencies and specifically documented feature edges. Existing
 package versions, checksums and all other dependency edges must remain unchanged.

@@ -56,7 +56,7 @@ struct Binding {
     proposed_session_key: Vec<u8>,
 }
 
-/// Compute the exact guest REPORT_DATA convention from a canonical challenge and
+/// Compute the exact guest `REPORT_DATA` convention from a canonical challenge and
 /// a proposed 32-byte ephemeral key. Does not verify freshness, key possession,
 /// key origin, or signatures. The key is not used to encrypt anything here.
 ///
@@ -99,6 +99,7 @@ pub fn session_report_data(
     Ok(digest.finalize().into())
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct Stamp {
     pub(super) unix: u64,
     pub(super) monotonic: Instant,

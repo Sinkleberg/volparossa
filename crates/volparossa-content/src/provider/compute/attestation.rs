@@ -8,7 +8,7 @@
 //!
 //! Before attestation the session challenge contains only random freshness, a
 //! public policy identifier, a public workload measurement and finite times. A
-//! proposed ephemeral key is bound into REPORT_DATA using SHA-512 over a
+//! proposed ephemeral key is bound into `REPORT_DATA` using SHA-512 over a
 //! domain-separated canonical protobuf. This proves a signed byte binding, not
 //! that the key was generated or retained inside a particular guest program.
 //! Never use a private prompt/code/content hash as the public policy identifier.
