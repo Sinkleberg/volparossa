@@ -30,19 +30,61 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38438989104` on `cd13a93a` passes the APK build and offline rebuild, then stops before installation. The first basic link query returns complete, valid JSON, but strict metadata validation rejects it as `link_unknown`; the particular failed predicate is not retained. Cleanup, host namespace preservation and KVM restoration pass. Component run `38438997884` passes separately. The next correction must identify the rejected metadata without weakening isolation. App launch, refresh, expiry and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's original trial `38416109564` passes the separate core restart/repair, two source-free restores and eleven-copy deletion, then fails at Cloud deposit with no retained transfer cause. Candidate `ff0ddd38` adds closed transfer diagnostics and explicit consumer profile 2. Quality `38437985964` passes, including all 620 CLI tests and both corrected expiry assertions. Actual maintenance trial `38441174652` is running on that candidate; consumer repair, restore and deletion remain unproven. Cloud PR234 waits for this shared integration. Original authority, grants and deadlines remain unchanged; reciprocal capacity remains separate outstanding work. |
-| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | Public verifier trial `38324431627` passes four pinned SNP fixtures. Core trial `38439280941` on `22c42f29` passes committed-lock acquisition, feature checks, fourteen actual Rust signature/session tests and targeted Clippy. Independent API review finds no private-input-release authority in the resulting evidence. Quality `38439289610` passes workspace, dependency and license checks; its three live namespace proofs self-skip under runner policy. Full appraisal, worker admission and actual protected execution remain open. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
+| Native Overmorrow — `volparossa-weather` | Exercise the installed Android app and verify its actual refresh and expiry behavior. | PR19 remains separate from the web proof. Trial `38449624135` on `e9dfbdca` passes both APK builds, network isolation, installation and app-process startup, then fails in the read-only VM observer. Candidate `6e2937af` adds closed observer subphases without broader app rights or longer deadlines; actual trial `38455347639` is running. Native widget behavior, refresh, expiry and iOS remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's trial `38441174652` on `ff0ddd38` passes the separate core restart/repair and two restores, but Cloud deposit remains incomplete with seven pre-READY rejections. Candidate `599a4595` adds closed initial-agent observations and consumer profile 3; actual trial `38453132258` is running. Authority, deadlines, charging and acceptance criteria are unchanged. Consumer repair, restore, deletion and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
+| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | The fourteen-test signature/session verifier is integrated through PR236. PR238 adds authenticated VCEK chip and reported-TCB bindings; trial `38451987434` on `285e53a7` passes 22 actual Rust tests and targeted Clippy with the committed lock unchanged, and Quality `38451997453` passes. CodeQL's aggregate check fails on a test-only Vec operation; replacement `2ebf27af` retains all 44 mutations and requires new hosted checks. Full appraisal, worker admission and actual protected execution remain open. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
 
 Image [PR8](https://github.com/VOLPAROSSA/volparossa-image/pull/8) and Cloud
 [PR15](https://github.com/VOLPAROSSA/volparossa-cloud/pull/15) now retain optional,
-closed deposit diagnostics from the core. Image `fa043874` passes 44 adapter
-tests; Cloud `f51b49b8` reuses those exact source bytes and passes 34 targeted
-contract, provenance and maintenance checks. The reports contain fixed error
-categories and bounded copy indexes, not raw output or private paths. These
-component checks do not resolve the failed live deposit. The new core producer
-now passes compilation and workspace tests; the explicitly versioned consumer
-trial is running. Historical source pins and evidence are preserved.
+closed deposit diagnostics from the core. Image `87a80166` passes 47 adapter
+tests; Cloud `54a00b58` reuses those exact source bytes and passes four
+child-boundary tests plus one vendor-provenance check. The core's explicit
+profile 3 binds both consumers and passes 126 inert provision, orchestration
+and evidence checks. Historical profiles and diagnostics v1 remain unchanged.
+
+Diagnostics v2 distinguishes the observed initial-agent stage and existing
+deadline scope, or records that no observation exists. It exports no raw errors,
+addresses, identifiers, keys or private paths, and permits no new error frame
+after READY has begun. The sixteen added Rust regressions and combined live
+scenario require hosted verification. Component checks do not resolve the
+previously failed deposit or prove consumer maintenance.
+
+The original [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38441174652)
+retains all seven failures without omitted entries. It does not retain the agent's
+internal failure stage, per-operation timing or per-copy custody reports. Reaching
+Cloud publish is not a separately exported Image success proof. Consumer repair,
+restore and finish are not reached; consumer remote cleanup and zero provider
+usage remain unconfirmed. The separate base-storage receipts do prove restart,
+renewal/repair, two restores and zero usage in their three stores after deletion.
+The disposable topology is cleaned up and its surrounding guest network state is
+unchanged. The original 71-member artifact matches API SHA-256
+`2e7272c499f2f765393273659d92743ab70433c0f003722c88fef9c551e59e65`;
+these scoped successes do not change the combined trial's failure.
+
+The original [Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38449624135)
+passes the paired link/qdisc boundary with ten fixed read-only queries and no
+rejected routes. The driver verifies an installed package and a running app
+process, but records no successful VM-RPC or mounted-widget observation. Its
+8,304 ms failure does not establish which observer operation failed. App,
+forward, VM, process, staging and KVM cleanup pass; the host network namespace
+is preserved. The original 46-member artifact matches SHA-256
+`e1a9e26512028326eb9a1531141b5d7904f93f0eb14914a66837d672a9b9e37c`.
+The earlier rejection of a basic link field in trial `38444250009` remains
+historical evidence, not the current blocker.
+
+The replacement Android observer passes 17 inert Node tests, 13 Python
+preparer tests and three existing acceptance guards. These test the actual
+observer helper with synthetic transports, including its unchanged deadlines,
+failure classification and cleanup ownership; they do not execute an Android
+app. The original installed-app proof remains required.
+
+Compute's original CodeQL trace ends at the receiver of `Vec::remove` in a
+public certificate fixture. The pinned Rust query model treats that receiver
+as a logging sink; the reported trace does not identify certificate formatting
+or actual log output. The test-only replacement constructs the same ten
+remaining claims explicitly and checks their count. It changes neither the
+production verifier nor the 44 mutation cases. No alert suppression or check
+bypass is used; a passing analysis on the replacement is still required.
 
 The successful hosted Drizz.li trial supersedes neither the earlier failed route
 trial nor the local build aborted for host memory pressure; both remain recorded
