@@ -23,6 +23,8 @@ const REVISIONS = Object.freeze({ image: 'aade424c3e96d0934edbddf31d2434757aa085
   cloud: '9cb94fbb83e9f503ff5a66d43ed814f556d4a3af' });
 const DIAGNOSTIC_REVISIONS = Object.freeze({ image: 'fa0438747b79bf29e49a2fe65116cb166ebe10df',
   cloud: 'f51b49b84af404cc8dd6e377e0545e2ca1ea4569' });
+const DETAIL_REVISIONS = Object.freeze({ image: '87a8016652db629a0afefb41d88b3056539bee17',
+  cloud: '54a00b58a6c24432e7427d72ff714c786dbeb0cc' });
 const CHECKPOINTS = new Set(['enrolled', 'owner_locked', 'waiting_for_core', 'working', 'paused',
   'enrollment_expired', 'core_unavailable', 'core_turn_revoked', 'turn_completed', 'retry_pending']);
 const SQL = Buffer.from('-- VOLPAROSSA synthetic quiesced snapshot\nCREATE TABLE fixture (id integer);\nINSERT INTO fixture VALUES (1);\n');
@@ -50,27 +52,45 @@ const DEPOSIT_STAGES = new Set(['journal_open', 'authorization', 'agent_ready', 
   'wire_receipt', 'agent_terminal', 'accounting', 'local_input', 'receipt_validation', 'journal_save', 'deadline', 'unknown']);
 const DEPOSIT_CATEGORIES = new Set(['io', 'timeout', 'protocol', 'agent_rejected', 'invalid', 'busy', 'store', 'unknown']);
 const AGENT_CODES = new Set(['CONTENT_INVALID', 'CONTENT_UNAVAILABLE', 'CONTENT_BUSY', 'CONTENT_POLICY', 'unknown']);
+const AGENT_STAGES = new Set(['unobserved', 'route_connect', 'control_selection', 'provider_lookup',
+  'provider_cardinality', 'offer_validity', 'stream_open', 'tls_handshake', 'challenge']);
+const EXCHANGE_STAGES = new Set(['stream_open', 'tls_handshake', 'challenge']);
 const closedKeys = (value, keys) => value !== null && typeof value === 'object' && !Array.isArray(value)
   && equal(Object.keys(value).sort(), [...keys].sort());
 
 // This proof has exactly four fragments/two initial copies. The bridge already
 // checks general archive geometry; revalidate the narrower exported trial here.
-export function depositDiagnostic(value) {
-  check(closedKeys(value, ['version', 'failures', 'omitted_failures']) && value.version === 1
+export function depositDiagnostic(value, version = 1) {
+  check([1, 2].includes(version), 'deposit_diagnostics');
+  check(closedKeys(value, ['version', 'failures', 'omitted_failures']) && value.version === version
     && Array.isArray(value.failures) && value.failures.length <= 8 && value.omitted_failures === 0, 'deposit_diagnostics');
   const seen = new Set(), failures = value.failures.map(failure => {
-    check(closedKeys(failure, ['fragment_index', 'copy_index', 'operation', 'stage', 'category', 'agent_code'])
+    check(closedKeys(failure, ['fragment_index', 'copy_index', 'operation', 'stage', 'category', 'agent_code',
+      ...(version === 2 ? ['agent_detail'] : [])])
       && integer(failure.fragment_index, 0, 3) && integer(failure.copy_index, 0, 1)
       && DEPOSIT_OPERATIONS.has(failure.operation) && DEPOSIT_STAGES.has(failure.stage)
       && DEPOSIT_CATEGORIES.has(failure.category)
       && (failure.category === 'agent_rejected' ? AGENT_CODES.has(failure.agent_code) : failure.agent_code === null),
     'deposit_diagnostics');
+    let detail = null;
+    if (version === 2 && failure.agent_detail !== null) {
+      const value = failure.agent_detail;
+      check(failure.stage === 'agent_ready' && failure.category === 'agent_rejected'
+        && AGENT_CODES.has(failure.agent_code) && failure.agent_code !== 'unknown'
+        && closedKeys(value, ['stage', 'deadline_scope']) && AGENT_STAGES.has(value.stage)
+        && ['none', 'operation', 'exchange'].includes(value.deadline_scope)
+        && (value.stage !== 'unobserved' || value.deadline_scope === 'operation')
+        && (value.deadline_scope !== 'exchange' || EXCHANGE_STAGES.has(value.stage))
+        && (value.deadline_scope === 'none' || failure.agent_code === 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics');
+      detail = { stage: value.stage, deadline_scope: value.deadline_scope };
+    }
     const identity = `${failure.fragment_index}:${failure.copy_index}`;
     check(!seen.has(identity), 'deposit_diagnostics'); seen.add(identity);
     return { fragment_index: failure.fragment_index, copy_index: failure.copy_index,
-      operation: failure.operation, stage: failure.stage, category: failure.category, agent_code: failure.agent_code };
+      operation: failure.operation, stage: failure.stage, category: failure.category, agent_code: failure.agent_code,
+      ...(version === 2 ? { agent_detail: detail } : {}) };
   });
-  return { version: 1, failures, omitted_failures: 0 };
+  return { version, failures, omitted_failures: 0 };
 }
 class PublishFailure extends Error {
   constructor(observation) {
@@ -84,15 +104,15 @@ class PublishFailure extends Error {
 // copy its raw storage report, paths, exceptions or private journal to evidence.
 export function requirePublishComplete(value, app, operation, profileVersion = 1) {
   check(['image', 'cloud'].includes(app) && ['create', 'deposit'].includes(operation), 'arguments');
-  check([1, 2].includes(profileVersion), 'arguments');
+  check([1, 2, 3].includes(profileVersion), 'arguments');
   const report = value?.storage;
   const present = report !== null && typeof report === 'object' && !Array.isArray(report);
   let state = 'not_applicable', diagnostic = null;
-  if (profileVersion === 2 && operation === 'deposit') {
+  if (profileVersion >= 2 && operation === 'deposit') {
     state = 'missing';
     if (present && Object.hasOwn(report, 'deposit_diagnostics')) {
       try {
-        diagnostic = depositDiagnostic(report.deposit_diagnostics);
+        diagnostic = depositDiagnostic(report.deposit_diagnostics, profileVersion - 1);
         check(report.operation_complete === false || (report.operation_complete === true && diagnostic.failures.length === 0),
           'deposit_diagnostics');
         check(value.status !== 'complete' || report.operation_complete === true, 'deposit_diagnostics');
@@ -102,18 +122,18 @@ export function requirePublishComplete(value, app, operation, profileVersion = 1
   }
   if (value?.status === 'complete' && value.local_process_joined === true
     && (profileVersion === 1 || operation === 'create' || (state === 'observed' && diagnostic.failures.length === 0))) return;
-  throw new PublishFailure({ version: profileVersion === 2 ? 2 : 1, app, operation,
+  throw new PublishFailure({ version: profileVersion, app, operation,
     status: PUBLISH_STATUSES.has(value?.status) ? value.status : 'unknown',
     code: PUBLISH_CODES.has(value?.code) ? value.code : 'unknown',
     local_process_joined: observedBoolean(value?.local_process_joined),
     core_report_present: present,
     core_operation_complete: present ? observedBoolean(report.operation_complete) : null,
-    ...(profileVersion === 2 ? { deposit_diagnostics_state: state, deposit_diagnostics: diagnostic } : {}) });
+    ...(profileVersion >= 2 ? { deposit_diagnostics_state: state, deposit_diagnostics: diagnostic } : {}) });
 }
 
 export function consumerFailureReport(ctx, phase, error) {
   const publish = error instanceof PublishFailure;
-  return { version: publish ? (error.observation.version === 2 ? 3 : 2) : 1, kind: 'storage-consumer-maintenance', phase, passed: false,
+  return { version: publish ? error.observation.version + 1 : 1, kind: 'storage-consumer-maintenance', phase, passed: false,
     provision_sha256: ctx.provision, stage: ctx.stage,
     code: ctx.signal.aborted ? 'phase_deadline' : FAILURE_CODES.has(error.code) ? error.code : 'application_failed',
     ...(publish ? { publish_observation: error.observation } : {}), cleanup_confirmed: false };
@@ -455,7 +475,7 @@ async function guard(root, profileVersion) {
     && provision.kind === 'storage-consumer-maintenance-runtime-provision'
     && provision.success === true && provision.guest_only === true && provision.shared_adapter_verified === true,
   'provision');
-  const revisions = profileVersion === 2 ? DIAGNOSTIC_REVISIONS : REVISIONS;
+  const revisions = profileVersion === 3 ? DETAIL_REVISIONS : profileVersion === 2 ? DIAGNOSTIC_REVISIONS : REVISIONS;
   for (const [name, source] of Object.entries(provision.pins.sources)) {
     check(Object.hasOwn(revisions, name) && /^[a-f0-9]{40}$/u.test(revisions[name])
       && source.revision === revisions[name], 'source_pin');
@@ -687,8 +707,8 @@ async function finish(ctx, m) {
 
 export async function main(argv) {
   let profileVersion = 1;
-  if (argv.length === 4 && argv[2] === '--profile-version' && argv[3] === '2') {
-    profileVersion = 2; argv = argv.slice(0, 2);
+  if (argv.length === 4 && argv[2] === '--profile-version' && ['2', '3'].includes(argv[3])) {
+    profileVersion = Number(argv[3]); argv = argv.slice(0, 2);
   }
   check(argv.length === 2 && PHASES.includes(argv[0]), 'arguments');
   process.umask(0o077);

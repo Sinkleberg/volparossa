@@ -10,7 +10,7 @@ private_storage_consumer_private() {
       timeout --signal=TERM --kill-after=30s 2400s setpriv \
         --reuid="$WORKER_UID" --regid="$WORKER_GID" --groups="$custody_control_gid" \
         --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs \
-        -- python3 -B "$WORK/bin/storage-consumer-maintenance-smoke.py" "$@" --profile-version 2
+        -- python3 -B "$WORK/bin/storage-consumer-maintenance-smoke.py" "$@" --profile-version 3
 }
 
 private_storage_consumer_phase() {

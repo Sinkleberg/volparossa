@@ -19,6 +19,7 @@ pub use compute_control::{
 mod custody;
 mod mailbox;
 mod private_storage;
+mod private_storage_detail;
 pub use content::{
     ContentCacheLimits, ContentExportRequest, ContentFetchNameRequest, ContentFetchRequest,
     ContentImportRequest, ContentLocalFetchNameRequest, ContentPolicyApplyRequest,
@@ -35,6 +36,9 @@ pub use private_storage::{
     PrivateStorageAdmission, PrivateStorageAdmissionRequest, PrivateStorageGrant,
     PrivateStorageGrantRequest, PrivateStorageMaintenanceReady, PrivateStorageMaintenanceRequest,
     PrivateStorageReady, PrivateStorageRemoteRequest, PrivateStorageServeRequest,
+};
+pub use private_storage_detail::{
+    PrivateStorageDeadlineScope, PrivateStorageRemoteDetail, PrivateStorageRemoteStage,
 };
 
 use prost::Message;
@@ -271,6 +275,9 @@ pub struct ControlResponse {
     /// Stable diagnostic code, never an arbitrary upstream error string.
     #[prost(string, tag = "4")]
     pub diagnostic_code: String,
+    /// Optional closed observation, only on a failed initial private-storage Ack.
+    #[prost(message, optional, tag = "5")]
+    pub private_storage_remote_detail: Option<PrivateStorageRemoteDetail>,
     /// Typed response body.
     #[prost(
         oneof = "control_response::Payload",
@@ -817,6 +824,7 @@ fn validate_response(response: &ControlResponse) -> Result<(), ControlProtocolEr
     ControlResult::try_from(response.result)
         .map_err(|_| ControlProtocolError::Invalid("result"))?;
     safe_code(&response.diagnostic_code)?;
+    private_storage_detail::validate(response)?;
     let payload = response
         .payload
         .as_ref()
@@ -1074,6 +1082,7 @@ mod tests {
             request_id: vec![1; 16],
             result: ControlResult::Policy as i32,
             diagnostic_code: "example.com".to_owned(),
+            private_storage_remote_detail: None,
             payload: Some(control_response::Payload::Ack(Empty {})),
         };
         assert!(encode_response(&response).is_err());

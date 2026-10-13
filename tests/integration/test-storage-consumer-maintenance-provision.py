@@ -28,7 +28,7 @@ class ConsumerProvision(unittest.TestCase):
         self.assertEqual(set(old['sources']['cloud']['files']) - set(current['sources']['cloud']['files']), set())
         self.assertEqual(set(current['sources']['image']['files']), set(old['sources']['image']['files']))
         self.assertNotEqual(M['pins_path'](), M['pins_path'](2))
-        for version in (True, 0, 3, '2'):
+        for version in (True, 0, 4, '2'):
             with self.assertRaises(ValueError):
                 M['load_pins'](version)
         for changed in (old, dict(current, version=1)):
@@ -37,6 +37,34 @@ class ConsumerProvision(unittest.TestCase):
                 path.write_text(json.dumps(changed))
                 with patch.dict(M['load_pins'].__globals__, PINS_V2=path), self.assertRaises(ValueError):
                     M['load_pins'](2)
+
+    def test_profile_three_has_distinct_pins_but_no_new_runtime_or_source_scope(self):
+        old, diagnostic, detailed = (M['load_pins'](version) for version in (1, 2, 3))
+        self.assertEqual(detailed['version'], 3)
+        self.assertEqual(old['runtime'], detailed['runtime'])
+        self.assertEqual(diagnostic['runtime'], detailed['runtime'])
+        self.assertEqual(len({M['pins_path'](version) for version in (1, 2, 3)}), 3)
+        node = (HERE / 'storage-consumer-maintenance.mjs').read_text()
+        for name in ('image', 'cloud'):
+            self.assertNotEqual(detailed['sources'][name]['revision'], diagnostic['sources'][name]['revision'])
+            self.assertEqual(set(detailed['sources'][name]['files']), set(diagnostic['sources'][name]['files']))
+            self.assertIn(detailed['sources'][name]['revision'], node)
+            self.assertEqual(detailed['sources'][name]['files']['LICENSE'], diagnostic['sources'][name]['files']['LICENSE'])
+        for original, vendored in M['VENDORED'].items():
+            self.assertEqual(detailed['sources']['image']['files'][original], detailed['sources']['cloud']['files'][vendored])
+        cases = [diagnostic, dict(detailed, version=2)]
+        changed = copy.deepcopy(detailed)
+        changed['sources']['image']['revision'] = diagnostic['sources']['image']['revision']
+        cases.append(changed)
+        changed = copy.deepcopy(detailed)
+        changed['sources']['cloud']['files']['vendor/volparossa-image/core-storage.mjs']['sha256'] = '0' * 64
+        cases.append(changed)
+        for changed in cases:
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / 'pins.json'
+                path.write_text(json.dumps(changed))
+                with patch.dict(M['load_pins'].__globals__, PINS_V3=path), self.assertRaises(ValueError):
+                    M['load_pins'](3)
 
     def test_exact_sources_runtime_licenses_and_same_adapter(self):
         pins = M['load_pins']()

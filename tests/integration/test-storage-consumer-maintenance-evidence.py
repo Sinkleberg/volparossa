@@ -369,6 +369,21 @@ class ControlTransition(unittest.TestCase):
 
 
 class ConsumerEvidence(unittest.TestCase):
+    def test_profile_three_provision_is_not_a_relabelled_profile_two_receipt(self):
+        values = [fixture(profile_version=profile) for profile in (1, 2, 3)]
+        for value in values:
+            M['validate_evidence'](value)
+        self.assertEqual(len({value['provision_sha256'] for value in values}), 3)
+        for prior in values[:2]:
+            mixed = copy.deepcopy(values[2])
+            mixed['provision']['pins'] = prior['provision']['pins']
+            with self.assertRaises(ValueError):
+                M['validate_provision'](mixed['provision'])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_evidence(root, values[2])
+            self.assertEqual(M['build_evidence'](root), values[2])
+
     def test_new_profile_has_independent_source_binding_without_replacing_historical_provision(self):
         old, current = fixture(), fixture(profile_version=2)
         M['validate_evidence'](old)

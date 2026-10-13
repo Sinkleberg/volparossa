@@ -217,6 +217,7 @@ impl ContentRuntime {
             request_id: request_id.to_vec(),
             result: 0,
             diagnostic_code: "PRIVATE_STORAGE_MAINTENANCE_READY".into(),
+            private_storage_remote_detail: None,
             payload: Some(Payload::PrivateStorageMaintenanceReady(
                 PrivateStorageMaintenanceReady {
                     turn: turn.token.to_vec(),

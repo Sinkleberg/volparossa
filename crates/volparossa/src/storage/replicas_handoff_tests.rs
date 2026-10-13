@@ -172,6 +172,7 @@ async fn exchange(
         request_id: request.request_id,
         result: 0,
         diagnostic_code: "PRIVATE_STORAGE_READY".into(),
+        private_storage_remote_detail: None,
         payload: Some(Payload::PrivateStorageReady(PrivateStorageReady {
             provider_key: peer.grant.provider_key().to_bytes().to_vec(),
             challenge: challenge.encode(),

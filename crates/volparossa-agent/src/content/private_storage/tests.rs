@@ -1,5 +1,55 @@
 use super::*;
 
+#[tokio::test]
+async fn partial_private_storage_ready_write_is_already_committed_to_stream_framing() {
+    use std::{
+        io,
+        pin::Pin,
+        task::{Context, Poll},
+    };
+    struct PartialWrite {
+        bytes: Vec<u8>,
+    }
+    impl AsyncWrite for PartialWrite {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            if self.bytes.is_empty() {
+                self.bytes.push(bytes[0]);
+                Poll::Ready(Ok(1))
+            } else {
+                Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe)))
+            }
+        }
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+    let mut stream = PartialWrite { bytes: Vec::new() };
+    let mut ready_sent = false;
+    let result = send_ready(
+        &mut stream,
+        &[1; 16],
+        &mut ready_sent,
+        PrivateStorageReady {
+            provider_key: SigningKey::from_bytes(&[3; 32])
+                .verifying_key()
+                .to_bytes()
+                .to_vec(),
+            challenge: vec![1],
+        },
+    )
+    .await;
+    assert!(matches!(result, Err(ContentError::Unavailable)));
+    assert!(ready_sent);
+    assert_eq!(stream.bytes.len(), 1);
+}
+
 fn operator_grant(owner: &SigningKey) -> PrivateStorageGrantRequest {
     PrivateStorageGrantRequest {
         owner_key: owner.verifying_key().to_bytes().to_vec(),

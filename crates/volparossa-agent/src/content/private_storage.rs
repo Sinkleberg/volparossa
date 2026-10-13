@@ -2,11 +2,13 @@
 //! Application signing keys never enter the agent; this local control interface retains its
 //! existing operator/admin authority and is not a new least-authority application boundary.
 
+mod observation;
+
 use std::{net::SocketAddr, path::Path, sync::Arc, time::Duration};
 
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use libp2p::{PeerId, identity};
-use tokio::{net::UnixStream, time::timeout};
+use tokio::{io::AsyncWrite, net::UnixStream, time::timeout};
 use volparossa_content::{
     Validity,
     private_storage::{
@@ -21,9 +23,11 @@ use volparossa_content::{
 };
 use volparossa_local_control::{
     CONTROL_PROTOCOL_VERSION, ContentReceipt, ControlResponse, ControlResult,
-    PrivateStorageAdmission, PrivateStorageAdmissionRequest, PrivateStorageGrant,
-    PrivateStorageGrantRequest, PrivateStorageReady, PrivateStorageRemoteRequest,
-    PrivateStorageServeRequest, control_response::Payload, write_response,
+    PrivateStorageAdmission, PrivateStorageAdmissionRequest,
+    PrivateStorageDeadlineScope as Deadline, PrivateStorageGrant, PrivateStorageGrantRequest,
+    PrivateStorageReady, PrivateStorageRemoteDetail, PrivateStorageRemoteRequest,
+    PrivateStorageRemoteStage as Stage, PrivateStorageServeRequest, control_response::Payload,
+    write_response,
 };
 use volparossa_policy::VerifiedManifest as VerifiedPolicy;
 
@@ -197,7 +201,10 @@ impl ContentRuntime {
         local: &mut UnixStream,
         request_id: &[u8],
         ready_sent: &mut bool,
+        detail: &mut Option<PrivateStorageRemoteDetail>,
     ) -> Result<(), ContentError> {
+        *detail = None;
+        let observation = observation::Observation::default();
         let turn = request.maintenance_turn.clone();
         let mut request = validate_remote(&request)?;
         if !turn.is_empty() {
@@ -209,7 +216,7 @@ impl ContentRuntime {
             .maintenance
             .is_none()
             .then(|| self.foreground.enter());
-        let operation = timeout(EXCHANGE_TIMEOUT, async {
+        let operation = observation.budget(Deadline::Operation, EXCHANGE_TIMEOUT, async {
             // One actual flow per retained background worker reservation, not just one
             // allowance calculation at a time. Parallel callers cannot multiply its RAM/FD use.
             let _maintenance_operation = request
@@ -222,17 +229,32 @@ impl ContentRuntime {
             } else {
                 None
             };
-            remote(&request, context, local, request_id, ready_sent).await
+            remote(
+                &request,
+                context,
+                local,
+                request_id,
+                ready_sent,
+                &observation,
+            )
+            .await
         });
-        if let Some(turn) = &request.maintenance {
+        let result = if let Some(turn) = &request.maintenance {
             tokio::select! {
                 biased;
-                () = turn.cancelled() => Err(ContentError::Busy),
-                result = operation => result.map_err(|_| ContentError::Unavailable)?,
+                () = turn.cancelled() => {
+                    observation.reset();
+                    Err(ContentError::Busy)
+                },
+                result = operation => result,
             }
         } else {
-            operation.await.map_err(|_| ContentError::Unavailable)?
+            operation.await
+        };
+        if !*ready_sent {
+            *detail = observation.detail();
         }
+        result
     }
 }
 
@@ -356,65 +378,85 @@ async fn remote(
     local: &mut UnixStream,
     id: &[u8],
     ready_sent: &mut bool,
+    observation: &observation::Observation,
 ) -> Result<(), ContentError> {
     let policy = checked_policy(context, None).await?;
-    until_requester_closed(local, async {
-        Box::pin(
-            context
-                .routes
-                .connect_tcp(&context.config, &context.discovery, &context.helper),
-        )
-        .await
-        .map_err(|_| ContentError::Unavailable)
-    })
-    .await?;
-    let control = context
-        .routes
-        .content_discovery_control()
-        .await
-        .ok_or(ContentError::Unavailable)?;
-    route_current(context, &policy, control, request.peer).await?;
-    let mut providers = until_requester_closed(local, async {
-        context
-            .discovery
-            .lookup_content_providers(control, &[request.peer])
+    observation
+        .requester_boundary(Stage::RouteConnect, local, async {
+            Box::pin(context.routes.connect_tcp(
+                &context.config,
+                &context.discovery,
+                &context.helper,
+            ))
             .await
             .map_err(|_| ContentError::Unavailable)
-    })
-    .await?;
-    if providers.len() != 1 {
-        return Err(ContentError::Unavailable);
-    }
-    let provider = providers.pop().ok_or(ContentError::Unavailable)?;
-    if provider.peer_id != request.peer || provider.offer.provider_key() != &request.provider_key {
-        return Err(ContentError::Invalid);
-    }
+        })
+        .await?;
+    let control = observation
+        .boundary(Stage::ControlSelection, async {
+            context
+                .routes
+                .content_discovery_control()
+                .await
+                .ok_or(ContentError::Unavailable)
+        })
+        .await?;
+    route_current(context, &policy, control, request.peer).await?;
+    let mut providers = observation
+        .requester_boundary(Stage::ProviderLookup, local, async {
+            context
+                .discovery
+                .lookup_content_providers(control, &[request.peer])
+                .await
+                .map_err(|_| ContentError::Unavailable)
+        })
+        .await?;
+    let provider = observation
+        .boundary(Stage::ProviderCardinality, async {
+            if providers.len() != 1 {
+                return Err(ContentError::Unavailable);
+            }
+            let provider = providers.pop().ok_or(ContentError::Unavailable)?;
+            if provider.peer_id != request.peer
+                || provider.offer.provider_key() != &request.provider_key
+            {
+                return Err(ContentError::Invalid);
+            }
+            Ok(provider)
+        })
+        .await?;
     grant_current(&request.grant)?;
-    let remaining = request
-        .grant
-        .validity()
-        .expires
-        .min(provider.offer.validity().expires)
-        .checked_sub(now())
-        .filter(|seconds| *seconds > 0)
-        .ok_or(ContentError::Unavailable)?;
-    timeout(
-        Duration::from_secs(remaining.min(MAX_AUTH_SECONDS)),
-        exchange(
-            request,
-            SelectedProvider {
-                provider,
-                policy,
-                control,
-            },
-            context,
-            local,
-            id,
-            ready_sent,
-        ),
-    )
-    .await
-    .map_err(|_| ContentError::Unavailable)?
+    let remaining = observation
+        .boundary(Stage::OfferValidity, async {
+            request
+                .grant
+                .validity()
+                .expires
+                .min(provider.offer.validity().expires)
+                .checked_sub(now())
+                .filter(|seconds| *seconds > 0)
+                .ok_or(ContentError::Unavailable)
+        })
+        .await?;
+    observation
+        .budget(
+            Deadline::Exchange,
+            Duration::from_secs(remaining.min(MAX_AUTH_SECONDS)),
+            exchange(
+                request,
+                SelectedProvider {
+                    provider,
+                    policy,
+                    control,
+                },
+                context,
+                local,
+                id,
+                ready_sent,
+                observation,
+            ),
+        )
+        .await
 }
 
 async fn exchange(
@@ -424,6 +466,7 @@ async fn exchange(
     local: &mut UnixStream,
     id: &[u8],
     ready_sent: &mut bool,
+    observation: &observation::Observation,
 ) -> Result<(), ContentError> {
     let SelectedProvider {
         provider,
@@ -432,42 +475,44 @@ async fn exchange(
     } = selected;
     let current = route_current(context, &policy, control, request.peer).await?;
     let endpoint = provider.offer.endpoint();
-    let mut flow = until_requester_closed(local, async {
-        context
-            .routes
-            .open_content_stream(
-                &current,
-                endpoint.hostname(),
-                endpoint.port(),
-                unix_millis(),
-            )
-            .await
-            .map_err(|_| ContentError::Unavailable)
-    })
-    .await?;
-    let mut remote = until_requester_closed(local, async {
-        tls::connect(flow.stream_mut(), request.peer, &provider.offer)
-            .await
-            .map_err(|_| ContentError::Unavailable)
-    })
-    .await?;
-    let challenge = until_requester_closed(local, async {
-        wire::begin(&mut remote, &request.grant)
-            .await
-            .map_err(|_| ContentError::Unavailable)
-    })
-    .await?;
+    let mut flow = observation
+        .requester_boundary(Stage::StreamOpen, local, async {
+            context
+                .routes
+                .open_content_stream(
+                    &current,
+                    endpoint.hostname(),
+                    endpoint.port(),
+                    unix_millis(),
+                )
+                .await
+                .map_err(|_| ContentError::Unavailable)
+        })
+        .await?;
+    let mut remote = observation
+        .requester_boundary(Stage::TlsHandshake, local, async {
+            tls::connect(flow.stream_mut(), request.peer, &provider.offer)
+                .await
+                .map_err(|_| ContentError::Unavailable)
+        })
+        .await?;
+    let challenge = observation
+        .requester_boundary(Stage::Challenge, local, async {
+            wire::begin(&mut remote, &request.grant)
+                .await
+                .map_err(|_| ContentError::Unavailable)
+        })
+        .await?;
     route_current(context, &policy, control, request.peer).await?;
     grant_current(&request.grant)?;
-    *ready_sent = true;
-    send(
+    send_ready(
         local,
         id,
-        "PRIVATE_STORAGE_READY",
-        Payload::PrivateStorageReady(PrivateStorageReady {
+        ready_sent,
+        PrivateStorageReady {
             provider_key: request.provider_key.to_vec(),
             challenge: challenge.encode(),
-        }),
+        },
     )
     .await?;
     let transfer = wire::bridge_admitted(
@@ -516,8 +561,24 @@ async fn exchange(
     .await
 }
 
-async fn send(
-    local: &mut UnixStream,
+async fn send_ready<W: AsyncWrite + Unpin>(
+    local: &mut W,
+    id: &[u8],
+    ready_sent: &mut bool,
+    ready: PrivateStorageReady,
+) -> Result<(), ContentError> {
+    *ready_sent = true;
+    send(
+        local,
+        id,
+        "PRIVATE_STORAGE_READY",
+        Payload::PrivateStorageReady(ready),
+    )
+    .await
+}
+
+async fn send<W: AsyncWrite + Unpin>(
+    local: &mut W,
     id: &[u8],
     code: &str,
     payload: Payload,
@@ -529,6 +590,7 @@ async fn send(
             request_id: id.to_vec(),
             result: ControlResult::Ok as i32,
             diagnostic_code: code.into(),
+            private_storage_remote_detail: None,
             payload: Some(payload),
         },
     )

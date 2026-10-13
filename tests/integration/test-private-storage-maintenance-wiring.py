@@ -116,6 +116,7 @@ class Wiring(unittest.TestCase):
             'private-storage-log-sampler.py', 'content-provider-readiness.py',
             'storage-consumer-maintenance-smoke.sh', 'storage-consumer-maintenance-smoke.py',
             'storage-consumer-maintenance.mjs', 'storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json',
+            'storage-consumer-maintenance-pins-v3.json',
             'storage-consumer-maintenance-evidence.py', 'storage-consumer-maintenance-provision.py',
             'image-snapshot-provision.py', 'agent-private-task-code.py', 'agent-private-task-code-pins.json')
         with tempfile.TemporaryDirectory() as temporary:

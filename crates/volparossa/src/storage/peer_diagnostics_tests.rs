@@ -29,7 +29,7 @@ fn closed_diagnostic_preserves_typed_boundary_without_private_error_text() {
         report["failures"][0],
         serde_json::json!({
             "fragment_index": null, "copy_index": 1, "operation": "finalize",
-            "stage": "journal_save", "category": "io", "agent_code": null
+            "stage": "journal_save", "category": "io", "agent_code": null, "agent_detail": null
         })
     );
     let encoded = report.to_string();
@@ -98,6 +98,7 @@ async fn agent_code_requires_actual_correlated_rejection_and_is_closed() {
                 request_id: vec![1; 16],
                 result: ControlResult::Unavailable as i32,
                 diagnostic_code: code.into(),
+                private_storage_remote_detail: None,
                 payload: Some(Payload::Ack(Empty {})),
             },
         )
@@ -170,4 +171,179 @@ fn diagnostic_enum_decoding_rejects_uncontrolled_fields_and_categories() {
     let mut changed = report;
     changed["failures"][0]["raw_error"] = "private-arbitrary-text".into();
     assert!(serde_json::from_value::<Diagnostics>(changed).is_err());
+}
+
+#[test]
+fn diagnostic_v1_replay_is_exact_and_v2_requires_its_new_nullable_field() {
+    let historical = serde_json::json!({"version": 1, "omitted_failures": 0, "failures": [{
+        "fragment_index": null, "copy_index": 0, "operation": "reserve", "stage": "agent_ready",
+        "category": "agent_rejected", "agent_code": "CONTENT_UNAVAILABLE"
+    }]});
+    let decoded: Diagnostics = serde_json::from_value(historical.clone()).unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), historical);
+    let mut changed = historical.clone();
+    changed["version"] = 2.into();
+    assert!(serde_json::from_value::<Diagnostics>(changed.clone()).is_err());
+    changed["failures"][0]["agent_detail"] = serde_json::Value::Null;
+    assert!(serde_json::from_value::<Diagnostics>(changed.clone()).is_ok());
+    changed["version"] = 1.into();
+    assert!(serde_json::from_value::<Diagnostics>(changed).is_err());
+    let current = value(&anyhow::anyhow!("private-canary"));
+    assert_eq!(current["version"], 2);
+    assert_eq!(current["failures"][0].as_object().unwrap().len(), 7);
+    assert!(current["failures"][0]["agent_detail"].is_null());
+    for version in [0, 3] {
+        let mut changed = historical.clone();
+        changed["version"] = version.into();
+        assert!(serde_json::from_value::<Diagnostics>(changed).is_err());
+    }
+}
+
+#[test]
+fn diagnostic_v2_detail_is_closed_and_bound_to_agent_ready_rejection() {
+    let mut report = serde_json::json!({"version": 2, "omitted_failures": 0, "failures": [{
+        "fragment_index": null, "copy_index": 0, "operation": "reserve", "stage": "agent_ready",
+        "category": "agent_rejected", "agent_code": "CONTENT_UNAVAILABLE",
+        "agent_detail": {"stage": "provider_lookup", "deadline_scope": "operation"}
+    }]});
+    let decoded: Diagnostics = serde_json::from_value(report.clone()).unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), report);
+    for field in ["stage", "deadline_scope", "private-canary"] {
+        let mut changed = report.clone();
+        changed["failures"][0]["agent_detail"][field] = "private-canary".into();
+        assert!(serde_json::from_value::<Diagnostics>(changed).is_err());
+    }
+    for (field, replacement) in [
+        ("stage", "agent_terminal"),
+        ("category", "io"),
+        ("agent_code", "unknown"),
+    ] {
+        let mut changed = report.clone();
+        changed["failures"][0][field] = replacement.into();
+        assert!(serde_json::from_value::<Diagnostics>(changed).is_err());
+    }
+    let failure = report["failures"][0].clone();
+    report["failures"] = serde_json::Value::Array(vec![failure; 9]);
+    assert!(serde_json::from_value::<Diagnostics>(report).is_err());
+}
+
+#[tokio::test]
+async fn correlated_agent_detail_reaches_only_the_bounded_ready_failure_projection() {
+    use volparossa_local_control::{
+        CONTROL_PROTOCOL_VERSION, ControlResponse, Empty, PrivateStorageRemoteRequest,
+        control_request, control_response::Payload, read_request, write_response,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let socket = directory.path().join("private-canary.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let request = read_request(&mut stream).await.unwrap();
+        write_response(
+            &mut stream,
+            &ControlResponse {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                request_id: request.request_id,
+                result: ControlResult::Unavailable as i32,
+                diagnostic_code: "CONTENT_UNAVAILABLE".into(),
+                private_storage_remote_detail: Some(PrivateStorageRemoteDetail {
+                    stage: PrivateStorageRemoteStage::TlsHandshake as i32,
+                    deadline_scope: PrivateStorageDeadlineScope::Exchange as i32,
+                }),
+                payload: Some(Payload::Ack(Empty {})),
+            },
+        )
+        .await
+        .unwrap();
+    });
+    let error = crate::control::begin_request(
+        &socket,
+        control_request::Operation::PrivateStorageRemote(PrivateStorageRemoteRequest {
+            provider_key: ed25519_dalek::SigningKey::from_bytes(&[7; 32])
+                .verifying_key()
+                .to_bytes()
+                .to_vec(),
+            grant: vec![1],
+            maintenance_turn: Vec::new(),
+        }),
+    )
+    .await
+    .unwrap_err();
+    server.await.unwrap();
+    let hidden = value(&error);
+    assert!(hidden["failures"][0]["agent_detail"].is_null());
+    let mut diagnostics = Diagnostics::default();
+    let error = error.context(Boundary::new(StorageOperation::Progress, Stage::AgentReady));
+    for copy in 0..9 {
+        diagnostics.push(
+            copy,
+            &error,
+            Boundary {
+                operation: Operation::Prepare,
+                stage: Stage::Unknown,
+            },
+        );
+    }
+    let report = serde_json::to_value(diagnostics).unwrap();
+    assert_eq!(report["version"], 2);
+    assert_eq!(report["omitted_failures"], 1);
+    assert_eq!(report["failures"].as_array().unwrap().len(), 8);
+    for (copy, failure) in report["failures"].as_array().unwrap().iter().enumerate() {
+        assert_eq!(failure["copy_index"], copy);
+        assert_eq!(
+            failure["agent_detail"],
+            serde_json::json!({"stage":"tls_handshake","deadline_scope":"exchange"})
+        );
+        assert_eq!(failure.as_object().unwrap().len(), 7);
+    }
+    assert!(report.to_string().len() < 4096);
+    assert!(!report.to_string().contains("private-canary"));
+    assert!(serde_json::from_value::<Diagnostics>(report).is_ok());
+}
+
+#[test]
+fn diagnostic_v2_uses_the_same_deadline_stage_code_matrix_as_the_wire() {
+    let mut report = serde_json::json!({"version": 2, "omitted_failures": 0, "failures": [{
+        "fragment_index": null, "copy_index": 0, "operation": "reserve", "stage": "agent_ready",
+        "category": "agent_rejected", "agent_code": "CONTENT_UNAVAILABLE",
+        "agent_detail": {"stage": "unobserved", "deadline_scope": "operation"}
+    }]});
+    for stage in [
+        "unobserved",
+        "route_connect",
+        "control_selection",
+        "provider_lookup",
+        "provider_cardinality",
+        "offer_validity",
+        "stream_open",
+        "tls_handshake",
+        "challenge",
+    ] {
+        for deadline in ["none", "operation", "exchange"] {
+            for code in [
+                "CONTENT_INVALID",
+                "CONTENT_UNAVAILABLE",
+                "CONTENT_BUSY",
+                "CONTENT_POLICY",
+            ] {
+                report["failures"][0]["agent_code"] = code.into();
+                report["failures"][0]["agent_detail"] =
+                    serde_json::json!({"stage": stage, "deadline_scope": deadline});
+                let allowed = match deadline {
+                    "none" => stage != "unobserved",
+                    "operation" => code == "CONTENT_UNAVAILABLE",
+                    "exchange" => {
+                        code == "CONTENT_UNAVAILABLE"
+                            && matches!(stage, "stream_open" | "tls_handshake" | "challenge")
+                    }
+                    _ => unreachable!(),
+                };
+                assert_eq!(
+                    serde_json::from_value::<Diagnostics>(report.clone()).is_ok(),
+                    allowed,
+                    "{stage} {deadline} {code}"
+                );
+            }
+        }
+    }
 }

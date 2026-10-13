@@ -31,7 +31,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38325586905` on `bafbd03a` passes both APK builds, then fails at the first link-metadata query with access denied, before installation; cleanup passes. Candidate `dfc477a3` adds fixed read-only guest-observer commands, strict identity checks and a separate package-UID probe without extra app privileges. All 157 inert tests pass; actual trial `38416448364` is running. App launch, refresh, expiry and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Trial `38416109564` on `f09e7718` passes the separate core lifecycle, control-relay replacement, two source-free restores and deletion of all eleven retained copies. Cloud create then succeeds but deposit remains incomplete, before consumer repair/read/delete. The reviewed candidate retains closed core transfer diagnostics and uses explicit consumer profile 2 with Image `fa043874` and Cloud `f51b49b8`; historical profile 1 remains unchanged. The 118 targeted wiring checks pass. Authority, deadlines and acceptance requirements are unchanged; compilation and complete consumer acceptance remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Trial `38441174652` on `ff0ddd38` passes the separate core lifecycle and two source-free restores, but Cloud deposit fails on seven reserves before the agent returns READY. The cause below that boundary is not yet known. The reviewed candidate adds closed pre-READY observations and explicit consumer profile 3 with Image `87a80166` and Cloud `54a00b58`; historical profiles remain unchanged. Authority, deadlines, charges and acceptance requirements are unchanged. New Rust tests require hosted execution; complete consumer acceptance remains open. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | PR235 is merged in main. Public verifier trial `38324431627` passes four pinned SNP chain/report fixtures, including tampered inputs. Worker admission, task-bound authorization and actual protected execution are not implemented by this probe. A separate core signature-facts/session-binding candidate still needs dependency resolution and actual Rust tests. No suitable confidential-computing server is currently available; preparation proceeds alongside Android and storage. |
 
@@ -98,7 +98,30 @@ Schema-three failure evidence carries validated diagnostics or an explicit
 missing/invalid state; successful component checks cannot upgrade historical
 failures. The 118 targeted Node/Python wiring checks pass; Image's 44 adapter
 and Cloud's 34 focused checks pass separately. The complete live consumer
-scenario still requires a new hosted trial.
+scenario remained unproved by those component checks.
+
+[Trial `38441174652`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38441174652)
+on `ff0ddd38` records seven Cloud reserve failures at `agent_ready`, all with
+`CONTENT_UNAVAILABLE`, and no omitted failures. It does not identify a provider
+quota, expired grant or underlying route/TLS failure. Cloud catalog publication,
+consumer maintenance, restores and remote cleanup are not reached. The separate
+core lifecycle and two non-consuming restores pass; local fixture teardown and
+unchanged guest-root network state do not prove deletion of the consumer objects.
+The original 71-member artifact has SHA-256
+`2e7272c499f2f765393273659d92743ab70433c0f003722c88fef9c551e59e65`.
+
+The next candidate carries an optional, closed agent observation only on a
+correlated initial private-storage rejection. It distinguishes route connection,
+control/provider selection, offer validity, stream opening, TLS and challenge
+exchange, with a separate observation of which existing local deadline elapsed.
+It exports no free text, addresses, identities or private task data, and adds no
+error frame after READY has started. Diagnostics version 2 preserves historical
+version-1 reports without inventing observations. Consumer profile 3 pins Image
+`87a80166` and Cloud `54a00b58` to identical adapter bytes; profiles 1 and 2 stay
+unchanged. Image's 47 targeted tests and Cloud's four child-boundary plus one
+provenance test pass, as do 126 targeted consumer provision, orchestration and
+evidence checks. Independent source reviews pass; the 16 new Rust regressions
+and the complete storage scenario still need hosted verification.
 
 [Quality `38432837860`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38432837860)
 on `826f8101` passes dependency/license checks, then fails Clippy because the

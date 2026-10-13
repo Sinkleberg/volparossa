@@ -280,6 +280,7 @@ async fn local_provider_admission_cli_uses_real_framed_status_and_preserves_cust
                 request_id: incoming.request_id,
                 result: ControlResult::Ok as i32,
                 diagnostic_code: "PRIVATE_STORAGE_ADMISSION".into(),
+                private_storage_remote_detail: None,
                 payload: Some(Payload::PrivateStorageAdmission(PrivateStorageAdmission {
                     provider_key: provider_key.to_bytes().to_vec(),
                     capacity_bytes: status.capacity_bytes,
@@ -398,6 +399,7 @@ async fn fake_agent(
             request_id: request.request_id,
             result: 0,
             diagnostic_code: "PRIVATE_STORAGE_READY".into(),
+            private_storage_remote_detail: None,
             payload: Some(Payload::PrivateStorageReady(PrivateStorageReady {
                 provider_key: grant.provider_key().to_bytes().to_vec(),
                 challenge: challenge.encode(),

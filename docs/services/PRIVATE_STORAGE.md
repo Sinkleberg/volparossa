@@ -374,6 +374,28 @@ connection. Grant issuance authorizes limits; it does not reserve disk or establ
 replica. See [shared-core and application lifetimes](../architecture/APPLICATION_LIFECYCLE.md) for the
 remaining enrollment, per-application authority and lifecycle work.
 
+### Bounded transfer diagnostics
+
+An incomplete deposit retains its journal and conservative storage charge. Its
+optional `deposit_diagnostics` records at most eight fragment/copy failures plus
+an omitted count; it does not replace receipts or prove provider custody.
+
+Diagnostics version 2 adds nullable `agent_detail` to each failure. A non-null
+detail is valid only for a correlated initial `PrivateStorageRemote` rejection
+at `agent_ready`. It contains two closed values: the observed preparation stage
+and `deadline_scope` (`none`, `operation` or `exchange`). The latter distinguishes
+the existing whole-operation deadline from the inner grant/offer-bounded exchange;
+neither deadline is extended. A TLS-stage observation, for example, says where
+preparation stopped, not why the provider or network failed. Unknown or
+contradictory details are rejected, not copied into public error text.
+
+There is no additional error frame after READY has begun, including a partial
+write. Historical version-1 diagnostics retain their original six failure fields.
+Addresses, provider identities, keys, paths, private journals and free-form errors
+are excluded from the exported diagnostic. Retries, authority and accounting are
+unchanged. The new detail path is a reviewed candidate awaiting hosted Rust and
+live consumer verification; see the [status ledger](../IMPLEMENTATION_STATUS.md).
+
 ### Explicit usage
 
 The examples are templates: replace the uppercase key/hash placeholders with independently

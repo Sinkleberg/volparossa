@@ -18,6 +18,7 @@ import tempfile
 HERE = Path(__file__).resolve().parent
 PINS = HERE / 'storage-consumer-maintenance-pins.json'
 PINS_V2 = HERE / 'storage-consumer-maintenance-pins-v2.json'
+PINS_V3 = HERE / 'storage-consumer-maintenance-pins-v3.json'
 BASE = runpy.run_path(str(HERE / 'image-snapshot-provision.py'))
 require, digest, verify_files = (BASE[key] for key in ('require', 'digest', 'verify_files'))
 SOURCES = {name: Path('/opt') / ('volparossa-' + name) for name in ('image', 'cloud')}
@@ -27,6 +28,8 @@ REVISIONS = dict(image='aade424c3e96d0934edbddf31d2434757aa08564',
     cloud='9cb94fbb83e9f503ff5a66d43ed814f556d4a3af')
 DIAGNOSTIC_REVISIONS = dict(image='fa0438747b79bf29e49a2fe65116cb166ebe10df',
     cloud='f51b49b84af404cc8dd6e377e0545e2ca1ea4569')
+DETAIL_REVISIONS = dict(image='87a8016652db629a0afefb41d88b3056539bee17',
+    cloud='54a00b58a6c24432e7427d72ff714c786dbeb0cc')
 FILES = {
     'image': frozenset(('scripts/immich_snapshot.py', 'scripts/snapshot-storage.mjs',
         'src/core-storage.mjs', 'LICENSE')),
@@ -45,13 +48,18 @@ VENDORED = {'scripts/immich_snapshot.py': 'vendor/volparossa-image/immich_snapsh
 
 
 def pins_path(profile_version=1):
-    require(type(profile_version) is int and profile_version in (1, 2))
-    return PINS if profile_version == 1 else PINS_V2
+    require(type(profile_version) is int and profile_version in (1, 2, 3))
+    return {1: PINS, 2: PINS_V2, 3: PINS_V3}[profile_version]
+
+
+def source_revisions(profile_version=1):
+    pins_path(profile_version)  # Reject bools and unknown profile selectors first.
+    return {1: REVISIONS, 2: DIAGNOSTIC_REVISIONS, 3: DETAIL_REVISIONS}[profile_version]
 
 
 def load_pins(profile_version=1):
     path = pins_path(profile_version)
-    revisions = REVISIONS if profile_version == 1 else DIAGNOSTIC_REVISIONS
+    revisions = source_revisions(profile_version)
     files = FILES if profile_version == 1 else DIAGNOSTIC_FILES
     require(all(re.fullmatch('[a-f0-9]{40}', revision) for revision in revisions.values()))
     pins = json.loads(path.read_text())
@@ -83,7 +91,7 @@ def guard():
 def verify_vendor(pins, profile_version=1):
     source = SOURCES['cloud'] / 'third_party/volparossa-image-source.json'
     vendor = json.loads(source.read_text())
-    revisions = REVISIONS if profile_version == 1 else DIAGNOSTIC_REVISIONS
+    revisions = source_revisions(profile_version)
     require(vendor['version'] == 1 and vendor['revision'] == revisions['image']
         and vendor['repository'] == pins['sources']['image']['repository']
         and vendor['license'] == 'GPL-3.0-only' and vendor['local_modifications'] is False
@@ -135,9 +143,9 @@ def main():
     parser.add_argument('action', choices=('provision',))
     parser.add_argument('--download', action='store_true', required=True,
         help='explicit guest-only pinned Image/Cloud sources and Node runtime download')
-    parser.add_argument('--profile-version', type=int, choices=(1, 2), default=1)
+    parser.add_argument('--profile-version', type=int, choices=(1, 2, 3), default=1)
     args = parser.parse_args()
-    revisions = REVISIONS if args.profile_version == 1 else DIAGNOSTIC_REVISIONS
+    revisions = source_revisions(args.profile_version)
     print(json.dumps(dict(plan='guest-only-pinned-storage-consumers', revisions=revisions,
         sdk_or_browser_provisioned=False, storage_enrollment_created=False)), flush=True)
     provision(args.profile_version)

@@ -188,14 +188,16 @@ LIFECYCLE = {'observed_old_owner_absent_while_foreground_active', 'observed_paus
     'confirmed_copy_retentions_advanced', 'completed_turn_observed'}
 
 
-def validate_deposit_diagnostics(value):
+def validate_deposit_diagnostics(value, version=1):
+    require(type(version) is int and version in (1, 2), 'deposit_diagnostics')
     keys(value, ('version', 'failures', 'omitted_failures'))
-    require(type(value['version']) is int and value['version'] == 1
+    require(type(value['version']) is int and value['version'] == version
         and type(value['omitted_failures']) is int and value['omitted_failures'] == 0
         and type(value['failures']) is list and len(value['failures']) <= 8, 'deposit_diagnostics')
     seen = set()
     for failure in value['failures']:
-        keys(failure, ('fragment_index', 'copy_index', 'operation', 'stage', 'category', 'agent_code'))
+        keys(failure, ('fragment_index', 'copy_index', 'operation', 'stage', 'category', 'agent_code',
+            *(('agent_detail',) if version == 2 else ())))
         require(count(failure['fragment_index'], 0, 3) and count(failure['copy_index'], 0, 1)
             and failure['operation'] in ('prepare', 'reserve', 'progress', 'append', 'finalize', 'renew', 'read_range', 'delete')
             and failure['stage'] in ('journal_open', 'authorization', 'agent_ready', 'challenge', 'signed_request',
@@ -203,6 +205,17 @@ def validate_deposit_diagnostics(value):
             and failure['category'] in ('io', 'timeout', 'protocol', 'agent_rejected', 'invalid', 'busy', 'store', 'unknown')
             and (failure['agent_code'] in ('CONTENT_INVALID', 'CONTENT_UNAVAILABLE', 'CONTENT_BUSY', 'CONTENT_POLICY', 'unknown')
                 if failure['category'] == 'agent_rejected' else failure['agent_code'] is None), 'deposit_diagnostics')
+        if version == 2 and failure['agent_detail'] is not None:
+            detail = failure['agent_detail']
+            keys(detail, ('stage', 'deadline_scope'))
+            require(failure['stage'] == 'agent_ready' and failure['category'] == 'agent_rejected'
+                and failure['agent_code'] in ('CONTENT_INVALID', 'CONTENT_UNAVAILABLE', 'CONTENT_BUSY', 'CONTENT_POLICY')
+                and detail['stage'] in ('unobserved', 'route_connect', 'control_selection', 'provider_lookup',
+                    'provider_cardinality', 'offer_validity', 'stream_open', 'tls_handshake', 'challenge')
+                and detail['deadline_scope'] in ('none', 'operation', 'exchange')
+                and (detail['stage'] != 'unobserved' or detail['deadline_scope'] == 'operation')
+                and (detail['deadline_scope'] != 'exchange' or detail['stage'] in ('stream_open', 'tls_handshake', 'challenge'))
+                and (detail['deadline_scope'] == 'none' or failure['agent_code'] == 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics')
         identity = (failure['fragment_index'], failure['copy_index'])
         require(identity not in seen, 'deposit_diagnostics')
         seen.add(identity)
@@ -216,13 +229,16 @@ def validate_node_report(value, phase, provision, prepared=None, *, profile_vers
         if 'publish_observation' in value:
             fields += ('publish_observation',)
             observed = value['publish_observation']
-            diagnostic = type(observed) is dict and type(observed.get('version')) is int and observed['version'] == 2
-            expected_version = 3 if diagnostic else 2
-            require(profile_version is None or diagnostic == (profile_version == 2), 'publish_profile')
+            require(type(observed) is dict and type(observed.get('version')) is int
+                and observed['version'] in (1, 2, 3), 'publish_profile')
+            observation_version = observed['version']
+            diagnostic = observation_version >= 2
+            expected_version = observation_version + 1
+            require(profile_version is None or observation_version == profile_version, 'publish_profile')
             keys(observed, ('version', 'app', 'operation', 'status', 'code', 'local_process_joined',
                 'core_report_present', 'core_operation_complete',
                 *(('deposit_diagnostics_state', 'deposit_diagnostics') if diagnostic else ())))
-            require(type(observed['version']) is int and observed['version'] == (2 if diagnostic else 1)
+            require(type(observed['version']) is int and observed['version'] == observation_version
                 and observed['app'] in ('image', 'cloud') and observed['operation'] in ('create', 'deposit')
                 and phase == 'publish' and value['stage'] == observed['app'] + '_publish'
                 and value['code'] in ('publish_operation', 'phase_deadline'), 'publish_observation')
@@ -240,7 +256,7 @@ def validate_node_report(value, phase, provision, prepared=None, *, profile_vers
                 require(state in ('observed', 'missing', 'invalid', 'not_applicable')
                     and (state == 'not_applicable') == (observed['operation'] == 'create'), 'deposit_diagnostics')
                 if state == 'observed':
-                    validate_deposit_diagnostics(deposit)
+                    validate_deposit_diagnostics(deposit, observation_version - 1)
                     require(observed['core_report_present'] and observed['core_operation_complete'] in (True, False)
                         and (observed['core_operation_complete'] is False or not deposit['failures']), 'deposit_diagnostics')
                 else:
@@ -407,8 +423,8 @@ def validate_locations(root, binary, client, providers=None):
 
 def node_phase(root, phase, provision, deadline):
     command = [NODE, HERE / 'storage-consumer-maintenance.mjs', phase, root]
-    if PROFILE_VERSION == 2:
-        command += ['--profile-version', '2']
+    if PROFILE_VERSION in (2, 3):
+        command += ['--profile-version', str(PROFILE_VERSION)]
     status, output, _ = run_child(command, deadline)
     value = json.loads(output)
     prepared = None if phase == 'prepare' else private_json(root / 'storage-consumer-prepare.json')
@@ -577,8 +593,8 @@ def cleanup(root):
 def main(arguments):
     global PROFILE_VERSION
     PROFILE_VERSION = 1
-    if len(arguments) >= 2 and arguments[-2:] == ['--profile-version', '2']:
-        PROFILE_VERSION = 2
+    if len(arguments) >= 2 and arguments[-2] == '--profile-version' and arguments[-1] in ('2', '3'):
+        PROFILE_VERSION = int(arguments[-1])
         arguments = arguments[:-2]
     if len(arguments) == 2 and arguments[0] == 'flow-minimum':
         require(arguments[1] in FLOW_MINIMUM, 'phase')

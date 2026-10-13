@@ -3,10 +3,14 @@
 use std::{fmt, io};
 
 use anyhow::Error;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeStruct};
 use volparossa_content::private_storage::{
     protocol::{ProtocolError, StorageOperation},
     wire::WireError,
+};
+use volparossa_local_control::{
+    ControlResult, PrivateStorageDeadlineScope, PrivateStorageRemoteDetail,
+    PrivateStorageRemoteStage,
 };
 
 const MAX_FAILURES: usize = 8;
@@ -80,7 +84,7 @@ impl fmt::Display for Boundary {
 
 impl std::error::Error for Boundary {}
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Category {
     Io,
@@ -93,7 +97,7 @@ enum Category {
     Unknown,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 enum AgentCode {
     #[serde(rename = "CONTENT_INVALID")]
     Invalid,
@@ -110,16 +114,66 @@ enum AgentCode {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Failure {
+    #[serde(deserialize_with = "Option::deserialize")]
     fragment_index: Option<usize>,
     copy_index: usize,
     operation: Operation,
     stage: Stage,
     category: Category,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_code: Option<AgentCode>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_detail: Option<AgentDetail>,
+}
+
+/// Original exact six-field failure. Historical reports never gain a new claim.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct OriginalFailure {
+    #[serde(deserialize_with = "Option::deserialize")]
+    fragment_index: Option<usize>,
+    copy_index: usize,
+    operation: Operation,
+    stage: Stage,
+    category: Category,
+    #[serde(deserialize_with = "Option::deserialize")]
     agent_code: Option<AgentCode>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+struct AgentDetail {
+    stage: PrivateStorageRemoteStage,
+    deadline_scope: PrivateStorageDeadlineScope,
+}
+
+impl AgentDetail {
+    fn from_wire(detail: PrivateStorageRemoteDetail) -> Option<Self> {
+        detail.validate().ok()?;
+        Some(Self {
+            stage: PrivateStorageRemoteStage::try_from(detail.stage).ok()?,
+            deadline_scope: PrivateStorageDeadlineScope::try_from(detail.deadline_scope).ok()?,
+        })
+    }
+
+    fn valid_for(&self, code: Option<AgentCode>) -> bool {
+        let (result, code) = match code {
+            Some(AgentCode::Invalid) => (ControlResult::InvalidRequest, "CONTENT_INVALID"),
+            Some(AgentCode::Unavailable) => (ControlResult::Unavailable, "CONTENT_UNAVAILABLE"),
+            Some(AgentCode::Busy) => (ControlResult::InvalidState, "CONTENT_BUSY"),
+            Some(AgentCode::Policy) => (ControlResult::Policy, "CONTENT_POLICY"),
+            Some(AgentCode::Unknown) | None => return false,
+        };
+        PrivateStorageRemoteDetail {
+            stage: self.stage as i32,
+            deadline_scope: self.deadline_scope as i32,
+        }
+        .validate_rejection(result, code)
+        .is_ok()
+    }
+}
+
+#[derive(Debug)]
 pub(super) struct Diagnostics {
     version: u8,
     failures: Vec<Failure>,
@@ -129,10 +183,90 @@ pub(super) struct Diagnostics {
 impl Default for Diagnostics {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: 2,
             failures: Vec::new(),
             omitted_failures: 0,
         }
+    }
+}
+
+impl Serialize for Diagnostics {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut value = serializer.serialize_struct("Diagnostics", 3)?;
+        value.serialize_field("version", &self.version)?;
+        if self.version == 1 {
+            let original: Vec<_> = self
+                .failures
+                .iter()
+                .map(|failure| OriginalFailure {
+                    fragment_index: failure.fragment_index,
+                    copy_index: failure.copy_index,
+                    operation: failure.operation,
+                    stage: failure.stage,
+                    category: failure.category,
+                    agent_code: failure.agent_code,
+                })
+                .collect();
+            value.serialize_field("failures", &original)?;
+        } else {
+            value.serialize_field("failures", &self.failures)?;
+        }
+        value.serialize_field("omitted_failures", &self.omitted_failures)?;
+        value.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Diagnostics {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            version: u8,
+            failures: Vec<serde_json::Value>,
+            omitted_failures: usize,
+        }
+        let wire = Wire::deserialize(deserializer)?;
+        if !matches!(wire.version, 1 | 2) || wire.failures.len() > MAX_FAILURES {
+            return Err(serde::de::Error::custom(
+                "diagnostic version or failure bound",
+            ));
+        }
+        let failures = wire
+            .failures
+            .into_iter()
+            .map(|value| {
+                let failure = if wire.version == 1 {
+                    let old: OriginalFailure = serde_json::from_value(value)?;
+                    Failure {
+                        fragment_index: old.fragment_index,
+                        copy_index: old.copy_index,
+                        operation: old.operation,
+                        stage: old.stage,
+                        category: old.category,
+                        agent_code: old.agent_code,
+                        agent_detail: None,
+                    }
+                } else {
+                    serde_json::from_value::<Failure>(value)?
+                };
+                if failure.agent_detail.as_ref().is_some_and(|detail| {
+                    !(matches!(failure.stage, Stage::AgentReady)
+                        && matches!(failure.category, Category::AgentRejected)
+                        && detail.valid_for(failure.agent_code))
+                }) {
+                    return Err(<serde_json::Error as serde::de::Error>::custom(
+                        "diagnostic detail scope",
+                    ));
+                }
+                Ok(failure)
+            })
+            .collect::<Result<Vec<_>, serde_json::Error>>()
+            .map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            version: wire.version,
+            failures,
+            omitted_failures: wire.omitted_failures,
+        })
     }
 }
 
@@ -147,6 +281,14 @@ impl Diagnostics {
             .copied()
             .unwrap_or(fallback);
         let (category, agent_code) = classify(error);
+        let agent_detail = matches!(boundary.stage, Stage::AgentReady)
+            .then(|| {
+                error
+                    .downcast_ref::<crate::control::AgentRejected>()
+                    .and_then(|rejected| rejected.private_storage_remote_detail)
+                    .and_then(AgentDetail::from_wire)
+            })
+            .flatten();
         self.failures.push(Failure {
             fragment_index: None,
             copy_index,
@@ -154,6 +296,7 @@ impl Diagnostics {
             stage: boundary.stage,
             category,
             agent_code,
+            agent_detail,
         });
     }
 

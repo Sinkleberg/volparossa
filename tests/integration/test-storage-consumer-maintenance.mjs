@@ -40,6 +40,79 @@ function publishFailure(value, app = 'cloud', operation = 'deposit', aborted = f
 const transferFailure = () => ({ fragment_index: 2, copy_index: 1, operation: 'reserve',
   stage: 'agent_terminal', category: 'io', agent_code: null });
 const diagnostics = (failures = [transferFailure()]) => ({ version: 1, failures, omitted_failures: 0 });
+const detailedFailure = (stage = 'route_connect', deadline_scope = 'none') => ({
+  ...transferFailure(), stage: 'agent_ready', category: 'agent_rejected', agent_code: 'CONTENT_UNAVAILABLE',
+  agent_detail: { stage, deadline_scope } });
+const detailedDiagnostics = (failures = [detailedFailure()]) => ({ version: 2, failures, omitted_failures: 0 });
+
+test('profile 3 requires version2 detail without upgrading historical observations', () => {
+  for (const app of ['image', 'cloud']) {
+    const diagnostic = detailedDiagnostics();
+    const value = { status: 'incomplete', code: 'retained_operation_incomplete', local_process_joined: true,
+      storage: { operation_complete: false, deposit_diagnostics: diagnostic, raw: '/PRIVATE' } };
+    const result = publishFailure(value, app, 'deposit', false, 3);
+    assert.equal(result.version, 4); assert.equal(result.publish_observation.version, 3);
+    assert.equal(result.publish_observation.deposit_diagnostics_state, 'observed');
+    assert.deepEqual(result.publish_observation.deposit_diagnostics, diagnostic);
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE|raw/u);
+    assert.equal(publishFailure(value, app, 'deposit', false, 2).publish_observation.deposit_diagnostics_state, 'invalid');
+    value.storage.deposit_diagnostics = diagnostics();
+    assert.equal(publishFailure(value, app, 'deposit', false, 3).publish_observation.deposit_diagnostics_state, 'invalid');
+    assert.equal(publishFailure(value, app, 'deposit', false, 2).version, 3);
+    assert.equal(publishFailure(value, app, 'deposit', false, 1).version, 2);
+    const complete = { status: 'complete', local_process_joined: true,
+      storage: { operation_complete: true, deposit_diagnostics: detailedDiagnostics([]) } };
+    assert.doesNotThrow(() => requirePublishComplete(complete, app, 'deposit', 3));
+    delete complete.storage.deposit_diagnostics;
+    assert.equal(publishFailure(complete, app, 'deposit', false, 3).publish_observation.deposit_diagnostics_state, 'missing');
+    const created = publishFailure({ status: 'failed' }, app, 'create', false, 3);
+    assert.equal(created.publish_observation.deposit_diagnostics_state, 'not_applicable');
+    assert.equal(created.publish_observation.deposit_diagnostics, null);
+  }
+});
+
+test('agent details accept only the closed stage and actual deadline matrix', () => {
+  const stages = ['unobserved', 'route_connect', 'control_selection', 'provider_lookup',
+    'provider_cardinality', 'offer_validity', 'stream_open', 'tls_handshake', 'challenge'];
+  for (const stage of stages) for (const scope of ['none', 'operation', 'exchange']) {
+    const value = detailedDiagnostics([detailedFailure(stage, scope)]);
+    const allowed = (stage !== 'unobserved' || scope === 'operation')
+      && (scope !== 'exchange' || ['stream_open', 'tls_handshake', 'challenge'].includes(stage));
+    if (allowed) assert.deepEqual(depositDiagnostic(value, 2), value);
+    else assert.throws(() => depositDiagnostic(value, 2), /deposit_diagnostics/u);
+  }
+  for (const code of ['CONTENT_INVALID', 'CONTENT_UNAVAILABLE', 'CONTENT_BUSY', 'CONTENT_POLICY']) {
+    const value = detailedDiagnostics([{ ...detailedFailure(), agent_code: code }]);
+    assert.deepEqual(depositDiagnostic(value, 2), value);
+    value.failures[0].agent_detail.deadline_scope = 'operation';
+    if (code === 'CONTENT_UNAVAILABLE') assert.deepEqual(depositDiagnostic(value, 2), value);
+    else assert.throws(() => depositDiagnostic(value, 2), /deposit_diagnostics/u);
+  }
+  const nullDetail = detailedDiagnostics([{ ...transferFailure(), agent_detail: null }]);
+  assert.deepEqual(depositDiagnostic(nullDetail, 2), nullDetail);
+  const all = Array.from({ length: 8 }, (_, i) => ({ ...detailedFailure(), fragment_index: Math.floor(i / 2), copy_index: i % 2 }));
+  assert.equal(depositDiagnostic(detailedDiagnostics(all), 2).failures.length, 8);
+});
+
+test('profile3 detail mutations cannot leak raw data or be accepted as success', () => {
+  const mutations = [d => { delete d.failures[0].agent_detail; },
+    d => { d.failures[0].agent_detail = '/PRIVATE'; }, d => { d.failures[0].agent_detail = []; },
+    d => { d.failures[0].agent_detail.raw = '/PRIVATE'; }, d => { delete d.failures[0].agent_detail.stage; },
+    d => { d.failures[0].agent_detail.stage = '/PRIVATE'; }, d => { d.failures[0].agent_detail.deadline_scope = '/PRIVATE'; },
+    d => { d.failures[0].stage = 'agent_terminal'; }, d => { d.failures[0].category = 'io'; d.failures[0].agent_code = null; },
+    d => { d.failures[0].agent_code = 'unknown'; }, d => { d.version = 1; },
+    d => { d.failures.push(structuredClone(d.failures[0])); }, d => { d.omitted_failures = 1; },
+    d => { d.failures = Array(9).fill(d.failures[0]); }];
+  for (const mutate of mutations) {
+    const value = detailedDiagnostics(); mutate(value);
+    assert.throws(() => depositDiagnostic(value, 2), /deposit_diagnostics/u);
+    const result = publishFailure({ status: 'complete', local_process_joined: true,
+      storage: { operation_complete: true, deposit_diagnostics: value } }, 'cloud', 'deposit', false, 3);
+    assert.equal(result.version, 4); assert.equal(result.publish_observation.deposit_diagnostics_state, 'invalid');
+    assert.equal(result.publish_observation.deposit_diagnostics, null);
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE/u);
+  }
+});
 
 test('explicit profile 2 retains bounded actual-call transfer context without raw bridge output', () => {
   for (const app of ['image', 'cloud']) {
