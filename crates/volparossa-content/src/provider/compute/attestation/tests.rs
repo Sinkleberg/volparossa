@@ -144,7 +144,10 @@ fn endorsement_requires_complete_unique_noncritical_known_extensions() {
     for index in 0..11 {
         for mutation in 0..4 {
             let mut cert = public_vcek();
-            let extensions = cert.tbs_certificate.extensions.as_mut().unwrap();
+            // Keep a failed fixture assumption free of certificate debug output.
+            let Some(extensions) = cert.tbs_certificate.extensions.as_mut() else {
+                panic!("public fixture requires certificate extensions");
+            };
             match mutation {
                 0 => {
                     extensions.remove(index);
