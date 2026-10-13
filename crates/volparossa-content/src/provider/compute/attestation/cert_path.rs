@@ -88,7 +88,21 @@ fn check_ca(certificate: &Certificate, intermediate: bool) -> Result<Vec<u8>, Ev
     {
         return Err(EvidenceError::Endorsement);
     }
-    let usage: KeyUsage = decode(extension(certificate, USAGE, true)?)?;
+    let raw_usage = extension(certificate, USAGE, true)?.extn_value.as_bytes();
+    // These are the exact signed encodings in the pinned legacy Milan CAs.
+    // ASK retains a zero named bit: 03 02 01 04. KeyUsage re-encoding removes
+    // it (03 02 02 04), so generic decode/re-encode equality rejects the vendor
+    // certificate. Admit only its original bytes here, not arbitrary padding
+    // or a normalized replacement. Other extensions retain canonical decoding.
+    let expected_usage = if intermediate {
+        [3, 2, 1, 4]
+    } else {
+        [3, 2, 1, 6]
+    };
+    if raw_usage != expected_usage {
+        return Err(EvidenceError::Endorsement);
+    }
+    let usage = KeyUsage::from_der(raw_usage).map_err(|_| EvidenceError::Endorsement)?;
     let expected_bits = if intermediate {
         1 << 5
     } else {

@@ -30,9 +30,9 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Exercise the installed Android app and verify its actual refresh and expiry behavior. | PR19's trial `38477028643` on `84d06151` receives and decodes both products, but rejects their acquisition times as future. The next correction prepares immutable fixture products once per phase and checks guest-clock readiness without relaxing expiry. Flutter/web trial `38477819758` on `331b65cd` passes separately. Native refresh, background expiry and iOS remain open. |
+| Native Overmorrow — `volparossa-weather` | Exercise the installed Android app and verify its actual refresh and expiry behavior. | PR19's trial `38477028643` rejects both acquisition times as future. Candidate `471d24f` prepares immutable products once per phase and checks both clocks and actual background entry within their original validity windows. Its 65 Node and 15 Python checks pass; Android trial `38482209254` is running. Flutter/web `38477819758` passes separately. Native refresh, background expiry and iOS remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | PR232's prior actual trial `38466019672` passes base storage but fails Cloud publication. Candidate `20e957b4` passes all eight refresh regressions, strict workspace Clippy and CodeQL. Original actual trial `38477713017` is running; consumer repair, restore, deletion and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
-| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | PR238's VCEK chip/reported-TCB bindings and PR240's algorithm checks are merged and verified. The next candidate adds the fixed Milan certificate path and authenticated, time-valid ASK-scope revocation collateral; its forty Rust tests need hosted execution. Full appraisal, admission and protected execution remain open. No suitable confidential-computing server is available; software preparation continues alongside Android and storage. Local service and public peer tasks are not substitutes. |
+| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | PR238 and PR240 are merged. PR242 adds the fixed Milan path and authenticated ASK-scope revocation collateral. First actual trial `38480770163` compiles but passes only 33/40 tests: a pinned ASK KeyUsage encoding mismatch is being corrected without broadening certificate rights. Full appraisal, admission and protected execution remain open. No suitable confidential-computing server is available; software preparation continues alongside Android and storage. Local service and public peer tasks are not substitutes. |
 
 ### Storage maintenance verification
 
@@ -240,8 +240,15 @@ private-input release.
 
 The authentic public CRL signature verifies independently with OpenSSL. The
 candidate adds twelve Rust cases, for forty required by schema-five receipts;
-58 inert harness checks and eleven public-RSA scope checks pass. Hosted Rust
-compilation and execution are pending. The only lockfile change adds a direct
+58 inert harness checks and eleven public-RSA scope checks pass. First hosted
+trial `38480770163` on `1fd84495` compiles, then reports 33 passes and seven
+`Endorsement` failures; Clippy is not reached. The original artifact is retained
+as `323c16d00c1d09197e32d8b813bc23de2963ca9892768de5b64b6dce57ad55e6`.
+The pinned ASK's KeyUsage includes a zero named bit that the library omits when
+re-encoding. The correction requires its exact signed legacy bytes and exact
+rights, leaving generic extension decoding and signature checks unchanged.
+Positive-path and encoding regressions must pass with all forty actual tests
+on the corrected candidate. The only lockfile change adds a direct
 edge to the existing `rsa =0.9.10` package for public signature verification;
 the reviewed advisory restriction is unchanged. See the
 [candidate scope](development/PROTECTED_COMPUTE_VERIFIER.md#supplied-certificate-path-and-revocation-candidate)

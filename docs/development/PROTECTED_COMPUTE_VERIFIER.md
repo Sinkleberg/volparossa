@@ -180,6 +180,14 @@ ARK–ASK–VCEK path: issuer names, CA constraints, signing usage, supported
 extensions, key identifiers and certificate validity. It is a closed Milan
 profile, not a general-purpose X.509 validator.
 
+The pinned ASK's signed KeyUsage bytes are `03020104`: certificate signing
+with an extra zero named bit. Re-encoding the decoded flags produces
+`03020204`, so byte equality after re-encoding would reject this vendor
+certificate. The closed legacy profile requires the original ASK bytes (and
+ARK `03020106`) plus their exact decoded rights. It does not admit arbitrary
+padding, additional rights or normalized replacement certificates. Other
+extensions retain canonical decoding; actual chain signatures remain required.
+
 The bounded, canonical DER revocation list must have a valid ARK signature and
 cover the path's ASK. Unsupported scope, delta lists, malformed entries,
 revocation and invalid time windows reject the attempt. Its actual
@@ -202,7 +210,15 @@ certificates and session facts do not authenticate a worker. Schema-five
 receipts require all forty named tests, unchanged committed dependencies and
 targeted Clippy; historical schemas one through four remain replayable.
 The 58 inert receipt/harness checks and eleven RSA-scope checks pass locally.
-Hosted Rust compilation and execution are still pending for this candidate.
+The [first hosted trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38480770163)
+on `1fd84495` compiles but fails seven of forty tests at `Endorsement`; 33 pass,
+none are ignored, and Clippy is not reached. Its original 13-member artifact
+has SHA-256 `323c16d00c1d09197e32d8b813bc23de2963ca9892768de5b64b6dce57ad55e6`.
+Source inspection and the pinned DER encoder identify the ASK KeyUsage
+re-encoding mismatch above. The correction adds an explicit positive pinned
+path before synthetic mutations, a normalization regression and rejection of
+other encodings, rights and CA roles. The same forty actual tests and targeted
+Clippy must pass on the corrected candidate; this failed run remains failed.
 
 See [the collateral provenance](../../THIRD_PARTY_LICENSES.md#supplied-milan-revocation-list)
 for the fixture's exact digest, issuer and validity window. This change adds no

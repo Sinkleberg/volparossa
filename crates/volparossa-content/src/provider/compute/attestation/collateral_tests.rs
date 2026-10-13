@@ -205,6 +205,27 @@ fn synthetic_path_issuer_versions_unique_ids_and_leaf_identity_are_closed() {
 
 #[test]
 fn synthetic_ca_constraints_usage_identifiers_and_extensions_are_closed() {
+    let (root, intermediate, leaf) = chain();
+    for (certificate, original, normalized, bits) in [
+        (&root, [3, 2, 1, 6], [3, 2, 1, 6], (1 << 5) | (1 << 6)),
+        (&intermediate, [3, 2, 1, 4], [3, 2, 2, 4], 1 << 5),
+    ] {
+        let selected = certificate
+            .tbs_certificate
+            .extensions
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|item| item.extn_id.to_string() == "2.5.29.15")
+            .unwrap();
+        assert!(selected.critical);
+        assert_eq!(selected.extn_value.as_bytes(), original);
+        let usage = x509_cert::ext::pkix::KeyUsage::from_der(&original).unwrap();
+        assert_eq!(usage.0.bits(), bits);
+        assert_eq!(usage.to_der().unwrap(), normalized);
+    }
+    // The real pinned path must pass before any unsigned negative mutation.
+    assert_eq!(cert_path::check(&root, &intermediate, &leaf), Ok(()));
     for root_target in [false, true] {
         for mutation in 0..8 {
             let (mut root, mut intermediate, leaf) = chain();
@@ -251,6 +272,41 @@ fn synthetic_ca_constraints_usage_identifiers_and_extensions_are_closed() {
                     selected.extn_value = OctetString::new([4, 1, 0]).unwrap();
                 }
             }
+            assert_eq!(
+                cert_path::check(&root, &intermediate, &leaf),
+                Err(EvidenceError::Endorsement)
+            );
+        }
+        // Even equivalent re-encodings are not the pinned vendor profile.
+        // Also reject excess rights, unknown bits, nonzero unused bits, trailing
+        // bytes, and long-form lengths instead of relying on flag truncation.
+        let rights = if root_target { 6 } else { 4 };
+        for raw in [
+            vec![3, 2, 1, if root_target { 4 } else { 6 }],
+            vec![3, 2, 0, rights],
+            vec![3, 2, 2, rights],
+            vec![3, 2, 1, rights | 128],
+            vec![3, 2, 1, rights | 1],
+            vec![3, 3, 0, rights, 1],
+            vec![3, 2, 1, rights, 0],
+            vec![3, 0x81, 2, 1, rights],
+            vec![3, 2, 1],
+        ] {
+            let (mut root, mut intermediate, leaf) = chain();
+            let target = if root_target {
+                &mut root
+            } else {
+                &mut intermediate
+            };
+            target
+                .tbs_certificate
+                .extensions
+                .as_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|item| item.extn_id.to_string() == "2.5.29.15")
+                .unwrap()
+                .extn_value = OctetString::new(raw).unwrap();
             assert_eq!(
                 cert_path::check(&root, &intermediate, &leaf),
                 Err(EvidenceError::Endorsement)
