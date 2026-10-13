@@ -148,9 +148,17 @@ fn endorsement_requires_complete_unique_noncritical_known_extensions() {
             let Some(extensions) = cert.tbs_certificate.extensions.as_mut() else {
                 panic!("public fixture requires certificate extensions");
             };
+            assert_eq!(extensions.len(), 11);
             match mutation {
                 0 => {
-                    extensions.remove(index);
+                    // Build the missing-claim fixture in the original order.
+                    *extensions = extensions
+                        .iter()
+                        .enumerate()
+                        .filter(|(position, _)| *position != index)
+                        .map(|(_, extension)| extension.clone())
+                        .collect();
+                    assert_eq!(extensions.len(), 10);
                 }
                 1 => {
                     extensions[index] = extensions[(index + 1) % 11].clone();
