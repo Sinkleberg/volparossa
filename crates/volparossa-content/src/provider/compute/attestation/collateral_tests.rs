@@ -203,8 +203,7 @@ fn synthetic_path_issuer_versions_unique_ids_and_leaf_identity_are_closed() {
     }
 }
 
-#[test]
-fn synthetic_ca_constraints_usage_identifiers_and_extensions_are_closed() {
+fn assert_pinned_ca_usage_and_path() {
     let (root, intermediate, leaf) = chain();
     for (certificate, original, normalized, bits) in [
         (&root, [3, 2, 1, 6], [3, 2, 1, 6], (1 << 5) | (1 << 6)),
@@ -226,6 +225,11 @@ fn synthetic_ca_constraints_usage_identifiers_and_extensions_are_closed() {
     }
     // The real pinned path must pass before any unsigned negative mutation.
     assert_eq!(cert_path::check(&root, &intermediate, &leaf), Ok(()));
+}
+
+#[test]
+fn synthetic_ca_constraints_usage_identifiers_and_extensions_are_closed() {
+    assert_pinned_ca_usage_and_path();
     for root_target in [false, true] {
         for mutation in 0..8 {
             let (mut root, mut intermediate, leaf) = chain();
