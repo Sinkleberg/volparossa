@@ -32,7 +32,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Install and exercise the actual Android app in a disposable emulator. | PR19 remains separate from the web proof. Trial `38427081376` on `463d1ada` stops before installation: the fixed observer's first link query returns 11,967 bytes, then strict JSON parsing rejects a missing comma at position 5,435. The cause of the malformed command output remains unproven. Closed diagnostics identify this boundary without exporting interface data. Process drain, private cleanup and KVM restoration pass. Component run `38427090612` passes independently; app launch, refresh, expiry and iOS remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Draft PR232's trial `38416109564` on `f09e7718` passes the separate core repair/restart scenario, two complete hash-verified B/C restores and deletion of all eleven core copies. Consumer acceptance still fails: Cloud create succeeds, but deposit returns `retained_operation_incomplete`. Its underlying transfer cause is not retained. Quality `38417397926` passes on `7bfdae85`; that does not prove consumer repair, restore or deletion. Cloud PR234's longer continuation waits for this correction. Original authority, grants and deadlines remain unchanged. Reciprocal capacity remains separate outstanding work. |
-| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | Public verifier trial `38324431627` passes four pinned SNP chain/report fixtures. Core trial `38432553365` passes dependency resolution, feature checks, all fourteen actual Rust signature/session tests and targeted Clippy. Adopting the resolved lockfile and broader integration checks remain next. Full appraisal, worker admission and actual protected execution remain open. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
+| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | Public verifier trial `38324431627` passes four pinned SNP chain/report fixtures. Core trial `38432553365` passes dependency resolution, feature checks, all fourteen actual Rust signature/session tests and targeted Clippy. The exact tested lockfile is now adopted; locked-only CI, license collection and a guarded public-RSA advisory scope are prepared for broader integration checks. Full appraisal, worker admission and actual protected execution remain open. No suitable confidential-computing server is currently available; software preparation proceeds alongside Android and storage. Local private service and public peer tasks do not prove this requirement. |
 
 Image [PR8](https://github.com/VOLPAROSSA/volparossa-image/pull/8) and Cloud
 [PR15](https://github.com/VOLPAROSSA/volparossa-cloud/pull/15) now retain optional,
@@ -179,18 +179,30 @@ the original log ZIP has SHA-256
 `7bb7f03ed31ee483bd55aa38aa4dd1092d3a566a778593d03a88c0a070d01010`.
 The effective lockfile is unchanged from the preceding attempts, SHA-256
 `f87bfe531b282c83665a066daec181564edf8d256a08a6b024e2d5810f5abbac`.
-Adoption into the workspace lockfile and broader integration checks remain next;
-the passing targeted trial does not claim a complete workspace or private-worker
-integration. Hardware attestation, full appraisal, private input release and
-protected execution remain explicitly false in the original receipt.
+That exact effective lockfile is now committed as the workspace dependency lock.
+All 531 original package identities, versions and checksums remain unchanged;
+the 29 additions and seven new feature edges are the reviewed verifier closure.
+The current workflow uses `cargo fetch --locked` and rejects any source or lock
+change, followed by locked/offline metadata, tests and Clippy. Schema-two receipts
+identify this fixed-lock path; historical schema-one resolution receipts retain
+their original meaning. No unlocked resolver is available in the current CLI.
 
-The workflow starts from the
-unchanged workspace lockfile, retains Cargo's actual resolution and accepts only
-the new verifier dependencies and specifically documented feature edges. Existing
-package versions, checksums and all other dependency edges must remain unchanged.
-After resolution, compilation and tests use `--locked --offline`; this is not an
-OS network sandbox or confidential-computing environment. No Rust build or
-hardware trial has run on the development host.
+The license collector now accepts the exact pinned SEV Git identity and unchanged
+upstream license. `rsa 0.9.10` remains affected by RUSTSEC-2023-0071; the reviewed
+path uses public-key verification only, not private-key operations. The mandatory
+dependency gate checks that exact source, graph, features and call-site source
+before granting a temporary root-only exception. The ordinary deny configuration
+and separate fuzz graph have no RSA exception. See the
+[advisory scope](../THIRD_PARTY_LICENSES.md#rsa-advisory-scope).
+
+Thirty-eight inert workflow tests, four license-collector tests and nine advisory
+scope tests pass locally, with independent review. Broader hosted workspace and
+packaging checks remain pending. These checks are not an OS network sandbox or
+confidential-computing environment; the passing targeted trial does not claim a
+complete workspace or private-worker integration. Hardware attestation, full
+appraisal, private input release and protected execution remain explicitly false
+in the original receipt. No Rust build or hardware trial has run on the
+development host.
 
 ### Public Overmorrow build and joined delivery
 

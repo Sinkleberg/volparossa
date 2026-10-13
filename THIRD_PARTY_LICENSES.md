@@ -35,7 +35,9 @@ reproduced compiler source build. The upstream checkout and dependency sources
 retain their own notices there; neither binaries nor a vendored dependency tree
 are distributed by this change. See [trial scope and remaining requirements](docs/development/PROTECTED_COMPUTE_VERIFIER.md).
 
-The separate core [signature-facts module](crates/volparossa-content/src/provider/compute/attestation.rs)
+## Core signature verification dependency
+
+The core [signature-facts module](crates/volparossa-content/src/provider/compute/attestation.rs)
 selects the same exact `sev` revision with default features disabled and only
 `snp,crypto_nossl`. It uses upstream Milan ARK/ASK bytes as cryptographic reference
 roots, not as independently authorized production trust. Its two unchanged
@@ -48,9 +50,38 @@ remain Apache-2.0 inputs under the unchanged upstream license linked above.
 `x509-cert` is constrained to 0.2.5 (Apache-2.0 OR MIT) from
 [RustCrypto formats](https://github.com/RustCrypto/formats/tree/x509-cert/v0.2.5/x509-cert)
 for certificate validity access; it is also the version in the pinned upstream
-lockfile. The workspace lockfile still needs a bounded hosted resolution and
-review. The standalone probe's corrected lockfile and passing tests are not a
-workspace dependency lock or a compile result for this new module.
+lockfile. The workspace now adopts the exact dependency lock compiled and tested
+by [core trial 38432553365](https://github.com/VOLPAROSSA/volparossa/actions/runs/38432553365):
+143,756 bytes, SHA-256
+`f87bfe531b282c83665a066daec181564edf8d256a08a6b024e2d5810f5abbac`.
+All 531 original package identities, versions and checksums are retained. The
+29 additions belong to the verifier dependency closure; the seven additional
+feature edges at existing packages were checked against their upstream manifests.
+The 28 new registry archives match their lockfile checksums and retain compatible
+upstream licenses; the remaining addition is the exact pinned SEV Git source.
+The license collector accepts only that Git identity and unchanged Apache-2.0
+license bytes, SHA-256
+`c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4`.
+Current hosted checks use `cargo fetch --locked`, followed by locked/offline
+metadata, tests and Clippy. The standalone probe and its separate lock correction
+remain historical evidence, not substitutes for the core build.
+
+### RSA advisory scope
+
+`rsa 0.9.10` is affected by
+[RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html), which
+concerns private-key leakage through timing. It is **not patched** here. The
+selected [SEV verification code](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/src/certs/snp/cert_nossl.rs)
+uses `RsaPublicKey` and PSS/SHA-384 verification only. Its RSA operation applies
+the public exponent to a public signature; no RSA private key, decryption,
+signing or key generation is used by this core call path.
+
+The dependency check admits this advisory as non-applicable only after checking
+the exact source, features, incoming dependency edges and reviewed verifier
+source. It then creates a temporary root-only audit configuration. The ordinary
+deny configuration has no global exemption, and the separate fuzz graph neither
+uses RSA/SEV nor receives this exception. A changed dependency or use requires
+fresh review; this finding is not permission to use RSA private-key operations.
 
 The module has no vendor-collateral downloader or task-release hook. Current AMD
 revocation, VCEK extension-to-chip/TCB binding and complete endorsement appraisal

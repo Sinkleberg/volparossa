@@ -2,6 +2,10 @@
 version = 2
 yanked = "deny"
 ignore = [
+  # Root-only public RSA exception: scripts/check-public-rsa-scope.py must pass.
+  # RUSTSEC-2023-0071 stays denied here and in fuzz. The mandatory dependency
+  # script injects it only into a temporary root config after source/graph checks.
+  # This is non-applicability of private-key timing leakage, NOT an upstream fix.
   # Transitive netlink-packet-core 0.8.2 deliberately treats paste as finished rather than
   # vulnerable; there is no security defect or compatible maintained replacement in its line.
   "RUSTSEC-2024-0436",

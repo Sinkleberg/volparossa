@@ -80,6 +80,26 @@ workspace, context and original-lock attempts remain recorded in the
 This passing run establishes compatibility with the selected public fixtures,
 not a trustworthy worker or confidential task.
 
+## Core integration
+
+The separate [core module](../../crates/volparossa-content/src/provider/compute/attestation.rs)
+verifies exact received report bytes and binds a fresh, finite owner challenge
+to a proposed session key. [Core trial 38432553365](https://github.com/VOLPAROSSA/volparossa/actions/runs/38432553365)
+passes fourteen tests and targeted Clippy. The tests combine real public
+signature fixtures with explicitly synthetic session-state checks; they do
+not prove a guest possesses the proposed key or can execute a private task.
+
+The workspace adopts that trial's exact resolved lockfile. The current
+[core workflow](../../.github/workflows/protected-compute-admission.yml) fetches
+with `--locked`, requires the committed source and lockfile to remain unchanged,
+then checks actual resolved features and runs tests offline. Schema-two core
+receipts distinguish this fixed-lock verification from historical schema-one
+dependency resolution. Broader workspace integration remains a separate gate.
+
+The public-key-only use of the RSA dependency has an explicit, mechanically
+checked [advisory scope](../../THIRD_PARTY_LICENSES.md#rsa-advisory-scope);
+it is not treated as a patched general-purpose private-key implementation.
+
 ## What is still needed before private tasks can run remotely
 
 Certificate and report signatures are necessary but insufficient. A complete

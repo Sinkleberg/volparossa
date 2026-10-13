@@ -90,7 +90,7 @@ def git(root, *args):
 
 
 @contextmanager
-def source_fixture():
+def source_fixture(*, committed=False):
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / 'source'
         root.mkdir()
@@ -99,7 +99,7 @@ def source_fixture():
             (root / name).write_bytes((P.ROOT / name).read_bytes())
             (root / name).chmod(0o600)
         old, new = verifier_packages()
-        (root / 'Cargo.lock').write_bytes(lock(old))
+        (root / 'Cargo.lock').write_bytes(lock(new if committed else old))
         (root / 'Cargo.lock').chmod(0o600)
         (root / 'other.rs').write_text('public synthetic source\n')
         (root / '.gitignore').write_text('ignored-output\n')
@@ -111,15 +111,17 @@ def source_fixture():
             yield root, Path(tmp) / 'work', old, new
 
 
-def public_trial_fixture(root, work, new):
+def public_trial_fixture(root, work, new, *, historical=True):
     """Execute orchestration with synthetic public Cargo outputs, never Cargo."""
     def fake_run(argv, output, _deadline, *, stdout=None):
         if argv[2] == '--version':
             P.write(output, (argv[0] + ' 1.85.0 (inert)\nrelease: 1.85.0\n').encode())
         elif argv[2] == 'fetch':
-            (root / 'Cargo.lock').write_bytes(lock(new))
-            P.write(output, b'Locking synthetic inert dependencies\n')
+            assert '--locked' in argv
+            P.write(output, b'Fetched synthetic committed dependencies\n')
         elif argv[2] == 'metadata':
+            assert argv == ['cargo', '+1.85.0', 'metadata', '--locked', '--offline',
+                '--format-version', '1', '--filter-platform', 'x86_64-unknown-linux-gnu']
             P.write(stdout, json.dumps(metadata_fixture(new)).encode())
             P.write(output, b'')
         elif argv[2] == 'test':
@@ -130,8 +132,38 @@ def public_trial_fixture(root, work, new):
             raise AssertionError(argv)
         return tool_outcome()
     with patch.object(P, 'run', side_effect=fake_run):
-        P.prepare(work); P.resolve(work); P.metadata(work)
-        P.execute(work, 'test'); P.execute(work, 'clippy')
+        P.prepare(work, historical=historical)
+        if historical:
+            # Reconstruct schema 1 from inert original bytes, not an executable
+            # resolver fallback. Actual historical artifacts stay unchanged.
+            evidence = work / 'evidence'
+            original = P.read(evidence / 'original-Cargo.lock', P.MAX_LOCK)
+            selected, _ = P.source()
+            effective = lock(new)
+            (root / 'Cargo.lock').write_bytes(effective)
+            P.write(evidence / 'effective-Cargo.lock', effective)
+            P.write(evidence / 'resolve.log', b'Historical synthetic resolver log\n')
+            diff = ''.join(P.difflib.unified_diff(original.decode().splitlines(True), effective.decode().splitlines(True),
+                fromfile='original-Cargo.lock', tofile='effective-Cargo.lock')).encode()
+            P.write(evidence / 'Cargo.lock.diff', diff)
+            P.record(evidence / 'resolution.json', dict(schema_version=1,
+                kind='core-attestation-lock-preparation', source=selected, command=tool_outcome(),
+                original=P.digest(original), effective=P.digest(effective), scope=P.SCOPE,
+                log=P.digest(P.read(evidence / 'resolve.log', P.MAX_LOG)), tests_executed=False,
+                delta=P.lock_delta(original, effective), passed=True))
+        else:
+            P.fetch(work)
+        P.metadata(work, historical=historical)
+        P.execute(work, 'test', historical=historical)
+        P.execute(work, 'clippy', historical=historical)
+
+
+def prepare_fixture(work):
+    def fake_run(argv, output, _deadline):
+        P.write(output, (argv[0] + ' 1.85.0 (inert)\nrelease: 1.85.0\n').encode())
+        return tool_outcome()
+    with patch.object(P, 'run', side_effect=fake_run):
+        P.prepare(work)
 
 
 class ProbeContracts(unittest.TestCase):
@@ -347,36 +379,44 @@ class ProbeContracts(unittest.TestCase):
                 else: (root / ('ignored-output' if kind == 'ignored' else 'extra' if kind == 'untracked' else 'other.rs')).write_text('changed')
                 with self.assertRaises(ValueError): P.source(effective=True)
 
-    def test_failed_fetch_retains_original_effective_diff_and_failure_receipt(self):
-        with source_fixture() as (root, work, old, new):
-            (work / 'evidence').mkdir(parents=True)
-            P.write(work / 'evidence/original-Cargo.lock', lock(old))
+    def test_failed_locked_fetch_retains_bytes_and_failure_receipt_and_blocks_metadata(self):
+        with source_fixture(committed=True) as (root, work, _, new):
+            prepare_fixture(work)
             def fake_run(argv, output, deadline):
-                self.assertEqual(argv, ['cargo', '+1.85.0', 'fetch', '--manifest-path', str(root / 'Cargo.toml')])
+                self.assertEqual(argv, ['cargo', '+1.85.0', 'fetch', '--locked', '--manifest-path', str(root / 'Cargo.toml')])
                 self.assertEqual(deadline, 300)
-                (root / 'Cargo.lock').write_bytes(lock(new))
-                P.write(output, b'public resolver failed\n')
+                P.write(output, b'public locked fetch failed\n')
                 return tool_outcome(101)
             with patch.object(P, 'run', side_effect=fake_run), self.assertRaisesRegex(ValueError, 'command_failed'):
-                P.resolve(work)
+                P.fetch(work)
             self.assertEqual(P.read(work / 'evidence/effective-Cargo.lock', P.MAX_LOCK), lock(new))
             receipt = json.loads(P.read(work / 'evidence/resolution.json', P.MAX_LOCK))
             self.assertFalse(receipt['passed']); self.assertFalse(receipt['tests_executed'])
             self.assertEqual(receipt['command']['exit_status'], 101)
-            self.assertTrue((work / 'evidence/Cargo.lock.diff').is_file())
+            self.assertTrue(receipt['committed_lock_unchanged'])
+            self.assertEqual(receipt['schema_version'], 2)
+            self.assertEqual(P.read(work / 'evidence/Cargo.lock.diff', P.MAX_LOCK), b'')
+            with patch.object(P, 'run') as native, self.assertRaisesRegex(ValueError, 'locked_fetch_required'):
+                P.metadata(work)
+            native.assert_not_called()
 
-    def test_rejected_resolver_upgrade_retains_evidence_and_does_not_run_tests(self):
-        with source_fixture() as (root, work, old, new):
-            (work / 'evidence').mkdir(parents=True)
-            P.write(work / 'evidence/original-Cargo.lock', lock(old))
+    def test_even_successful_fetch_cannot_change_committed_lock_or_resolve_again(self):
+        with source_fixture(committed=True) as (root, work, _, new):
+            prepare_fixture(work)
+            original = lock(new)
             new[1]['checksum'] = 'b' * 64
             def fake_run(_argv, output, _deadline):
                 (root / 'Cargo.lock').write_bytes(lock(new)); P.write(output, b'Locking candidate\n')
                 return tool_outcome()
-            with patch.object(P, 'run', side_effect=fake_run) as runner, self.assertRaisesRegex(ValueError, 'metadata_changed'):
-                P.resolve(work)
+            with patch.object(P, 'run', side_effect=fake_run) as runner, self.assertRaisesRegex(ValueError, 'committed_lock_changed'):
+                P.fetch(work)
             self.assertEqual(runner.call_count, 1)
-            self.assertFalse(json.loads(P.read(work / 'evidence/resolution.json', P.MAX_LOCK))['passed'])
+            value = json.loads(P.read(work / 'evidence/resolution.json', P.MAX_LOCK))
+            self.assertFalse(value['passed']); self.assertFalse(value['committed_lock_unchanged'])
+            self.assertNotIn('delta', value)
+            self.assertEqual(P.read(work / 'evidence/original-Cargo.lock', P.MAX_LOCK), original)
+            self.assertEqual(P.read(work / 'evidence/effective-Cargo.lock', P.MAX_LOCK), lock(new))
+            self.assertTrue(P.read(work / 'evidence/Cargo.lock.diff', P.MAX_LOCK))
 
     def test_prepare_is_new_only_and_does_not_relabel_cryptographic_success(self):
         with source_fixture() as (_, work, old, _):
@@ -404,7 +444,7 @@ class ProbeContracts(unittest.TestCase):
                     self.assertEqual(argv[-3:], ['--', '-D', 'warnings'])
                     self.assertEqual(deadline, 600); P.write(output, b'Finished\n')
                 return tool_outcome()
-            with patch.object(P, 'check_effective', return_value={}), patch.object(P, 'check_metadata'), \
+            with patch.object(P, 'check_lock', return_value={}), patch.object(P, 'check_metadata'), \
                     patch.object(P, 'run', side_effect=fake_run):
                 P.execute(work, 'test'); P.execute(work, 'clippy')
 
@@ -412,7 +452,7 @@ class ProbeContracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp); (work / 'evidence').mkdir(); P.record(work / 'evidence/resolved-metadata.json', {})
             def fake_run(_argv, output, _deadline): P.write(output, test_log()); return tool_outcome(101)
-            with patch.object(P, 'check_effective', return_value={}), patch.object(P, 'check_metadata'), \
+            with patch.object(P, 'check_lock', return_value={}), patch.object(P, 'check_metadata'), \
                     patch.object(P, 'run', side_effect=fake_run), self.assertRaises(ValueError):
                 P.execute(work, 'test')
             self.assertFalse(json.loads(P.read(work / 'evidence/tests.json', 32768))['passed'])
@@ -430,7 +470,7 @@ class ProbeContracts(unittest.TestCase):
     def test_complete_synthetic_orchestration_reconstructs_exact_receipt(self):
         with source_fixture() as (root, work, _, new):
             public_trial_fixture(root, work, new)
-            P.receipt(work)
+            P.receipt(work, historical=True)
             value = json.loads(P.read(work / 'evidence/report.json', P.MAX_LOCK))
             self.assertTrue(value['passed'])
             self.assertEqual(set(value['files']), set(P.EXPORTS) - {'report.json'})
@@ -438,6 +478,154 @@ class ProbeContracts(unittest.TestCase):
             self.assertEqual(value['stages'], {key: True for key in (
                 'resolution.json', 'resolved-metadata.json', 'tests.json', 'clippy.json')})
             self.assertFalse(value['scope']['protected_execution'])
+
+    def test_committed_trial_keeps_exact_bytes_and_schema_two_without_delta_claim(self):
+        with source_fixture(committed=True) as (root, work, _, new):
+            public_trial_fixture(root, work, new, historical=False)
+            P.receipt(work)
+            evidence = work / 'evidence'
+            report = json.loads(P.read(evidence / 'report.json', P.MAX_LOCK))
+            self.assertTrue(report['passed'])
+            self.assertEqual(report['schema_version'], 2)
+            self.assertEqual(report['lock_policy'], 'committed-lock-unchanged')
+            self.assertEqual(set(report['files']), set(P.EXPORTS) - {'report.json'})
+            self.assertEqual(report['source']['commit'], git(root, 'rev-parse', 'HEAD'))
+            self.assertEqual(report['source']['tree'], git(root, 'rev-parse', 'HEAD^{tree}'))
+            self.assertEqual(report['source']['original_lock'], P.digest(lock(new)))
+            self.assertEqual(P.read(root / 'Cargo.lock', P.MAX_LOCK), lock(new))
+            for name in ('original-Cargo.lock', 'effective-Cargo.lock'):
+                self.assertEqual(P.read(evidence / name, P.MAX_LOCK), lock(new))
+            self.assertEqual(P.read(evidence / 'Cargo.lock.diff', P.MAX_LOCK), b'')
+            self.assertEqual(git(root, 'status', '--porcelain'), '')
+            fetch = json.loads(P.read(evidence / 'resolution.json', P.MAX_LOCK))
+            self.assertEqual(fetch['kind'], 'core-attestation-committed-lock-fetch')
+            self.assertTrue(fetch['committed_lock_unchanged'])
+            self.assertFalse(fetch['tests_executed'])
+            self.assertNotIn('delta', fetch)
+            self.assertNotIn('added_packages', json.dumps(fetch))
+            for name in ('source', 'resolution', 'resolved-metadata', 'tests', 'clippy'):
+                value = json.loads(P.read(evidence / (name + '.json'), P.MAX_LOCK))
+                self.assertEqual(value['schema_version'], 2)
+                self.assertEqual(value['lock_policy'], P.LOCK_POLICY)
+                self.assertEqual(value['source'], report['source'])
+                self.assertEqual(value['scope'], P.SCOPE)
+            tests = json.loads(P.read(evidence / 'tests.json', P.MAX_LOCK))
+            self.assertEqual(tests['tests']['names'], list(P.TESTS))
+            self.assertEqual(tests['tests']['passed'], 14)
+            self.assertFalse(report['scope']['protected_execution'])
+
+    def test_historical_trial_requires_explicit_replay_and_cannot_enter_current_commands(self):
+        with source_fixture() as (root, work, _, new):
+            public_trial_fixture(root, work, new)
+            with patch.object(P, 'run') as native:
+                for action in (P.fetch, P.metadata, lambda work: P.execute(work, 'test')):
+                    with self.assertRaises(ValueError): action(work)
+                native.assert_not_called()
+            with self.assertRaisesRegex(ValueError, 'incomplete'): P.receipt(work)
+            report = json.loads(P.read(work / 'evidence/report.json', P.MAX_LOCK))
+            self.assertFalse(report['passed']); self.assertEqual(report['schema_version'], 2)
+            # Replay the original schema 1 bytes explicitly, without rewriting them.
+            records, files = {}, {}
+            for name in P.EXPORTS:
+                if name == 'report.json': continue
+                raw = P.read(work / 'evidence' / name, P.MAX_LOG if name.endswith('.log') else P.MAX_LOCK)
+                files[name] = P.digest(raw)
+                if name.endswith('.json'): records[name] = json.loads(raw)
+            P.verify_evidence(work, records, files, historical=True)
+            with self.assertRaises(ValueError): P.verify_evidence(work, records, files)
+
+    def test_locked_fetch_binds_original_source_receipt_before_any_cargo(self):
+        for kind in ('original', 'source', 'commit', 'tree', 'schema', 'lock_hash', 'sev', 'scope', 'unknown'):
+            with source_fixture(committed=True) as (root, work, _, _), self.subTest(kind=kind):
+                prepare_fixture(work)
+                evidence = work / 'evidence'
+                if kind == 'original': (evidence / 'original-Cargo.lock').write_bytes(b'changed')
+                elif kind == 'source': (root / 'other.rs').write_text('changed')
+                else:
+                    path = evidence / 'source.json'; value = json.loads(path.read_bytes())
+                    if kind in ('commit', 'tree'): value['source'][kind] = 'f' * 40
+                    elif kind == 'schema': value['schema_version'] = 1
+                    elif kind == 'lock_hash': value['source']['original_lock']['sha256'] = 'f' * 64
+                    elif kind == 'sev': value['source']['sev_revision'] = 'f' * 40
+                    elif kind == 'scope': value['scope']['private_input_release'] = True
+                    else: value['unknown'] = 'not admitted'
+                    path.write_text(json.dumps(value))
+                with patch.object(P, 'run') as native, self.assertRaises(ValueError): P.fetch(work)
+                native.assert_not_called()
+
+    def test_locked_fetch_rechecks_source_after_success_and_never_falls_back(self):
+        with source_fixture(committed=True) as (root, work, _, _):
+            prepare_fixture(work)
+            def fake_run(argv, output, _deadline):
+                self.assertIn('--locked', argv)
+                (root / 'other.rs').write_text('changed during fetch')
+                P.write(output, b'Downloaded public dependencies\n')
+                return tool_outcome()
+            with patch.object(P, 'run', side_effect=fake_run) as runner, self.assertRaisesRegex(ValueError, 'source_changed'):
+                P.fetch(work)
+            self.assertEqual(runner.call_count, 1)
+            value = json.loads(P.read(work / 'evidence/resolution.json', P.MAX_LOCK))
+            self.assertFalse(value['passed']); self.assertEqual(value['error'], 'source_changed')
+
+    def test_locked_fetch_exit_capture_and_join_must_all_succeed(self):
+        for kind in ('exit', 'capture', 'join'):
+            with source_fixture(committed=True) as (_, work, _, _), self.subTest(kind=kind):
+                prepare_fixture(work)
+                outcome = tool_outcome()
+                if kind == 'exit': outcome['exit_status'] = 101
+                elif kind == 'capture': outcome['capture_error'] = 'command_io_or_deadline'
+                else: outcome['leader_joined'] = False
+                def fake_run(_argv, output, _deadline):
+                    P.write(output, b'Finished\n'); return outcome
+                with patch.object(P, 'run', side_effect=fake_run) as runner, self.assertRaisesRegex(ValueError, 'command_failed'):
+                    P.fetch(work)
+                self.assertEqual(runner.call_count, 1)
+                value = json.loads(P.read(work / 'evidence/resolution.json', P.MAX_LOCK))
+                self.assertEqual(value['command'], outcome); self.assertFalse(value['passed'])
+                with patch.object(P, 'run') as native, self.assertRaises(ValueError): P.metadata(work)
+                native.assert_not_called()
+
+    def test_current_report_rejects_tampered_snapshots_stages_and_historical_relabel(self):
+        for kind in ('original', 'effective', 'workspace', 'source', 'delta', 'historical',
+                'policy', 'exit', 'metadata_features', 'tests', 'log', 'diff', 'scope', 'unknown'):
+            with source_fixture(committed=True) as (root, work, _, new), self.subTest(kind=kind):
+                public_trial_fixture(root, work, new, historical=False)
+                evidence = work / 'evidence'
+                if kind in ('original', 'effective'):
+                    (evidence / (kind + '-Cargo.lock')).write_bytes(lock(new) + b'\n')
+                elif kind == 'workspace': (root / 'Cargo.lock').write_bytes(lock(new) + b'\n')
+                elif kind == 'source': (root / 'other.rs').write_text('changed')
+                elif kind == 'metadata_features':
+                    value = metadata_fixture(new); value['resolve']['nodes'][2]['features'].append('openssl')
+                    (work / 'metadata.json').write_text(json.dumps(value))
+                elif kind == 'tests': (evidence / 'tests.log').write_bytes(test_log().replace(b'14 passed', b'13 passed'))
+                elif kind == 'log': (evidence / 'resolve.log').write_bytes(b'changed')
+                elif kind == 'diff': (evidence / 'Cargo.lock.diff').write_bytes(b'not empty')
+                else:
+                    path = evidence / ('resolution.json' if kind == 'delta' else 'clippy.json')
+                    value = json.loads(path.read_bytes())
+                    if kind == 'delta': value['delta'] = {'added_packages': []}
+                    elif kind == 'historical': value['schema_version'] = 1
+                    elif kind == 'policy': value['lock_policy'] = 'new resolution'
+                    elif kind == 'exit': value['command']['exit_status'] = 101
+                    elif kind == 'unknown': value['unknown'] = 'not admitted'
+                    else: value['scope']['protected_execution'] = True
+                    path.write_text(json.dumps(value))
+                with self.assertRaisesRegex(ValueError, 'incomplete'): P.receipt(work)
+                value = json.loads(P.read(evidence / 'report.json', P.MAX_LOCK))
+                self.assertFalse(value['passed']); self.assertEqual(value['schema_version'], 2)
+
+    def test_current_cli_has_no_historical_or_unlocked_resolver_and_clears_fallback_env(self):
+        with patch.object(P, 'hosted') as gate, patch.object(P, 'run') as native:
+            for args in (['resolve'], ['fetch', '--historical'], ['historical'], ['--historical', 'receipt']):
+                with self.assertRaisesRegex(ValueError, 'fixed_command'): P.main(args)
+            gate.assert_not_called(); native.assert_not_called()
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ,
+                {'CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS': 'fallback'}):
+            P.cargo_env(Path(tmp))
+            self.assertNotIn('CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS', os.environ)
+            self.assertEqual(os.environ['CARGO_BUILD_JOBS'], '2')
+            self.assertEqual(os.environ['RUSTUP_TOOLCHAIN'], '1.85.0')
 
     def test_pass_flags_cannot_override_changed_logs_source_lock_metadata_or_exit(self):
         for kind in ('log', 'source', 'lock', 'metadata', 'exit', 'tool', 'diff', 'ignored', 'scope'):
@@ -459,7 +647,7 @@ class ProbeContracts(unittest.TestCase):
                     else: record['scope']['protected_execution'] = True
                     path.write_text(json.dumps(record))
                 with self.assertRaisesRegex(ValueError, 'incomplete'):
-                    P.receipt(work)
+                    P.receipt(work, historical=True)
                 value = json.loads(P.read(evidence / 'report.json', P.MAX_LOCK))
                 self.assertFalse(value['passed'])
 
@@ -476,11 +664,11 @@ class ProbeContracts(unittest.TestCase):
                 P.write(stdout, b''); P.write(output, b'public inert metadata error\n')
                 return tool_outcome(101)
             with patch.object(P, 'run', side_effect=fake_run), self.assertRaisesRegex(ValueError, 'command_failed'):
-                P.metadata(work)
+                P.metadata(work, historical=True)
             value = json.loads(P.read(work / 'evidence/resolved-metadata.json', P.MAX_LOCK))
             self.assertFalse(value['passed']); self.assertEqual(value['command']['exit_status'], 101)
             with patch.object(P, 'run') as native, self.assertRaisesRegex(ValueError, 'metadata_required'):
-                P.execute(work, 'test')
+                P.execute(work, 'test', historical=True)
             native.assert_not_called()
 
     def test_metadata_policy_failure_retains_only_bounded_public_observations_and_blocks_tests(self):
@@ -499,7 +687,7 @@ class ProbeContracts(unittest.TestCase):
                     P.write(stdout, json.dumps(observed).encode()); P.write(output, b'')
                     return tool_outcome()
                 with patch.object(P, 'run', side_effect=fake_run), self.assertRaises(P.MetadataPolicyError):
-                    P.metadata(work)
+                    P.metadata(work, historical=True)
                 raw = P.read(work / 'evidence/resolved-metadata.json', P.MAX_LOCK)
                 value = json.loads(raw)
                 self.assertFalse(value['passed']); self.assertEqual(value['command']['exit_status'], 0)
@@ -510,7 +698,7 @@ class ProbeContracts(unittest.TestCase):
                     self.assertNotIn(secret, raw)
                 self.assertEqual(value['scope'], P.SCOPE)
                 with patch.object(P, 'run') as native, self.assertRaisesRegex(ValueError, 'metadata_required'):
-                    P.execute(work, 'test')
+                    P.execute(work, 'test', historical=True)
                 native.assert_not_called()
 
     def test_capture_runs_only_inert_python_and_preserves_exit_status(self):
@@ -581,6 +769,8 @@ class ProbeContracts(unittest.TestCase):
         self.assertEqual(tuple(observed), P.EXPORTS)
         self.assertNotIn('cargo update', raw); self.assertNotIn('generate-lockfile', raw)
         self.assertNotIn('GITHUB_ENV', raw); self.assertNotIn('pull_request:', raw)
+        self.assertIn('protected-compute-admission.py fetch', raw)
+        self.assertNotIn('protected-compute-admission.py resolve', raw)
         code = Path(P.__file__).read_text()
         self.assertNotIn("'update'", code); self.assertNotIn("'generate-lockfile'", code)
         source = (P.ROOT / 'crates/volparossa-content/src/provider/compute/attestation/tests.rs').read_text()
