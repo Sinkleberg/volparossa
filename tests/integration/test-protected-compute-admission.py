@@ -58,9 +58,10 @@ def tool_outcome(code=0, error=None):
         cleanup_scope='owned-process-group-not-a-setsid-proof-sandbox', elapsed_ms=1)
 
 
-def test_log():
-    return ('running 14 tests\n' + ''.join('test ' + name + ' ... ok\n' for name in P.TESTS)
-        + '\ntest result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.1s\n').encode()
+def test_log(*, endorsement=False):
+    names = P.ENDORSEMENT_TESTS if endorsement else P.TESTS
+    return (f'running {len(names)} tests\n' + ''.join('test ' + name + ' ... ok\n' for name in names)
+        + f'\ntest result: ok. {len(names)} passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.1s\n').encode()
 
 
 def metadata_fixture(packages):
@@ -111,7 +112,7 @@ def source_fixture(*, committed=False):
             yield root, Path(tmp) / 'work', old, new
 
 
-def public_trial_fixture(root, work, new, *, historical=True):
+def public_trial_fixture(root, work, new, *, historical=True, endorsement=False):
     """Execute orchestration with synthetic public Cargo outputs, never Cargo."""
     def fake_run(argv, output, _deadline, *, stdout=None):
         if argv[2] == '--version':
@@ -125,14 +126,14 @@ def public_trial_fixture(root, work, new, *, historical=True):
             P.write(stdout, json.dumps(metadata_fixture(new)).encode())
             P.write(output, b'')
         elif argv[2] == 'test':
-            P.write(output, test_log())
+            P.write(output, test_log(endorsement=endorsement))
         elif argv[2] == 'clippy':
             P.write(output, b'Finished synthetic inert Clippy\n')
         else:
             raise AssertionError(argv)
         return tool_outcome()
     with patch.object(P, 'run', side_effect=fake_run):
-        P.prepare(work, historical=historical)
+        P.prepare(work, historical=historical, endorsement=endorsement)
         if historical:
             # Reconstruct schema 1 from inert original bytes, not an executable
             # resolver fallback. Actual historical artifacts stay unchanged.
@@ -152,10 +153,10 @@ def public_trial_fixture(root, work, new, *, historical=True):
                 log=P.digest(P.read(evidence / 'resolve.log', P.MAX_LOG)), tests_executed=False,
                 delta=P.lock_delta(original, effective), passed=True))
         else:
-            P.fetch(work)
-        P.metadata(work, historical=historical)
-        P.execute(work, 'test', historical=historical)
-        P.execute(work, 'clippy', historical=historical)
+            P.fetch(work, endorsement=endorsement)
+        P.metadata(work, historical=historical, endorsement=endorsement)
+        P.execute(work, 'test', historical=historical, endorsement=endorsement)
+        P.execute(work, 'clippy', historical=historical, endorsement=endorsement)
 
 
 def prepare_fixture(work):
@@ -549,6 +550,114 @@ class ProbeContracts(unittest.TestCase):
             P.verify_evidence(work, records, files, historical=True)
             with self.assertRaises(ValueError): P.verify_evidence(work, records, files)
 
+    def test_schema_three_binds_twenty_two_tests_without_promoting_appraisal(self):
+        with source_fixture(committed=True) as (root, work, _, new):
+            public_trial_fixture(root, work, new, historical=False, endorsement=True)
+            P.receipt(work, endorsement=True)
+            evidence = work / 'evidence'
+            report = json.loads(P.read(evidence / 'report.json', P.MAX_LOCK))
+            self.assertTrue(report['passed'])
+            self.assertEqual(report['schema_version'], 3)
+            self.assertEqual(report['lock_policy'], P.LOCK_POLICY)
+            self.assertEqual(set(report['files']), set(P.EXPORTS) - {'report.json'})
+            self.assertEqual(report['source']['commit'], git(root, 'rev-parse', 'HEAD'))
+            self.assertEqual(report['source']['tree'], git(root, 'rev-parse', 'HEAD^{tree}'))
+            for name in ('original-Cargo.lock', 'effective-Cargo.lock'):
+                self.assertEqual(P.read(evidence / name, P.MAX_LOCK), lock(new))
+            self.assertEqual(P.read(evidence / 'Cargo.lock.diff', P.MAX_LOCK), b'')
+            self.assertEqual(git(root, 'status', '--porcelain'), '')
+            for name in ('source', 'resolution', 'resolved-metadata', 'tests', 'clippy'):
+                value = json.loads(P.read(evidence / (name + '.json'), P.MAX_LOCK))
+                self.assertEqual(value['schema_version'], 3)
+                self.assertEqual(value['source'], report['source'])
+                self.assertEqual(value['scope'], P.SCOPE)
+            tests = json.loads(P.read(evidence / 'tests.json', P.MAX_LOCK))['tests']
+            self.assertEqual(tests, P.verify_tests(P.read(evidence / 'tests.log', P.MAX_LOG), endorsement=True))
+            self.assertEqual(tests['names'], list(P.ENDORSEMENT_TESTS))
+            self.assertEqual(tests['passed'], 22)
+            self.assertEqual(P.ENDORSEMENT_TESTS[:14], P.TESTS)
+            self.assertEqual(len(set(P.ENDORSEMENT_TESTS)), 22)
+            self.assertEqual({k for k, v in report['scope'].items() if v}, {'public_inputs_only'})
+
+    def test_schema_three_exact_tests_reject_old_missing_extra_ignored_and_false_counts(self):
+        raw = test_log(endorsement=True)
+        first = ('test ' + P.ENDORSEMENT_TESTS[-1] + ' ... ok\n').encode()
+        for bad in (test_log(), raw.replace(first, b''), raw + first,
+                raw.replace(first, first.replace(b'ok', b'ignored')),
+                raw.replace(first, first.replace(b'ok', b'FAILED')),
+                raw.replace(first, first.replace(b'endorsement_', b'unrelated_')),
+                raw.replace(b'22 passed', b'14 passed'), raw.replace(b'0 ignored', b'1 ignored'),
+                raw.replace(b'running 22', b'running 14'), b'build passed\n'):
+            with self.subTest(bad=bad[-100:]), self.assertRaises(ValueError):
+                P.verify_tests(bad, endorsement=True)
+        with self.assertRaises(ValueError): P.verify_tests(raw)
+        self.assertEqual(P.verify_tests(test_log())['passed'], 14)
+
+    def test_schema_two_replay_is_not_implicitly_upgraded_to_endorsement(self):
+        with source_fixture(committed=True) as (root, work, _, new):
+            public_trial_fixture(root, work, new, historical=False)
+            evidence = work / 'evidence'
+            original = {name: (evidence / name).read_bytes() for name in P.EXPORTS if name != 'report.json'}
+            with patch.object(P, 'run') as native:
+                for action in (lambda: P.fetch(work, endorsement=True),
+                        lambda: P.metadata(work, endorsement=True),
+                        lambda: P.execute(work, 'test', endorsement=True)):
+                    with self.assertRaises(ValueError): action()
+                native.assert_not_called()
+            with self.assertRaisesRegex(ValueError, 'incomplete'): P.receipt(work, endorsement=True)
+            failed = json.loads(P.read(evidence / 'report.json', P.MAX_LOCK))
+            self.assertFalse(failed['passed']); self.assertEqual(failed['schema_version'], 3)
+            self.assertEqual(original, {name: (evidence / name).read_bytes() for name in original})
+            records = {name: json.loads(raw) for name, raw in original.items() if name.endswith('.json')}
+            P.verify_evidence(work, records, {name: P.digest(raw) for name, raw in original.items()})
+            self.assertEqual(records['tests.json']['schema_version'], 2)
+
+    def test_schema_three_rejects_cross_schema_receipts_and_old_testset_relabelling(self):
+        for name in ('source', 'resolution', 'resolved-metadata', 'tests', 'clippy', 'old_tests'):
+            with source_fixture(committed=True) as (root, work, _, new), self.subTest(name=name):
+                public_trial_fixture(root, work, new, historical=False, endorsement=True)
+                evidence = work / 'evidence'
+                path = evidence / ('tests.json' if name == 'old_tests' else name + '.json')
+                value = json.loads(P.read(path, P.MAX_LOCK))
+                if name == 'old_tests':
+                    (evidence / 'tests.log').write_bytes(test_log())
+                    value['tests'] = P.verify_tests(test_log())
+                    value['log'] = P.digest(test_log())
+                else:
+                    value['schema_version'] = 2
+                path.write_text(json.dumps(value))
+                if name == 'old_tests':
+                    with patch.object(P, 'run') as native, self.assertRaises(ValueError):
+                        P.execute(work, 'clippy', endorsement=True)
+                    native.assert_not_called()
+                with self.assertRaisesRegex(ValueError, 'incomplete'): P.receipt(work, endorsement=True)
+                failed = json.loads(P.read(evidence / 'report.json', P.MAX_LOCK))
+                self.assertFalse(failed['passed']); self.assertEqual(failed['schema_version'], 3)
+
+    def test_hosted_cli_always_selects_schema_three_and_cannot_request_replay(self):
+        for phase in ('prepare', 'fetch', 'metadata', 'test', 'clippy', 'receipt'):
+            entry = 'execute' if phase in ('test', 'clippy') else phase
+            with self.subTest(phase=phase), patch.object(P, 'hosted'), patch.object(P, 'install_signals'), \
+                    patch.object(P, 'workdir', return_value=Path('/inert/work')), patch.object(P, 'cargo_env'), \
+                    patch.object(P, entry) as action:
+                P.main([phase])
+                args = (Path('/inert/work'), phase) if entry == 'execute' else (Path('/inert/work'),)
+                action.assert_called_once_with(*args, endorsement=True)
+        for historical, endorsement in ((True, True), (1, False), (False, 'true')):
+            with self.assertRaisesRegex(ValueError, 'evidence_profile'):
+                P.envelope('inert', historical=historical, endorsement=endorsement)
+
+    def test_hosted_branch_gate_keeps_exact_two_branches_only(self):
+        env = dict(GITHUB_ACTIONS='true', RUNNER_ENVIRONMENT='github-hosted',
+            GITHUB_REPOSITORY='VOLPAROSSA/volparossa', GITHUB_WORKFLOW='Protected compute core evidence')
+        for branch in ('feature/protected-compute-admission', 'feature/protected-compute-endorsement',
+                'main', 'feature/protected-compute-endorsement-other'):
+            with patch.dict(os.environ, dict(env, GITHUB_REF='refs/heads/' + branch)), patch.object(P.os, 'getuid', return_value=1000):
+                if branch in ('feature/protected-compute-admission', 'feature/protected-compute-endorsement'):
+                    P.hosted()
+                else:
+                    with self.assertRaisesRegex(ValueError, 'disposable_branch_only'): P.hosted()
+
     def test_locked_fetch_binds_original_source_receipt_before_any_cargo(self):
         for kind in ('original', 'source', 'commit', 'tree', 'schema', 'lock_hash', 'sev', 'scope', 'unknown'):
             with source_fixture(committed=True) as (root, work, _, _), self.subTest(kind=kind):
@@ -774,8 +883,9 @@ class ProbeContracts(unittest.TestCase):
 
     def test_workflow_has_exact_branch_source_and_export_closure(self):
         raw = WORKFLOW.read_text()
-        self.assertIn('branches: [feature/protected-compute-admission]', raw)
-        self.assertIn("if: github.ref == 'refs/heads/feature/protected-compute-admission'", raw)
+        self.assertIn('branches: [feature/protected-compute-admission, feature/protected-compute-endorsement]', raw)
+        self.assertIn("if: github.ref == 'refs/heads/feature/protected-compute-admission' || github.ref == 'refs/heads/feature/protected-compute-endorsement'", raw)
+        self.assertIn('Execute exactly twenty-two core evidence tests offline', raw)
         self.assertIn('cancel-in-progress: false', raw)
         self.assertIn('timeout-minutes: 45', raw)
         self.assertIn('persist-credentials: false', raw)
@@ -790,8 +900,8 @@ class ProbeContracts(unittest.TestCase):
         self.assertNotIn("'update'", code); self.assertNotIn("'generate-lockfile'", code)
         source = (P.ROOT / 'crates/volparossa-content/src/provider/compute/attestation/tests.rs').read_text()
         names = re.findall(r'#\[test\]\s+fn (\w+)\(', source)
-        self.assertEqual(set(P.TESTS), {P.PREFIX + name for name in names})
-        self.assertEqual(len(names), 14)
+        self.assertEqual(set(P.ENDORSEMENT_TESTS), {P.PREFIX + name for name in names})
+        self.assertEqual(len(names), 22)
 
 
 if __name__ == '__main__':
