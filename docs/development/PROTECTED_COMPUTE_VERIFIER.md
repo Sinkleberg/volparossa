@@ -172,6 +172,43 @@ datapaths.
 No dependencies, features, lockfile, appraisal obligations or execution
 permissions change. This is not complete certificate-path validation.
 
+## Supplied certificate path and revocation candidate
+
+The next candidate makes the supplied Milan ARK revocation list a mandatory
+input to `PendingSession::verify_and_bind`. It checks the fixed legacy
+ARK–ASK–VCEK path: issuer names, CA constraints, signing usage, supported
+extensions, key identifiers and certificate validity. It is a closed Milan
+profile, not a general-purpose X.509 validator.
+
+The bounded, canonical DER revocation list must have a valid ARK signature and
+cover the path's ASK. Unsupported scope, delta lists, malformed entries,
+revocation and invalid time windows reject the attempt. Its actual
+PSS/SHA-384 signature is checked with the already pinned `rsa =0.9.10`, now
+also a direct dependency; no package version changes. The public-key-only
+advisory guard covers this second verification path.
+
+Session binding rechecks time and cancellation after cryptographic work. The
+result expires at the earliest challenge deadline, certificate expiry or CRL
+`nextUpdate`; supplying collateral never renews an owner's authority. A bound
+result still leaves four explicit obligations: authorized production roots,
+individual VCEK status and collateral freshness, vendor TCB/local policy, and
+authorized workload/key origin. A valid ASK-scope list is not proof that a VCEK
+is unrevoked or that no newer vendor information exists.
+
+The public AMD CRL fixture's real signature verifies independently with
+OpenSSL. Twelve new Rust tests cover that signature, tampering, path and scope
+rejection, revocation entries and finite session binding. Synthetic negative
+certificates and session facts do not authenticate a worker. Schema-five
+receipts require all forty named tests, unchanged committed dependencies and
+targeted Clippy; historical schemas one through four remain replayable.
+The 58 inert receipt/harness checks and eleven RSA-scope checks pass locally.
+Hosted Rust compilation and execution are still pending for this candidate.
+
+See [the collateral provenance](../../THIRD_PARTY_LICENSES.md#supplied-milan-revocation-list)
+for the fixture's exact digest, issuer and validity window. This change adds no
+collateral downloader, protected worker, admission permit or private-input
+release. The hardware trial below remains required.
+
 ## What is still needed before private tasks can run remotely
 
 Certificate and report signatures are necessary but insufficient. A complete

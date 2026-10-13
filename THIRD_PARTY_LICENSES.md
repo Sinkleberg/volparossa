@@ -83,13 +83,39 @@ deny configuration has no global exemption, and the separate fuzz graph neither
 uses RSA/SEV nor receives this exception. A changed dependency or use requires
 fresh review; this finding is not permission to use RSA private-key operations.
 
-The module has no vendor-collateral downloader or task-release hook. Current AMD
-revocation, VCEK extension-to-chip/TCB binding and complete endorsement appraisal
-remain explicit outstanding requirements. AMD's
+The module has no vendor-collateral downloader or task-release hook. VCEK
+extension-to-chip and reported-TCB binding is checked. Production trust, current
+vendor security policy and complete worker appraisal remain separate requirements. AMD's
 [VCEK and KDS specification 57230](https://docs.amd.com/v/u/en-US/57230), revision
 1.05, identifies the product CRL endpoint and certificate extensions. Those
 vendor inputs are distinct from local authorization of roots and workload code;
 neither is supplied by a peer assertion or a successful signature check.
+
+### Supplied Milan revocation list
+
+The candidate session verifier also uses `rsa =0.9.10` directly for public-only
+PSS/SHA-384 verification of a supplied ARK revocation list. This is the same
+Apache-2.0 OR MIT package already pinned in the lockfile, with checksum
+`b8573f03f5883dcaebdfcf4725caa1ecb9c15b2ef50c43a07b816e06799bb12d`;
+no package version is changed. The exact-source and dependency-graph guard
+now covers this second public-verification path. The advisory remains unpatched
+and the restriction against private-key operations is unchanged.
+
+The public fixture `ark_milan_20260922.crl` was retrieved unchanged from
+[AMD's Milan CRL endpoint](https://kdsintf.amd.com/vcek/v1/Milan/crl) on
+2026-10-14 (Europe/Amsterdam). It contains 866 bytes and has SHA-256
+`dd68e9e3feb97dd0e95135feeae47d9cc193c73239a6281ec9884c00d5e6a525`.
+Its ARK-Milan signature authenticates CRL number 12, valid from
+2026-09-22 07:35:42 UTC until 2026-11-09 01:00:00 UTC, with no listed
+revocations. This is public issuer-signed validation data, not VOLPAROSSA
+source code or a production trust grant; the binary has no local patches.
+
+The closed profile follows AMD 57230 revision 1.05 and
+[RFC 5280 CRL processing](https://www.rfc-editor.org/rfc/rfc5280.html#section-6.3).
+It checks the fixed Milan certificate path and a complete ARK-issued list for
+that path's ASK. It does not prove individual VCEK revocation status, absence
+of newer collateral, an acceptable firmware version or private execution.
+The fixture's validity dates do not authorize future use outside that interval.
 
 ## CometBFT ABCI transaction adapter inputs
 

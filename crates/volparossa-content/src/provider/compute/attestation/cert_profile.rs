@@ -12,7 +12,7 @@ use x509_cert::{
         Decode as _, Reader as _, TagNumber,
         asn1::{ContextSpecific, Null},
     },
-    spki::{AlgorithmIdentifierRef, ObjectIdentifier},
+    spki::{AlgorithmIdentifierOwned, AlgorithmIdentifierRef, ObjectIdentifier},
 };
 
 use super::EvidenceError;
@@ -56,8 +56,18 @@ pub(super) fn check_chain(
 }
 
 fn check_signature(certificate: &Certificate) -> Result<(), EvidenceError> {
-    let algorithm = &certificate.signature_algorithm;
-    if algorithm != &certificate.tbs_certificate.signature || algorithm.oid != PSS {
+    check_signature_algorithm(
+        &certificate.signature_algorithm,
+        &certificate.tbs_certificate.signature,
+    )
+}
+
+/// Used for certificates and CRLs; parsing never replaces actual verification.
+pub(super) fn check_signature_algorithm(
+    algorithm: &AlgorithmIdentifierOwned,
+    inner: &AlgorithmIdentifierOwned,
+) -> Result<(), EvidenceError> {
+    if algorithm != inner || algorithm.oid != PSS {
         return Err(EvidenceError::Endorsement);
     }
     let parameters = algorithm
