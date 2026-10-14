@@ -19,18 +19,18 @@ MAINTENANCE = runpy.run_path(str(HERE / 'test-private-storage-maintenance-smoke.
 NETWORK = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
 
 
-def fixture(retired=(), *, changed=True, network_version=1, stream_profile=False):
-    previous = NETWORK['fixture'](6 if stream_profile else 5) if network_version == 2 else PREVIOUS['fixture']()
+def fixture(retired=(), *, changed=True, network_version=1, stream_profile=False, challenge_profile=False):
+    previous = NETWORK['fixture'](7 if challenge_profile else 6 if stream_profile else 5) if network_version == 2 else PREVIOUS['fixture']()
     if network_version == 1:
         PREVIOUS['attach_transition'](previous, changed=changed)
-    profile_version = 2 if stream_profile else 1
+    profile_version = 3 if challenge_profile else 2 if stream_profile else 1
     pins = M['PROVISIONER']['load_pins'](profile_version)
     provision = dict(version=profile_version, kind='cloud-upload-maintenance-runtime-provision', success=True,
         pins=pins, pins_sha256=hashlib.sha256(M['PROVISIONER']['pins_path'](profile_version).read_bytes()).hexdigest(),
         previous_consumer_provision_sha256=previous['provision_sha256'], tools=copy.deepcopy(previous['provision']['tools']),
         **dict.fromkeys(M['PROVISIONER']['TRUE_FLAGS'], True), **dict.fromkeys(M['PROVISIONER']['FALSE_FLAGS'], False))
     digest = hashlib.sha256(M['encoded'](provision)).hexdigest()
-    value = dict(schema_version=4 if stream_profile else 3 if network_version == 2 else 2,
+    value = dict(schema_version=5 if challenge_profile else 4 if stream_profile else 3 if network_version == 2 else 2,
         kind='cloud-upload-maintenance-evidence', success=True,
         scope=dict(M['SCOPE']), previous_consumers=previous, provision=provision, provision_sha256=digest)
     for phase in ('prepare', *M['PHASES']):
@@ -81,11 +81,11 @@ def fixture(retired=(), *, changed=True, network_version=1, stream_profile=False
 def write_evidence(root, value):
     PREVIOUS['write_evidence'](root, value['previous_consumers'])
     def write(name, data):
-        compact = value['schema_version'] in (3, 4) and name in (
+        compact = value['schema_version'] in (3, 4, 5) and name in (
             'storage-consumer-evidence.json', 'private-storage-maintenance-smoke.json')
         (root / name).write_bytes(M['OLD']['canonical'](data) if compact else M['encoded'](data))
         (root / name).chmod(0o600)
-    if value['schema_version'] in (3, 4):
+    if value['schema_version'] in (3, 4, 5):
         prior = value['previous_consumers']
         NETWORK['U']['save'](root, NETWORK['M']['U']['NAME'], M['OLD']['canonical'](prior['control_underlay']))
         for name, phase in prior['network'].items():
@@ -100,7 +100,8 @@ def write_evidence(root, value):
     PREVIOUS['attach_transition'](original,
         changed=value['previous_consumers']['control_transition']['relation'] == 'different', consumer=False)
     write('private-storage-maintenance-smoke.json', dict(MAINTENANCE['report'](original),
-        schema_version=5 if value['schema_version'] == 4 else 4, run_id='a' * 32, consumers=value['previous_consumers']))
+        schema_version=6 if value['schema_version'] == 5 else 5 if value['schema_version'] == 4 else 4,
+        run_id='a' * 32, consumers=value['previous_consumers']))
     for name in ('provision', 'prepare', *M['PHASES'], 'withdrawal'):
         write(f'cloud-upload-{name}.json', value[name])
     write('cloud-upload-private-cleanup.json', value['private_cleanup'])
@@ -110,7 +111,7 @@ def write_evidence(root, value):
     for name, phase in value['network'].items():
         for field, suffix in (('layout', 'layout'), ('selected_route', 'live-selection'), ('gates', 'gates')):
             write(f'private-storage-fragments-cloud-upload-{name}-{suffix}.json', phase[field])
-        if value['schema_version'] in (3, 4):
+        if value['schema_version'] in (3, 4, 5):
             for suffix, data in (('before', phase['control_before']), ('after', phase['control_after']),
                     *phase['control_privacy'].items()):
                 write(f'cloud-upload-{name}-control-{suffix}.json', data)
@@ -523,9 +524,9 @@ class StreamEvidence(unittest.TestCase):
         value = fixture(network_version=2, stream_profile=True)
         raw = M['serialize_evidence'](value)
         self.assertEqual(raw, M['OLD']['canonical'](value))
-        for version in (2, 3, 4, 5, True, '4'):
+        for version in (2, 3, 4, 5, 6, True, '4'):
             self.assertEqual(M['evidence_limit'](M['EVIDENCE_NAME'], version),
-                M['CURRENT_MAX_JSON'] if type(version) is int and version in (3, 4) else M['MAX_JSON'])
+                M['CURRENT_MAX_JSON'] if type(version) is int and version in (3, 4, 5) else M['MAX_JSON'])
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / M['EVIDENCE_NAME']
             for size in (M['MAX_JSON'] + 1, M['CURRENT_MAX_JSON']):
@@ -538,6 +539,123 @@ class StreamEvidence(unittest.TestCase):
         self.assertEqual(M['serialize_evidence'](historical), M['OLD']['canonical'](historical))
         historical = fixture()
         self.assertEqual(M['serialize_evidence'](historical), M['encoded'](historical))
+
+
+class ChallengeEvidence(unittest.TestCase):
+    def test_explicit_profile7_builder_reconstructs_originals_and_binds_distinct_profile3(self):
+        value = fixture((0, 2), network_version=2, challenge_profile=True)
+        self.assertEqual((value['schema_version'], value['previous_consumers']['schema_version'],
+            value['provision']['version']), (5, 7, 3))
+        M['validate_evidence'](value)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); write_evidence(root, value)
+            original = {p.name: p.read_bytes() for p in root.iterdir()}
+            options = dict(network_version=2, challenge_profile=True)
+            self.assertEqual(M['build_evidence'](root, **options), value)
+            for wrong in ({}, dict(network_version=2), dict(network_version=2, stream_profile=True),
+                    dict(challenge_profile=True), dict(network_version=2, challenge_profile=True, stream_profile=True),
+                    dict(network_version=2, challenge_profile=1)):
+                with self.subTest(options=wrong), self.assertRaises(ValueError): M['build_evidence'](root, **wrong)
+            output = root / M['EVIDENCE_NAME']
+            for args in (['evidence-v5', str(root), str(output)], ['check', str(output)]):
+                result = subprocess.run([sys.executable, '-B', str(HERE / 'cloud-upload-maintenance-evidence.py'),
+                    *args], capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output.read_bytes(), M['OLD']['canonical'](value))
+            self.assertTrue(all((root / name).read_bytes() == raw for name, raw in original.items()))
+            prior = value['previous_consumers']
+            self.assertEqual(prior['provision']['pins']['sources']['cloud']['revision'],
+                value['provision']['pins']['sources']['cloud']['revision'])
+            self.assertNotEqual(prior['provision_sha256'], value['provision_sha256'])
+            record = root / 'storage-consumer-finish.json'
+            changed = json.loads(record.read_bytes()); changed['node_report_sha256'] = '0' * 64
+            record.write_bytes(M['encoded'](changed))
+            with self.assertRaisesRegex(ValueError, 'previous_raw_binding'): M['build_evidence'](root, **options)
+
+    def test_challenge_generation_rejects_old_pins_evidence_and_weakened_original_requirements(self):
+        original = fixture(network_version=2, challenge_profile=True)
+        for schema in (2, 3, 4):
+            historical = fixture(network_version=2 if schema >= 3 else 1, stream_profile=schema == 4)
+            relabelled = copy.deepcopy(historical); relabelled['schema_version'] = 5
+            with self.assertRaisesRegex(ValueError, 'upload_previous_profile'): M['validate_evidence'](relabelled)
+            for field in ('previous_consumers', 'provision'):
+                value = copy.deepcopy(original); value[field] = historical[field]
+                with self.assertRaises(ValueError): M['validate_evidence'](value)
+        for change in (lambda v: v['provision']['pins']['sources']['image'].update(revision='0' * 40),
+                lambda v: v['previous_consumers'].pop('control_underlay'),
+                lambda v: v['network']['exercise']['control_privacy'].pop('relay1'),
+                lambda v: v['network']['finish']['control_after']['nodes']['relay5']['routes'].pop(),
+                lambda v: v['network']['upload']['privacy']['client'].update(direct_client_exit_packets=1),
+                lambda v: v['deleted_usage'][0].update(committed_bytes=1),
+                lambda v: v['initial_usage'][0].update(reserved_bytes=1),
+                lambda v: v['finish']['node'].update(all_retained_copies_delete_acknowledged=False)):
+            value = copy.deepcopy(original); change(value)
+            with self.assertRaises((ValueError, KeyError)): M['validate_evidence'](value)
+
+    def test_terminal3_current_cli_keeps_all_old_generations_inspectable_but_not_current(self):
+        for schema in (2, 3, 4, 5):
+            value = fixture(network_version=2 if schema >= 3 else 1, stream_profile=schema == 4,
+                challenge_profile=schema == 5)
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); write_evidence(root, value)
+                upload = root / M['EVIDENCE_NAME']; upload.write_bytes(M['serialize_evidence'](value)); upload.chmod(0o600)
+                output = root / 'cloud-upload-maintenance-smoke.json'
+                argv = ['finalize-report-v5', str(root), '1' * 40, 'a' * 32,
+                    'private-storage-maintenance-complete', '0', 'true', '0', 'NONE', str(output)]
+                result = subprocess.run([sys.executable, '-B', str(HERE / 'cloud-upload-maintenance-evidence.py'),
+                    *argv], capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                terminal = json.loads(output.read_bytes())
+                self.assertEqual(terminal['schema_version'], 3)
+                self.assertEqual(terminal['success'], schema == 5)
+                self.assertLess(len(output.read_bytes()), 4096)
+                self.assertEqual(terminal['upload_evidence_sha256'], hashlib.sha256(upload.read_bytes()).hexdigest())
+                for selector in ('check-report', 'check-report-v3', 'check-report-v4', 'check-report-v5'):
+                    checked = subprocess.run([sys.executable, '-B', str(HERE / 'cloud-upload-maintenance-evidence.py'),
+                        selector, str(output), '1' * 40], capture_output=True, timeout=30)
+                    self.assertEqual(checked.returncode == 0, schema == 5 and selector == 'check-report-v5', checked.stderr)
+                if schema != 5: continue
+                for old_options in ({}, dict(current=True), dict(stream_profile=True)):
+                    old = M['final_report'](root, '1' * 40, 'a' * 32, 'private-storage-maintenance-complete',
+                        0, True, 0, 'NONE', **old_options)
+                    self.assertFalse(old['success'])
+                    self.assertIn(old['schema_version'], (1, 2))
+                upload.write_bytes(upload.read_bytes() + b'\n')
+                with self.assertRaisesRegex(ValueError, 'original_report_hash'):
+                    M['check_report'](output, '1' * 40, challenge_profile=True)
+                upload.unlink()
+                failed = M['final_report'](root, '1' * 40, 'a' * 32, 'cloud-upload-exercise', 1, False, 2,
+                    'CLOUD_UPLOAD_APPLICATION_FAILED', challenge_profile=True)
+                self.assertEqual((failed['schema_version'], failed['success'], failed['runner_exit_status']), (3, False, 1))
+                self.assertEqual(failed['observed_blocker'], 'CLOUD_UPLOAD_APPLICATION_FAILED')
+                self.assertEqual(failed['cleanup'], dict(complete=False, remaining_owned_objects=2))
+
+    def test_schema5_bound_and_export_names_remain_closed_without_changing_historical_encoding(self):
+        value = fixture(network_version=2, challenge_profile=True)
+        raw = M['serialize_evidence'](value)
+        self.assertEqual(raw, M['OLD']['canonical'](value))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); path = root / M['EVIDENCE_NAME']
+            for size in (M['MAX_JSON'] + 1, M['CURRENT_MAX_JSON']):
+                expanded = raw + b' ' * (size - len(raw)); path.write_bytes(expanded); path.chmod(0o600)
+                self.assertEqual(M['read_upload_evidence'](path), (value, expanded))
+            path.write_bytes(raw + b' ' * (M['CURRENT_MAX_JSON'] + 1 - len(raw)))
+            with self.assertRaisesRegex(ValueError, 'input_boundary'): M['read_upload_evidence'](path)
+            wrong = root / 'other.json'; wrong.write_bytes(raw + b' ' * (M['MAX_JSON'] + 1 - len(raw))); wrong.chmod(0o600)
+            with self.assertRaisesRegex(ValueError, 'input_boundary'): M['read_upload_evidence'](wrong)
+            invalid = dict(value, kind='other')
+            invalid_raw = M['serialize_evidence'](invalid)
+            path.write_bytes(invalid_raw + b' ' * (M['MAX_JSON'] + 1 - len(invalid_raw)))
+            with self.assertRaisesRegex(ValueError, 'upload_evidence_identity'): M['read_upload_evidence'](path)
+        outputs = []
+        for command in ('export-names-v3', 'export-names-v4', 'export-names-v5'):
+            result = subprocess.run([sys.executable, '-B', str(HERE / 'cloud-upload-maintenance-evidence.py'), command],
+                capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr); outputs.append(result.stdout)
+        self.assertTrue(all(output == outputs[0] for output in outputs))
+        for schema in (2, 3, 4):
+            old = fixture(network_version=2 if schema >= 3 else 1, stream_profile=schema == 4)
+            self.assertEqual(M['serialize_evidence'](old), M['encoded'](old) if schema == 2 else M['OLD']['canonical'](old))
 
 
 if __name__ == '__main__':

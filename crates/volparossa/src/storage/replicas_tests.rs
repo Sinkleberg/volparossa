@@ -373,7 +373,7 @@ async fn replica_two_real_stores_resume_failover_and_delete_without_consuming_su
     assert_eq!(
         partial["deposit_diagnostics"],
         serde_json::json!({
-            "version": 5, "omitted_failures": 0, "failures": [{
+            "version": 6, "omitted_failures": 0, "failures": [{
                 "fragment_index": null, "copy_index": 0, "operation": "reserve",
                 "stage": "agent_terminal", "category": "io", "agent_code": null,
                 "agent_detail": null, "agent_outcome": {"status": "query_failed", "detail": null}
@@ -400,7 +400,7 @@ async fn replica_two_real_stores_resume_failover_and_delete_without_consuming_su
     assert_eq!(
         completed["deposit_diagnostics"],
         serde_json::json!({
-            "version": 5, "omitted_failures": 0, "failures": []
+            "version": 6, "omitted_failures": 0, "failures": []
         })
     );
     for (index, original) in identities.iter().enumerate() {

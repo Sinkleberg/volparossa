@@ -21,6 +21,7 @@ import subprocess
 HERE = Path(__file__).resolve().parent
 PINS = HERE / 'cloud-upload-maintenance-pins.json'
 PINS_V2 = HERE / 'cloud-upload-maintenance-pins-v2.json'
+PINS_V3 = HERE / 'cloud-upload-maintenance-pins-v3.json'
 BASE = runpy.run_path(str(HERE / 'image-snapshot-provision.py'))
 PREVIOUS = runpy.run_path(str(HERE / 'storage-consumer-maintenance-evidence.py'))
 require, digest, verify_files = (BASE[name] for name in ('require', 'digest', 'verify_files'))
@@ -32,6 +33,8 @@ REVISIONS = dict(image='eb9758453d094df5ea3ba045e993bd3d2dd47881',
     cloud='cea181f1f80d57c9d8047093ed543f40ec43138d')
 STREAM_REVISIONS = dict(image='949f208dbb48fcb734d4dfd33eb1933b69830a01',
     cloud='7d10c4943062c5a0ae46fc57e293dc3e33db3ed2')
+CHALLENGE_REVISIONS = dict(image='43029ea8b780de2376a3b7325d24a8e1c657f08e',
+    cloud='e0db1cacf7bec2df3925ee454ec6216587b8ddef')
 FILES = {
     'image': frozenset(('scripts/immich_snapshot.py', 'src/core-storage.mjs', 'LICENSE')),
     'cloud': frozenset(('scripts/cloud-catalog.mjs', 'scripts/cloud-serve.mjs',
@@ -52,13 +55,13 @@ FALSE_FLAGS = ('storage_enrollment_created', 'peer_storage_proven', 'application
 
 
 def pins_path(profile_version=1):
-    require(type(profile_version) is int and profile_version in (1, 2))
-    return PINS if profile_version == 1 else PINS_V2
+    require(type(profile_version) is int and profile_version in (1, 2, 3))
+    return {1: PINS, 2: PINS_V2, 3: PINS_V3}[profile_version]
 
 
 def source_revisions(profile_version=1):
     pins_path(profile_version)
-    return REVISIONS if profile_version == 1 else STREAM_REVISIONS
+    return {1: REVISIONS, 2: STREAM_REVISIONS, 3: CHALLENGE_REVISIONS}[profile_version]
 
 
 def load_pins(profile_version=1):
@@ -100,7 +103,7 @@ def verify_shared_runtime(pins, profile_version=1):
     previous = json.loads(raw)
     PREVIOUS['validate_provision'](previous)
     pins_path(profile_version)
-    require(previous['version'] == 6 if profile_version == 2 else previous['version'] in (1, 2, 3, 4, 5))
+    require(previous['version'] in {1: (1, 2, 3, 4, 5), 2: (6,), 3: (7,)}[profile_version])
     require(previous['pins']['runtime'] == pins['runtime'])
     for name, record in pins['runtime']['files'].items():
         path = RUNTIME / name
@@ -136,7 +139,7 @@ def verify_vendor(pins, profile_version=1):
 def validate_provision(value):
     require(type(value) is dict and set(value) == {'version', 'kind', 'success', 'pins', 'pins_sha256',
         'previous_consumer_provision_sha256', 'tools', *TRUE_FLAGS, *FALSE_FLAGS})
-    require(type(value['version']) is int and value['version'] in (1, 2)
+    require(type(value['version']) is int and value['version'] in (1, 2, 3)
         and value['kind'] == 'cloud-upload-maintenance-runtime-provision' and value['success'] is True
         and value['pins'] == load_pins(value['version']) and value['pins_sha256'] == digest(pins_path(value['version']))
         and type(value['previous_consumer_provision_sha256']) is str
@@ -181,7 +184,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('provision',))
     parser.add_argument('--download', action='store_true', required=True)
-    parser.add_argument('--profile-version', type=int, choices=(1, 2), default=1)
+    parser.add_argument('--profile-version', type=int, choices=(1, 2, 3), default=1)
     args = parser.parse_args()
     print(json.dumps(dict(plan='guest-only-pinned-cloud-upload-continuation', revisions=source_revisions(args.profile_version),
         reuse_existing_node=True, storage_enrollment_created=False)), flush=True)

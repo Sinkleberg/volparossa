@@ -369,6 +369,23 @@ class ControlTransition(unittest.TestCase):
 
 
 class ConsumerEvidence(unittest.TestCase):
+    def test_profile_seven_binds_challenge_sources_and_preserves_custody_privacy_and_cleanup(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        value = network['fixture'](7)
+        self.assertEqual(M['validate_evidence'](value), value)
+        for mutate in (lambda v: v.update(schema_version=6), lambda v: v['provision'].update(version=6),
+                lambda v: v['provision'].update(pins=M['PROVISIONER']['load_pins'](6)),
+                lambda v: v['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+                lambda v: v['deleted_usage'][0].update(leases=1)):
+            invalid = copy.deepcopy(value); mutate(invalid)
+            with self.assertRaises(ValueError): M['validate_evidence'](invalid)
+        for arguments in (dict(challenge_profile=True),
+                dict(network_version=2, tls_profile=True, challenge_profile=True),
+                dict(network_version=2, outcome_profile=True, challenge_profile=True),
+                dict(network_version=2, stream_profile=True, challenge_profile=True)):
+            with self.assertRaises(ValueError): M['build_evidence']('/inert/not-read', **arguments)
+        network['ConsumerNetwork']().assert_builder(7)
+
     def test_profile_six_requires_stream_pins_without_relabeling_network_or_custody(self):
         network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
         value = network['fixture'](6)

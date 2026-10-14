@@ -1186,7 +1186,7 @@ if [ "$private_storage_maintenance" = yes ]; then
         storage-consumer-maintenance-smoke.sh storage-consumer-maintenance-smoke.py \
         storage-consumer-maintenance.mjs storage-consumer-maintenance-pins.json storage-consumer-maintenance-pins-v2.json \
         storage-consumer-maintenance-pins-v3.json storage-consumer-maintenance-pins-v4.json storage-consumer-maintenance-pins-v5.json \
-        storage-consumer-maintenance-pins-v6.json \
+        storage-consumer-maintenance-pins-v6.json storage-consumer-maintenance-pins-v7.json \
         storage-consumer-control-underlay.sh storage-consumer-control-underlay.py \
         storage-consumer-network.sh storage-consumer-network.py storage-consumer-route-sampler.py \
         storage-consumer-maintenance-evidence.py storage-consumer-maintenance-provision.py \
@@ -1198,6 +1198,7 @@ fi
 if [ "$cloud_upload_maintenance" = yes ]; then
     for upload_fixture in cloud-upload-maintenance-smoke.sh cloud-upload-maintenance-smoke.py \
         cloud-upload-maintenance.mjs cloud-upload-maintenance-pins.json cloud-upload-maintenance-pins-v2.json \
+        cloud-upload-maintenance-pins-v3.json \
         cloud-upload-maintenance-evidence.py cloud-upload-maintenance-provision.py; do
         [ -f "$source_directory/tests/integration/$upload_fixture" ] \
             && [ ! -L "$source_directory/tests/integration/$upload_fixture" ] || exit 69
@@ -3105,6 +3106,8 @@ if [ "$private_storage_maintenance" = yes ]; then
         "$WORK/bin/storage-consumer-maintenance-pins-v5.json"
     install -o root -g root -m 0444 "$source_directory/tests/integration/storage-consumer-maintenance-pins-v6.json" \
         "$WORK/bin/storage-consumer-maintenance-pins-v6.json"
+    install -o root -g root -m 0444 "$source_directory/tests/integration/storage-consumer-maintenance-pins-v7.json" \
+        "$WORK/bin/storage-consumer-maintenance-pins-v7.json"
     install -o root -g root -m 0444 "$source_directory/tests/integration/agent-private-task-code-pins.json" \
         "$WORK/bin/agent-private-task-code-pins.json"
 fi
@@ -3117,6 +3120,8 @@ if [ "$cloud_upload_maintenance" = yes ]; then
         "$WORK/bin/cloud-upload-maintenance-pins.json"
     install -o root -g root -m 0444 "$source_directory/tests/integration/cloud-upload-maintenance-pins-v2.json" \
         "$WORK/bin/cloud-upload-maintenance-pins-v2.json"
+    install -o root -g root -m 0444 "$source_directory/tests/integration/cloud-upload-maintenance-pins-v3.json" \
+        "$WORK/bin/cloud-upload-maintenance-pins-v3.json"
 fi
 if [ "$image_snapshot" = yes ] || [ "$cloud_private_file" = yes ] || [ "$cloud_private_upload" = yes ]; then
     install -o root -g root -m 0555 "$source_directory/tests/integration/image-snapshot-smoke.py" \

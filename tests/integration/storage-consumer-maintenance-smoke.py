@@ -226,7 +226,7 @@ def validate_agent_outcome(value, stage):
 
 
 def validate_deposit_diagnostics(value, version=1):
-    require(type(version) is int and version in (1, 2, 3, 4, 5), 'deposit_diagnostics')
+    require(type(version) is int and version in (1, 2, 3, 4, 5, 6), 'deposit_diagnostics')
     keys(value, ('version', 'failures', 'omitted_failures'))
     require(type(value['version']) is int and value['version'] == version
         and type(value['omitted_failures']) is int and value['omitted_failures'] == 0
@@ -245,7 +245,7 @@ def validate_deposit_diagnostics(value, version=1):
         if version >= 2 and failure['agent_detail'] is not None:
             detail = failure['agent_detail']
             keys(detail, ('stage', 'deadline_scope', *(('tls_failure',) if version >= 3 else ()),
-                *(('stream_failure',) if version >= 5 else ())))
+                *(('stream_failure',) if version >= 5 else ()), *(('challenge',) if version >= 6 else ())))
             require(failure['stage'] == 'agent_ready' and failure['category'] == 'agent_rejected'
                 and failure['agent_code'] in ('CONTENT_INVALID', 'CONTENT_UNAVAILABLE', 'CONTENT_BUSY', 'CONTENT_POLICY')
                 and detail['stage'] in ('unobserved', 'route_connect', 'control_selection', 'provider_lookup',
@@ -267,6 +267,16 @@ def validate_deposit_diagnostics(value, version=1):
                     and detail['stage'] == 'stream_open' and detail['deadline_scope'] == 'none'
                     and detail['tls_failure'] is None and failure['agent_code'] == 'CONTENT_UNAVAILABLE'),
                     'deposit_diagnostics')
+            if version >= 6 and detail['challenge'] is not None:
+                challenge = detail['challenge']
+                keys(challenge, ('phase', 'before_challenge', 'in_challenge'))
+                buckets = ('under_1s', '1_to_5s', '5_to_15s', '15_to_30s',
+                    '30_to_60s', '60_to_90s', '90_to_120s', 'at_least_120s')
+                require(challenge['phase'] in ('selector_write_flush', 'grant_write_flush', 'challenge_read_verify')
+                    and challenge['before_challenge'] in buckets and challenge['in_challenge'] in buckets
+                    and detail['stage'] == 'challenge' and detail['tls_failure'] is None
+                    and detail['stream_failure'] is None and failure['agent_code'] == 'CONTENT_UNAVAILABLE',
+                    'deposit_diagnostics')
         if version >= 4:
             validate_agent_outcome(failure['agent_outcome'], failure['stage'])
         identity = (failure['fragment_index'], failure['copy_index'])
@@ -283,7 +293,7 @@ def validate_node_report(value, phase, provision, prepared=None, *, profile_vers
             fields += ('publish_observation',)
             observed = value['publish_observation']
             require(type(observed) is dict and type(observed.get('version')) is int
-                and observed['version'] in (1, 2, 3, 4, 5, 6), 'publish_profile')
+                and observed['version'] in (1, 2, 3, 4, 5, 6, 7), 'publish_profile')
             observation_version = observed['version']
             diagnostic = observation_version >= 2
             expected_version = observation_version + 1
@@ -476,7 +486,7 @@ def validate_locations(root, binary, client, providers=None):
 
 def node_phase(root, phase, provision, deadline):
     command = [NODE, HERE / 'storage-consumer-maintenance.mjs', phase, root]
-    if PROFILE_VERSION in (2, 3, 4, 5, 6):
+    if PROFILE_VERSION in (2, 3, 4, 5, 6, 7):
         command += ['--profile-version', str(PROFILE_VERSION)]
     status, output, _ = run_child(command, deadline)
     value = json.loads(output)
@@ -663,7 +673,7 @@ def main(arguments):
     if len(arguments) >= 2 and arguments[-2:] == ['--network-version', '2']:
         NETWORK_VERSION = 2
         arguments = arguments[:-2]
-    if len(arguments) >= 2 and arguments[-2] == '--profile-version' and arguments[-1] in ('2', '3', '4', '5', '6'):
+    if len(arguments) >= 2 and arguments[-2] == '--profile-version' and arguments[-1] in ('2', '3', '4', '5', '6', '7'):
         PROFILE_VERSION = int(arguments[-1])
         arguments = arguments[:-2]
     if len(arguments) == 2 and arguments[0] == 'flow-minimum':

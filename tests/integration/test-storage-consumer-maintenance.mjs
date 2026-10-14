@@ -56,6 +56,65 @@ const streamDiagnostics = (stream_failure = 'flow_acquire') => ({ version: 5, om
   failures: [{ ...detailedFailure('stream_open'), agent_detail: { stage: 'stream_open',
     deadline_scope: 'none', tls_failure: null, stream_failure }, agent_outcome: null }] });
 
+const challengeDiagnostics = () => ({ version: 6, omitted_failures: 0,
+  failures: [{ ...detailedFailure('challenge', 'operation'), agent_detail: { stage: 'challenge',
+    deadline_scope: 'operation', tls_failure: null, stream_failure: null,
+    challenge: { phase: 'challenge_read_verify', before_challenge: '90_to_120s', in_challenge: '1_to_5s' } },
+  agent_outcome: null }] });
+
+test('profile7 observes finite challenge progress without reinterpreting prior profiles', () => {
+  const buckets = ['under_1s', '1_to_5s', '5_to_15s', '15_to_30s', '30_to_60s', '60_to_90s', '90_to_120s', 'at_least_120s'];
+  for (const phase of ['selector_write_flush', 'grant_write_flush', 'challenge_read_verify']) {
+    for (const before_challenge of buckets) for (const in_challenge of buckets) {
+      for (const deadline_scope of ['none', 'operation', 'exchange']) {
+        const d = challengeDiagnostics();
+        Object.assign(d.failures[0].agent_detail, { deadline_scope, challenge: { phase, before_challenge, in_challenge } });
+        assert.deepEqual(depositDiagnostic(d, 6), d);
+      }
+    }
+  }
+  for (const app of ['image', 'cloud']) {
+    const diagnostic = challengeDiagnostics();
+    const value = { status: 'incomplete', code: 'retained_operation_incomplete', local_process_joined: true,
+      storage: { operation_complete: false, deposit_diagnostics: diagnostic, raw: 'PRIVATE' } };
+    const report = publishFailure(value, app, 'deposit', false, 7);
+    assert.equal(report.version, 8); assert.equal(report.publish_observation.version, 7);
+    assert.deepEqual(report.publish_observation.deposit_diagnostics, diagnostic);
+    assert.doesNotMatch(JSON.stringify(report), /PRIVATE|raw/u);
+    for (const old of [2, 3, 4, 5, 6]) assert.equal(publishFailure(value, app, 'deposit', false, old)
+      .publish_observation.deposit_diagnostics_state, 'invalid');
+    const complete = { status: 'complete', local_process_joined: true,
+      storage: { operation_complete: true, deposit_diagnostics: { version: 6, failures: [], omitted_failures: 0 } } };
+    assert.doesNotThrow(() => requirePublishComplete(complete, app, 'deposit', 7));
+    complete.storage.deposit_diagnostics.version = 5;
+    assert.equal(publishFailure(complete, app, 'deposit', false, 7).publish_observation.deposit_diagnostics_state, 'invalid');
+  }
+});
+
+test('challenge detail rejects unknown data and invalid scope, while old JSON remains exact', () => {
+  const mutations = [
+    f => { delete f.agent_detail.challenge; }, f => { f.agent_detail.challenge.raw = 'PRIVATE'; },
+    ...['phase', 'before_challenge', 'in_challenge'].flatMap(key => [
+      f => { delete f.agent_detail.challenge[key]; },
+      ...[null, 0, true, {}, [], 'PRIVATE', 'unobserved'].map(value => f => { f.agent_detail.challenge[key] = value; }),
+    ]),
+    ...['stream_open', 'tls_handshake', 'route_connect'].map(value => f => { f.agent_detail.stage = value; }),
+    ...['CONTENT_INVALID', 'CONTENT_BUSY', 'CONTENT_POLICY', 'unknown'].map(value => f => { f.agent_code = value; }),
+    f => { f.agent_detail.tls_failure = 'io'; }, f => { f.agent_detail.stream_failure = 'flow_acquire'; },
+    f => { f.stage = 'wire_receipt'; }, f => { f.category = 'io'; f.agent_code = null; },
+  ];
+  for (const mutate of mutations) {
+    const d = challengeDiagnostics(); mutate(d.failures[0]);
+    assert.throws(() => depositDiagnostic(d, 6), /deposit_diagnostics/u);
+  }
+  const nullable = challengeDiagnostics(); nullable.failures[0].agent_detail.challenge = null;
+  assert.deepEqual(depositDiagnostic(nullable, 6), nullable);
+  for (const version of [1, 2, 3, 4, 5]) {
+    const d = structuredClone(nullable); d.version = version;
+    assert.throws(() => depositDiagnostic(d, version), /deposit_diagnostics/u);
+  }
+});
+
 test('profile6 requires diagnostic5 and failure envelope7 while retaining all historical versions', () => {
   for (const app of ['image', 'cloud']) {
     for (const name of [null, 'policy', 'route_state', 'route_material', 'flow_acquire',

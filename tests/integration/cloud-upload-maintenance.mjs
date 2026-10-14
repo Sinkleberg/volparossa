@@ -19,6 +19,7 @@ const PROVISION = '/opt/volparossa-cloud-upload-proof/provision.json';
 const NODE = '/opt/volparossa-node/bin/node';
 const REVISIONS = { cloud: 'cea181f1f80d57c9d8047093ed543f40ec43138d', image: 'eb9758453d094df5ea3ba045e993bd3d2dd47881' };
 const STREAM_REVISIONS = { cloud: '7d10c4943062c5a0ae46fc57e293dc3e33db3ed2', image: '949f208dbb48fcb734d4dfd33eb1933b69830a01' };
+const CHALLENGE_REVISIONS = { cloud: 'e0db1cacf7bec2df3925ee454ec6216587b8ddef', image: '43029ea8b780de2376a3b7325d24a8e1c657f08e' };
 const HASH = /^[0-9a-f]{64}$/u, A_FRAGMENTS = [0, 2, 3];
 const COPY_FIELDS = ['provider_key', 'owner_key', 'grant_hex', 'archive_id', 'ciphertext_bytes', 'sha256'];
 const CODES = new Set(['phase_deadline', 'authority_expired', 'authority_changed', 'private_file', 'private_directory',
@@ -41,7 +42,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const fragmentPath = (object, i) => join(object, 'journal', `fragment-${String(i).padStart(4, '0')}`);
 
 export function sourceProfile(version = 1) {
-  check(version === 1 || version === 2, 'arguments');
+  check(version === 1 || version === 2 || version === 3, 'arguments');
+  if (version === 3) return { pinsFile: './cloud-upload-maintenance-pins-v3.json', revisions: { ...CHALLENGE_REVISIONS }, previousVersion: [7] };
   return version === 2
     ? { pinsFile: './cloud-upload-maintenance-pins-v2.json', revisions: { ...STREAM_REVISIONS }, previousVersion: [6] }
     : { pinsFile: './cloud-upload-maintenance-pins.json', revisions: { ...REVISIONS }, previousVersion: [1, 2, 3, 4, 5] };
@@ -529,7 +531,7 @@ async function finish(ctx, m) {
 export async function main(argv) {
   let profileVersion = 1;
   if (argv.length === 4 && argv[2] === '--profile-version') {
-    check(argv[3] === '2', 'arguments'); profileVersion = 2; argv = argv.slice(0, 2);
+    check(argv[3] === '2' || argv[3] === '3', 'arguments'); profileVersion = Number(argv[3]); argv = argv.slice(0, 2);
   }
   check(argv.length === 2 && PHASES.includes(argv[0]), 'arguments'); process.umask(0o077);
   const [phase, root] = argv, provision = await guard(root, profileVersion), cancel = new AbortController();

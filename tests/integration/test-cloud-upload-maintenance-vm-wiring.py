@@ -62,11 +62,11 @@ class Wiring(unittest.TestCase):
             calls = result.stdout.splitlines()
             self.assertEqual(len(calls), expected)
             self.assertEqual(calls[:2], [
-                'sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download --profile-version 6',
+                'sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download --profile-version 7',
                 'node --test tests/integration/test-storage-consumer-maintenance.mjs'])
             if scenario == SCENARIO:
                 self.assertEqual(calls[2:], [
-                    'sudo -n python3 -B tests/integration/cloud-upload-maintenance-provision.py provision --download --profile-version 2',
+                    'sudo -n python3 -B tests/integration/cloud-upload-maintenance-provision.py provision --download --profile-version 3',
                     'node --test tests/integration/test-cloud-upload-maintenance.mjs'])
         self.assertIn('private-storage-maintenance ] || [ "$scenario" = cloud-upload-maintenance ]; then\n    guest_phase storage-maintenance-targeted-tests', GUEST)
         self.assertIn('storage::peer::replicas::fragments::maintenance', GUEST)
@@ -92,8 +92,8 @@ class Wiring(unittest.TestCase):
         gate = WORKFLOW[start:WORKFLOW.index('\n      - name:', start + 1)]
         for required in ("if: always() && env.VOLPAROSSA_ALPHA_SCENARIO == 'cloud-upload-maintenance'",
                 'test "$TOPOLOGY_EXIT_CODE" = 0',
-                'cloud-upload-maintenance-evidence.py check-report-v4 "$report" "$GITHUB_SHA"',
-                'private-storage-maintenance-smoke.py report-consumer-v6 "$original" "$GITHUB_SHA"',
+                'cloud-upload-maintenance-evidence.py check-report-v5 "$report" "$GITHUB_SHA"',
+                'private-storage-maintenance-smoke.py report-consumer-v7 "$original" "$GITHUB_SHA"',
                 'host-state-before.json', 'host-state-after.json'):
             self.assertIn(required, gate)
         self.assertEqual(WORKFLOW.count("&& env.VOLPAROSSA_ALPHA_SCENARIO != 'cloud-upload-maintenance'"), 2)
@@ -119,13 +119,13 @@ class Wiring(unittest.TestCase):
         start = GUEST.index('elif [ "$scenario" = cloud-upload-maintenance ]; then\n    {')
         block = GUEST[start:GUEST.index('\nelif ', start + 1)]
         self.assertIn('private-storage-maintenance-smoke.py export-names', block)
-        self.assertIn('cloud-upload-maintenance-evidence.py export-names-v4', block)
+        self.assertIn('cloud-upload-maintenance-evidence.py export-names-v5', block)
         self.assertIn('sort -u', block)
         self.assertIn('[ ! -L "$retained_path" ]', block)
         self.assertIn('retained_limit=1048576', block)
         self.assertIn('[ "$retained" = cloud-upload-evidence.json ]', block)
         self.assertIn('[ "$retained_size" -le 2097152 ]', block)
-        self.assertIn('(.schema_version == 3 or .schema_version == 4) and .kind == "cloud-upload-maintenance-evidence"', block)
+        self.assertIn('(.schema_version == 3 or .schema_version == 4 or .schema_version == 5) and .kind == "cloud-upload-maintenance-evidence"', block)
         self.assertNotIn(' -czf /home/vpci/alpha-output.tar.gz .', block)
 
     def test_all_original_named_bytes_survive_duplicate_published_work_roots(self):
@@ -164,13 +164,16 @@ class Wiring(unittest.TestCase):
         for name, version, kind, size, included in (
                 ('cloud-upload-evidence.json', 3, 'cloud-upload-maintenance-evidence', 1050000, True),
                 ('cloud-upload-evidence.json', 4, 'cloud-upload-maintenance-evidence', 1050000, True),
-                ('cloud-upload-evidence.json', 5, 'cloud-upload-maintenance-evidence', 1050000, False),
+                ('cloud-upload-evidence.json', 5, 'cloud-upload-maintenance-evidence', 1050000, True),
+                ('cloud-upload-evidence.json', 6, 'cloud-upload-maintenance-evidence', 1050000, False),
                 ('cloud-upload-evidence.json', 2, 'cloud-upload-maintenance-evidence', 1050000, False),
                 ('cloud-upload-evidence.json', 3, 'wrong', 1050000, False),
                 ('cloud-upload-evidence.json', 4, 'wrong', 1050000, False),
+                ('cloud-upload-evidence.json', 5, 'wrong', 1050000, False),
                 ('cloud-upload-prepare.json', 3, 'cloud-upload-maintenance-evidence', 1050000, False),
                 ('cloud-upload-evidence.json', 3, 'cloud-upload-maintenance-evidence', 2097153, False),
-                ('cloud-upload-evidence.json', 4, 'cloud-upload-maintenance-evidence', 2097153, False)):
+                ('cloud-upload-evidence.json', 4, 'cloud-upload-maintenance-evidence', 2097153, False),
+                ('cloud-upload-evidence.json', 5, 'cloud-upload-maintenance-evidence', 2097153, False)):
             with tempfile.TemporaryDirectory() as temporary:
                 base = Path(temporary); home, opt = base / 'home', base / 'opt'
                 root = home / 'alpha-output'; root.mkdir(parents=True)

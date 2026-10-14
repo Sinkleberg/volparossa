@@ -225,8 +225,8 @@ def tools():
 
 def node_phase(root, phase, provision, deadline):
     arguments = [NODE, HERE / 'cloud-upload-maintenance.mjs', phase, root]
-    if PROFILE_VERSION == 2:
-        arguments += ['--profile-version', '2']
+    if PROFILE_VERSION in (2, 3):
+        arguments += ['--profile-version', str(PROFILE_VERSION)]
     status, output, _ = run_child(arguments, deadline)
     value = json.loads(output)
     uploaded = private_json(root / 'cloud-upload-upload.json') if phase in ('exercise', 'finish') else None
@@ -404,8 +404,8 @@ def main(arguments):
         require(arguments[-1] == '2', 'network_version')
         network_version, arguments = 2, arguments[:-2]
     if len(arguments) >= 2 and arguments[-2] == '--profile-version':
-        require(arguments[-1] == '2', 'profile_version')
-        PROFILE_VERSION, arguments = 2, arguments[:-2]
+        require(arguments[-1] in ('2', '3'), 'profile_version')
+        PROFILE_VERSION, arguments = int(arguments[-1]), arguments[:-2]
     if len(arguments) == 3 and arguments[0] == 'flow-minimum':
         OLD['guard']()
         root = owner_root(arguments[2])

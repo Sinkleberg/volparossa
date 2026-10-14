@@ -9,7 +9,8 @@ use volparossa_content::private_storage::{
     wire::WireError,
 };
 use volparossa_local_control::{
-    ControlResult, PrivateStorageDeadlineScope, PrivateStorageRemoteDetail,
+    ControlResult, PrivateStorageChallengeDetail, PrivateStorageChallengePhase,
+    PrivateStorageDeadlineScope, PrivateStorageElapsedBucket, PrivateStorageRemoteDetail,
     PrivateStorageRemoteStage, PrivateStorageStreamFailure, PrivateStorageTlsFailure,
 };
 
@@ -153,6 +154,70 @@ struct AgentDetail {
     tls_failure: Option<PrivateStorageTlsFailure>,
     #[serde(deserialize_with = "Option::deserialize")]
     stream_failure: Option<PrivateStorageStreamFailure>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    challenge: Option<ChallengeDetail>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ChallengeDetail {
+    phase: PrivateStorageChallengePhase,
+    before_challenge: PrivateStorageElapsedBucket,
+    in_challenge: PrivateStorageElapsedBucket,
+}
+
+impl ChallengeDetail {
+    fn from_wire(detail: PrivateStorageChallengeDetail) -> Option<Self> {
+        Some(Self {
+            phase: PrivateStorageChallengePhase::try_from(detail.phase).ok()?,
+            before_challenge: PrivateStorageElapsedBucket::try_from(detail.before_challenge)
+                .ok()?,
+            in_challenge: PrivateStorageElapsedBucket::try_from(detail.in_challenge).ok()?,
+        })
+    }
+
+    fn wire(&self) -> PrivateStorageChallengeDetail {
+        PrivateStorageChallengeDetail {
+            phase: self.phase as i32,
+            before_challenge: self.before_challenge as i32,
+            in_challenge: self.in_challenge as i32,
+        }
+    }
+}
+
+/// Exact v5 detail: challenge progress must not widen historical acceptance.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyStreamDetail {
+    stage: PrivateStorageRemoteStage,
+    deadline_scope: PrivateStorageDeadlineScope,
+    #[serde(deserialize_with = "Option::deserialize")]
+    tls_failure: Option<PrivateStorageTlsFailure>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    stream_failure: Option<PrivateStorageStreamFailure>,
+}
+
+impl From<&AgentDetail> for LegacyStreamDetail {
+    fn from(detail: &AgentDetail) -> Self {
+        Self {
+            stage: detail.stage,
+            deadline_scope: detail.deadline_scope,
+            tls_failure: detail.tls_failure,
+            stream_failure: detail.stream_failure,
+        }
+    }
+}
+
+impl From<LegacyStreamDetail> for AgentDetail {
+    fn from(detail: LegacyStreamDetail) -> Self {
+        Self {
+            stage: detail.stage,
+            deadline_scope: detail.deadline_scope,
+            tls_failure: detail.tls_failure,
+            stream_failure: detail.stream_failure,
+            challenge: None,
+        }
+    }
 }
 
 /// Exact v3/v4 detail: new stream observations cannot change historical schemas.
@@ -182,6 +247,7 @@ impl From<LegacyTlsDetail> for AgentDetail {
             deadline_scope: detail.deadline_scope,
             tls_failure: detail.tls_failure,
             stream_failure: None,
+            challenge: None,
         }
     }
 }
@@ -243,6 +309,54 @@ struct OriginalOutcomeFailure {
     agent_outcome: Option<AgentOutcome>,
 }
 
+/// Exact v5 failure, including stream detail but no challenge progress field.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct OriginalStreamFailure {
+    #[serde(deserialize_with = "Option::deserialize")]
+    fragment_index: Option<usize>,
+    copy_index: usize,
+    operation: Operation,
+    stage: Stage,
+    category: Category,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_code: Option<AgentCode>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_detail: Option<LegacyStreamDetail>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_outcome: Option<AgentOutcome>,
+}
+
+impl From<&Failure> for OriginalStreamFailure {
+    fn from(failure: &Failure) -> Self {
+        Self {
+            fragment_index: failure.fragment_index,
+            copy_index: failure.copy_index,
+            operation: failure.operation,
+            stage: failure.stage,
+            category: failure.category,
+            agent_code: failure.agent_code,
+            agent_detail: failure.agent_detail.as_ref().map(LegacyStreamDetail::from),
+            agent_outcome: failure.agent_outcome,
+        }
+    }
+}
+
+impl From<OriginalStreamFailure> for Failure {
+    fn from(failure: OriginalStreamFailure) -> Self {
+        Self {
+            fragment_index: failure.fragment_index,
+            copy_index: failure.copy_index,
+            operation: failure.operation,
+            stage: failure.stage,
+            category: failure.category,
+            agent_code: failure.agent_code,
+            agent_detail: failure.agent_detail.map(AgentDetail::from),
+            agent_outcome: failure.agent_outcome,
+        }
+    }
+}
+
 impl AgentDetail {
     fn from_wire(detail: PrivateStorageRemoteDetail) -> Option<Self> {
         detail.validate().ok()?;
@@ -259,6 +373,10 @@ impl AgentDetail {
                 .map(PrivateStorageStreamFailure::try_from)
                 .transpose()
                 .ok()?,
+            challenge: match detail.challenge {
+                Some(challenge) => Some(ChallengeDetail::from_wire(challenge)?),
+                None => None,
+            },
         })
     }
 
@@ -275,6 +393,7 @@ impl AgentDetail {
             deadline_scope: self.deadline_scope as i32,
             tls_failure: self.tls_failure.map(|failure| failure as i32),
             stream_failure: self.stream_failure.map(|failure| failure as i32),
+            challenge: self.challenge.as_ref().map(ChallengeDetail::wire),
         }
         .validate_rejection(result, code)
         .is_ok()
@@ -291,7 +410,7 @@ pub(super) struct Diagnostics {
 impl Default for Diagnostics {
     fn default() -> Self {
         Self {
-            version: 5,
+            version: 6,
             failures: Vec::new(),
             omitted_failures: 0,
         }
@@ -367,6 +486,13 @@ impl Serialize for Diagnostics {
                 })
                 .collect();
             value.serialize_field("failures", &original)?;
+        } else if self.version == 5 {
+            let original: Vec<_> = self
+                .failures
+                .iter()
+                .map(OriginalStreamFailure::from)
+                .collect();
+            value.serialize_field("failures", &original)?;
         } else {
             value.serialize_field("failures", &self.failures)?;
         }
@@ -410,7 +536,7 @@ impl<'de> Deserialize<'de> for Diagnostics {
             omitted_failures: usize,
         }
         let wire = Wire::deserialize(deserializer)?;
-        if !matches!(wire.version, 1..=5) || wire.failures.len() > MAX_FAILURES {
+        if !matches!(wire.version, 1..=6) || wire.failures.len() > MAX_FAILURES {
             return Err(serde::de::Error::custom(
                 "diagnostic version or failure bound",
             ));
@@ -445,6 +571,7 @@ impl<'de> Deserialize<'de> for Diagnostics {
                             deadline_scope: detail.deadline_scope,
                             tls_failure: None,
                             stream_failure: None,
+                            challenge: None,
                         }),
                         agent_outcome: None,
                     }
@@ -472,6 +599,8 @@ impl<'de> Deserialize<'de> for Diagnostics {
                         agent_detail: original.agent_detail.map(AgentDetail::from),
                         agent_outcome: original.agent_outcome,
                     }
+                } else if wire.version == 5 {
+                    serde_json::from_value::<OriginalStreamFailure>(value)?.into()
                 } else {
                     serde_json::from_value::<Failure>(value)?
                 };

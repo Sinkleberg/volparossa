@@ -31,6 +31,8 @@ const OUTCOME_REVISIONS = Object.freeze({ image: 'ec6b9dca5789a60447c643652c9364
   cloud: '4409c08680eebb3d679a036546691cb541675f97' });
 const STREAM_REVISIONS = Object.freeze({ image: '949f208dbb48fcb734d4dfd33eb1933b69830a01',
   cloud: '7d10c4943062c5a0ae46fc57e293dc3e33db3ed2' });
+const CHALLENGE_REVISIONS = Object.freeze({ image: '43029ea8b780de2376a3b7325d24a8e1c657f08e',
+  cloud: 'e0db1cacf7bec2df3925ee454ec6216587b8ddef' });
 const CHECKPOINTS = new Set(['enrolled', 'owner_locked', 'waiting_for_core', 'working', 'paused',
   'enrollment_expired', 'core_unavailable', 'core_turn_revoked', 'turn_completed', 'retry_pending']);
 const SQL = Buffer.from('-- VOLPAROSSA synthetic quiesced snapshot\nCREATE TABLE fixture (id integer);\nINSERT INTO fixture VALUES (1);\n');
@@ -64,6 +66,9 @@ const EXCHANGE_STAGES = new Set(['stream_open', 'tls_handshake', 'challenge']);
 const TLS_FAILURES = new Set(['offer', 'configuration', 'handshake_deadline', 'authentication', 'tls_other', 'io']);
 const STREAM_FAILURES = new Set(['policy', 'route_state', 'route_material', 'flow_acquire',
   'transport_certificate', 'transport_tls', 'initial_paths', 'open_tcp_write', 'subflow_readiness', 'stream_attachment']);
+const CHALLENGE_PHASES = new Set(['selector_write_flush', 'grant_write_flush', 'challenge_read_verify']);
+const ELAPSED_BUCKETS = new Set(['under_1s', '1_to_5s', '5_to_15s', '15_to_30s',
+  '30_to_60s', '60_to_90s', '90_to_120s', 'at_least_120s']);
 const OUTCOME_PHASES = Object.freeze(['ready_write', 'local_request_read', 'local_request_verify',
   'local_payload_read', 'local_payload_verify', 'admission', 'remote_request_verify', 'remote_request_write',
   'remote_payload_write', 'remote_receipt_read', 'remote_receipt_verify', 'remote_payload_read', 'remote_payload_verify',
@@ -94,7 +99,7 @@ function agentOutcome(value, stage) {
 // This proof has exactly four fragments/two initial copies. The bridge already
 // checks general archive geometry; revalidate the narrower exported trial here.
 export function depositDiagnostic(value, version = 1) {
-  check([1, 2, 3, 4, 5].includes(version), 'deposit_diagnostics');
+  check([1, 2, 3, 4, 5, 6].includes(version), 'deposit_diagnostics');
   check(closedKeys(value, ['version', 'failures', 'omitted_failures']) && value.version === version
     && Array.isArray(value.failures) && value.failures.length <= 8 && value.omitted_failures === 0, 'deposit_diagnostics');
   const seen = new Set(), failures = value.failures.map(failure => {
@@ -111,7 +116,7 @@ export function depositDiagnostic(value, version = 1) {
       check(failure.stage === 'agent_ready' && failure.category === 'agent_rejected'
         && AGENT_CODES.has(failure.agent_code) && failure.agent_code !== 'unknown'
         && closedKeys(value, ['stage', 'deadline_scope', ...(version >= 3 ? ['tls_failure'] : []),
-          ...(version >= 5 ? ['stream_failure'] : [])])
+          ...(version >= 5 ? ['stream_failure'] : []), ...(version >= 6 ? ['challenge'] : [])])
         && AGENT_STAGES.has(value.stage)
         && ['none', 'operation', 'exchange'].includes(value.deadline_scope)
         && (value.stage !== 'unobserved' || value.deadline_scope === 'operation')
@@ -129,6 +134,16 @@ export function depositDiagnostic(value, version = 1) {
           && value.stage === 'stream_open' && value.deadline_scope === 'none'
           && value.tls_failure === null && failure.agent_code === 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics');
         detail.stream_failure = value.stream_failure;
+      }
+      if (version >= 6) {
+        const c = value.challenge;
+        check(c === null || (closedKeys(c, ['phase', 'before_challenge', 'in_challenge'])
+          && CHALLENGE_PHASES.has(c.phase) && ELAPSED_BUCKETS.has(c.before_challenge)
+          && ELAPSED_BUCKETS.has(c.in_challenge) && value.stage === 'challenge'
+          && value.tls_failure === null && value.stream_failure === null
+          && failure.agent_code === 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics');
+        detail.challenge = c === null ? null : { phase: c.phase,
+          before_challenge: c.before_challenge, in_challenge: c.in_challenge };
       }
     }
     const identity = `${failure.fragment_index}:${failure.copy_index}`;
@@ -152,7 +167,7 @@ class PublishFailure extends Error {
 // copy its raw storage report, paths, exceptions or private journal to evidence.
 export function requirePublishComplete(value, app, operation, profileVersion = 1) {
   check(['image', 'cloud'].includes(app) && ['create', 'deposit'].includes(operation), 'arguments');
-  check([1, 2, 3, 4, 5, 6].includes(profileVersion), 'arguments');
+  check([1, 2, 3, 4, 5, 6, 7].includes(profileVersion), 'arguments');
   const report = value?.storage;
   const present = report !== null && typeof report === 'object' && !Array.isArray(report);
   let state = 'not_applicable', diagnostic = null;
@@ -523,7 +538,7 @@ async function guard(root, profileVersion) {
     && provision.kind === 'storage-consumer-maintenance-runtime-provision'
     && provision.success === true && provision.guest_only === true && provision.shared_adapter_verified === true,
   'provision');
-  const revisions = profileVersion === 6 ? STREAM_REVISIONS : profileVersion === 5 ? OUTCOME_REVISIONS
+  const revisions = profileVersion === 7 ? CHALLENGE_REVISIONS : profileVersion === 6 ? STREAM_REVISIONS : profileVersion === 5 ? OUTCOME_REVISIONS
     : profileVersion === 4 ? TLS_REVISIONS : profileVersion === 3 ? DETAIL_REVISIONS
     : profileVersion === 2 ? DIAGNOSTIC_REVISIONS : REVISIONS;
   for (const [name, source] of Object.entries(provision.pins.sources)) {
@@ -757,7 +772,7 @@ async function finish(ctx, m) {
 
 export async function main(argv) {
   let profileVersion = 1;
-  if (argv.length === 4 && argv[2] === '--profile-version' && ['2', '3', '4', '5', '6'].includes(argv[3])) {
+  if (argv.length === 4 && argv[2] === '--profile-version' && ['2', '3', '4', '5', '6', '7'].includes(argv[3])) {
     profileVersion = Number(argv[3]); argv = argv.slice(0, 2);
   }
   check(argv.length === 2 && PHASES.includes(argv[0]), 'arguments');

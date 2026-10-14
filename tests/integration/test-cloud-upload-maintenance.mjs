@@ -18,25 +18,29 @@ const size = 786600;
 const write = (path, value) => writeFile(path, JSON.stringify(value) + '\n', { mode: 0o600 });
 
 test('source generations bind exact separate pins and predecessor versions without changing runtime', async () => {
-  const old = sourceProfile(), stream = sourceProfile(2);
+  const old = sourceProfile(), stream = sourceProfile(2), challenge = sourceProfile(3);
   assert.deepEqual(old.previousVersion, [1, 2, 3, 4, 5]); assert.deepEqual(stream.previousVersion, [6]);
+  assert.deepEqual(challenge.previousVersion, [7]);
   assert.deepEqual(stream.revisions, { cloud: '7d10c4943062c5a0ae46fc57e293dc3e33db3ed2',
     image: '949f208dbb48fcb734d4dfd33eb1933b69830a01' });
-  const pins = await Promise.all([old, stream].map(async p => JSON.parse(await readFile(new URL(p.pinsFile, import.meta.url)))));
+  assert.deepEqual(challenge.revisions, { cloud: 'e0db1cacf7bec2df3925ee454ec6216587b8ddef',
+    image: '43029ea8b780de2376a3b7325d24a8e1c657f08e' });
+  const pins = await Promise.all([old, stream, challenge].map(async p => JSON.parse(await readFile(new URL(p.pinsFile, import.meta.url)))));
   assert.deepEqual(pins[0].runtime, pins[1].runtime);
-  for (const [i, profile] of [old, stream].entries()) {
+  assert.deepEqual(pins[0].runtime, pins[2].runtime);
+  for (const [i, profile] of [old, stream, challenge].entries()) {
     assert.equal(pins[i].version, i + 1);
     for (const name of ['cloud', 'image']) assert.equal(pins[i].sources[name].revision, profile.revisions[name]);
   }
-  for (const bad of [true, '2', 0, 3, null]) assert.throws(() => sourceProfile(bad), /arguments/u);
+  for (const bad of [true, '2', 0, 4, null]) assert.throws(() => sourceProfile(bad), /arguments/u);
 });
 
 test('explicit source selector rejects unknown or malformed arguments before any guest I/O', async () => {
-  for (const tail of [['--profile-version', '1'], ['--profile-version', '3'], ['--profile-version', 'true'],
+  for (const tail of [['--profile-version', '1'], ['--profile-version', '4'], ['--profile-version', 'true'],
     ['--profile-version'], ['--other', '2'], ['--profile-version', '2', 'extra']]) {
     await assert.rejects(main(['upload', '/inert', ...tail]), /arguments/u);
   }
-  for (const suffix of [[], ['--profile-version', '2']]) await assert.rejects(main(['upload', '/inert', ...suffix]), /guest_only/u);
+  for (const suffix of [[], ['--profile-version', '2'], ['--profile-version', '3']]) await assert.rejects(main(['upload', '/inert', ...suffix]), /guest_only/u);
 });
 function state(retired = [], withdrawn = false) {
   const replacements = withdrawn ? [0, 2, 3] : retired;

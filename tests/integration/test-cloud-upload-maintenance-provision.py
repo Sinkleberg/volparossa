@@ -38,7 +38,7 @@ class UploadProvision(unittest.TestCase):
             self.assertEqual(new['sources'][name]['revision'], M['STREAM_REVISIONS'][name])
             self.assertEqual(set(new['sources'][name]['files']), set(old['sources'][name]['files']))
         M['validate_provision'](receipt(2))
-        for version in (True, 0, 3, '2'):
+        for version in (True, 0, 4, '2'):
             with self.subTest(version=version), self.assertRaises(ValueError): M['load_pins'](version)
         for version, other in ((1, 2), (2, 1)):
             value = receipt(version)
@@ -49,11 +49,37 @@ class UploadProvision(unittest.TestCase):
 
     def test_source_generation_rejects_wrong_prior_before_runtime_access(self):
         previous = runpy.run_path(str(HERE / 'test-storage-consumer-maintenance-evidence.py'))
-        for profile, prior in ((1, 6), (2, 5)):
+        for profile, prior in ((1, 6), (1, 7), (2, 5), (2, 7), (3, 5), (3, 6)):
             raw = json.dumps(previous['fixture'](profile_version=prior)['provision']).encode()
             with patch.dict(M['verify_shared_runtime'].__globals__, public_file=lambda *_: raw,
                     verify_files=Mock(side_effect=AssertionError('unexpected runtime access'))), self.assertRaises(ValueError):
                 M['verify_shared_runtime'](M['load_pins'](profile), profile)
+
+    def test_challenge_profile_pins_same_runtime_exact_adapter_and_distinct_upload_inventory(self):
+        old, stream, new = (M['load_pins'](version) for version in (1, 2, 3))
+        prior = M['PREVIOUS']['PROVISIONER']['load_pins'](7)
+        self.assertEqual(new['version'], 3)
+        self.assertEqual(new['runtime'], old['runtime'])
+        self.assertEqual(new['runtime'], stream['runtime'])
+        self.assertEqual(new['runtime'], prior['runtime'])
+        self.assertEqual(M['CHALLENGE_REVISIONS'], dict(image='43029ea8b780de2376a3b7325d24a8e1c657f08e',
+            cloud='e0db1cacf7bec2df3925ee454ec6216587b8ddef'))
+        self.assertEqual([len(new['sources'][name]['files']) for name in ('image', 'cloud')], [3, 21])
+        for name in ('image', 'cloud'):
+            source = new['sources'][name]
+            self.assertEqual(source['revision'], M['CHALLENGE_REVISIONS'][name])
+            self.assertEqual(source['revision'], prior['sources'][name]['revision'])
+            self.assertEqual(set(source['files']), set(stream['sources'][name]['files']))
+            for path in source['files'].keys() & prior['sources'][name]['files'].keys():
+                self.assertEqual(source['files'][path], prior['sources'][name]['files'][path])
+        M['validate_provision'](receipt(3))
+        for version in (1, 2, 3):
+            for other in (1, 2, 3):
+                if version == other: continue
+                for change in ({'version': other}, {'pins': M['load_pins'](other)},
+                        {'pins_sha256': M['digest'](M['pins_path'](other))}):
+                    with self.subTest(version=version, other=other), self.assertRaises(ValueError):
+                        M['validate_provision']({**receipt(version), **change})
 
     def test_exact_new_sources_keep_old_pins_paths_and_runtime(self):
         pins = M['load_pins']()

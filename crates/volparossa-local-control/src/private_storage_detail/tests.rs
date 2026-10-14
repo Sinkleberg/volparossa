@@ -1,6 +1,8 @@
 use super::*;
 use crate::{CONTROL_PROTOCOL_VERSION, Empty, decode_response, encode_response};
 
+mod challenge;
+
 fn rejected() -> ControlResponse {
     ControlResponse {
         protocol_version: CONTROL_PROTOCOL_VERSION,
@@ -12,6 +14,7 @@ fn rejected() -> ControlResponse {
             deadline_scope: PrivateStorageDeadlineScope::None as i32,
             tls_failure: None,
             stream_failure: None,
+            challenge: None,
         }),
         payload: Some(Payload::Ack(Empty {})),
     }
@@ -103,6 +106,7 @@ fn private_storage_detail_has_only_closed_bounded_stage_and_deadline_values() {
                 deadline_scope,
                 tls_failure: None,
                 stream_failure: None,
+                challenge: None,
             });
             let allowed = match deadline_scope {
                 0 => stage != 0,
@@ -163,6 +167,7 @@ fn tls_rejected(failure: i32) -> ControlResponse {
         deadline_scope: PrivateStorageDeadlineScope::None as i32,
         tls_failure: Some(failure),
         stream_failure: None,
+        challenge: None,
     });
     response
 }
@@ -198,6 +203,7 @@ fn tls_failure_requires_handshake_boundary_without_an_enclosing_deadline() {
                     deadline_scope,
                     tls_failure: Some(failure),
                     stream_failure: None,
+                    challenge: None,
                 });
                 let allowed = stage == PrivateStorageRemoteStage::TlsHandshake as i32
                     && deadline_scope == PrivateStorageDeadlineScope::None as i32;
@@ -242,6 +248,7 @@ fn stream_rejected(failure: i32) -> ControlResponse {
         deadline_scope: PrivateStorageDeadlineScope::None as i32,
         tls_failure: None,
         stream_failure: Some(failure),
+        challenge: None,
     });
     response
 }
