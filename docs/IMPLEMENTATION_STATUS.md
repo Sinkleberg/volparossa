@@ -40,6 +40,10 @@ The immediate milestones build on the retained candidates and evidence below:
 
 PR234 joins the complete PR232 core candidate `b996160c`, including the Rust
 stream classification and wire-to-CLI projection, to its upload continuation.
+Normal merges preserve the Cloud-specific finite enrollment logic and integrate
+verified main `7b728846`, including the Hickory resolver security backport and
+its exact dependency locks. Independent source comparison confirms that neither
+workstream's implementation is lost; this does not replace compiled verification.
 Upload source profile 2 pins Image `949f208d` and Cloud `7d10c494`,
 including the version-5 diagnostic adapter. Its new evidence schema 4 requires
 the exact version-6 consumer/provision report, original version-5 combined
@@ -47,9 +51,10 @@ maintenance report and original upload receipt. Terminal report version 2 is
 accepted only by the explicit version-4 Cloud selectors. Historical pins and
 schema-2/3 evidence retain their original encoding and acceptance rules.
 
-The earlier contract preparation passes 129 targeted inert checks: 88 Cloud provision, orchestration, evidence,
-shell, VM-wiring and Node checks, plus 41 shared-storage wiring cases. The 24 new
-upload source blobs match their exact Git commits. These tests exercise contracts
+The merged source passes all 129 targeted inert checks again: 88 Cloud provision,
+orchestration, evidence, shell, VM-wiring and Node checks, plus 41 shared-storage
+wiring cases. The 24 new upload source blobs match their exact Git commits.
+These tests exercise contracts
 and synthetic receipts, not protected transfers, peer custody or recovery. Export
 limits remain 2 MiB only for the named Cloud evidence schemas 3/4, 1 MiB for other
 JSON files and 8 MiB for the existing emergency aggregate.
@@ -61,10 +66,10 @@ require the actual shared consumer maintenance result before starting the longer
 Cloud upload/repair/restore continuation. Joining source does not resolve the
 observed storage failure or establish remote custody.
 
-Earlier Quality `38617137672` passes on `c550e5e8`, not on this new preparation.
+Earlier Quality `38617137672` passes on `c550e5e8`, not on this merged source.
 The later shared-storage trial `38611919770` on `cdfa671a` fails during Cloud's
 first reserve before READY. Its separate base maintenance success does not prove
-consumer repair, restoration or remote cleanup. The new preparation changes no
+consumer repair, restoration or remote cleanup. The upload integration changes no
 production resources, authority, retries, deadlines or storage accounting.
 
 ### Protected storage stream diagnostic candidate
@@ -191,6 +196,130 @@ This run provides no new evidence about the earlier Cloud FINALIZE
 `wire_receipt/io` failure in run `38519187504`. Profile 5, the original consumer
 operations and their acceptance criteria remain unchanged. Consumer repair,
 restoration and remote cleanup are not yet proved.
+
+### Integrated-main checkpoints — 14 October
+
+These original results were integrated into main before the newer candidates
+above. They are retained as source-bound history, not as currently running trials
+or proof of the newer candidates.
+
+- **Android core delivery remains open.** On `ca292e41`, actual run
+  [`38624043886`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38624043886)
+  fails before starting the owner driver, tunnel or native Android process.
+  The pre-QEMU KVM probe succeeds; about 40.6 seconds later the owner probe
+  reports no read/write access and `EACCES` on the same fixed device path.
+  The receipt's identity/device comparisons are against its newly captured
+  owner baseline, not against the earlier preflight. They do not establish
+  continuity across that interval. Owner/VM cleanup and exact ACL restoration
+  pass; the cause of the access change is not yet established. Artifact
+  `11923868858` ZIP SHA-256 is
+  `48c74caa8c3402c440989a7c3cbad354602e6ee34e4af7612349adee0e6aeb98`.
+  Quality `38624052635` and CodeQL `38624048007` pass on that source. Software
+  checks do not turn this failed actual delivery trial into acceptance.
+- **Storage consumer maintenance remains open.** Actual run
+  [`38611919770`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38611919770)
+  on `cdfa671a` fails Cloud publication at fragment 0, copy 0, `reserve`, before
+  local READY: `CONTENT_UNAVAILABLE`, `stream_open`, enclosing deadline `none`.
+  This does not identify the inner transport failure or rule out its own
+  deadlines. The separate base restart/repair/two-restore/delete scenario
+  passes; consumer repair, restore and remote cleanup do not. The cleanup
+  receipt explicitly leaves remote cleanup and provider usage unproven.
+  Artifact `11921330521` ZIP SHA-256 is
+  `65fff550493741c7f9aec53cf3675535c262d28a64848ace376a97fc1f39e950`.
+  Quality `38611450851` passes. Closed stream-open classification is the next
+  diagnostic step, not an already demonstrated fix.
+- **Cloud upload proof still depends on storage.** Quality
+  [`38617137672`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38617137672)
+  passes on `c550e5e8`, including the corrected static workflow assertion.
+  This run does not execute the Cloud-specific 78-case Python suite or the
+  actual upload-to-maintenance trial. PR234 remains separate from successful
+  local SDK/component evidence and awaits the shared consumer proof.
+- **The quote-only software slice is integrated.** PR247 is merged as
+  `17afa3f0`. On `09b0d3cc`, targeted run `38512217556` passes 52 appraisal,
+  16 guest and 12 quote tests; Quality `38512223814` also passes the eight new
+  agent/control/CLI cases, and CodeQL `38512218075` passes. These remain
+  software/synthetic checks, not real confidential hardware, a production
+  quote route, full appraisal, worker admission or private-input release.
+  [PR247](https://github.com/VOLPAROSSA/volparossa/pull/247) retains the original
+  artifact hashes and failed attempts alongside current-source acceptance.
+
+### Integrated Hickory resolver security backport
+
+PR250, merged as `4658ad3f`, backports the upstream DNSSEC-bogus answer
+check to the Rust-1.85-compatible `hickory-resolver 0.25.2`. It rejects bogus
+answers before cache insertion or alias following when resolver validation is
+enabled. The root and fuzz graphs retain the existing API/version and use the
+same reviewed path source. Production DNS settings, relay routing, trust anchors
+and the separate shared-DNS `Proof::Secure` requirement are unchanged.
+
+The second CNAME advisory concerns recursive resolution. Source review locates
+the fixed code in the separate 0.25 recursor, absent from both locked graphs;
+the stub's matching-answer chain receives focused regression coverage and a
+graph-scope guard. This is not an unrestricted exemption for Hickory 0.25.
+Archive, patch, reconstructed tree and unchanged license checks bind the exact
+candidate; package notice collection includes the new path. Neither advisory
+is dismissed or hidden by a new scanner exception.
+
+Hosted Quality
+[`38624534062`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38624534062)
+passes on exact candidate `6e2ec216`. Its actual merge checkout `8a2f58c8` has
+the same tree, `6bdf0ba1b93c95020fbac743b46485596c8895e5`. All **15 isolated Rust
+regressions**, including the ten resolver cases, execute and pass. Locked
+fetching, graph/feature guards, dependency/license and packaging checks, strict
+Clippy, workspace tests and inert integration checks pass. CodeQL `38624530237`
+passes all four analyses on the same head. Original Quality logs ZIP SHA-256 is
+`4812656b0be7cb11330adb7946ac97b151692d235a53a61b59834b04c4ac41ad`.
+
+Three namespace checks skip under the runner's user-namespace policy; no new
+live datapath claim follows. Injected resolver verdicts are not a cryptographic
+end-to-end DNS test. The existing `RUSTSEC-2024-0436` unmaintained warning remains
+visible. Independent final source and original-log review found no merge blocker.
+
+Before hosted execution, local source-only
+verification reconstructs all four vendor trees exactly and verifies all license
+and harness hashes. Shell syntax, ShellCheck, the four existing inert SEV license
+fixtures and focused resolver notice collection pass. Independent source review
+checks the ten new resolver cases and the manually extended standalone lock;
+this is not Cargo resolution or executed Rust evidence. The concurrent
+storage and Android actual trials keep their original source revisions and
+remain independent of this candidate. See the
+[reviewed dependency sources](../third_party/rust/README.md#resolver-validation-and-cname-scope)
+for upstream fixes and the precise reachability assessment.
+
+#### Retained failed attempts and lock correction
+
+The first [hosted Quality run `38619532866`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38619532866)
+on `a61465b1` stops at the isolated harness's locked dependency fetch. Root and
+fuzz locked fetches succeed; Cargo requires a harness lock update. PR merge
+`b3806ae8` has the exact candidate tree. Formatting and shell checks pass, but
+resolver compilation, regression execution and full dependency/license checks
+have not run. Original logs ZIP SHA-256 is
+`096d1f762f007784b5f23cfc9363b636d75924a93cef3af28495c20d2940265c`.
+Reconcile that standalone lock with Cargo on the disposable hosted runner,
+retain the original and generated lock difference, and keep the locked gate
+failing until the reviewed correction is committed. Do not infer a valid lock
+from a manually complete-looking dependency graph.
+
+The failure-only diagnostic copies the authenticated standalone harness and its
+four reviewed vendor trees to temporary runner storage, then asks the already
+installed Cargo 1.85 to reconcile that lock offline without building. It exports
+only the before/after public locks, their diff and a closed status. Root, fuzz
+and original harness locks stay unchanged, and the original locked-fetch exit
+still fails Quality. A generated lock is evidence to review, not an automatic
+correction or a passed regression suite.
+
+[Run `38622766542`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38622766542)
+on `33ff90c3` preserves the original locked-fetch failure and successfully
+reconciles the isolated lock with Cargo 1.85 offline. The exact generated diff
+adds only `uuid 1.24.0` edges to the already-present `js-sys` and `wasm-bindgen`
+nodes. No registry version or checksum changes; all three original locks remain
+unchanged in that run. Artifact `11923890129` ZIP SHA-256 is
+`a252d588381aa94d8cd7ad773843406af0248f173278883f6345330b3be645b4`.
+The two-line correction is now applied byte-for-byte; the standalone lock hash
+and its three provenance references are updated to
+`965c606acf0c93d9a9d6b8415b3ae503185e8b3ec7eecf3d6251c9047cd14659`.
+That correction alone did not prove resolver execution. The subsequent hosted
+acceptance above supplies the previously missing locked-fetch and Rust results.
 
 ### Authorized quote exchange candidate
 
