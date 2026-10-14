@@ -39,7 +39,7 @@ The immediate milestones build on the retained candidates and evidence below:
 ### Latest integration evidence — 14 October
 
 The older checkpoints in the workstream table are superseded by these original
-results; they are retained below as history, not as currently running trials.
+results; the older checkpoints are retained as history, not as currently running trials.
 
 - **Android core delivery remains open.** On `ca292e41`, actual run
   [`38624043886`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38624043886)
