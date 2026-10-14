@@ -31,7 +31,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | PR19 proves the installed lifecycle with synthetic products; PR22 supplies separate preparation/live entrypoints. Actual `38624043886` on `ca292e41` localizes the KVM access loss to about 40.6 seconds between pre-QEMU preflight and owner startup. Quality and CodeQL pass, but no native live delivery starts. The next candidate uses a guarded temporary runner-private group ACL and a true pre-QEMU baseline; the native guard and product budgets remain unchanged. Joined delivery, live expiry, physical devices and iOS remain open. |
+| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | PR19 proves the installed lifecycle with synthetic products; PR22 supplies separate preparation/live entrypoints. Actual `38634359589` on `85978d55` passes the previously failing KVM boundary and enters the installed trial, then fails with `CHILD_FAILED`. Original owner, native, VM and ACL cleanup records pass their stated boundaries. The existing inner emulator diagnosis is not exported yet, so the failing command remains unknown. Joined delivery, live expiry, physical devices and iOS remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38519187504` fails Cloud FINALIZE after READY with `wire_receipt/io`; its separate base-maintenance restores and cleanup pass. Diagnostic candidate `8ea8a059` passes workspace Quality and CodeQL, but actual `38595365736` fails before topology execution: the isolated agent test build lacks Tokio `test-util`. Correction `d22f7892` passes Quality `38601264906`, including seven isolated-package outcome tests; actual trial `38607252325` is dispatched on that exact source. The original FINALIZE failure, consumer repair/restore and remote cleanup remain open. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 and PR247 are merged; main `17afa3f0` contains the finite operator grants, guest module, protected exchange and CLI verifier. Corrected source `09b0d3cc` passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`. Software evidence does not establish production-route execution, production authority, current vendor appraisal, an approved measured workload or actual private execution. Suitable confidential-computing hardware is unavailable; storage and Android integration continue in parallel. |
@@ -165,7 +165,7 @@ access check can still stop earlier with generic exit 77; this observer does
 not diagnose that boundary. Its comparison baseline starts before the owner
 launches the guest driver, not at the original ACL grant.
 
-#### Current KVM continuity candidate
+#### KVM continuity correction
 
 Actual [run `38624043886`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38624043886)
 on `ca292e4166e013a1964b412e91358bd52721fe73` fails before starting the driver,
@@ -202,8 +202,60 @@ Weather pin, success schema 6 and publication/execution budgets are unchanged.
 Only finite access and comparison fields are exported, never the private
 baseline, numeric identities or raw ACLs. Independent source review and all
 118 focused inert tests pass (12 KVM, 15 native, 56 owner, 19 hosted and 16 VM),
-with shell syntax, ShellCheck and diff checks. Actual group suitability,
-continued KVM access and joined Android delivery still require hosted execution.
+with shell syntax, ShellCheck and diff checks. The actual result below verifies
+group suitability and access across these boundaries, not joined delivery.
+
+#### Current Android installed trial failure
+
+Actual [run `38634359589`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38634359589)
+checks out exact `85978d551ecdd8d41636919dff53c866b452cc81` and retains Weather
+`f6ee829961da387d9c0cd71b7163b47baab434fa`. Its schema-2 KVM receipt verifies
+read/write access and unchanged device and process identity from the original
+pre-QEMU baseline through owner startup. Native entry also opens the device
+with read/write access. The previous KVM guard no longer stops this run.
+
+The native process now reaches `installed-emulator-trial` and returns
+`CHILD_FAILED`. In the pinned Weather helper this means its owned child returned
+a nonzero status. The original emulator cleanup records show that the inner
+trial started but did not complete. They do not identify which command or check
+failed. The existing closed `emulator-diagnostic.json` and optional guest-network
+diagnostic were not projected into this run's artifact; raw logs stay private.
+The next change retains those bounded observations without changing native
+guards, product lifetimes, resource limits or delivery acceptance.
+
+The native wrapper records process drain, policy cleanup and unchanged host
+network namespace. Inner cleanup joins its direct children and removes its
+private AVD and Android home. The owner joins children without forced killing,
+drains output and removes its socket. The outer runner joins QEMU and removes
+private guest state; the original and restored 77-byte KVM ACLs match SHA-256
+`1e4f78ad9620be770ef90f96d7235e9c4f9be95014122d28899ac95266d57f6d`.
+No guest artifact, joined delivery result or final hosted acceptance is present.
+The later failed guest-archive retrieval is not the first native failure.
+
+Original artifact `11928963707` contains 12 explicitly named files. Its ZIP
+SHA-256 is `11fa0128c37125a09cd84ab5d35793ff7967ac8fe1c30fa583f61404e08a0bb1`;
+original logs ZIP SHA-256 is
+`fffb3a11df48801e5e219d1799c4239d538acbc95adfa7b2c93385bb960fb151`.
+Independent readback verifies the archives, source binding and cleanup scope.
+
+[Quality `38634369314`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38634369314)
+passes on PR merge `b7f7bc53b66ce110f00182c1265b777c017b2a26`. Android source
+bytes match the actual candidate; the whole tree also includes main's integrated
+dependency backports and documentation. The Android contract step passes 265
+checks and the workspace passes 3,661 tests with seven ignores. Three namespace
+skips and one CLI compatibility skip remain non-acceptance. These checks do not
+replace the failed installed trial.
+
+The follow-up adds one optional `weather-android-inner-diagnostic.json` receipt,
+separate from the unchanged schema-6 delivery evidence. After child cleanup, the
+owner reads only the two fixed, previously absent Weather diagnostic paths. It
+admits exact emulator schema 3 and guest-network schema 9 within their original
+1 KiB and 2 KiB bounds. The export contains only closed categories, booleans and
+bounded counts; missing or rejected input remains explicit. No success or
+cleanup gate consumes this diagnostic, and raw private logs remain excluded.
+All 112 focused inert checks pass: 12 parser, 63 owner, 20 hosted-wiring and
+17 VM-wiring cases. This establishes the observation contract, not the cause of
+the prior inner failure or actual Android delivery.
 
 ### Latest storage trial
 

@@ -27,7 +27,9 @@ G = O["run"].__globals__
 F = runpy.run_path(str(HERE / "test-weather-android-evidence.py"))
 E = O["E"]
 K = O["K"]
+D = O["D"]
 KF = runpy.run_path(str(HERE / "test-weather-android-kvm.py"))
+DF = runpy.run_path(str(HERE / "test-weather-android-inner-diagnostic.py"))
 CORE_COMMIT = "a" * 40
 WEATHER_COMMIT = "f6ee829961da387d9c0cd71b7163b47baab434fa"
 IDENTITY = dict(core_commit=CORE_COMMIT, weather_commit=WEATHER_COMMIT, run_id="123", run_attempt="1")
@@ -73,6 +75,10 @@ elif role == 'native':
     # Only coordinator ownership, ordering and failure propagation are tested.
     if mode == 'native-fail': sys.exit(2)
     if mode.startswith('native-diagnostic'):
+        if 'inner' in mode:
+            for name, value in data['inner_records'].items():
+                path = Path(data['inner_paths'][name]); path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                path.write_text(json.dumps(value)); path.chmod(0o600)
         print('PRIVATE stdout https://example.invalid/private-token', flush=True)
         print('PRIVATE stderr private-key-fragment', file=sys.stderr, flush=True)
         if 'kvm' in mode:
@@ -282,6 +288,15 @@ class AcceptanceTests(RecordFixture):
         with self.assertRaises(ValueError): self.join()
         with self.assertRaises(ValueError): self.accept()
 
+    def test_inner_diagnostic_cannot_replace_original_owner_or_delivery_proof(self):
+        records = dict.fromkeys(D["INPUTS"], dict(state="absent", facts=None))
+        save(self.output / D["NAME"], D["receipt"](IDENTITY, records))
+        (self.private / "result.json").unlink()
+        (self.output / "weather-android-owner-join.json").unlink()
+        with self.assertRaises((OSError, ValueError)): self.join()
+        with self.assertRaises((OSError, ValueError)): self.accept()
+        self.assertFalse((self.output / "weather-android-hosted-acceptance.json").exists())
+
     def test_every_vm_cleanup_fact_and_original_owner_exit_is_required(self):
         original = self.vm.read_bytes()
         fields = dict(driver_finished=False, qemu_started=False, qemu_joined=False,
@@ -331,6 +346,66 @@ class AcceptanceTests(RecordFixture):
 
 
 class FailureRecordTests(RecordFixture):
+    def inner_export(self, preexisting=None):
+        O["export_inner_diagnostic"](self.config, IDENTITY,
+            dict.fromkeys(D["INPUTS"], False) if preexisting is None else preexisting)
+        path = self.output / D["NAME"]
+        raw = path.read_bytes(); path.unlink()
+        self.assertLessEqual(len(raw), D["MAX_BYTES"])
+        self.assertNotIn(b"PRIVATE", raw)
+        self.assertNotIn(str(self.root).encode(), raw)
+        return D["validate_receipt"](json.loads(raw))
+
+    def test_inner_originals_are_closed_optional_records_not_acceptance(self):
+        originals = dict(emulator=DF["emulator_fixture"](), guest_network=DF["network_fixture"]())
+        for name, value in originals.items(): save(self.weather / D["INPUTS"][name], value)
+        result = self.inner_export()
+        self.assertEqual(result["identity"], IDENTITY)
+        self.assertEqual(result["records"], {name: dict(state="available", facts=value)
+            for name, value in originals.items()})
+        self.assertTrue(result["diagnostic_only"])
+        self.assertFalse(any(result[key] for key in ("cause_established", "joined_core_acceptance",
+            "physical_device", "production_authority")))
+        for row in self.inner_export(dict.fromkeys(D["INPUTS"], True))["records"].values():
+            self.assertEqual(row, dict(state="rejected", facts=None))
+
+    def test_inner_missing_and_unsafe_files_are_absent_or_rejected_without_raw_text(self):
+        self.assertEqual(self.inner_export()["records"], dict.fromkeys(D["INPUTS"], dict(state="absent", facts=None)))
+        path = self.weather / D["INPUTS"]["emulator"]
+        target = self.root / "private-diagnostic.json"; save(target, DF["emulator_fixture"]())
+        raw = json.dumps(DF["emulator_fixture"]()).encode()
+        cases = (
+            lambda: path.symlink_to(target),
+            lambda: os.link(target, path),
+            lambda: os.mkfifo(path, 0o600),
+            lambda: save(path, DF["emulator_fixture"](), 0o644),
+            lambda: save(path, b"PRIVATE" + b"x" * D["INPUT_LIMITS"]["emulator"]),
+            lambda: save(path, b'{"PRIVATE":'),
+            lambda: save(path, raw[:-1] + b',"schema":3}'),
+            lambda: save(path, dict(DF["emulator_fixture"](), private="PRIVATE")),
+        )
+        for index, create in enumerate(cases):
+            with self.subTest(index=index):
+                create()
+                try:
+                    self.assertEqual(self.inner_export()["records"]["emulator"], dict(state="rejected", facts=None))
+                finally: path.unlink()
+
+    def test_inner_symlink_ancestor_and_existing_output_are_not_followed_or_replaced(self):
+        target = self.root / "private-proof"; target.mkdir(mode=0o700)
+        save(target / "emulator-diagnostic.json", DF["emulator_fixture"]())
+        linked_weather = self.root / "linked-weather"; linked_weather.mkdir(mode=0o700)
+        (linked_weather / "build").mkdir(mode=0o700)
+        (linked_weather / "build/overmorrow-hosted-android-live-proof").symlink_to(target, target_is_directory=True)
+        config = dict(self.config, weather_root=str(linked_weather))
+        O["export_inner_diagnostic"](config, IDENTITY, dict.fromkeys(D["INPUTS"], False))
+        path = self.output / D["NAME"]; before = path.read_bytes()
+        self.assertEqual(json.loads(before)["records"]["emulator"], dict(state="rejected", facts=None))
+        with self.assertRaises(FileExistsError):
+            O["export_inner_diagnostic"](config, IDENTITY, dict.fromkeys(D["INPUTS"], False))
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
     def native_job(self, raw=None, *, status=1, opened=(), limit=2 * 1024**2):
         if raw is None:
             raw = O["N"]["PREFIX"].encode() + json.dumps(NATIVE_DIAGNOSTIC).encode() + b"\n"
@@ -698,6 +773,7 @@ class CoordinatorTests(unittest.TestCase):
         self.assertTrue((self.root / "finalized").exists())
         self.assertFalse((self.run / "android-api/core-api.sock").exists())
         self.assertFalse((self.output / O["FAILURE_NAME"]).exists())
+        self.assertFalse((self.output / D["NAME"]).exists())
 
     def test_kvm_access_loss_stops_before_driver_or_publication_and_preserves_failure_schema(self):
         before = dict(KF["private_fixture"](), open_result="eperm")
@@ -776,6 +852,47 @@ class CoordinatorTests(unittest.TestCase):
         with self.assertRaises(ValueError): O["join"](self.value)
         with self.assertRaises(FileExistsError): O["write"](path, {})
         self.assertEqual(path.read_bytes(), raw)
+        inner = D["validate_receipt"](json.loads((self.output / D["NAME"]).read_bytes()))
+        self.assertEqual(inner["records"], dict.fromkeys(D["INPUTS"], dict(state="absent", facts=None)))
+
+    def test_inner_failure_receipt_is_written_after_children_join_and_preserves_schema_six(self):
+        originals = dict(emulator=DF["emulator_fixture"](), guest_network=DF["network_fixture"]())
+        mutate(self.root / "inert-roles.json", lambda value: value.update(inner_records=originals,
+            inner_paths={name: str(self.weather / relative) for name, relative in D["INPUTS"].items()}))
+        original_export = O["export_inner_diagnostic"]
+        def export(value, expected_identity, preexisting):
+            self.assertEqual(Path(f"/proc/self/task/{os.getpid()}/children").read_text().strip(), "")
+            self.assertTrue((self.output / O["FAILURE_NAME"]).is_file())
+            self.assertTrue((self.output / K["NAME"]).is_file())
+            return original_export(value, expected_identity, preexisting)
+        with patch.dict(G, export_inner_diagnostic=export): result = self.run_owner("native-diagnostic-inner")
+        self.assertFalse(result["success"])
+        receipt = D["validate_receipt"](json.loads((self.output / D["NAME"]).read_bytes()))
+        self.assertEqual(receipt["records"], {name: dict(state="available", facts=value)
+            for name, value in originals.items()})
+        failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
+        self.assertEqual(failure["schema"], 6)
+        self.assertNotIn("inner", failure)
+        self.assertNotIn("PRIVATE", json.dumps(receipt))
+        self.assertFalse((self.root / "finalized").exists())
+        with self.assertRaises(ValueError): O["join"](self.value)
+
+    def test_preexisting_inner_file_cannot_be_reported_as_this_native_attempt(self):
+        save(self.weather / D["INPUTS"]["emulator"], DF["emulator_fixture"]())
+        result = self.run_owner("native-fail")
+        self.assertFalse(result["success"])
+        receipt = json.loads((self.output / D["NAME"]).read_bytes())
+        self.assertEqual(receipt["records"]["emulator"], dict(state="rejected", facts=None))
+        self.assertEqual(receipt["records"]["guest_network"], dict(state="absent", facts=None))
+
+    def test_optional_inner_export_error_preserves_original_failure_and_cleanup(self):
+        with patch.dict(G, export_inner_diagnostic=lambda *_: (_ for _ in ()).throw(OSError("PRIVATE"))):
+            result = self.run_owner("native-fail")
+        self.assertFalse(result["success"])
+        self.assertTrue(result["cleanup"]["children_joined"] and result["cleanup"]["socket_removed"])
+        self.assertTrue((self.output / O["FAILURE_NAME"]).is_file())
+        self.assertTrue((self.output / K["NAME"]).is_file())
+        self.assertFalse((self.output / D["NAME"]).exists())
 
     def test_kvm_guard_diagnostic_has_separate_closed_receipt_and_no_acceptance(self):
         before = KF["private_fixture"]()
@@ -866,6 +983,8 @@ class CoordinatorTests(unittest.TestCase):
         self.assertTrue(failure["owner_cleanup"]["children_joined"] and failure["diagnostic_only"])
         self.assertFalse(any(failure[key] for key in ("success", "joined_core_acceptance", "expiry_proven",
             "physical_device", "production_authority")))
+        inner = D["validate_receipt"](json.loads((self.output / D["NAME"]).read_bytes()))
+        self.assertFalse(inner["joined_core_acceptance"] or inner["cause_established"])
 
 
 if __name__ == "__main__": unittest.main()

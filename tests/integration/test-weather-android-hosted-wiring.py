@@ -66,6 +66,7 @@ class AndroidHostedWiring(unittest.TestCase):
         self.assertIn('python3 -B tests/integration/test-weather-android-vm-wiring.py', SOURCE)
         self.assertIn('python3 -B tests/integration/test-weather-android-native.py', SOURCE)
         self.assertIn('python3 -B tests/integration/test-weather-android-kvm.py', SOURCE)
+        self.assertIn('python3 -B tests/integration/test-weather-android-inner-diagnostic.py', SOURCE)
 
     def test_nested_checkout_and_vm_output_are_ignored_and_socket_bound_is_checked(self):
         paths = re.findall(r'(?m)^          path: ([.a-zA-Z0-9_/-]+)$', SOURCE)
@@ -346,6 +347,7 @@ getfacl() { printf 'original inert ACL\\n'; }
             '${{ env.WEATHER_OUTPUT }}/weather-android-owner-join.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-owner-failure.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-kvm-observation.json',
+            '${{ env.WEATHER_OUTPUT }}/weather-android-inner-diagnostic.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-vm-cleanup.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-hosted-acceptance.json',
             '${{ env.WEATHER_INPUTS }}/kvm-cleanup.json',
@@ -354,6 +356,16 @@ getfacl() { printf 'original inert ACL\\n'; }
                 'verify-runtime', 'runtime-version', 'native-preparation')]])
         for forbidden in ('*', '.log', '.acl', '.zip', '.tar', 'private', 'sdk', 'apk', 'proof/', 'run_directory', 'config'):
             self.assertNotIn(forbidden, '\n'.join(paths).lower())
+
+    def test_inner_diagnostic_is_optional_host_output_not_input_or_acceptance(self):
+        parser_test = 'python3 -B tests/integration/test-weather-android-inner-diagnostic.py'
+        self.assertIn(parser_test, SOURCE)
+        self.assertIn(parser_test, (ROOT / '.github/workflows/quality.yml').read_text())
+        output = '${{ env.WEATHER_OUTPUT }}/weather-android-inner-diagnostic.json'
+        self.assertEqual(SOURCE.count(output), 1)
+        self.assertNotIn('inner-diagnostic', block('Require joined Android observations and completed VM cleanup'))
+        for raw in ('emulator-diagnostic.json', 'guest-network-diagnostic.json'):
+            self.assertNotIn(raw, block('Upload only closed evidence and pinned-input provenance'))
 
     def test_embedded_python_and_every_run_block_are_syntactically_valid(self):
         for name in ('COMBINED_RESOURCES', 'PUBLIC_ARTIFACT_METADATA', 'VERIFIED_ARTIFACT_EXTRACTION',

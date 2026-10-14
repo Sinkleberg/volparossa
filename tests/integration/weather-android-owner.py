@@ -28,6 +28,7 @@ E = runpy.run_path(str(HERE / "weather-android-evidence.py"))
 T = runpy.run_path(str(HERE / "weather-android-tunnel.py"))
 N = runpy.run_path(str(HERE / "weather-android-native.py"))
 K = N["K"]
+D = runpy.run_path(str(HERE / "weather-android-inner-diagnostic.py"))
 require, same, exact, digest = E["require"], E["same"], E["exact"], E["digest"]
 CONTROL = "/usr/local/libexec/volparossa-weather-android-control.py"
 PROFILE = "android-protected-core-v6"
@@ -455,6 +456,33 @@ def export_failure(value, result, pool, preexisting):
     write(canonical(value["output_directory"], directory=True) / FAILURE_NAME, failure)
 
 
+def export_inner_diagnostic(value, expected_identity, preexisting):
+    """Optional finite facts after child cleanup, never raw child output."""
+    records = {}
+    for name, relative in D["INPUTS"].items():
+        path = Path(value["weather_root"]) / relative
+        if preexisting[name]:
+            records[name] = dict(state="rejected", facts=None)
+            continue
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            records[name] = dict(state="absent", facts=None)
+            continue
+        except OSError:
+            records[name] = dict(state="rejected", facts=None)
+            continue
+        try:
+            facts = D["project_record"](name, document(path, D["INPUT_LIMITS"][name]))
+            records[name] = dict(state="available", facts=facts)
+        except (OSError, ValueError, KeyError, TypeError, RecursionError):
+            records[name] = dict(state="rejected", facts=None)
+    result = D["receipt"](expected_identity, records)
+    require(len(json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()) + 1
+        <= D["MAX_BYTES"])
+    write(canonical(value["output_directory"], directory=True) / D["NAME"], result)
+
+
 def preparation_record(value, expected_identity):
     exact(value, ("schema", "kind", "identity", "prepared_sha256", "result_sha256", "apk",
         "original_preparation_verified", "runtime_executed", "publication_started"))
@@ -481,6 +509,7 @@ def run(value):
     write(private / "kvm-baseline.json", K["baseline_record"](
         identity(value["core_commit"], value["weather_commit"]), kvm_before))
     preexisting = {name: os.path.lexists(weather / relative) for name, relative in NATIVE_RECORDS.items()}
+    inner_preexisting = {name: os.path.lexists(weather / relative) for name, relative in D["INPUTS"].items()}
     pool = Children(); env = environment(); phase, success, ready = "driver", False, None
     netns = os.readlink("/proc/self/ns/net"); outer = time.monotonic() + DRIVER_SECONDS
     statuses = dict(driver=None, tunnel=None, native=None)
@@ -565,6 +594,12 @@ def run(value):
     observed = native_kvm(native_job, result["identity"])
     write(Path(value["output_directory"]) / K["NAME"], K["continuity_receipt"](result["identity"], kvm_before,
         acl_before, baseline_state, initial, observed["state"], observed["record"]))
+    if not success:
+        try: export_inner_diagnostic(value, result["identity"], inner_preexisting)
+        except (OSError, ValueError, KeyError, TypeError, RecursionError):
+            # Diagnostic persistence cannot change the original failed result,
+            # replace its cleanup record, or introduce acceptance authority.
+            pass
     return result
 
 

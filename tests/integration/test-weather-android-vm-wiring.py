@@ -29,6 +29,7 @@ COMMIT = "a" * 40
 SUMMARY = "weather-android-delivery-evidence.json"
 FIXTURES = runpy.run_path(str(HERE / "test-weather-android-evidence.py"))
 E = FIXTURES["E"]
+D = runpy.run_path(str(HERE / "weather-android-inner-diagnostic.py"))
 
 
 def source():
@@ -222,7 +223,7 @@ printf '%s:%s\\n' "$observed" "$WEATHER_ANDROID_OWNER_PID"
 
 
 class CleanupReceipt(unittest.TestCase):
-    def exercise(self, *, profile="6", fail_status=0, keep=False, existing=False, blank_commit=False):
+    def exercise(self, *, profile="6", fail_status=0, keep=False, existing=False, blank_commit=False, inner=False):
         with tempfile.TemporaryDirectory(prefix="android-vm-cleanup-", dir=HERE) as temporary:
             root = Path(temporary).resolve()
             work = root / "weather-client-kvm.ABC123"; work.mkdir(mode=0o700)
@@ -230,6 +231,11 @@ class CleanupReceipt(unittest.TestCase):
             output = root / "evidence"; output.mkdir(mode=0o700)
             receipt = output / "weather-android-vm-cleanup.json"
             if existing: receipt.write_bytes(b"existing-owned-receipt\n")
+            if inner:
+                observation = D["receipt"](dict(core_commit=COMMIT, weather_commit=D["WEATHER_COMMIT"],
+                    run_id="123", run_attempt="1"), dict.fromkeys(D["INPUTS"], dict(state="absent", facts=None)))
+                inner_raw = D["encoded"](observation)
+                (output / D["NAME"]).write_bytes(inner_raw)
             script = '''set -eu
 umask 077
 RUN_DIRECTORY_PARENT=$1
@@ -249,6 +255,7 @@ FINISHED=no
             if keep: script += "rm() { :; }\n"
             script += 'trap cleanup EXIT\nexit "$6"\n'
             result = shell(script, root, profile, COMMIT, "" if blank_commit else COMMIT, SHA, fail_status)
+            if inner: self.assertEqual((output / D["NAME"]).read_bytes(), inner_raw)
             return result, receipt.read_bytes() if receipt.exists() else None, work.exists(), list(output.iterdir())
 
     def test_cleanup_record_is_closed_after_private_state_removal_not_acceptance(self):
@@ -272,6 +279,14 @@ FINISHED=no
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertFalse(remains)
         self.assertEqual(raw, b"existing-owned-receipt\n")
+
+    def test_optional_host_diagnostic_survives_vm_cleanup_without_becoming_acceptance(self):
+        result, raw, remains, files = self.exercise(fail_status=1, inner=True)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertFalse(remains)
+        self.assertEqual({path.name for path in files}, {D["NAME"], "weather-android-vm-cleanup.json"})
+        self.assertFalse(json.loads(raw)["joined_core_acceptance"])
+        self.assertEqual(json.loads(raw)["owner_exit_status"], 1)
 
     def test_early_profile_six_failure_has_initialized_identity_and_legacy_no_new_record(self):
         initial = source().split("guest_memory_for_scenario()", 1)[0]

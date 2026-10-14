@@ -52,6 +52,7 @@ jobs:
           python3 -B tests/integration/test-weather-android-owner.py
           python3 -B tests/integration/test-weather-android-native.py
           python3 -B tests/integration/test-weather-android-kvm.py
+          python3 -B tests/integration/test-weather-android-inner-diagnostic.py
           python3 -B tests/integration/test-weather-android-tunnel.py
           sh -n tests/integration/run-alpha-topology-vm.sh
           sh -n tests/integration/weather-android-delivery.sh
@@ -374,6 +375,7 @@ jobs:
             ${{ env.WEATHER_OUTPUT }}/weather-android-owner-join.json
             ${{ env.WEATHER_OUTPUT }}/weather-android-owner-failure.json
             ${{ env.WEATHER_OUTPUT }}/weather-android-kvm-observation.json
+            ${{ env.WEATHER_OUTPUT }}/weather-android-inner-diagnostic.json
             ${{ env.WEATHER_OUTPUT }}/weather-android-vm-cleanup.json
             ${{ env.WEATHER_OUTPUT }}/weather-android-hosted-acceptance.json
             ${{ env.WEATHER_INPUTS }}/kvm-cleanup.json
