@@ -56,9 +56,10 @@ reports are not upgraded into new evidence.
 
 Targeted inert checks pass: 217 core harness/validator cases, 55 Image adapter cases
 and eleven Cloud cases. Independent source review and 26,656 in-memory historical
-adapter comparisons find no changed version-1–4 acceptance or output. The new
-Rust source and wire-to-CLI regression tests still require hosted compilation and
-execution; the actual combined storage trial has not yet run on this candidate.
+adapter comparisons find no changed version-1–4 acceptance or output. Hosted
+Clippy now passes; the findings below distinguish executed CLI tests from the
+agent/control tests that have not yet run. Actual combined trial `38643001237`
+is running on `b996160c`; it has no completed acceptance result yet.
 No private payloads, paths, identities or raw errors are added to exported evidence.
 
 The first hosted [Quality check `38635879441`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38635879441)
@@ -86,6 +87,24 @@ No deadline, acceptance rule or error mapping changes. Workspace and targeted
 Rust tests were skipped, so compilation and execution still require fresh hosted
 validation before an actual storage trial. Original log ZIP SHA-256:
 `afc0d769391add76f4492cab4218165dd5bff5ed1d181e86ed76e055bbc7452e`.
+
+Quality [`38640886944`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38640886944)
+on `b996160c` passes strict Clippy, then fails one CLI assertion: the live
+diagnostic projection emits version 5, but its expected outcome fixture still
+uses historical version 4. The CLI binary reports 641 passed and one failed.
+All three new version-5 CLI cases and the correlated-detail case pass; the other
+thirteen new agent/control cases and later isolated-test gates do not execute.
+The correction changes only that live-projection test's expected version and
+name. The historical version-4 fixture and its exact roundtrip/rejection tests
+stay unchanged. Production source, deadlines and acceptance rules are untouched;
+the corrected assertion still requires hosted execution.
+
+The original checkout is PR merge `526a1968`, combining `b996160c` with main
+`7b728846`; evidence is bound to that checkout rather than claiming an exact
+head-tree match. Original logs ZIP SHA-256:
+`bfa4871c0f9724393350dade2bbedff97a4cf250334007b3cebd8f21265fb580`.
+The already-running actual trial keeps its original revision; a test-expectation
+correction is not a reason to restart or reinterpret that trial.
 
 ### Latest storage trial
 
