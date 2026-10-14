@@ -17,6 +17,29 @@ M = runpy.run_path(str(HERE / 'storage-consumer-maintenance-provision.py'))
 
 
 class ConsumerProvision(unittest.TestCase):
+    def test_profile_five_adds_exact_outcome_sources_without_expanding_runtime_or_old_pins(self):
+        previous, current = M['load_pins'](4), M['load_pins'](5)
+        self.assertEqual(current['version'], 5)
+        self.assertEqual(current['runtime'], previous['runtime'])
+        self.assertEqual(len({M['pins_path'](v) for v in (1, 2, 3, 4, 5)}), 5)
+        node = (HERE / 'storage-consumer-maintenance.mjs').read_text()
+        for name in ('image', 'cloud'):
+            self.assertEqual(current['sources'][name]['revision'], M['OUTCOME_REVISIONS'][name])
+            self.assertNotEqual(current['sources'][name]['revision'], previous['sources'][name]['revision'])
+            self.assertIn(current['sources'][name]['revision'], node)
+            self.assertEqual(set(current['sources'][name]['files']), set(previous['sources'][name]['files']))
+            self.assertEqual(current['sources'][name]['files']['LICENSE'], previous['sources'][name]['files']['LICENSE'])
+        for original, vendored in M['VENDORED'].items():
+            self.assertEqual(current['sources']['image']['files'][original], current['sources']['cloud']['files'][vendored])
+        changed = copy.deepcopy(current); changed['sources']['image']['revision'] = previous['sources']['image']['revision']
+        vendor = copy.deepcopy(current)
+        vendor['sources']['cloud']['files']['vendor/volparossa-image/core-storage.mjs']['sha256'] = '0' * 64
+        for invalid in (previous, dict(current, version=4), changed, vendor):
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / 'pins.json'; path.write_text(json.dumps(invalid))
+                with patch.dict(M['load_pins'].__globals__, PINS_V5=path), self.assertRaises(ValueError):
+                    M['load_pins'](5)
+
     def test_explicit_profile_two_keeps_historical_pins_and_adds_only_required_import(self):
         old, current = M['load_pins'](), M['load_pins'](2)
         self.assertEqual(current['version'], 2)
@@ -28,7 +51,7 @@ class ConsumerProvision(unittest.TestCase):
         self.assertEqual(set(old['sources']['cloud']['files']) - set(current['sources']['cloud']['files']), set())
         self.assertEqual(set(current['sources']['image']['files']), set(old['sources']['image']['files']))
         self.assertNotEqual(M['pins_path'](), M['pins_path'](2))
-        for version in (True, 0, 5, '2'):
+        for version in (True, 0, 6, '2'):
             with self.assertRaises(ValueError):
                 M['load_pins'](version)
         for changed in (old, dict(current, version=1)):

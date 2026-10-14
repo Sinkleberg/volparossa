@@ -199,8 +199,34 @@ LIFECYCLE = {'observed_old_owner_absent_while_foreground_active', 'observed_paus
     'confirmed_copy_retentions_advanced', 'completed_turn_observed'}
 
 
+OUTCOME_PHASES = ('ready_write', 'local_request_read', 'local_request_verify', 'local_payload_read',
+    'local_payload_verify', 'admission', 'remote_request_verify', 'remote_request_write', 'remote_payload_write',
+    'remote_receipt_read', 'remote_receipt_verify', 'remote_payload_read', 'remote_payload_verify',
+    'local_receipt_write', 'local_payload_write', 'provider_tls_close', 'transport_tls_close',
+    'final_route_check', 'final_grant_check', 'final_lifetime_check', 'terminal_write')
+
+
+def validate_agent_outcome(value, stage):
+    if value is None:
+        return
+    keys(value, ('status', 'detail'))
+    require(stage in ('wire_receipt', 'agent_terminal', 'deadline')
+        and value['status'] in ('observed', 'missing', 'pending', 'expired', 'query_failed', 'query_timeout'), 'deposit_diagnostics')
+    if value['status'] != 'observed':
+        require(value['detail'] is None, 'deposit_diagnostics')
+        return
+    detail = value['detail']
+    keys(detail, ('phase', 'category', 'deadline_scope'))
+    require(detail['phase'] in OUTCOME_PHASES
+        and detail['category'] in ('io', 'auth', 'invalid', 'busy', 'store', 'expired', 'entropy', 'timeout', 'policy', 'unavailable', 'cancelled')
+        and detail['deadline_scope'] in ('none', 'operation', 'exchange', 'bridge', 'remote_wire')
+        and ((detail['category'] == 'timeout') == (detail['deadline_scope'] != 'none'))
+        and (detail['deadline_scope'] != 'bridge' or detail['phase'] in OUTCOME_PHASES[1:15])
+        and (detail['deadline_scope'] != 'remote_wire' or detail['phase'] in OUTCOME_PHASES[6:13]), 'deposit_diagnostics')
+
+
 def validate_deposit_diagnostics(value, version=1):
-    require(type(version) is int and version in (1, 2, 3), 'deposit_diagnostics')
+    require(type(version) is int and version in (1, 2, 3, 4), 'deposit_diagnostics')
     keys(value, ('version', 'failures', 'omitted_failures'))
     require(type(value['version']) is int and value['version'] == version
         and type(value['omitted_failures']) is int and value['omitted_failures'] == 0
@@ -208,7 +234,7 @@ def validate_deposit_diagnostics(value, version=1):
     seen = set()
     for failure in value['failures']:
         keys(failure, ('fragment_index', 'copy_index', 'operation', 'stage', 'category', 'agent_code',
-            *(('agent_detail',) if version >= 2 else ())))
+            *(('agent_detail',) if version >= 2 else ()), *(('agent_outcome',) if version >= 4 else ())))
         require(count(failure['fragment_index'], 0, 3) and count(failure['copy_index'], 0, 1)
             and failure['operation'] in ('prepare', 'reserve', 'progress', 'append', 'finalize', 'renew', 'read_range', 'delete')
             and failure['stage'] in ('journal_open', 'authorization', 'agent_ready', 'challenge', 'signed_request',
@@ -218,7 +244,7 @@ def validate_deposit_diagnostics(value, version=1):
                 if failure['category'] == 'agent_rejected' else failure['agent_code'] is None), 'deposit_diagnostics')
         if version >= 2 and failure['agent_detail'] is not None:
             detail = failure['agent_detail']
-            keys(detail, ('stage', 'deadline_scope', *(('tls_failure',) if version == 3 else ())))
+            keys(detail, ('stage', 'deadline_scope', *(('tls_failure',) if version >= 3 else ())))
             require(failure['stage'] == 'agent_ready' and failure['category'] == 'agent_rejected'
                 and failure['agent_code'] in ('CONTENT_INVALID', 'CONTENT_UNAVAILABLE', 'CONTENT_BUSY', 'CONTENT_POLICY')
                 and detail['stage'] in ('unobserved', 'route_connect', 'control_selection', 'provider_lookup',
@@ -227,11 +253,13 @@ def validate_deposit_diagnostics(value, version=1):
                 and (detail['stage'] != 'unobserved' or detail['deadline_scope'] == 'operation')
                 and (detail['deadline_scope'] != 'exchange' or detail['stage'] in ('stream_open', 'tls_handshake', 'challenge'))
                 and (detail['deadline_scope'] == 'none' or failure['agent_code'] == 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics')
-            if version == 3:
+            if version >= 3:
                 require(detail['tls_failure'] is None or (
                     detail['tls_failure'] in ('offer', 'configuration', 'handshake_deadline', 'authentication', 'tls_other', 'io')
                     and detail['stage'] == 'tls_handshake' and detail['deadline_scope'] == 'none'
                     and failure['agent_code'] == 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics')
+        if version >= 4:
+            validate_agent_outcome(failure['agent_outcome'], failure['stage'])
         identity = (failure['fragment_index'], failure['copy_index'])
         require(identity not in seen, 'deposit_diagnostics')
         seen.add(identity)
@@ -246,7 +274,7 @@ def validate_node_report(value, phase, provision, prepared=None, *, profile_vers
             fields += ('publish_observation',)
             observed = value['publish_observation']
             require(type(observed) is dict and type(observed.get('version')) is int
-                and observed['version'] in (1, 2, 3, 4), 'publish_profile')
+                and observed['version'] in (1, 2, 3, 4, 5), 'publish_profile')
             observation_version = observed['version']
             diagnostic = observation_version >= 2
             expected_version = observation_version + 1
@@ -439,7 +467,7 @@ def validate_locations(root, binary, client, providers=None):
 
 def node_phase(root, phase, provision, deadline):
     command = [NODE, HERE / 'storage-consumer-maintenance.mjs', phase, root]
-    if PROFILE_VERSION in (2, 3, 4):
+    if PROFILE_VERSION in (2, 3, 4, 5):
         command += ['--profile-version', str(PROFILE_VERSION)]
     status, output, _ = run_child(command, deadline)
     value = json.loads(output)
@@ -626,7 +654,7 @@ def main(arguments):
     if len(arguments) >= 2 and arguments[-2:] == ['--network-version', '2']:
         NETWORK_VERSION = 2
         arguments = arguments[:-2]
-    if len(arguments) >= 2 and arguments[-2] == '--profile-version' and arguments[-1] in ('2', '3', '4'):
+    if len(arguments) >= 2 and arguments[-2] == '--profile-version' and arguments[-1] in ('2', '3', '4', '5'):
         PROFILE_VERSION = int(arguments[-1])
         arguments = arguments[:-2]
     if len(arguments) == 2 and arguments[0] == 'flow-minimum':

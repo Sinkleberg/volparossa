@@ -27,6 +27,8 @@ const DETAIL_REVISIONS = Object.freeze({ image: '87a8016652db629a0afefb41d88b305
   cloud: '54a00b58a6c24432e7427d72ff714c786dbeb0cc' });
 const TLS_REVISIONS = Object.freeze({ image: '3b5830476dabd548debfdfade4fdf72acb4fa992',
   cloud: 'ea24b6cd53a14b204a7b8fbfda5c76ec9ca297e7' });
+const OUTCOME_REVISIONS = Object.freeze({ image: 'ec6b9dca5789a60447c643652c93643b9a6c4af6',
+  cloud: '4409c08680eebb3d679a036546691cb541675f97' });
 const CHECKPOINTS = new Set(['enrolled', 'owner_locked', 'waiting_for_core', 'working', 'paused',
   'enrollment_expired', 'core_unavailable', 'core_turn_revoked', 'turn_completed', 'retry_pending']);
 const SQL = Buffer.from('-- VOLPAROSSA synthetic quiesced snapshot\nCREATE TABLE fixture (id integer);\nINSERT INTO fixture VALUES (1);\n');
@@ -58,18 +60,42 @@ const AGENT_STAGES = new Set(['unobserved', 'route_connect', 'control_selection'
   'provider_cardinality', 'offer_validity', 'stream_open', 'tls_handshake', 'challenge']);
 const EXCHANGE_STAGES = new Set(['stream_open', 'tls_handshake', 'challenge']);
 const TLS_FAILURES = new Set(['offer', 'configuration', 'handshake_deadline', 'authentication', 'tls_other', 'io']);
+const OUTCOME_PHASES = Object.freeze(['ready_write', 'local_request_read', 'local_request_verify',
+  'local_payload_read', 'local_payload_verify', 'admission', 'remote_request_verify', 'remote_request_write',
+  'remote_payload_write', 'remote_receipt_read', 'remote_receipt_verify', 'remote_payload_read', 'remote_payload_verify',
+  'local_receipt_write', 'local_payload_write', 'provider_tls_close', 'transport_tls_close', 'final_route_check',
+  'final_grant_check', 'final_lifetime_check', 'terminal_write']);
 const closedKeys = (value, keys) => value !== null && typeof value === 'object' && !Array.isArray(value)
   && equal(Object.keys(value).sort(), [...keys].sort());
+
+function agentOutcome(value, stage) {
+  if (value === null) return null;
+  check(['wire_receipt', 'agent_terminal', 'deadline'].includes(stage)
+    && closedKeys(value, ['status', 'detail'])
+    && ['observed', 'missing', 'pending', 'expired', 'query_failed', 'query_timeout'].includes(value.status), 'deposit_diagnostics');
+  if (value.status !== 'observed') {
+    check(value.detail === null, 'deposit_diagnostics');
+    return { status: value.status, detail: null };
+  }
+  const d = value.detail;
+  check(closedKeys(d, ['phase', 'category', 'deadline_scope']) && OUTCOME_PHASES.includes(d.phase)
+    && ['io', 'auth', 'invalid', 'busy', 'store', 'expired', 'entropy', 'timeout', 'policy', 'unavailable', 'cancelled'].includes(d.category)
+    && ['none', 'operation', 'exchange', 'bridge', 'remote_wire'].includes(d.deadline_scope)
+    && (d.category === 'timeout') === (d.deadline_scope !== 'none')
+    && (d.deadline_scope !== 'bridge' || OUTCOME_PHASES.slice(1, 15).includes(d.phase))
+    && (d.deadline_scope !== 'remote_wire' || OUTCOME_PHASES.slice(6, 13).includes(d.phase)), 'deposit_diagnostics');
+  return { status: value.status, detail: { phase: d.phase, category: d.category, deadline_scope: d.deadline_scope } };
+}
 
 // This proof has exactly four fragments/two initial copies. The bridge already
 // checks general archive geometry; revalidate the narrower exported trial here.
 export function depositDiagnostic(value, version = 1) {
-  check([1, 2, 3].includes(version), 'deposit_diagnostics');
+  check([1, 2, 3, 4].includes(version), 'deposit_diagnostics');
   check(closedKeys(value, ['version', 'failures', 'omitted_failures']) && value.version === version
     && Array.isArray(value.failures) && value.failures.length <= 8 && value.omitted_failures === 0, 'deposit_diagnostics');
   const seen = new Set(), failures = value.failures.map(failure => {
     check(closedKeys(failure, ['fragment_index', 'copy_index', 'operation', 'stage', 'category', 'agent_code',
-      ...(version >= 2 ? ['agent_detail'] : [])])
+      ...(version >= 2 ? ['agent_detail'] : []), ...(version >= 4 ? ['agent_outcome'] : [])])
       && integer(failure.fragment_index, 0, 3) && integer(failure.copy_index, 0, 1)
       && DEPOSIT_OPERATIONS.has(failure.operation) && DEPOSIT_STAGES.has(failure.stage)
       && DEPOSIT_CATEGORIES.has(failure.category)
@@ -80,14 +106,14 @@ export function depositDiagnostic(value, version = 1) {
       const value = failure.agent_detail;
       check(failure.stage === 'agent_ready' && failure.category === 'agent_rejected'
         && AGENT_CODES.has(failure.agent_code) && failure.agent_code !== 'unknown'
-        && closedKeys(value, ['stage', 'deadline_scope', ...(version === 3 ? ['tls_failure'] : [])])
+        && closedKeys(value, ['stage', 'deadline_scope', ...(version >= 3 ? ['tls_failure'] : [])])
         && AGENT_STAGES.has(value.stage)
         && ['none', 'operation', 'exchange'].includes(value.deadline_scope)
         && (value.stage !== 'unobserved' || value.deadline_scope === 'operation')
         && (value.deadline_scope !== 'exchange' || EXCHANGE_STAGES.has(value.stage))
         && (value.deadline_scope === 'none' || failure.agent_code === 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics');
       detail = { stage: value.stage, deadline_scope: value.deadline_scope };
-      if (version === 3) {
+      if (version >= 3) {
         check(value.tls_failure === null || (TLS_FAILURES.has(value.tls_failure)
           && value.stage === 'tls_handshake' && value.deadline_scope === 'none'
           && failure.agent_code === 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics');
@@ -98,7 +124,8 @@ export function depositDiagnostic(value, version = 1) {
     check(!seen.has(identity), 'deposit_diagnostics'); seen.add(identity);
     return { fragment_index: failure.fragment_index, copy_index: failure.copy_index,
       operation: failure.operation, stage: failure.stage, category: failure.category, agent_code: failure.agent_code,
-      ...(version >= 2 ? { agent_detail: detail } : {}) };
+      ...(version >= 2 ? { agent_detail: detail } : {}),
+      ...(version >= 4 ? { agent_outcome: agentOutcome(failure.agent_outcome, failure.stage) } : {}) };
   });
   return { version, failures, omitted_failures: 0 };
 }
@@ -114,7 +141,7 @@ class PublishFailure extends Error {
 // copy its raw storage report, paths, exceptions or private journal to evidence.
 export function requirePublishComplete(value, app, operation, profileVersion = 1) {
   check(['image', 'cloud'].includes(app) && ['create', 'deposit'].includes(operation), 'arguments');
-  check([1, 2, 3, 4].includes(profileVersion), 'arguments');
+  check([1, 2, 3, 4, 5].includes(profileVersion), 'arguments');
   const report = value?.storage;
   const present = report !== null && typeof report === 'object' && !Array.isArray(report);
   let state = 'not_applicable', diagnostic = null;
@@ -485,7 +512,7 @@ async function guard(root, profileVersion) {
     && provision.kind === 'storage-consumer-maintenance-runtime-provision'
     && provision.success === true && provision.guest_only === true && provision.shared_adapter_verified === true,
   'provision');
-  const revisions = profileVersion === 4 ? TLS_REVISIONS : profileVersion === 3 ? DETAIL_REVISIONS
+  const revisions = profileVersion === 5 ? OUTCOME_REVISIONS : profileVersion === 4 ? TLS_REVISIONS : profileVersion === 3 ? DETAIL_REVISIONS
     : profileVersion === 2 ? DIAGNOSTIC_REVISIONS : REVISIONS;
   for (const [name, source] of Object.entries(provision.pins.sources)) {
     check(Object.hasOwn(revisions, name) && /^[a-f0-9]{40}$/u.test(revisions[name])
@@ -718,7 +745,7 @@ async function finish(ctx, m) {
 
 export async function main(argv) {
   let profileVersion = 1;
-  if (argv.length === 4 && argv[2] === '--profile-version' && ['2', '3', '4'].includes(argv[3])) {
+  if (argv.length === 4 && argv[2] === '--profile-version' && ['2', '3', '4', '5'].includes(argv[3])) {
     profileVersion = Number(argv[3]); argv = argv.slice(0, 2);
   }
   check(argv.length === 2 && PHASES.includes(argv[0]), 'arguments');

@@ -1988,15 +1988,16 @@ def main(args):
             work / 'private-storage-maintenance-selection-start.private',
             work / 'private-storage-maintenance-selection-end.private'), sort_keys=True))
         return
-    if len(args) == 3 and args[0] in ('report', 'report-consumer-v4'):
+    if len(args) == 3 and args[0] in ('report', 'report-consumer-v4', 'report-consumer-v5'):
         report = read(Path(args[1]))
         validate_report(report, args[2])
-        if args[0] == 'report-consumer-v4':
+        if args[0] in ('report-consumer-v4', 'report-consumer-v5'):
             # Current hosted acceptance is generation-specific; keep the
             # original report command available for exact historical replay.
             consumer = report['consumers']
-            require(type(consumer['schema_version']) is int and consumer['schema_version'] == 4
-                and type(consumer['provision']['version']) is int and consumer['provision']['version'] == 4,
+            version = 5 if args[0] == 'report-consumer-v5' else 4
+            require(type(consumer['schema_version']) is int and consumer['schema_version'] == version
+                and type(consumer['provision']['version']) is int and consumer['provision']['version'] == version,
                 'consumer_current_source_profile')
         return
     if len(args) == 3 and args[0] == 'evidence':

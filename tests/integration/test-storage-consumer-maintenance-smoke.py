@@ -76,20 +76,91 @@ def diagnostic_failure(profile_version=2):
             deposit_diagnostics_state='observed', deposit_diagnostics=dict(version=1, omitted_failures=0,
                 failures=[dict(fragment_index=2, copy_index=1, operation='reserve', stage='agent_terminal',
                     category='io', agent_code=None)])))
-    if profile_version in (3, 4):
+    if profile_version in (3, 4, 5):
         value['version'] = profile_version + 1
         observed = value['publish_observation']
         observed['version'] = profile_version
         observed['deposit_diagnostics']['version'] = profile_version - 1
         observed['deposit_diagnostics']['failures'][0].update(stage='agent_ready', category='agent_rejected',
             agent_code='CONTENT_UNAVAILABLE', agent_detail=dict(stage='route_connect', deadline_scope='none'))
-        if profile_version == 4:
+        if profile_version >= 4:
             observed['deposit_diagnostics']['failures'][0]['agent_detail'].update(
                 stage='tls_handshake', tls_failure='authentication')
+        if profile_version == 5:
+            observed['deposit_diagnostics']['failures'][0].update(stage='wire_receipt', category='io',
+                operation='finalize', agent_code=None, agent_detail=None,
+                agent_outcome=dict(status='observed', detail=dict(phase='remote_receipt_read',
+                    category='timeout', deadline_scope='remote_wire')))
     return value
 
 
 class ConsumerReceipts(unittest.TestCase):
+    def test_profile_five_keeps_exact_failed_child_receipt_and_does_not_upgrade_older_profiles(self):
+        value = diagnostic_failure(5)
+        self.assertEqual(value['version'], 6)
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=5), value)
+        for old in (1, 2, 3, 4):
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=old)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            calls = []
+            def child(command, _):
+                calls.append(command)
+                return 1, raw, b'PRIVATE-RAW-STDERR'
+            with patch.dict(G, run_child=child, PROFILE_VERSION=5):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(calls[0][-2:], ['--profile-version', '5'])
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertEqual(caught.exception.report['node_report_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+
+    def test_profile_five_outcome_matrix_requires_real_timeout_and_post_ready_scope(self):
+        phases = M['OUTCOME_PHASES']
+        for index, phase in enumerate(phases):
+            for category in ('io', 'auth', 'invalid', 'busy', 'store', 'expired', 'entropy', 'timeout', 'policy', 'unavailable', 'cancelled'):
+                for scope in ('none', 'operation', 'exchange', 'bridge', 'remote_wire'):
+                    value = diagnostic_failure(5)
+                    outcome = value['publish_observation']['deposit_diagnostics']['failures'][0]['agent_outcome']
+                    outcome['detail'] = dict(phase=phase, category=category, deadline_scope=scope)
+                    allowed = ((category == 'timeout') == (scope != 'none')) and (
+                        scope != 'bridge' or 1 <= index <= 14) and (scope != 'remote_wire' or 6 <= index <= 12)
+                    if allowed:
+                        M['validate_node_report'](value, 'publish', PROVISION, profile_version=5)
+                    else:
+                        with self.assertRaises(ValueError):
+                            M['validate_node_report'](value, 'publish', PROVISION, profile_version=5)
+
+    def test_profile_five_required_nullable_outcome_and_closed_status_fields(self):
+        for status in ('observed', 'missing', 'pending', 'expired', 'query_failed', 'query_timeout'):
+            for detail in (None, dict(phase='remote_receipt_read', category='io', deadline_scope='none')):
+                value = diagnostic_failure(5)
+                failure = value['publish_observation']['deposit_diagnostics']['failures'][0]
+                failure['agent_outcome'] = dict(status=status, detail=detail)
+                if (status == 'observed') == (detail is not None):
+                    M['validate_node_report'](value, 'publish', PROVISION, profile_version=5)
+                else:
+                    with self.assertRaises(ValueError):
+                        M['validate_node_report'](value, 'publish', PROVISION, profile_version=5)
+        mutations = [lambda f: f.pop('agent_outcome'), lambda f: f['agent_outcome'].pop('detail'),
+            lambda f: f['agent_outcome'].update(original_request_id='PRIVATE'),
+            lambda f: f['agent_outcome']['detail'].update(raw_error='PRIVATE'),
+            lambda f: f['agent_outcome']['detail'].update(phase='unobserved')]
+        mutations += [lambda f, stage=stage: f.update(stage=stage)
+            for stage in ('agent_ready', 'authorization', 'signed_request', 'accounting', 'unknown')]
+        for mutate in mutations:
+            value = diagnostic_failure(5)
+            mutate(value['publish_observation']['deposit_diagnostics']['failures'][0])
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=5)
+        value = diagnostic_failure(5)
+        value['publish_observation']['deposit_diagnostics']['failures'][0]['agent_outcome'] = None
+        M['validate_node_report'](value, 'publish', PROVISION, profile_version=5)
+
     def test_profile_four_retains_original_child_tls_failure_and_rejects_downgrades(self):
         value = diagnostic_failure(4)
         self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=4), value)
@@ -539,7 +610,8 @@ class ConsumerOrchestration(unittest.TestCase):
         # the actual runpy/load_pins closure in that same sparse arrangement.
         names = ('storage-consumer-maintenance-smoke.py', 'storage-consumer-maintenance-provision.py',
             'storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json',
-            'storage-consumer-maintenance-pins-v3.json', 'storage-consumer-maintenance-pins-v4.json', 'image-snapshot-provision.py',
+            'storage-consumer-maintenance-pins-v3.json', 'storage-consumer-maintenance-pins-v4.json',
+            'storage-consumer-maintenance-pins-v5.json', 'image-snapshot-provision.py',
             'agent-private-task-code.py', 'agent-private-task-code-pins.json',
             'private-storage-fragments-smoke.py', 'private-storage-replicas-smoke.py',
             'private-storage-peer-smoke.py', 'content-provider-https-smoke.py',
@@ -555,6 +627,7 @@ class ConsumerOrchestration(unittest.TestCase):
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](2), M['PROVISIONER']['load_pins'](2))
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](3), M['PROVISIONER']['load_pins'](3))
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](4), M['PROVISIONER']['load_pins'](4))
+                self.assertEqual(loaded['PROVISIONER']['load_pins'](5), M['PROVISIONER']['load_pins'](5))
                 self.assertEqual(loaded['FLOW_MINIMUM'], M['FLOW_MINIMUM'])
                 for absent in ('image-snapshot-provision.py', 'agent-private-task-code.py', 'agent-private-task-code-pins.json'):
                     (root / absent).unlink()
@@ -570,13 +643,13 @@ class ConsumerOrchestration(unittest.TestCase):
         import io
         from contextlib import redirect_stdout
         with redirect_stdout(io.StringIO()):
-            for profile in (2, 3, 4):
+            for profile in (2, 3, 4, 5):
                 M['main'](['flow-minimum', 'publish', '--profile-version', str(profile)])
                 self.assertEqual(G['PROFILE_VERSION'], profile)
             M['main'](['flow-minimum', 'publish'])
             self.assertEqual(G['PROFILE_VERSION'], 1)
         with self.assertRaises(ValueError):
-            M['main'](['flow-minimum', 'publish', '--profile-version', '5'])
+            M['main'](['flow-minimum', 'publish', '--profile-version', '6'])
 
     def test_preparation_creates_only_original_finite_authority_from_exact_cipher_size(self):
         original, calls, owners = prepared(), [], iter(('4' * 64, '5' * 64))

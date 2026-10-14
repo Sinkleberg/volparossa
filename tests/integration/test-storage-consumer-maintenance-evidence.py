@@ -369,6 +369,25 @@ class ControlTransition(unittest.TestCase):
 
 
 class ConsumerEvidence(unittest.TestCase):
+    def test_profile_five_requires_new_pins_and_full_dynamic_network_evidence(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        value = network['fixture'](5)
+        self.assertEqual(M['validate_evidence'](value), value)
+        self.assertEqual(value['schema_version'], 5)
+        for mutate in (lambda v: v.update(schema_version=4), lambda v: v['provision'].update(version=4),
+                lambda v: v['provision'].update(pins=M['PROVISIONER']['load_pins'](4)),
+                lambda v: v['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+                lambda v: v['deleted_usage'][0].update(leases=1)):
+            invalid = copy.deepcopy(value); mutate(invalid)
+            with self.assertRaises(ValueError): M['validate_evidence'](invalid)
+        with self.assertRaises(ValueError):
+            M['build_evidence']('/inert/not-read', outcome_profile=True)
+        with self.assertRaises(ValueError):
+            M['build_evidence']('/inert/not-read', network_version=2, tls_profile=True, outcome_profile=True)
+        # Reuse the existing complete synthetic file-layout builder assertion;
+        # it invokes evidence-v5, not a relabelled older proof or a live core.
+        network['ConsumerNetwork']().assert_builder(5)
+
     def test_profile_three_provision_is_not_a_relabelled_profile_two_receipt(self):
         values = [fixture(profile_version=profile) for profile in (1, 2, 3)]
         for value in values:

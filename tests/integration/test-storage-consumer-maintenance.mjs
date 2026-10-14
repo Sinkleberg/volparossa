@@ -47,6 +47,71 @@ const detailedDiagnostics = (failures = [detailedFailure()]) => ({ version: 2, f
 const tlsDiagnostics = (tls_failure = 'authentication') => ({ version: 3, omitted_failures: 0,
   failures: [{ ...detailedFailure('tls_handshake'), agent_detail: {
     stage: 'tls_handshake', deadline_scope: 'none', tls_failure } }] });
+const outcomeDiagnostics = () => ({ version: 4, omitted_failures: 0, failures: [{
+  ...transferFailure(), operation: 'finalize', stage: 'wire_receipt', agent_detail: null,
+  agent_outcome: { status: 'observed', detail: { phase: 'remote_receipt_read', category: 'timeout', deadline_scope: 'remote_wire' } },
+}] });
+
+test('profile5 observes diagnostic4 in failure envelope6 without upgrading historical profiles', () => {
+  for (const app of ['image', 'cloud']) {
+    const diagnostic = outcomeDiagnostics(), value = { status: 'incomplete', code: 'retained_operation_incomplete',
+      local_process_joined: true, storage: { operation_complete: false, deposit_diagnostics: diagnostic, raw: 'PRIVATE' } };
+    const report = publishFailure(value, app, 'deposit', false, 5);
+    assert.equal(report.version, 6); assert.equal(report.publish_observation.version, 5);
+    assert.deepEqual(report.publish_observation.deposit_diagnostics, diagnostic);
+    assert.doesNotMatch(JSON.stringify(report), /PRIVATE|raw/u);
+    for (const old of [1, 2, 3]) assert.throws(() => depositDiagnostic(diagnostic, old), /deposit_diagnostics/u);
+    for (const old of [2, 3, 4]) {
+      assert.equal(publishFailure(value, app, 'deposit', false, old).publish_observation.deposit_diagnostics_state, 'invalid');
+    }
+    const complete = { status: 'complete', local_process_joined: true,
+      storage: { operation_complete: true, deposit_diagnostics: { version: 4, failures: [], omitted_failures: 0 } } };
+    assert.doesNotThrow(() => requirePublishComplete(complete, app, 'deposit', 5));
+    delete complete.storage.deposit_diagnostics;
+    assert.equal(publishFailure(complete, app, 'deposit', false, 5).publish_observation.deposit_diagnostics_state, 'missing');
+  }
+});
+
+test('outcome status, nullable fields and post-READY boundary are exact; unknown context never escapes', () => {
+  for (const status of ['observed', 'missing', 'pending', 'expired', 'query_failed', 'query_timeout']) {
+    for (const detail of [null, outcomeDiagnostics().failures[0].agent_outcome.detail]) {
+      const d = outcomeDiagnostics(); d.failures[0].agent_outcome = { status, detail };
+      if ((status === 'observed') === (detail !== null)) assert.deepEqual(depositDiagnostic(d, 4), d);
+      else assert.throws(() => depositDiagnostic(d, 4), /deposit_diagnostics/u);
+    }
+  }
+  const nullable = outcomeDiagnostics(); nullable.failures[0].agent_outcome = null;
+  assert.deepEqual(depositDiagnostic(nullable, 4), nullable);
+  const mutations = [d => { delete d.failures[0].agent_outcome; }, d => { delete d.failures[0].agent_outcome.detail; },
+    d => { d.failures[0].agent_outcome.raw = 'PRIVATE'; }, d => { d.failures[0].agent_outcome.detail.original_request_id = 'PRIVATE'; },
+    d => { d.failures[0].agent_outcome.status = 'PRIVATE'; }, d => { d.failures[0].agent_outcome.detail.phase = 'unobserved'; },
+    ...['agent_ready', 'authorization', 'signed_request', 'accounting', 'unknown'].map(stage => d => { d.failures[0].stage = stage; }),
+    d => { d.version = 3; }];
+  for (const mutate of mutations) {
+    const d = outcomeDiagnostics(); mutate(d); assert.throws(() => depositDiagnostic(d, 4), /deposit_diagnostics/u);
+    const report = publishFailure({ status: 'incomplete', local_process_joined: true,
+      storage: { operation_complete: false, deposit_diagnostics: d } }, 'cloud', 'deposit', false, 5);
+    assert.equal(report.publish_observation.deposit_diagnostics_state, 'invalid');
+    assert.equal(report.publish_observation.deposit_diagnostics, null); assert.doesNotMatch(JSON.stringify(report), /PRIVATE/u);
+  }
+});
+
+test('agent outcome phase/deadline matrix preserves actual timeout versus cancellation semantics', () => {
+  const phases = ['ready_write', 'local_request_read', 'local_request_verify', 'local_payload_read', 'local_payload_verify',
+    'admission', 'remote_request_verify', 'remote_request_write', 'remote_payload_write', 'remote_receipt_read',
+    'remote_receipt_verify', 'remote_payload_read', 'remote_payload_verify', 'local_receipt_write', 'local_payload_write',
+    'provider_tls_close', 'transport_tls_close', 'final_route_check', 'final_grant_check', 'final_lifetime_check', 'terminal_write'];
+  for (const [index, phase] of phases.entries()) for (const category of ['io', 'auth', 'invalid', 'busy', 'store',
+    'expired', 'entropy', 'timeout', 'policy', 'unavailable', 'cancelled']) for (const scope of ['none', 'operation', 'exchange', 'bridge', 'remote_wire']) {
+    const d = outcomeDiagnostics(); d.failures[0].agent_outcome.detail = { phase, category, deadline_scope: scope };
+    const allowed = (category === 'timeout') === (scope !== 'none')
+      && (scope !== 'bridge' || (index >= 1 && index <= 14)) && (scope !== 'remote_wire' || (index >= 6 && index <= 12));
+    if (allowed) assert.deepEqual(depositDiagnostic(d, 4), d);
+    else assert.throws(() => depositDiagnostic(d, 4), /deposit_diagnostics/u);
+  }
+  const tls = tlsDiagnostics(); tls.version = 4; tls.failures[0].agent_outcome = null;
+  assert.deepEqual(depositDiagnostic(tls, 4), tls, 'pre-READY TLS detail remains valid without an outcome claim');
+});
 
 test('profile4 binds TLS diagnostic3 to the actual call without changing old profiles', () => {
   for (const app of ['image', 'cloud']) {

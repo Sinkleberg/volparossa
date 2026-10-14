@@ -1174,17 +1174,39 @@ class MaintenanceEvidence(unittest.TestCase):
         original = fixture()
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'report.json'
-            for profile in (1, 3, 4):
+            for profile in (1, 3, 4, 5):
                 consumers = (CONSUMER_FIXTURE['fixture']() if profile == 1 else network['fixture'](profile))
                 combined = dict(report(original), schema_version=4, consumers=consumers)
-                for command in ('report', 'report-consumer-v4'):
+                for command in ('report', 'report-consumer-v4', 'report-consumer-v5'):
                     with self.subTest(profile=profile, command=command):
                         path.write_text(json.dumps(combined))
                         path.chmod(0o600)
                         result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
                             command, str(path), '1' * 40], capture_output=True, timeout=10)
-                        self.assertEqual(result.returncode == 0, command == 'report' or profile == 4,
+                        self.assertEqual(result.returncode == 0, command == 'report'
+                            or (command == 'report-consumer-v4' and profile == 4)
+                            or (command == 'report-consumer-v5' and profile == 5),
                             result.stdout + result.stderr)
+
+    def test_current_consumer_v5_cli_keeps_original_network_custody_and_cleanup_gates(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        original = dict(report(fixture()), schema_version=4, consumers=network['fixture'](5))
+        mutations = (
+            lambda v: v.update(source_revision='2' * 40), lambda v: v['cleanup'].update(complete=False),
+            lambda v: v['consumers'].update(schema_version=5.0), lambda v: v['consumers']['provision'].update(version=True),
+            lambda v: v['consumers']['provision'].update(pins=CHECK['CONSUMERS']['PROVISIONER']['load_pins'](4)),
+            lambda v: v['consumers']['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+            lambda v: v['consumers']['deleted_usage'][0].update(leases=1),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'report.json'
+            for index, mutate in enumerate(mutations):
+                with self.subTest(mutation=index):
+                    value = copy.deepcopy(original); mutate(value)
+                    path.write_text(json.dumps(value)); path.chmod(0o600)
+                    result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                        'report-consumer-v5', str(path), '1' * 40], capture_output=True, timeout=10)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_current_consumer_v4_cli_keeps_source_types_cleanup_and_network_checks(self):
         network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
@@ -1506,8 +1528,14 @@ class UploadFailureProjection(unittest.TestCase):
             failure = dict(fragment_index=index // 2, copy_index=index % 2,
                 operation='reserve', stage='agent_ready', category='agent_rejected',
                 agent_code='CONTENT_UNAVAILABLE')
-            if version == 2:
+            if version >= 2:
                 failure['agent_detail'] = dict(stage='route_connect', deadline_scope='none')
+            if version >= 3:
+                failure['agent_detail']['tls_failure'] = None
+            if version == 4:
+                failure.update(stage='wire_receipt', category='io', operation='finalize', agent_code=None,
+                    agent_detail=None, agent_outcome=dict(status='observed', detail=dict(
+                        phase='remote_receipt_read', category='timeout', deadline_scope='remote_wire')))
             diagnostic['failures'].append(failure)
         return dict(operation='private_storage_fragments_deposit', operation_complete=False,
             fragment_count=4, copies_per_fragment=2, deposit_diagnostics=diagnostic,
@@ -1518,7 +1546,7 @@ class UploadFailureProjection(unittest.TestCase):
         return CHECK['upload_observation'](operation, 1, raw, b'PRIVATE_STDERR')
 
     def test_exact_call_labels_and_both_existing_diagnostic_versions(self):
-        for version in (1, 2):
+        for version in (1, 2, 3, 4):
             for count in (0, 1, 8):
                 source = self.report(version, count)
                 for operation in CHECK['UPLOAD_OPERATIONS']:
@@ -1534,6 +1562,22 @@ class UploadFailureProjection(unittest.TestCase):
                         self.assertEqual(value['deposit_diagnostics'],
                             source['deposit_diagnostics'] if applicable else None)
                         self.assertNotIn('PRIVATE', json.dumps(value))
+
+    def test_upload_outcome_projects_only_valid_closed_observation_without_success_or_custody_claim(self):
+        source = self.report(4)
+        value = self.observe(source)
+        self.assertEqual(value['deposit_diagnostics_state'], 'observed')
+        self.assertEqual(value['deposit_diagnostics'], source['deposit_diagnostics'])
+        self.assertNotIn('success', value); self.assertNotIn('custody', json.dumps(value))
+        for mutate in (lambda f: f.pop('agent_outcome'), lambda f: f['agent_outcome'].pop('detail'),
+                lambda f: f['agent_outcome'].update(raw='PRIVATE'),
+                lambda f: f['agent_outcome']['detail'].update(original_request_id='PRIVATE'),
+                lambda f: f['agent_outcome']['detail'].update(category='cancelled'),
+                lambda f: f.update(stage='signed_request')):
+            bad = copy.deepcopy(source); mutate(bad['deposit_diagnostics']['failures'][0])
+            result = self.observe(bad)
+            self.assertEqual(result['deposit_diagnostics_state'], 'invalid')
+            self.assertIsNone(result['deposit_diagnostics']); self.assertNotIn('PRIVATE', json.dumps(result))
 
     def test_invalid_missing_oversized_and_duplicate_reports_never_export_raw_data(self):
         mutations = [
