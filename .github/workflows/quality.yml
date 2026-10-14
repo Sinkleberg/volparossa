@@ -89,6 +89,12 @@ jobs:
           python3 -B tests/integration/test-weather-products-delivery-shell.py
           python3 -B tests/integration/test-weather-client-runner.py
 
+      - name: Check isolated Android input and tunnel contracts without running Android
+        run: |
+          python3 -B tests/integration/test-weather-android-bundle.py
+          python3 -B tests/integration/test-weather-android-tunnel.py
+          python3 -B tests/integration/test-weather-android-delivery.py
+
       - name: Check formatting and shell sources
         run: |
           cargo fmt --all -- --check

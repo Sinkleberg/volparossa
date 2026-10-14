@@ -31,10 +31,76 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Join core-delivered products to the now-proven installed Android refresh/background-expiry lifecycle. | PR19 is merged as `ad10d7d9`, with the exact tested tree of `576550f3`. Original Android `38497919547` and component `38497925414` pass; the Android proof includes real tap refresh, background/resume, hidden expired tables, unchanged three requests per product and full cleanup. Products are synthetic in this trial. Actual core delivery into Android, physical devices and iOS remain open; separate web evidence is unchanged. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Original actual trial `38497089463` on `0057262e` fails Cloud publication with a FINALIZE `wire_receipt/io` result. Diagnostic candidate `b9a8905e` passes Quality `38505948590`, including eleven new Rust cases, and CodeQL `38505945732`. Actual trial `38508516347` is pending on that exact source. These diagnostics do not establish a fix; consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
+| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | PR19 proves the installed lifecycle with synthetic products. PR21 adds explicit cache creation/reuse; PR22 is merged as `93770b59` with a private API-only Unix listener, separate native preparation/live entrypoints and optional private original CLI receipt retention. Component and CodeQL checks pass on exact source `f6ee8299`. The core's v6 guest-input/tunnel candidate still requires joined orchestration and packet, custody and cleanup evidence. Live product expiry, physical devices and iOS remain open; the historical synthetic expiry and real web proofs are unchanged. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38508516347` fails Image FINALIZE before READY at TLS setup. Candidate `a7e574fe` passes Quality `38517584520` and CodeQL `38517580456`, but actual `38519187504` fails Cloud FINALIZE after READY with `wire_receipt/io`. Its base maintenance includes two verified restores and zero final base-provider usage; consumer repair, restore and remote cleanup are not proved. Next: preserve the exact failed local request's closed termination reason, then address the demonstrated cause without hiding it through retries. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 is merged as `e282a3ce`; its guest module has passing software evidence. PR247 connects that module to finite operator grants, protected transport and CLI verification. Original run `38511031734` on `85a01382` passes 52 appraisal, 16 guest and twelve new quote tests plus targeted Clippy. Quality `38511036689` stops at one CLI naming lint; the private-type rename is reviewed, but corrected workspace acceptance and execution of eight new agent/control/CLI tests remain required. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
+| Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 and PR247 are merged; main `17afa3f0` contains the finite operator grants, guest module, protected exchange and CLI verifier. Corrected source `09b0d3cc` passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`. Software evidence does not establish production-route execution, production authority, current vendor appraisal, an approved measured workload or actual private execution. Suitable confidential-computing hardware is unavailable; storage and Android integration continue in parallel. |
+
+### Android-to-core integration boundary
+
+Weather [PR22](https://github.com/VOLPAROSSA/volparossa-weather/pull/22) is merged.
+Source `f6ee829961da387d9c0cd71b7163b47baab434fa` passes component run
+[`38585280869`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38585280869)
+(246 Node and 497 Python checks) and CodeQL `38585272621`. The production bridge
+can serve its fixed APIs over an exclusively owned private Unix socket. Its
+explicit proof mode retains bounded original CLI receipts only after actual
+requests, content validation and process/scratch cleanup. It performs no prefetch
+and retains nothing by default. Shutdown tests cover an outstanding file open
+without allowing directory-descriptor reuse to redirect a write.
+
+The core candidate's v6 input bundle contains only 39 explicitly admitted source,
+Node and decoder members. It excludes a browser, SDK, APK and synthetic provider.
+Its archive validation is not runtime admission: the existing topology runtime
+remains limited to profiles 1–5 until the separate Android/VM dispatcher is wired.
+The API-only tunnel is bounded and preserves the live socket through final
+Android identity checks; its local tests use owned processes and Unix sockets,
+not SSH, a VM, real peers or an Android device.
+
+The separate preparation helper builds the production bridge configuration from
+the already selected publications. It does not start a process, fetch a product
+or create a cache. A root-staged, agent-owned cache parent keeps this access
+separate from private agent state. Acquisition receipts have their own schema 6;
+historical cold-transfer and browser evidence cannot be relabeled as Android
+evidence. Independent review checks all 39 admitted inputs against the exact
+Weather source and previously admitted decoder artifacts.
+
+The required next joined proof must bind an Android-initiated first GET to its
+original cold core receipt, actual protected paths and the same response bytes
+shown by the app. Native build preparation must precede publication. Fresh
+background/resume behavior is not live-expiry proof. No local native build or
+host-network change was performed for these components.
+
+### Latest storage trial
+
+Actual run [`38519187504`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38519187504)
+on `a7e574fe4cc733853d0cb9944294cbf409502d67` fails the combined consumer gate.
+Cloud's first fragment, second copy reaches FINALIZE and receives an I/O failure
+while exchanging the signed request and receipt, after the local READY response.
+This boundary does not identify whether the provider committed the operation.
+The client event ring has wrapped; an uncorrelated provider request-read error
+does not establish the cause. A per-request, short-lived local outcome is the
+next diagnostic step; increasing timeouts or repeating the run is not a fix.
+
+Candidate `bcf7b8bf` now joins this outcome to the failed local request and Unix
+user. The closed diagnostic is bounded, short-lived and consumed once; it does
+not retry a storage operation or establish whether a provider committed it.
+Profile 5 pins Image `ec6b9dca` and Cloud `4409c086` to the same version-4 error
+contract while retaining the historical profile contracts. Component tests pass;
+hosted Rust acceptance and a new actual consumer trial are still required.
+
+The same run completes the separate base-maintenance lifecycle, two whole-archive
+verified restores, deletion of all eleven base copies and the foreground copy,
+and zero final usage at all three base providers. Local consumer processes and
+the disposable topology are cleaned up, with unchanged guest-root networking.
+Consumer restoration and remote cleanup remain unproved because publication did
+not finish. These base results do not turn the combined run into a pass.
+
+The retained original artifact ZIP is
+`4140ed5b6b67498812fd5a0c00eb40d0d67063fd8fca5a047196d29df956fce8`;
+the original log ZIP is
+`f60455097f2e5699b3bc5bcd48a7c0776a5e9e67274a8d25ecd02c498ce4d8d2`.
+Independent reconstruction and root replay validate the exact source, consumer
+pins and closed failure receipts without inventing a missing request timeline.
 
 ### Authorized quote exchange candidate
 
@@ -106,9 +172,11 @@ Its original log ZIP is
 `73cd058d0f2d9554d0676dd48bb809aaea88c44e63bcaa05edf6b5265ba5bf99`.
 Renaming that private type to `PublicExpectations` leaves the JSON
 `public_policy_id` field, strict schema, policy criteria and CLI options unchanged.
-Independent review confirms the narrow correction. Corrected workspace acceptance
-is still required; CodeQL `38511032900` on `85a01382` is also pending. No local
-Rust tool was run.
+Independent review confirms the narrow correction. Corrected source `09b0d3cc`
+passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`;
+PR247 is merged as `17afa3f0`. The Quality result includes execution of all eight
+new agent/control/CLI tests. Namespace-dependent checks skipped by runner policy
+are not production-route evidence. No local Rust tool was run.
 
 ### Guest-owned protected-compute session candidate
 

@@ -163,6 +163,22 @@ FIXED_V5 = frozenset({*(WEATHER + name for name in WEATHER_FILES_V5),
     *(BROWSER + name for name in BROWSER_FILES), *(STAGE + name for name in RUNTIME_FILES_V4),
     *(UI_STAGE_V3 + name for name in CLIENT_FILES_V3), *("decoder/licenses/" + name for name in DECODER_LICENSES),
     "runtime/node", "runtime/node.LICENSE", "runtime/firefox-copyright", "decoder/grib_ls", "decoder/probe.grib2"})
+# Android executes outside the core VM. Its guest bundle contains only the
+# production API/acquisition modules and the independently proven decoder.
+# No browser, APK, SDK, fixture provider or prior UI success is guest authority.
+ADMISSION_V6 = Path(__file__).with_name("weather-public-android-v6.json")
+ANDROID_PREFIX = "integrations/overmorrow/android-core-inputs/"
+WEATHER_FILES_V6 = frozenset({"LICENSE", "src/ecmwf.mjs", "src/forecast.mjs", "src/provider.mjs",
+    "src/noaa-gefs.mjs", "src/air-quality.mjs", "src/air-quality-provider.mjs", "src/air-quality-core.mjs",
+    "src/core-cache.mjs", "src/provider-core.mjs", "src/provider-http.mjs", "src/android-proof-receipts.mjs",
+    "scripts/forecast.mjs", "scripts/air-quality.mjs", "scripts/serve-provider.mjs",
+    "scripts/build_eccodes.py", "scripts/prepare_hosted_decoder.py", "third_party/eccodes-sources.json",
+    "third_party/noaa-gefs.json", "third_party/hosted-runtime-inputs.json"})
+FIXED_V6 = frozenset({*(WEATHER + name for name in WEATHER_FILES_V6),
+    WEATHER + ANDROID_PREFIX + "decoder-build.json", WEATHER + ANDROID_PREFIX + "decoder-abi.json",
+    *(WEATHER + ANDROID_PREFIX + "decoder-abi/" + name for name in ABI_LOGS),
+    *("decoder/licenses/" + name for name in DECODER_LICENSES),
+    "runtime/node", "runtime/node.LICENSE", "decoder/grib_ls", "decoder/probe.grib2"})
 EXECUTABLES = frozenset({"runtime/node", "decoder/grib_ls", *(STAGE + name for name in
     ("firefox-esr", "firefox-bin", "crashhelper", "crashreporter", "glxtest", "vaapitest", "pingsender"))})
 MAX_FILES = 512
@@ -177,8 +193,8 @@ header, read_exact, new_path = B["header"], B["read_exact"], B["new_path"]
 
 
 def decoder_sha(version):
-    require(type(version) is int and version in (1, 2, 3, 4, 5))
-    return DECODER_SHA_V4 if version in (4, 5) else DECODER_SHA
+    require(type(version) is int and version in (1, 2, 3, 4, 5, 6))
+    return DECODER_SHA_V4 if version in (4, 5, 6) else DECODER_SHA
 
 
 def pin_sha(version):
@@ -188,12 +204,12 @@ def pin_sha(version):
 
 def build_sha(version):
     decoder_sha(version)
-    return BUILD_SHA_V4 if version in (4, 5) else BUILD_SHA
+    return BUILD_SHA_V4 if version in (4, 5, 6) else BUILD_SHA
 
 
 def build_source(version):
     decoder_sha(version)
-    return "scripts/prepare_hosted_decoder.py" if version in (4, 5) else "scripts/build_eccodes.py"
+    return "scripts/prepare_hosted_decoder.py" if version in (4, 5, 6) else "scripts/build_eccodes.py"
 
 
 def mode(name):
@@ -207,6 +223,8 @@ def bound(name):
 
 
 def static_name(name, version=1):
+    if version == 6:
+        return False
     prefix = STATIC_V3 if version in (3, 5) else STATIC
     safe = name.startswith(prefix) and all(re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@+-]{0,254}", part)
         and part not in (".", "..") for part in name[len(prefix):].split("/"))
@@ -222,13 +240,13 @@ def manifest(raw, expected):
     require(hex64(expected) and 0 < len(raw) <= MAX_MANIFEST and hashlib.sha256(raw).hexdigest() == expected)
     value = json.loads(raw, object_pairs_hook=B["unique_pairs"])
     require(type(value) is dict and set(value) == {"version", "kind", "files"}
-        and type(value["version"]) is int and value["version"] in (1, 2, 3, 4, 5) and value["kind"] == KIND
+        and type(value["version"]) is int and value["version"] in (1, 2, 3, 4, 5, 6) and value["kind"] == KIND
         and type(value["files"]) is dict
         and 1 <= len(value["files"]) <= MAX_FILES and encode(value) == raw)
     version = value["version"]
-    fixed = {1: FIXED, 2: FIXED_V2, 3: FIXED_V3, 4: FIXED_V4, 5: FIXED_V5}[version]
+    fixed = {1: FIXED, 2: FIXED_V2, 3: FIXED_V3, 4: FIXED_V4, 5: FIXED_V5, 6: FIXED_V6}[version]
     prefix = STATIC_V3 if version in (3, 5) else STATIC
-    required_static = STATIC_REQUIRED_V3 if version in (3, 5) else {"index.html"}
+    required_static = set() if version == 6 else (STATIC_REQUIRED_V3 if version in (3, 5) else {"index.html"})
     require(fixed <= set(value["files"]) and all(name in fixed or static_name(name, version) for name in value["files"])
         and {prefix + name for name in required_static} <= set(value["files"]))
     total = static_bytes = 0
@@ -250,6 +268,9 @@ def manifest(raw, expected):
     elif version == 5:
         require({name: {key: item[key] for key in ("bytes", "sha256")} for name, item in value["files"].items()}
             == public_overmorrow_admission()["files"])
+    elif version == 6:
+        require({name: {key: item[key] for key in ("bytes", "sha256")} for name, item in value["files"].items()}
+            == public_android_admission()["files"])
     return value
 
 
@@ -335,6 +356,41 @@ def public_admission():
 
 def public_overmorrow_admission():
     return validate_public_admission(small_json(ADMISSION_V5), 5)
+
+
+def validate_android_admission(value):
+    """Reviewed guest inputs only; APK and joined execution require new evidence."""
+    require(type(value) is dict and set(value) == {"schema", "kind", "scope", "sources", "artifacts", "files"}
+        and type(value["schema"]) is int and value["schema"] == 1
+        and value["kind"] == "volparossa-weather-public-android-admission"
+        and value["scope"] == "disposable-android-core-inputs-only"
+        and type(value["sources"]) is dict and set(value["sources"]) == {"weather"})
+    source = value["sources"]["weather"]
+    require(type(source) is dict and set(source) == {"commit"} and type(source["commit"]) is str
+        and re.fullmatch(r"[0-9a-f]{40}", source["commit"]) is not None)
+    require(type(value["artifacts"]) is dict and set(value["artifacts"]) == {"decoder", "abi"})
+    for name, item in value["artifacts"].items():
+        require(type(item) is dict and set(item) == {"repository", "run_id", "commit", "id", "name", "sha256", "bytes"}
+            and item["repository"] == ("VOLPAROSSA/volparossa" if name == "abi" else "VOLPAROSSA/volparossa-weather")
+            and type(item["commit"]) is str and re.fullmatch(r"[0-9a-f]{40}", item["commit"]) is not None
+            and type(item["name"]) is str and re.fullmatch(r"[A-Za-z0-9_-]{1,160}", item["name"]) is not None
+            and all(type(item[key]) is int and 0 < item[key] < 2**53 for key in ("run_id", "id", "bytes"))
+            and hex64(item["sha256"]))
+    files = value["files"]
+    require(type(files) is dict and set(files) == FIXED_V6)
+    for name, item in files.items():
+        require(type(item) is dict and set(item) == {"bytes", "sha256"}
+            and type(item["bytes"]) is int and 0 < item["bytes"] <= bound(name) and hex64(item["sha256"]))
+    require(sum(item["bytes"] for item in files.values()) <= MAX_TOTAL)
+    for name, digest in (("runtime/node", NODE_SHA), ("decoder/grib_ls", DECODER_SHA_V4),
+            (WEATHER + "third_party/eccodes-sources.json", PIN_SHA),
+            (WEATHER + "scripts/prepare_hosted_decoder.py", BUILD_SHA_V4)):
+        require(files[name]["sha256"] == digest)
+    return value
+
+
+def public_android_admission():
+    return validate_android_admission(small_json(ADMISSION_V6))
 
 
 def proven_hashes(value, names):
@@ -1005,6 +1061,29 @@ def capture_v5(weather, historical_weather, browser, assets, proof, decoder, abi
         synthetic_native_tables_proven=True, current_origin_acquisition_proven=False, joined_delivery_proven=False)
 
 
+def android_sources(weather, node_root, decoder, abi):
+    # No discovery outside these explicit roots; selecting a source is not
+    # execution. Every member must match the separate checked-in admission.
+    return {**{WEATHER + name: weather / name for name in WEATHER_FILES_V6},
+        **{"decoder/licenses/" + name: decoder / name for name in DECODER_LICENSES},
+        **{WEATHER + ANDROID_PREFIX + "decoder-abi/" + name: abi / name for name in ABI_LOGS},
+        WEATHER + ANDROID_PREFIX + "decoder-abi.json": abi / "report.json",
+        WEATHER + ANDROID_PREFIX + "decoder-build.json": decoder / "hosted-build-receipt.json",
+        "decoder/grib_ls": decoder / "eccodes-build/bin/grib_ls", "decoder/probe.grib2": decoder / "probe.grib2",
+        "runtime/node": node_root / "bin/node", "runtime/node.LICENSE": node_root / "LICENSE"}
+
+
+def capture_v6(weather, node_root, decoder, abi, archive):
+    admission = public_android_admission()
+    sources = android_sources(weather, node_root, decoder, abi)
+    selected = {name: dict(**fingerprint(path, bound(name)), mode=mode(name)) for name, path in sorted(sources.items())}
+    raw = encode(dict(version=6, kind=KIND, files=selected)); expected = hashlib.sha256(raw).hexdigest()
+    manifest(raw, expected)
+    public_decoder_proof(lambda name: small_json(sources[name]), selected, admission, ANDROID_PREFIX)
+    return dict(**write_archive(sources, selected, raw, expected, archive),
+        current_origin_acquisition_proven=False, native_android_proven=False, joined_delivery_proven=False)
+
+
 def write_archive(sources, selected, raw, expected, archive):
     new_path(archive)
     with os.fdopen(os.open(archive, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "wb") as output:
@@ -1036,8 +1115,8 @@ def checked_archive(archive, expected, root=None, *, runtime=False, report_versi
         raw = read_exact(source, item.size)
         require(read_exact(source, -item.size % 512) == b"\0" * (-item.size % 512))
         selected = manifest(raw, expected)
-        # All closed profiles have explicit joined-runtime dispatch. Preserve
-        # this explicit gate when future archive-only profiles are introduced.
+        # Only profiles with explicit joined-runtime dispatch may execute.
+        # Android v6 is archive-only until its separate runner is integrated.
         require(not runtime or selected["version"] in (1, 2, 3, 4, 5))
         if root is not None:
             new_path(root); root.mkdir(mode=0o700)
@@ -1094,6 +1173,8 @@ def main():
         result = capture_v4(*map(Path, args))
     elif action == "capture-v5" and len(args) == 8:
         result = capture_v5(*map(Path, args))
+    elif action == "capture-v6" and len(args) == 5:
+        result = capture_v6(*map(Path, args))
     elif action == "verify-runtime" and len(args) == 2:
         result = checked_archive(Path(args[0]), args[1], runtime=True)
     elif action == "runtime-version" and len(args) == 2:

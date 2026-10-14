@@ -117,6 +117,12 @@ def ui_profile(version):
         driver="integrations/overmorrow/smoke_core_browser.py")
 
 
+def acquisition_schema(version):
+    # Android reuses source acquisition, not a browser profile or its proof.
+    require(type(version) is int and version in (2, 3, 4, 5, 6))
+    return 6 if version == 6 else 4 if version in (4, 5) else 2
+
+
 class AcquisitionFailure(ValueError):
     """Carry only a closed classification, never a subprocess error or argv."""
     def __init__(self, stage, error, source_response_state="missing", source_response=None):
@@ -247,7 +253,7 @@ def acquisition(source, manifest_sha, root, parent, client, group):
         stage = "tree"
         B["verify_tree"](source, manifest_sha)
         version = B["manifest"](raw_file(source / "INPUTS.json", B["MAX_MANIFEST"], 0o400), manifest_sha)["version"]
-        ui_profile(version)
+        schema = acquisition_schema(version)
         decoder = B["decoder_sha"](version)
         observer = source_observer()
         deadline = time.monotonic() + 720
@@ -297,7 +303,7 @@ def acquisition(source, manifest_sha, root, parent, client, group):
             write_new(root / p["filename"], raw)
         stage = "final-validation"
         active_product, started_at, finished_at = None, None, None
-        result = dict(schema=4 if version in (4, 5) else 2, success=True, origin_https=True, acquisition_outside_overlay=True,
+        result = dict(schema=schema, success=True, origin_https=True, acquisition_outside_overlay=True,
             upstream_signature_attested=False, synthetic_weather=False, synthetic_air_quality=False,
             independent_product_runs=True, decoder_sha256=decoder, products=products)
         validate_acquisition(result, version)
@@ -472,10 +478,9 @@ def cleanup(root, publisher):
 def acquisition_profile(value, version=None):
     # Receipts retain schema 2 for the old Drizz.li/Overmorrow inputs. The new
     # decoder has a distinct receipt contract, bound to the verified manifest.
-    require(type(value) is dict and type(value.get("schema")) is int and value["schema"] in (2, 4))
+    require(type(value) is dict and type(value.get("schema")) is int and value["schema"] in (2, 4, 6))
     if version is not None:
-        ui_profile(version)
-        same(value["schema"], 4 if version in (4, 5) else 2)
+        same(value["schema"], acquisition_schema(version))
     return value["schema"]
 
 
@@ -610,6 +615,7 @@ def validate_cold_phase(work, manifest_sha, binary_sha):
 
 
 def cold_summary(selected, acquired, colds, manifest_sha, binary_sha, version=2):
+    ui_profile(version)
     validate_acquisition(acquired, version)
     products = {}
     for key in PRODUCTS:
@@ -631,7 +637,9 @@ def cold_summary(selected, acquired, colds, manifest_sha, binary_sha, version=2)
 
 def validate_cold_export(value):
     require(set(value) == {"schema", "success", "kind", "bundle_manifest_sha256", "core_sha256", "decoder_sha256", "products", "scope", "cleanup"})
-    schema = acquisition_profile(value)
+    # Android acquisition is not evidence of the historical prewarmed cold run.
+    require(type(value["schema"]) is int and value["schema"] in (2, 4))
+    schema = value["schema"]
     same(value["success"], True); same(value["kind"], "volparossa-weather-products-protected-cold")
     require(all(hex64(value[k]) for k in ("bundle_manifest_sha256", "core_sha256", "decoder_sha256"))
         and value["decoder_sha256"] == B["decoder_sha"](schema) and set(value["products"]) == set(PRODUCTS))
