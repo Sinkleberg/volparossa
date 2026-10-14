@@ -273,6 +273,13 @@ cargo metadata \
     --offline \
     --format-version 1 >"$fuzz_metadata"
 
+# No global advisory waiver: authenticate this exact public-verification scope
+# before creating the root-only deny policy or allowing the root audit exception.
+root_deny_config="$audit_tmp/root-deny.toml"
+python3 -B scripts/test-public-rsa-scope.py
+python3 -B scripts/check-public-rsa-scope.py \
+    "$root_metadata" "$fuzz_metadata" "$root_deny_config"
+
 check_single_path_package \
     "$root_metadata" \
     libp2p-yamux \
@@ -361,7 +368,7 @@ deny_version=$(CARGO_HOME="$deny_cargo_home" cargo deny --version | awk '{print 
 check_deny_version "$deny_version" ||
     fail "cargo-deny $deny_version cannot parse the current CVSS 4.0 advisories; require >= 0.18.6"
 
-CARGO_HOME="$deny_cargo_home" cargo deny --locked --offline check
+CARGO_HOME="$deny_cargo_home" cargo deny --locked --offline check --config "$root_deny_config"
 CARGO_HOME="$deny_cargo_home" cargo deny \
     --manifest-path fuzz/Cargo.toml \
     --locked \
@@ -384,6 +391,7 @@ check_audit_version "$audit_version" ||
     --db "$advisory_database" \
     --no-fetch \
     --file Cargo.lock \
+    --ignore RUSTSEC-2023-0071 \
     --ignore RUSTSEC-2026-0009 \
     --ignore RUSTSEC-2026-0118 \
     --ignore RUSTSEC-2026-0119
@@ -394,4 +402,4 @@ check_audit_version "$audit_version" ||
     --ignore RUSTSEC-2026-0009 \
     --ignore RUSTSEC-2026-0118 \
     --ignore RUSTSEC-2026-0119
-pass 'cargo-audit found no unremediated root or fuzz vulnerability; three version matches are locally patched'
+pass 'cargo-audit passed: three version matches locally patched; guarded root-only RSA private-key advisory non-applicable, NOT patched; fuzz has no RSA exception'

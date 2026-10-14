@@ -115,7 +115,11 @@ class Wiring(unittest.TestCase):
         names = ('private-storage-maintenance-smoke.sh', 'private-storage-maintenance-smoke.py',
             'private-storage-log-sampler.py', 'content-provider-readiness.py',
             'storage-consumer-maintenance-smoke.sh', 'storage-consumer-maintenance-smoke.py',
-            'storage-consumer-maintenance.mjs', 'storage-consumer-maintenance-pins.json',
+            'storage-consumer-maintenance.mjs', 'storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json',
+            'storage-consumer-maintenance-pins-v3.json', 'storage-consumer-maintenance-pins-v4.json',
+            'storage-consumer-maintenance-pins-v5.json',
+            'storage-consumer-control-underlay.sh', 'storage-consumer-control-underlay.py',
+            'storage-consumer-network.sh', 'storage-consumer-network.py', 'storage-consumer-route-sampler.py',
             'storage-consumer-maintenance-evidence.py', 'storage-consumer-maintenance-provision.py',
             'image-snapshot-provision.py', 'agent-private-task-code.py', 'agent-private-task-code-pins.json')
         with tempfile.TemporaryDirectory() as temporary:
@@ -231,7 +235,7 @@ private_storage_fragments_run() {
         start = workflow.index('      - name: Require actual owner-private storage maintenance')
         gate = workflow[start:workflow.index('\n      - name:', start + 1)]
         self.assertIn('test "$TOPOLOGY_EXIT_CODE" = 0', gate)
-        self.assertIn('private-storage-maintenance-smoke.py report "$report" "$GITHUB_SHA"', gate)
+        self.assertIn('private-storage-maintenance-smoke.py report-consumer-v5 "$report" "$GITHUB_SHA"', gate)
         self.assertIn('host-state-before.json', gate)
         self.assertIn('host-state-after.json', gate)
 
@@ -301,6 +305,8 @@ private_storage_fragments_run() {
 
     def test_emergency_keeps_terminal_receipts_first_without_raising_bounds(self):
         diagnostics = DIAGNOSTICS()
+        self.assertEqual(len(diagnostics['CONSUMER_CONTROL_NAMES']), 16)
+        self.assertFalse(diagnostics['CONSUMER_CONTROL_NAMES'] & diagnostics['MAINTENANCE_PRIORITY_NAMES'])
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             home, opt = base / 'home', base / 'opt'
@@ -956,6 +962,87 @@ private_storage_maintenance_finalize_report 7
                     self.assertFalse(value['acceptance_evidence'])
                     self.assertEqual(exported.stat().st_mode & 0o777, 0o600)
                 self.assertFalse((output / raw.name).exists())
+
+    def test_provider_snapshot_reuses_exact_cleanup_query_and_never_changes_exit(self):
+        guest = (HERE / 'kvm-alpha-topology.sh').read_text()
+        start = guest.index('            cleanup_logs_status=0\n')
+        end = guest.index('                peers >"$WORK/peers-', start)
+        end = guest.rindex('            "$binary_directory/volparossa"', start, end)
+        block = guest[start:end].replace('"$binary_directory/volparossa"', 'fake_cli')
+        self.assertEqual(block.count('fake_cli'), 1)
+        self.assertNotIn('timeout', block)
+        script = r'''
+set -eu
+umask 077
+fake_cli() {
+    test "$3" = logs && test "$4" = --limit && test "$5" = 400
+    printf 'called\n' >>"$WORK/calls"
+    printf 'PRIVATE_QUERY_OUTPUT\n'
+    return "$TEST_STATUS"
+}
+''' + block + '\nexit 7\n'
+        for node, status, blocked in (('client', 0, False), ('relay3', 77, False),
+                ('relay0', 255, False), ('bootstrap1', 0, False), ('client', 0, True)):
+            with self.subTest(node=node, status=status, blocked=blocked), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                marker = root / f'logs-{node}-cleanup-status.private'
+                if blocked:
+                    marker.mkdir()
+                result = subprocess.run(['sh', '-c', script], capture_output=True, text=True, timeout=5,
+                    env=dict(PATH='/usr/bin:/bin', WORK=str(root), cleanup_node=node,
+                        cleanup_socket='/synthetic/socket', TEST_STATUS=str(status), private_storage_maintenance='yes'))
+                self.assertEqual(result.returncode, 7)
+                self.assertEqual((root / 'calls').read_text(), 'called\n')
+                self.assertEqual(result.stderr, '')
+                if node == 'bootstrap1':
+                    self.assertFalse(marker.exists())
+                elif blocked:
+                    self.assertTrue(marker.is_dir())
+                else:
+                    self.assertEqual(marker.read_text(), f'{status}\n')
+                    self.assertEqual(marker.stat().st_mode & 0o777, 0o600)
+
+    def test_provider_sidecar_failure_keeps_route_primary_blocker_and_export_closed(self):
+        script = r'''
+set -eu
+umask 077
+. "$source_directory/tests/integration/private-storage-maintenance-smoke.sh"
+optional_json_evidence() { printf 'null\n'; }
+private_storage_maintenance_finalize_report 7
+'''
+        for blocked in (False, True):
+            with self.subTest(blocked=blocked), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary); output = work / 'output'; output.mkdir()
+                if blocked:
+                    (work / 'maintenance-provider-events.part').mkdir()
+                for name, raw in (('logs-client-cleanup-status.private', '0\n'),
+                        ('logs-client.txt', '101\tlevel=1\tevent=CONTENT_DISCOVERY_PRIVATE_SENTINEL'
+                         '\tsession=' + 'deadbeef' * 8 + '\tpath=7\n'),
+                        ('logs-relay3-cleanup-status.private', '0\n'),
+                        ('logs-relay3.txt', 'PRIVATE_PATH /never/export\n')):
+                    (work / name).write_text(raw); (work / name).chmod(0o600)
+                result = subprocess.run(['sh', '-c', script], capture_output=True, text=True, timeout=5,
+                    env=dict(PATH='/usr/bin:/bin', WORK=str(work), source_directory=str(HERE.parents[1]),
+                        output_directory=str(output), OUTPUT_UID=str(os.getuid()), OUTPUT_GID=str(os.getgid()),
+                        expected_commit='1' * 40, RUN_ID='inert', PHASE='storage-consumer-publish',
+                        provider_baseline_ms='100', OBSERVED_BLOCKER='CONSUMER_APPLICATION_FAILED',
+                        CLEANUP_COMPLETE='true', REMAINING_OWNED_OBJECTS='0'))
+                self.assertEqual(result.returncode, 1)
+                report = json.loads((output / 'private-storage-maintenance-smoke.json').read_text())
+                self.assertEqual(report['runner_exit_status'], 7)
+                self.assertEqual(report['observed_blocker'], 'CONSUMER_APPLICATION_FAILED')
+                M['validate_route_diagnostic'](json.loads((output / 'private-storage-maintenance-route-diagnostic.json').read_text()))
+                sidecar = output / M['PROVIDER_EVENTS_NAME']
+                self.assertEqual(sidecar.exists(), not blocked)
+                if sidecar.exists():
+                    value = M['provider_events_file'](sidecar)
+                    self.assertEqual(value['roles']['client']['unrecognized_event_records'], 1)
+                    self.assertEqual(value['roles']['provider_relay3']['state'], 'invalid')
+                for path in output.iterdir():
+                    raw = path.read_text()
+                    for private in ('PRIVATE_SENTINEL', 'deadbeef', 'PRIVATE_PATH', '/never/export'):
+                        self.assertNotIn(private, raw)
+                self.assertFalse(any(path.name.startswith('logs-') for path in output.iterdir()))
 
     def test_failed_lifecycle_is_exported_only_through_exact_bounded_schema(self):
         source = (HERE / 'private-storage-maintenance-smoke.sh').read_text()

@@ -98,11 +98,11 @@ def attach_transition(value, *, changed=True, consumer=True):
     return value
 
 
-def fixture(*, previous=False):
+def fixture(*, previous=False, profile_version=1):
     """Complete *synthetic* input for parent aggregate tests, never live proof."""
-    pins = M['PROVISIONER']['load_pins']()
-    provision = dict(version=1, kind='storage-consumer-maintenance-runtime-provision', success=True,
-        pins=pins, pins_sha256=hashlib.sha256(M['PROVISIONER']['PINS'].read_bytes()).hexdigest(),
+    pins = M['PROVISIONER']['load_pins'](profile_version)
+    provision = dict(version=profile_version, kind='storage-consumer-maintenance-runtime-provision', success=True,
+        pins=pins, pins_sha256=hashlib.sha256(M['PROVISIONER']['pins_path'](profile_version).read_bytes()).hexdigest(),
         tools={name: dict(package=name, package_version='1.0-1', bytes=1234, sha256='a' * 64)
             for name in ('gpg', 'gpg-agent', 'gpgconf', 'tar')},
         guest_only=True, source_files_verified=True, runtime_files_verified=True, shared_adapter_verified=True,
@@ -369,6 +369,53 @@ class ControlTransition(unittest.TestCase):
 
 
 class ConsumerEvidence(unittest.TestCase):
+    def test_profile_five_requires_new_pins_and_full_dynamic_network_evidence(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        value = network['fixture'](5)
+        self.assertEqual(M['validate_evidence'](value), value)
+        self.assertEqual(value['schema_version'], 5)
+        for mutate in (lambda v: v.update(schema_version=4), lambda v: v['provision'].update(version=4),
+                lambda v: v['provision'].update(pins=M['PROVISIONER']['load_pins'](4)),
+                lambda v: v['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+                lambda v: v['deleted_usage'][0].update(leases=1)):
+            invalid = copy.deepcopy(value); mutate(invalid)
+            with self.assertRaises(ValueError): M['validate_evidence'](invalid)
+        with self.assertRaises(ValueError):
+            M['build_evidence']('/inert/not-read', outcome_profile=True)
+        with self.assertRaises(ValueError):
+            M['build_evidence']('/inert/not-read', network_version=2, tls_profile=True, outcome_profile=True)
+        # Reuse the existing complete synthetic file-layout builder assertion;
+        # it invokes evidence-v5, not a relabelled older proof or a live core.
+        network['ConsumerNetwork']().assert_builder(5)
+
+    def test_profile_three_provision_is_not_a_relabelled_profile_two_receipt(self):
+        values = [fixture(profile_version=profile) for profile in (1, 2, 3)]
+        for value in values:
+            M['validate_evidence'](value)
+        self.assertEqual(len({value['provision_sha256'] for value in values}), 3)
+        for prior in values[:2]:
+            mixed = copy.deepcopy(values[2])
+            mixed['provision']['pins'] = prior['provision']['pins']
+            with self.assertRaises(ValueError):
+                M['validate_provision'](mixed['provision'])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_evidence(root, values[2])
+            self.assertEqual(M['build_evidence'](root), values[2])
+
+    def test_new_profile_has_independent_source_binding_without_replacing_historical_provision(self):
+        old, current = fixture(), fixture(profile_version=2)
+        M['validate_evidence'](old)
+        M['validate_evidence'](current)
+        self.assertNotEqual(old['provision_sha256'], current['provision_sha256'])
+        self.assertEqual(old['provision']['version'], 1)
+        self.assertEqual(current['provision']['version'], 2)
+        for version, pins in ((1, current['provision']['pins']), (2, old['provision']['pins'])):
+            value = copy.deepcopy(current['provision'])
+            value.update(version=version, pins=pins)
+            with self.assertRaises(ValueError):
+                M['validate_provision'](value)
+
     def reject(self, mutate, code=None):
         value = fixture()
         mutate(value)
@@ -382,7 +429,7 @@ class ConsumerEvidence(unittest.TestCase):
             root = Path(temporary)
             write_evidence(root, value)
             self.assertEqual(M['build_evidence'](root), value)
-            self.assertEqual(set(M['EXPORT_NAMES']) - {'storage-consumer-evidence.json'}, {p.name for p in root.iterdir()})
+            self.assertEqual(set(M['LEGACY_EXPORT_NAMES']) - {'storage-consumer-evidence.json'}, {p.name for p in root.iterdir()})
             self.assertEqual(len(M['EXPORT_NAMES']), len(set(M['EXPORT_NAMES'])))
             output = root / 'storage-consumer-evidence.json'
             for args in (['evidence', str(root), str(output)], ['check', str(output)]):

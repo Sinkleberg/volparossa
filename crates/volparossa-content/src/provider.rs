@@ -274,6 +274,7 @@ pub struct PublicationRegistry {
     private_storage: Option<Arc<crate::private_storage::wire::StorageService>>,
     custody: Option<Arc<custody::CustodyService>>,
     compute: Option<Arc<compute::ComputeService>>,
+    quote: Option<Arc<compute::quote::QuoteService>>,
 }
 #[derive(Clone)]
 struct RegisteredPublication {
@@ -357,6 +358,24 @@ impl PublicationRegistry {
     /// Whether a caller explicitly attached a compute service, independent of public files.
     pub fn has_compute(&self) -> bool {
         self.compute.is_some()
+    }
+
+    /// Attach explicit finite quote authority alongside, not instead of, public compute.
+    pub fn set_quote(&mut self, service: Arc<compute::quote::QuoteService>) {
+        self.quote = Some(service);
+    }
+
+    /// Remove this quote attachment without withdrawing unrelated public services.
+    /// The attachment owner must also deactivate its service and supervisor.
+    pub fn clear_quote(&mut self) {
+        self.quote = None;
+    }
+
+    /// Only a supervised, finite quote owner keeps automatic provider discovery live.
+    pub fn has_quote(&self) -> bool {
+        self.quote
+            .as_ref()
+            .is_some_and(|service| service.is_active())
     }
 
     /// Register the original independently verified envelope without opting into replication.
@@ -587,10 +606,6 @@ where
 ///
 /// # Errors
 /// Rejects malformed/unknown selectors, unavailable stores, expired/corrupt data or deadlines.
-#[allow(
-    clippy::too_many_lines,
-    reason = "One bounded selector dispatch keeps every protocol under the same outer deadline"
-)]
 pub async fn serve_publication<S>(
     stream: &mut S,
     registry: &PublicationRegistry,
@@ -599,11 +614,48 @@ pub async fn serve_publication<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    serve_publication_observed(stream, registry, limits, &mut None).await
+}
+
+/// The same serving operation and errors, with optional provider-local storage diagnostics.
+/// The closed tuple never changes wire replies or supplies client/copy correlation. Other
+/// selectors leave it absent. Cancellation outside this function need not produce an event.
+///
+/// # Errors
+/// Returns the same failures as [`serve_publication`], including its original outer deadline.
+#[allow(
+    clippy::too_many_lines,
+    reason = "One bounded selector dispatch keeps every protocol under the same outer deadline"
+)]
+pub async fn serve_publication_observed<S>(
+    stream: &mut S,
+    registry: &PublicationRegistry,
+    limits: TransferLimits,
+    storage_failure: &mut Option<crate::private_storage::wire::diagnostic::Failure>,
+) -> Result<TransferProgress, ProviderError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    *storage_failure = None;
     let session = SelectorSession::new(limits)?;
-    timeout_at(session.deadline, async {
+    let mut observation = crate::private_storage::wire::diagnostic::Observation::default();
+    let result = timeout_at(session.deadline, async {
         let selector: Selector = timeout_at(session.selector_deadline, read_frame(stream))
             .await
             .map_err(|_| ProviderError::Timeout)??;
+        if selector.version == compute::quote::SELECTOR_VERSION
+            && selector.operation == compute::quote::SELECTOR_OPERATION
+            && selector.manifest_id.is_empty()
+        {
+            registry
+                .quote
+                .as_ref()
+                .ok_or(ProviderError::Missing)?
+                .serve(stream)
+                .await
+                .map_err(|_| ProviderError::Protocol)?;
+            return Ok(TransferProgress::default());
+        }
         if selector.version == compute::SELECTOR_VERSION
             && selector.operation == compute::SELECTOR_OPERATION
             && selector.manifest_id.is_empty()
@@ -637,7 +689,7 @@ where
                 .private_storage
                 .as_ref()
                 .ok_or(ProviderError::Missing)?
-                .serve(stream)
+                .serve_observed(stream, &mut observation)
                 .await
                 .map_err(|_| ProviderError::Protocol)?;
             return Ok(TransferProgress::default());
@@ -725,8 +777,9 @@ where
         session.check_deadline()?;
         Ok(result)
     })
-    .await
-    .map_err(|_| ProviderError::Timeout)?
+    .await;
+    *storage_failure = observation.failure(result.is_err());
+    result.map_err(|_| ProviderError::Timeout)?
 }
 
 struct SelectorSession {

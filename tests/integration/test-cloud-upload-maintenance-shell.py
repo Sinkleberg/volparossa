@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 """Inert shell orchestration checks; no guest, privileges or provider execution."""
+import json
 import os
 from pathlib import Path
 import runpy
@@ -43,14 +44,14 @@ private_cloud_upload_private() {
     echo 9
   else printf '%s\n' "$*"; fi
 }
-private_storage_fragments_phase_start() { echo "begin:$1"; }
-private_storage_fragments_phase_finish() { echo "end:$1"; }
+private_cloud_upload_phase_start() { echo "begin:$upload_phase"; }
+private_cloud_upload_phase_finish() { echo "end:$1"; }
 private_cloud_upload_phase finish
 '''
             result = subprocess.run(['sh', '-c', script, 'inert', str(SCRIPT), temporary],
                 capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout, 'begin:cloud-upload-finish\nend:9\n')
+            self.assertEqual(result.stdout, 'begin:finish\nend:9\n')
             self.assertEqual((Path(temporary) / 'cloud-upload-finish.json').read_text(),
                 f'finish {temporary}/u/a {temporary}/runtime-exit/control/agent.sock {temporary}/client-fixtures/private-storage-user\n')
 
@@ -60,8 +61,8 @@ private_cloud_upload_phase finish
 WORK=$2; upload_user=$WORK/u/a; storage_user=$WORK/client-fixtures/private-storage-user
 fail() { echo "$1"; exit 1; }
 private_cloud_upload_private() { if [ "$1" = flow-minimum ]; then echo 24; else return 1; fi; }
-private_storage_fragments_phase_start() { :; }
-private_storage_fragments_phase_finish() { echo FALSE_SUCCESS; }
+private_cloud_upload_phase_start() { :; }
+private_cloud_upload_phase_finish() { echo FALSE_SUCCESS; }
 private_cloud_upload_phase upload
 '''
             result = subprocess.run(['sh', '-c', script, 'inert', str(SCRIPT), temporary],
@@ -77,7 +78,7 @@ private_cloud_upload_phase upload
             'private_cloud_upload_phase exercise', 'private_storage_fragments_usage cloud_upload_restored_usage',
             'private_cloud_upload_phase finish', 'private_storage_fragments_usage cloud_upload_deleted_usage',
             'CLOUD_UPLOAD_PROVIDER_CLEANUP_INCOMPLETE', 'private_cloud_upload_cleanup ||',
-            'evidence "$WORK" "$WORK/cloud-upload-evidence.json"']
+            'evidence-v3 "$WORK" "$WORK/cloud-upload-evidence.json"']
         offsets = [SOURCE.index(token) for token in tokens]
         self.assertEqual(offsets, sorted(offsets))
         self.assertIn('runtime-client/control/agent.sock', SOURCE)
@@ -85,6 +86,135 @@ private_cloud_upload_phase upload
         self.assertIn('--signal=TERM --kill-after=30s 2400s', SOURCE)
         self.assertNotIn('rm -rf', SOURCE)
         self.assertNotIn('storage-consumer-maintenance-provision.py', SOURCE)
+
+    def test_current_wrapper_selects_only_dynamic_network_and_original_deadline(self):
+        script = '''. "$1"
+WORK=/inert; WORKER_UID=2001; WORKER_GID=2001; custody_control_gid=2002
+provider_baseline_ms=123; upload_route_policy=policy; upload_underlay_sha=digest
+timeout() {
+  printf '%s|%s|%s|%s\n' "$STORAGE_PROOF_BASELINE_MS" "$STORAGE_PROOF_ROUTE_POLICY" "$STORAGE_PROOF_UNDERLAY_SHA256" "$*"
+}
+private_cloud_upload_private upload /inert/u/a
+'''
+        result = subprocess.run(['sh', '-eu', '-c', script, 'inert', str(SCRIPT)],
+            capture_output=True, text=True, check=True, timeout=5)
+        self.assertEqual(result.stdout, '123|policy|digest|--signal=TERM --kill-after=30s 2400s setpriv '
+            '--reuid=2001 --regid=2001 --groups=2002 --inh-caps=-all --ambient-caps=-all '
+            '--bounding-set=-all --no-new-privs -- python3 -B /inert/bin/cloud-upload-maintenance-smoke.py '
+            'upload /inert/u/a --network-version 2\n')
+        self.assertNotIn('STORAGE_PROOF_ROUTE_SCOPE', SOURCE)
+        self.assertIn("jq -e '.schema_version == 5'", SOURCE)
+        self.assertIn('finalize-report-v3', SOURCE)
+        self.assertIn('check-report-v3', SOURCE)
+
+    def test_network_phase_failure_cannot_proceed_as_application_success(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            for stage, expected in (('start', 'CLOUD_UPLOAD_NETWORK_START_FAILED'),
+                    ('finish', 'CLOUD_UPLOAD_NETWORK_FINISH_FAILED')):
+                script = '''. "$1"
+WORK=$2; upload_user=$WORK/u/a; storage_user=$WORK/client-fixtures/private-storage-user
+failed=$3
+fail() { echo "$1"; exit 1; }
+private_cloud_upload_private() { if [ "$1" = flow-minimum ]; then echo 24; else echo '{}'; fi; }
+private_cloud_upload_phase_start() { [ "$failed" != start ]; }
+private_cloud_upload_phase_finish() { [ "$failed" != finish ]; }
+private_cloud_upload_phase upload
+echo FALSE_SUCCESS
+'''
+                result = subprocess.run(['sh', '-c', script, 'inert', str(SCRIPT), temporary, stage],
+                    capture_output=True, text=True, timeout=5)
+                self.assertEqual((result.returncode, result.stdout.strip()), (1, expected))
+
+    def test_finish_joins_both_capture_families_before_allowing_gates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            for failed in ('privacy', 'control', 'none'):
+                script = '''. "$1"
+WORK=$2; failed=$3; storage_user=$WORK/client-fixtures/private-storage-user
+storage_phase=cloud-upload-exercise; upload_phase=exercise; provider_baseline_ms=123
+benchmark_capture_paths() { echo "paths:$*"; }
+python3() { echo "python:$*"; }
+private_cloud_upload_readback() { echo "readback:$1"; }
+stop_privacy_observers() { echo privacy; [ "$failed" != privacy ]; }
+storage_consumer_stop_captures() { echo control; [ "$failed" != control ]; }
+private_cloud_upload_phase_finish 16
+'''
+                result = subprocess.run(['sh', '-c', script, 'inert', str(SCRIPT), temporary, failed],
+                    capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 0 if failed == 'none' else 1, result.stderr)
+                self.assertTrue(result.stdout.endswith('readback:after\nprivacy\ncontrol\n'))
+                self.assertIn('flow-cloud-upload-exercise.json', result.stdout)
+                gate = Path(temporary) / 'private-storage-fragments-cloud-upload-exercise-gates.json'
+                self.assertEqual(gate.exists(), failed == 'none')
+
+    def test_capture_pids_registered_before_readiness_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            script = '''. "$1"
+WORK=$2; upload_phase=upload; cloud_upload_maintenance=yes; private_storage_maintenance=yes
+PROVIDER_CONTROL_PID=; CONSUMER_CONTROL_0_PID=; CONSUMER_CONTROL_1_PID=; CONSUMER_CONTROL_2_PID=
+content_provider_node() { provider_ns=inert; provider_ip=$1; }
+ip() { printf '%s\n' "$*"; }
+wait_observer() {
+  case "$2" in
+    *-relay0.ready) [ "$1" = "$CONSUMER_CONTROL_0_PID" ] || exit 99 ;;
+    *-relay1.ready) [ "$1" = "$CONSUMER_CONTROL_1_PID" ] || exit 98; return 1 ;;
+    *) exit 97 ;;
+  esac
+}
+result=0
+private_cloud_upload_start_captures || result=$?
+[ "$result" = 1 ] && [ -n "$CONSUMER_CONTROL_0_PID" ] && [ -n "$CONSUMER_CONTROL_1_PID" ] && [ -z "$CONSUMER_CONTROL_2_PID" ] || exit 96
+wait "$CONSUMER_CONTROL_0_PID"
+wait "$CONSUMER_CONTROL_1_PID"
+'''
+            subprocess.run(['sh', '-eu', '-c', script, 'inert', str(SCRIPT), temporary],
+                capture_output=True, text=True, check=True, timeout=5)
+            for broker in (0, 1):
+                text = (Path(temporary) / f'cloud-upload-upload-control-relay{broker}.log').read_text()
+                self.assertIn(f'--consumer-control=relay{broker}', text)
+                self.assertIn(f'cc{broker}0 cc{broker}1 cc{broker}2', text)
+            self.assertFalse((Path(temporary) / 'cloud-upload-upload-control-relay2.log').exists())
+
+    def test_readback_never_overwrites_original_or_existing_proof(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'cloud-upload-finish-control-before.json'
+            path.write_text('retained proof')
+            script = '''. "$1"
+WORK=$2; upload_phase=finish
+storage_consumer_control_snapshot() { :; }
+jq() { echo FALSE_REPLACEMENT; }
+private_cloud_upload_readback before
+'''
+            result = subprocess.run(['sh', '-eu', '-c', script, 'inert', str(SCRIPT), temporary],
+                capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(path.read_text(), 'retained proof')
+            self.assertIn('cloud-upload-$upload_phase-control-$upload_readback_stage.json', SOURCE)
+
+    def test_current_export_keeps_large_joined_proof_only_at_exact_name(self):
+        for name, version, size, passed in (
+                ('cloud-upload-evidence.json', 3, 1050000, True),
+                ('cloud-upload-evidence.json', 2, 1050000, False),
+                ('cloud-upload-evidence.json', 3, 2097153, False),
+                ('cloud-upload-prepare.json', 3, 1050000, False)):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); output = root / 'export'; output.mkdir()
+                raw = json.dumps(dict(schema_version=version, kind='cloud-upload-maintenance-evidence',
+                    padding='x' * size)).encode()
+                (root / name).write_bytes(raw)
+                script = '''. "$1"
+WORK=$2; output_directory=$WORK/export; export_name=$3
+OUTPUT_UID=$4; OUTPUT_GID=$5; source_directory=/inert
+expected_commit=inert; RUN_ID=inert; PHASE=inert; CLEANUP_COMPLETE=true
+REMAINING_OWNED_OBJECTS=0; OBSERVED_BLOCKER=NONE
+python3() { if [ "$3" = export-names-v3 ]; then printf '%s\n' "$export_name"; fi; }
+private_cloud_upload_finalize_report 0
+'''
+                result = subprocess.run(['sh', '-eu', '-c', script, 'inert', str(SCRIPT), temporary,
+                    name, str(os.getuid()), str(os.getgid())], capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode == 0, passed, result.stderr)
+                self.assertEqual((output / name).exists(), passed)
+                if passed:
+                    self.assertEqual((output / name).read_bytes(), raw)
 
     def test_cleanup_idempotent_and_preserves_unknown_sibling(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -108,9 +238,11 @@ private_cloud_upload_cleanup
 
     def test_exact_static_proof_union_is_measured_before_runner_wiring(self):
         previous = runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))['EXPORT_NAMES']
-        self.assertEqual(len(set(previous)), 95)
+        self.assertEqual(len(set(previous)), 112)
         self.assertEqual(len(set(E['EXPORT_NAMES']) - set(previous)), 40)
-        self.assertEqual(len(set(E['EXPORT_NAMES']) | set(previous)), 135)
+        self.assertEqual(len(set(E['EXPORT_NAMES']) | set(previous)), 152)
+        current = set(E['EXPORT_NAMES']) | set(E['CURRENT_EXPORT_NAMES'])
+        self.assertEqual(len(current | set(previous)), 167)
         # This deliberately excludes emergency driver/current-phase/duplicate
         # receipts; it is NOT a claim that all recovery files fit that cap.
         self.assertNotIn('guest-phase.txt', E['EXPORT_NAMES'])

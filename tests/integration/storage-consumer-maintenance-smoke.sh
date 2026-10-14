@@ -7,10 +7,12 @@
 private_storage_consumer_private() {
     STORAGE_PROOF_BASELINE_MS=${provider_baseline_ms:-0} \
       STORAGE_PROOF_ROUTE_SCOPE=${storage_route_scope:-} \
+      STORAGE_PROOF_ROUTE_POLICY=${consumer_route_policy:-} \
+      STORAGE_PROOF_UNDERLAY_SHA256=${consumer_underlay_sha:-} \
       timeout --signal=TERM --kill-after=30s 2400s setpriv \
         --reuid="$WORKER_UID" --regid="$WORKER_GID" --groups="$custody_control_gid" \
         --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs \
-        -- python3 -B "$WORK/bin/storage-consumer-maintenance-smoke.py" "$@"
+        -- python3 -B "$WORK/bin/storage-consumer-maintenance-smoke.py" "$@" --profile-version 5 --network-version 2
 }
 
 private_storage_consumer_phase() {
@@ -20,13 +22,13 @@ private_storage_consumer_phase() {
         flow-minimum "$consumer_phase") || fail CONSUMER_FLOW_MINIMUM_INVALID
     case $consumer_minimum in ''|*[!0-9]*) fail CONSUMER_FLOW_MINIMUM_INVALID ;; esac
     PHASE=storage-consumer-$consumer_phase
-    private_storage_fragments_phase_start "consumer-$consumer_phase"
+    storage_consumer_phase_start || fail CONSUMER_NETWORK_START_FAILED
     private_storage_consumer_private "$consumer_phase" "$consumer_user" \
         "$WORK/runtime-exit/control/agent.sock" "$storage_user" \
         >"$WORK/storage-consumer-$consumer_phase.json" || fail CONSUMER_APPLICATION_FAILED
     # These are independent actual route, packet/control and completion checks,
     # not an inference from the application's successful process exit.
-    private_storage_fragments_phase_finish "$consumer_minimum"
+    storage_consumer_phase_finish "$consumer_minimum" || fail CONSUMER_NETWORK_FINISH_FAILED
 }
 
 private_storage_consumer_cleanup() {
@@ -47,6 +49,7 @@ private_storage_consumer_run() {
     jq -e 'length == 3 and all(.[]; . == {reserved_bytes:0,committed_bytes:0,leases:0})' \
         "$WORK/private-storage-fragments-deleted_usage.json" >/dev/null \
         || fail CONSUMER_INITIAL_STORE_NOT_EMPTY
+    storage_consumer_control_prepare || fail CONSUMER_CONTROL_MATRIX_FAILED
     if [ -e "$WORK/u" ] || [ -L "$WORK/u" ]; then fail CONSUMER_OWNER_PARENT_NOT_NEW; fi
     consumer_user=$WORK/u/m
     consumer_longest_socket=$consumer_user/image/restored-bundle/g-xxxxxxxx/S.gpg-agent
@@ -109,6 +112,6 @@ private_storage_consumer_run() {
         >"$WORK/storage-consumer-withdrawal.json"
     private_storage_consumer_cleanup || fail CONSUMER_PRIVATE_CLEANUP_FAILED
     python3 -B "$source_directory/tests/integration/storage-consumer-maintenance-evidence.py" \
-        evidence "$WORK" "$WORK/storage-consumer-evidence.json" \
+        evidence-v5 "$WORK" "$WORK/storage-consumer-evidence.json" \
         || fail CONSUMER_EVIDENCE_INVALID
 }

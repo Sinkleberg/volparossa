@@ -54,16 +54,28 @@ private_storage_replicas_serve relay4 "$3"
         self.assertNotIn('eval ', TEXT)
         self.assertNotIn('sudo ', TEXT)
 
+    def test_current_consumer_explicitly_selects_matching_profile_at_all_boundaries(self):
+        runner = (HERE / 'run-alpha-topology-vm.sh').read_text()
+        guest = (HERE / 'kvm-alpha-topology.sh').read_text()
+        self.assertIn('storage-consumer-maintenance-provision.py provision --download --profile-version 5', runner)
+        self.assertIn('storage-consumer-maintenance-smoke.py" "$@" --profile-version 5', TEXT)
+        self.assertIn('evidence-v5 "$WORK" "$WORK/storage-consumer-evidence.json"', TEXT)
+        for name in ('storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json',
+                'storage-consumer-maintenance-pins-v3.json', 'storage-consumer-maintenance-pins-v4.json',
+                'storage-consumer-maintenance-pins-v5.json'):
+            self.assertIn(f'"$source_directory/tests/integration/{name}"', guest)
+            self.assertIn(f'"$WORK/bin/{name}"', guest)
+
     def test_each_consumer_phase_gets_its_own_actual_network_observation(self):
         phase = TEXT.split('private_storage_consumer_phase() {', 1)[1].split('\n}', 1)[0]
         self.assertIn('case $1 in publish|exercise|finish)', phase)
         self.assertIn('flow-minimum "$consumer_phase"', phase)
-        self.assertIn('private_storage_fragments_phase_start "consumer-$consumer_phase"', phase)
+        self.assertIn('storage_consumer_phase_start || fail CONSUMER_NETWORK_START_FAILED', phase)
         self.assertIn('"$WORK/runtime-exit/control/agent.sock" "$storage_user"', phase)
-        self.assertLess(phase.index('private_storage_fragments_phase_start'),
+        self.assertLess(phase.index('storage_consumer_phase_start'),
             phase.index('private_storage_consumer_private "$consumer_phase"'))
         self.assertLess(phase.index('private_storage_consumer_private "$consumer_phase"'),
-            phase.index('private_storage_fragments_phase_finish "$consumer_minimum"'))
+            phase.index('storage_consumer_phase_finish "$consumer_minimum"'))
 
     def test_same_provider_stores_are_withdrawn_before_read_and_reopened_before_delete(self):
         run = TEXT.split('private_storage_consumer_run() {', 1)[1]

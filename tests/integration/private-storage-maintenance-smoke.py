@@ -40,6 +40,7 @@ EXPORT_NAMES = tuple(name for name in F['EXPORT_NAMES'] if name not in
     'private-storage-maintenance-lifecycle.json',
     'private-storage-maintenance-lifecycle-failure.json',
     'private-storage-maintenance-route-diagnostic.json',
+    'private-storage-maintenance-provider-events.json',
     'private-storage-maintenance-inventory.json',
     'private-storage-maintenance-supervisor.json',
     'private-storage-fragments-lifecycle-live-selection.json',
@@ -59,6 +60,8 @@ REPAIR_DIAGNOSTIC = None
 REPAIR_TURNS = []
 SAMPLER_DIAGNOSTIC = {}
 LIFECYCLE_DIAGNOSTIC = None
+UPLOAD_DIAGNOSTIC = None
+UPLOAD_OPERATIONS = ('create', 'deposit', 'progress', 'redeposit', 'renew', 'status', 'foreground_seed')
 SUPERVISOR_STAGES = ('bind_slots', 'control_query', 'control_match', 'broker_validated',
     'control_snapshot', 'control_validate_before', 'control_rebind',
     'control_verified', 'route_scope',
@@ -133,6 +136,221 @@ ROUTE_CONNECT_CODES = ('NOT_STARTED', 'CONNECTED', 'UNRECOGNIZED',
     'NATIVE_TRANSPORT_IDENTITY_UNAVAILABLE', 'ROUTE_ADMISSION_UNAVAILABLE',
     'MPTCP_EXIT_LISTENER_SIGNAL_UNAVAILABLE', 'TRANSPORT_RUNTIME_UNAVAILABLE',
     'UDP_EXIT_SESSION_SIGNAL_UNAVAILABLE', 'UDP_INGRESS_UNAVAILABLE')
+
+PROVIDER_EVENTS_NAME = 'private-storage-maintenance-provider-events.json'
+PROVIDER_EVENT_ROLES = {'client': 'client', **{f'control_relay{i}': f'relay{i}' for i in range(3)},
+    **{f'provider_relay{i}': f'relay{i}' for i in range(3, 6)}}
+# Existing closed product events only. Several events can describe one failed
+# exchange; these counts are never numbers of failed requests or causal proof.
+PROVIDER_EVENT_CODES = (
+    'CONTENT_PROVIDER_REGISTERED', 'CONTENT_PROVIDER_WITHDRAWN',
+    'CONTENT_PROVIDER_REGISTRATION_EXPIRED', 'CONTENT_PROVIDER_REGISTRATION_RETRY_PENDING',
+    'CONTENT_PROVIDER_REGISTRATION_RECOVERED', 'CONTENT_PROVIDER_REGISTRATION_FAILED',
+    'CONTENT_PROVIDER_REGISTRY_TIMEOUT', 'CONTENT_PROVIDER_SELECTOR_MISSING',
+    'CONTENT_PROVIDER_SELECTOR_UNAVAILABLE', 'CONTENT_PROVIDER_SELECTOR_IO',
+    'CONTENT_PROVIDER_SELECTOR_TIMEOUT', 'CONTENT_PROVIDER_SELECTOR_PROTOCOL', 'CONTENT_PROVIDER_REJECTED',
+    'CONTENT_DISCOVERY_COMMAND_RECEIVED', 'CONTENT_DISCOVERY_REQUEST_DISPATCHED',
+    'CONTENT_DISCOVERY_COMPLETED', 'CONTENT_DISCOVERY_RECEIVED_EMPTY', 'CONTENT_DISCOVERY_RECEIVED_OFFERS',
+    'CONTENT_DISCOVERY_CONTROL_CONNECTION_LOST', 'CONTENT_DISCOVERY_RESPONSE_AUTHORITY_REJECTED',
+    'CONTENT_DISCOVERY_RESPONSE_TARGETS_UNAVAILABLE', 'CONTENT_DISCOVERY_RESPONSE_OFFER_REJECTED',
+    'CONTENT_DISCOVERY_RESPONSE_REJECTED', 'CONTENT_DISCOVERY_DIAL_FAILED',
+    'CONTENT_DISCOVERY_RPC_TIMED_OUT', 'CONTENT_DISCOVERY_CONNECTION_CLOSED',
+    'CONTENT_DISCOVERY_PROTOCOL_UNSUPPORTED', 'CONTENT_DISCOVERY_RPC_IO_FAILED',
+    'CONTENT_DISCOVERY_RELAY_NONCE_INVALID', 'CONTENT_DISCOVERY_RELAY_SERVICE_UNAVAILABLE',
+    'CONTENT_DISCOVERY_RELAY_AUTHORITY_UNAVAILABLE', 'CONTENT_DISCOVERY_RELAY_SELF_REJECTED',
+    'CONTENT_DISCOVERY_RELAY_CONNECTION_INVALID', 'CONTENT_DISCOVERY_RELAY_QUEUE_FULL',
+    'CONTENT_DISCOVERY_RELAY_REPLAY_FULL', 'CONTENT_DISCOVERY_RELAY_REPLAY_REJECTED',
+    'CONTENT_DISCOVERY_RELAY_QUERY_REJECTED', 'CONTENT_DISCOVERY_LIMIT_INVALID',
+    'CONTENT_DISCOVERY_CALLER_CLOSED', 'CONTENT_DISCOVERY_CLIENT_ROLE_REJECTED',
+    'CONTENT_DISCOVERY_CLIENT_QUEUE_FULL', 'CONTENT_DISCOVERY_CONTROL_MISSING',
+    'CONTENT_DISCOVERY_CONTROL_SELF_REJECTED', 'CONTENT_DISCOVERY_CONTROL_EXPIRED',
+    'CONTENT_DISCOVERY_CONTROL_LIFETIME_SHORT', 'CONTENT_DISCOVERY_CONNECTION_REGISTRY_POISONED',
+    'CONTENT_DISCOVERY_CONNECTION_ABSENT', 'CONTENT_DISCOVERY_CONNECTION_NO_DIRECT',
+    'CONTENT_DISCOVERY_REQUEST_REJECTED', 'CONTENT_DISCOVERY_LOCAL_DEADLINE',
+    'CONTENT_EXACT_LOOKUP_STARTED', 'CONTENT_EXACT_LOOKUP_FINISHED',
+    'CONTENT_EXACT_ADDRESS_QUERY_STARTED', 'CONTENT_EXACT_ADDRESS_UNAVAILABLE',
+    'CONTENT_EXACT_RESOLVED_REQUEST_SENT',
+)
+PROVIDER_EVENT_PHASES = ('private-storage-fragments-upload', 'private-storage-maintenance-lifecycle',
+    'private-storage-fragments-restore', 'private-storage-fragments-finish',
+    'storage-consumer-publish', 'storage-consumer-exercise', 'storage-consumer-finish', 'unknown')
+STORAGE_FAILURE_PREFIX = 'CONTENT_PROVIDER_STORAGE_V1_'
+STORAGE_FAILURE_OPERATIONS = ('UNKNOWN', 'RESERVE', 'APPEND', 'PROGRESS', 'FINALIZE',
+    'READ_RANGE', 'RENEW', 'DELETE')
+STORAGE_FAILURE_PHASES = ('GRANT', 'CHALLENGE', 'REQUEST', 'PAYLOAD', 'DISK_ADMISSION',
+    'BACKEND', 'RECEIPT', 'RESPONSE_PAYLOAD')
+STORAGE_FAILURE_CATEGORIES = ('IO', 'AUTH', 'INVALID', 'BUSY', 'STORE', 'TIMEOUT',
+    'DATABASE', 'INTEGRITY', 'EXPIRED', 'OWNERSHIP', 'CONFLICT', 'DELETED', 'QUOTA',
+    'NOT_FOUND', 'NOT_COMMITTED', 'ENTROPY')
+MAX_STORAGE_FAILURE_TUPLES = 32
+
+
+def storage_failure_code(code):
+    # One closed event preserves its tuple. Separate counts of operation, phase
+    # and category would invent correlations between unrelated exchanges.
+    if type(code) is not str or len(code) > 96 or not code.startswith(STORAGE_FAILURE_PREFIX):
+        return False
+    parts = code[len(STORAGE_FAILURE_PREFIX):].split('__')
+    if len(parts) != 3:
+        return False
+    operation, phase, category = parts
+    return (operation in STORAGE_FAILURE_OPERATIONS and phase in STORAGE_FAILURE_PHASES
+        and category in STORAGE_FAILURE_CATEGORIES
+        and (operation == 'UNKNOWN') == (phase in ('GRANT', 'CHALLENGE', 'REQUEST'))
+        and (phase != 'RESPONSE_PAYLOAD' or operation == 'READ_RANGE'))
+
+
+def validate_provider_events(value):
+    require(type(value) is dict and set(value) == {'version', 'kind', 'scope', 'acceptance_evidence',
+        'causal_attribution', 'event_absence_proven', 'phase', 'baseline_state', 'roles'}
+        and type(value['version']) is int and value['version'] in (1, 2)
+        and value['kind'] == 'private-storage-maintenance-provider-events'
+        and value['scope'] == 'pre_agent_stop_snapshot_may_include_owner_cleanup'
+        and all(value[key] is False for key in ('acceptance_evidence', 'causal_attribution', 'event_absence_proven'))
+        and value['phase'] in PROVIDER_EVENT_PHASES and value['baseline_state'] in ('valid', 'absent', 'invalid')
+        and type(value['roles']) is dict and set(value['roles']) == set(PROVIDER_EVENT_ROLES), 'provider event shape')
+    counters = ('records', 'fresh_records', 'stale_records', 'unrecognized_event_records')
+    observations = (*counters, 'counts', 'window_covers_baseline', 'ring_at_capacity')
+    if value['version'] == 2:
+        observations += ('storage_failures', 'omitted_storage_failure_records')
+    for row in value['roles'].values():
+        require(type(row) is dict and set(row) == {'state', 'query_exit_status', *observations}
+            and row['state'] in ('observed', 'unqueried', 'capture_invalid', 'query_failed',
+                'baseline_unavailable', 'absent', 'invalid', 'clock_invalid'), 'provider event role')
+        status = row['query_exit_status']
+        if row['state'] in ('unqueried', 'capture_invalid'):
+            require(status is None, 'provider event capture absent')
+        else:
+            require(type(status) is int and 0 <= status <= 255
+                and (status != 0) == (row['state'] == 'query_failed'), 'provider event capture status')
+        if status == 0:
+            require((value['baseline_state'] != 'valid') == (row['state'] == 'baseline_unavailable'),
+                'provider event baseline binding')
+        if row['state'] != 'observed':
+            require(all(row[key] is None for key in observations), 'provider event missing counts')
+            continue
+        require(value['baseline_state'] == 'valid'
+            and all(type(row[key]) is int and 0 <= row[key] <= 400 for key in counters)
+            and row['records'] == row['fresh_records'] + row['stale_records']
+            and type(row['counts']) is dict and set(row['counts']) == set(PROVIDER_EVENT_CODES)
+            and all(type(n) is int and 0 <= n <= 400 for n in row['counts'].values())
+            and sum(row['counts'].values()) + row['unrecognized_event_records'] <= row['fresh_records']
+            and type(row['window_covers_baseline']) is bool
+            and row['window_covers_baseline'] == (row['stale_records'] > 0)
+            and type(row['ring_at_capacity']) is bool
+            and row['ring_at_capacity'] == (row['records'] == 400), 'provider event bounds')
+        if value['version'] == 2:
+            storage = row['storage_failures']
+            omitted = row['omitted_storage_failure_records']
+            require(type(storage) is dict and len(storage) <= MAX_STORAGE_FAILURE_TUPLES
+                and all(storage_failure_code(code) and type(n) is int and 1 <= n <= 400
+                    for code, n in storage.items())
+                and type(omitted) is int and 0 <= omitted <= 400
+                and (omitted == 0 or len(storage) == MAX_STORAGE_FAILURE_TUPLES)
+                and sum(row['counts'].values()) + row['unrecognized_event_records']
+                    + sum(storage.values()) + omitted <= row['fresh_records'], 'provider storage event bounds')
+    return value
+
+
+def provider_events(work, phase, raw_baseline):
+    now_ms = time.time_ns() // 1_000_000
+    baseline = None
+    baseline_state = 'absent' if raw_baseline in ('', '0') else 'invalid'
+    if re.fullmatch(r'[1-9][0-9]{0,19}', raw_baseline) and int(raw_baseline) <= now_ms:
+        baseline, baseline_state = int(raw_baseline), 'valid'
+    roles = {}
+    for role, node in PROVIDER_EVENT_ROLES.items():
+        row = dict(state='unqueried', query_exit_status=None, records=None, fresh_records=None,
+            stale_records=None, unrecognized_event_records=None, counts=None,
+            window_covers_baseline=None, ring_at_capacity=None,
+            storage_failures=None, omitted_storage_failure_records=None)
+        roles[role] = row
+        try:
+            raw = closed_diagnostic_text(work / f'logs-{node}-cleanup-status.private', 4)
+            require(re.fullmatch(r'(0|[1-9][0-9]{0,2})\n', raw) is not None
+                and int(raw) <= 255, 'provider event capture status')
+            row['query_exit_status'] = int(raw)
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError, UnicodeError):
+            row['state'] = 'capture_invalid'
+            continue
+        if row['query_exit_status'] != 0:
+            row['state'] = 'query_failed'
+            continue
+        if baseline is None:
+            row['state'] = 'baseline_unavailable'
+            continue
+        try:
+            lines = closed_diagnostic_text(work / f'logs-{node}.txt', 131072).splitlines()
+            require(len(lines) <= 400, 'provider event ring bound')
+            counts = dict.fromkeys(PROVIDER_EVENT_CODES, 0)
+            storage, omitted = {}, 0
+            stale, unknown, previous = 0, 0, 0
+            for line in lines:
+                match = re.fullmatch(r'([0-9]{1,20})\tlevel=([0-9])\tevent=([A-Z0-9_]{1,96})'
+                    r'\tsession=[0-9a-f]{0,64}\tpath=(?:-|[0-9]{1,10})', line)
+                require(match is not None, 'provider event record')
+                stamp = int(match[1])
+                if not 0 < stamp <= now_ms or stamp < previous:
+                    row['state'] = 'clock_invalid'
+                    break
+                previous = stamp
+                if stamp <= baseline:
+                    stale += 1
+                elif match[3] in counts:
+                    counts[match[3]] += 1
+                elif storage_failure_code(match[3]):
+                    code = match[3]
+                    if code in storage or len(storage) < MAX_STORAGE_FAILURE_TUPLES:
+                        storage[code] = storage.get(code, 0) + 1
+                    else:
+                        omitted += 1
+                elif match[3].startswith(('CONTENT_PROVIDER_', 'CONTENT_DISCOVERY_', 'CONTENT_EXACT_', 'CONTENT_LOOKUP_')):
+                    unknown += 1
+            else:
+                row.update(state='observed', records=len(lines), fresh_records=len(lines) - stale,
+                    stale_records=stale, unrecognized_event_records=unknown, counts=counts,
+                    window_covers_baseline=stale > 0, ring_at_capacity=len(lines) == 400,
+                    storage_failures=storage, omitted_storage_failure_records=omitted)
+        except FileNotFoundError:
+            row['state'] = 'absent'
+        except (OSError, ValueError, UnicodeError):
+            row['state'] = 'invalid'
+    return validate_provider_events(dict(version=2, kind='private-storage-maintenance-provider-events',
+        scope='pre_agent_stop_snapshot_may_include_owner_cleanup', acceptance_evidence=False,
+        causal_attribution=False, event_absence_proven=False,
+        phase=phase if phase in PROVIDER_EVENT_PHASES else 'unknown', baseline_state=baseline_state, roles=roles))
+
+
+def provider_events_file(path):
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            require(key not in value, 'duplicate provider event key')
+            value[key] = item
+        return value
+    return validate_provider_events(json.loads(closed_diagnostic_text(path, 65536), object_pairs_hook=unique))
+
+
+def export_provider_events(work, phase, baseline):
+    # Optional sidecar in the existing diagnostic process. Never let even an
+    # unexpected projection/publication error replace the route or primary error.
+    target, part = work / PROVIDER_EVENTS_NAME, work / 'maintenance-provider-events.part'
+    try:
+        target.unlink(missing_ok=True)
+        value = provider_events(work, phase, baseline)
+        data = (json.dumps(value, sort_keys=True) + '\n').encode('ascii')
+        require(len(data) <= 65536, 'provider event output bound')
+        descriptor = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, 'wb') as stream:
+            stream.write(data)
+        os.replace(part, target)
+    except BaseException:
+        try:
+            part.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def validate_selection_route(value):
@@ -487,11 +705,70 @@ def failure_receipt(error):
         return dict(version=2, success=False, kind='private-storage-maintenance-lifecycle-failure',
             code='sampler_failure' if isinstance(error, SAMPLER['SamplerFailure']) else failure_code(error),
             **LIFECYCLE_DIAGNOSTIC, sampler=SAMPLER_DIAGNOSTIC or None)
-    return dict(version=2, success=False, kind='private-storage-maintenance-failure', stage=STAGE,
+    upload = UPLOAD_DIAGNOSTIC if STAGE == 'upload' else None
+    return dict(version=3 if upload is not None else 2, success=False,
+        kind='private-storage-maintenance-failure', stage=STAGE,
         code='sampler_failure' if isinstance(error, SAMPLER['SamplerFailure']) else failure_code(error),
         turn=TURN_DIAGNOSTIC, retirement=RETIREMENT_DIAGNOSTIC,
         retirement_turns=RETIREMENT_TURNS, repair=REPAIR_DIAGNOSTIC, repair_turns=REPAIR_TURNS,
-        sampler=SAMPLER_DIAGNOSTIC or None)
+        sampler=SAMPLER_DIAGNOSTIC or None, **(dict(upload=upload) if upload is not None else {}))
+
+
+def upload_observation(operation, exit_status=None, stdout=None, stderr=None):
+    """Project only this failed call; never return raw reports, identities or errors."""
+    require(operation in UPLOAD_OPERATIONS, 'invalid upload operation')
+    applicable = operation in ('deposit', 'redeposit')
+    value = dict(operation=operation, exit_status=exit_status if type(exit_status) is int
+        and -128 <= exit_status <= 255 else None,
+        stdout_state='unavailable' if stdout is None else 'bounded' if len(stdout) <= 16384 else 'oversize',
+        stderr_state='unavailable' if stderr is None else 'bounded' if len(stderr) <= 16384 else 'oversize',
+        deposit_diagnostics_state='unavailable' if applicable else 'not_applicable',
+        deposit_diagnostics=None)
+    if not applicable or stdout is None:
+        return value
+    value['deposit_diagnostics_state'] = 'invalid'
+    if value['stdout_state'] != 'bounded' or value['stderr_state'] == 'oversize':
+        return value
+    try:
+        # Reject duplicate keys too: this is a diagnostic projection, not a
+        # second interpretation of ambiguous externally controlled JSON.
+        def unique(pairs):
+            result = {}
+            for key, child in pairs:
+                require(key not in result, 'duplicate upload field')
+                result[key] = child
+            return result
+
+        report = json.loads(stdout, object_pairs_hook=unique)
+        require(type(report) is dict
+            and report.get('operation') == 'private_storage_fragments_deposit'
+            and report.get('operation_complete') is False
+            and type(report.get('fragment_count')) is int and report['fragment_count'] == 4
+            and type(report.get('copies_per_fragment')) is int and report['copies_per_fragment'] == 2,
+            'upload report binding')
+        if 'deposit_diagnostics' not in report:
+            value['deposit_diagnostics_state'] = 'missing'
+            return value
+        diagnostic = report['deposit_diagnostics']
+        require(type(diagnostic) is dict, 'invalid deposit diagnostics')
+        CONSUMERS['APP']['validate_deposit_diagnostics'](diagnostic, diagnostic.get('version'))
+        value.update(deposit_diagnostics_state='observed', deposit_diagnostics=diagnostic)
+    except (ValueError, TypeError, KeyError, UnicodeError, RecursionError):
+        pass
+    return value
+
+
+def upload_invoke(operation, binary, socket, arguments, **options):
+    global UPLOAD_DIAGNOSTIC
+    # Assign before spawn/communicate, so timeout or local I/O cannot inherit
+    # the preceding call's label or receipt. Observer lifetime is one call.
+    UPLOAD_DIAGNOSTIC = upload_observation(operation)
+
+    def failed(status, stdout, stderr):
+        global UPLOAD_DIAGNOSTIC
+        UPLOAD_DIAGNOSTIC = upload_observation(operation, status, stdout, stderr)
+
+    return invoke(binary, socket, arguments, failure_observer=failed, **options)
 
 
 def validate_lifecycle_failure(value):
@@ -1136,16 +1413,18 @@ def prepare(root, binary, client, provider_a, provider_b, provider_c, key_a, key
 
 
 def upload(root, binary, client, keys):
-    global STAGE
+    global STAGE, UPLOAD_DIAGNOSTIC
     STAGE = 'upload'
+    UPLOAD_DIAGNOSTIC = None
     # Existing real foreground deposit/retry/renew/progress, immutable identity checks,
     # and deletion of the original local bytes. Grants reserve no extra physical bytes.
-    uploaded = F['upload'](root, binary, client, keys)
-    foreground = invoke(binary, client, ['storage', 'peer', 'deposit', *peer_args(root, keys[1]),
+    uploaded = F['upload'](root, binary, client, keys, invoke_operation=upload_invoke)
+    foreground = upload_invoke('foreground_seed', binary, client, ['storage', 'peer', 'deposit', *peer_args(root, keys[1]),
         '--grant', root / 'foreground-grant.bin', '--input', root / 'foreground.bin',
         '--sha256', hashlib.sha256(FG).hexdigest(), '--already-encrypted', '--lifetime-seconds', 5400])
     require(foreground['committed'] is True and foreground['stored_bytes'] == len(FG), 'foreground seed')
     (root / 'foreground.bin').unlink()
+    UPLOAD_DIAGNOSTIC = None
     STAGE = 'enroll'
     arguments = ['storage', 'fragments', 'maintenance', 'enroll', '--enrollment', root / 'maintenance',
         '--state', root / 'fragment-set', '--from-provider-key', keys[0], '--authorization-seconds', 6000,
@@ -1674,10 +1953,14 @@ def main(args):
         supervisor_file(Path(args[1])); return
     if len(args) == 3 and args[0] == 'inventory-check':
         inventory_file(Path(args[1]), args[2]); return
-    if len(args) == 2 and args[0] == 'route-diagnostic':
+    if len(args) in (2, 4) and args[0] == 'route-diagnostic':
+        if len(args) == 4:
+            export_provider_events(Path(args[1]), args[2], args[3])
         print(json.dumps(route_diagnostic(Path(args[1])), sort_keys=True)); return
     if len(args) == 2 and args[0] == 'route-diagnostic-check':
         validate_route_diagnostic(read(Path(args[1]))); return
+    if len(args) == 2 and args[0] == 'provider-events-check':
+        provider_events_file(Path(args[1])); return
     if args == ['owner-test-output']:
         print(json.dumps(owner_test_output(sys.stdin.buffer, sys.stderr.buffer), sort_keys=True))
         return
@@ -1692,14 +1975,31 @@ def main(args):
         return
     if args == ['export-names']:
         print('\n'.join(EXPORT_NAMES)); return
+    if len(args) == 2 and args[0] == 'export-names':
+        names = list(EXPORT_NAMES)
+        try:
+            provider_events_file(Path(args[1]) / PROVIDER_EVENTS_NAME)
+        except BaseException:
+            names.remove(PROVIDER_EVENTS_NAME)
+        print('\n'.join(names)); return
     if len(args) == 2 and args[0] == 'preselection-diagnostic':
         work = Path(args[1])
         print(json.dumps(closed_preselection_events(work / 'logs-client.txt',
             work / 'private-storage-maintenance-selection-start.private',
             work / 'private-storage-maintenance-selection-end.private'), sort_keys=True))
         return
-    if len(args) == 3 and args[0] == 'report':
-        validate_report(read(Path(args[1])), args[2]); return
+    if len(args) == 3 and args[0] in ('report', 'report-consumer-v4', 'report-consumer-v5'):
+        report = read(Path(args[1]))
+        validate_report(report, args[2])
+        if args[0] in ('report-consumer-v4', 'report-consumer-v5'):
+            # Current hosted acceptance is generation-specific; keep the
+            # original report command available for exact historical replay.
+            consumer = report['consumers']
+            version = 5 if args[0] == 'report-consumer-v5' else 4
+            require(type(consumer['schema_version']) is int and consumer['schema_version'] == version
+                and type(consumer['provision']['version']) is int and consumer['provision']['version'] == version,
+                'consumer_current_source_profile')
+        return
     if len(args) == 3 and args[0] == 'evidence':
         result = evidence(Path(args[1]))
         Path(args[2]).write_text(json.dumps(result, sort_keys=True) + '\n')

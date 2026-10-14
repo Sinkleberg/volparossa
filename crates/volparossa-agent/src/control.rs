@@ -174,6 +174,23 @@ async fn process_connection(
         .await
         .map_err(|_| ControlServerError::Timeout)?
         .map_err(|_| ControlServerError::InvalidFrame)?;
+    if let Some(control_request::Operation::PrivateStorageOutcome(query)) =
+        request.operation.as_ref()
+    {
+        let reply = match context.content.private_storage_outcome(query, &stream) {
+            Ok(outcome) => response(
+                request.request_id,
+                ControlResult::Ok,
+                "PRIVATE_STORAGE_OUTCOME",
+                control_response::Payload::PrivateStorageOutcome(outcome),
+            ),
+            Err(error) => content_response(request.request_id, Err(error)),
+        };
+        return timeout(CONTROL_TIMEOUT, write_response(&mut stream, &reply))
+            .await
+            .map_err(|_| ControlServerError::Timeout)?
+            .map_err(|_| ControlServerError::InvalidFrame);
+    }
     if let Some(control_request::Operation::ContentCustodyDiscover(discover)) =
         request.operation.as_ref()
     {
@@ -208,9 +225,11 @@ async fn process_connection(
                 | control_request::Operation::PrivateStorageMaintenance(_)
                 | control_request::Operation::ContentCustody(_)
                 | control_request::Operation::ComputeRemote(_)
+                | control_request::Operation::QuoteRemote(_)
         )
     ) {
         let mut ready_sent = false;
+        let mut private_storage_remote_detail = None;
         let result = match request.operation.as_ref() {
             Some(control_request::Operation::ContentDownloadHttps(download)) => {
                 Box::pin(context.content.download_https(
@@ -259,6 +278,7 @@ async fn process_connection(
                     &mut stream,
                     &request.request_id,
                     &mut ready_sent,
+                    &mut private_storage_remote_detail,
                 ))
                 .await
             }
@@ -292,21 +312,32 @@ async fn process_connection(
                 ))
                 .await
             }
+            Some(control_request::Operation::QuoteRemote(remote)) => {
+                Box::pin(context.content.quote_remote(
+                    remote.clone(),
+                    &context,
+                    &mut stream,
+                    &request.request_id,
+                    &mut ready_sent,
+                ))
+                .await
+            }
             _ => return Err(ControlServerError::InvalidFrame),
         };
         return match result {
             Ok(()) => Ok(()),
-            Err(_) if ready_sent => Err(ControlServerError::InvalidFrame),
-            Err(error) => timeout(
-                CONTROL_TIMEOUT,
-                write_response(
-                    &mut stream,
-                    &content_response(request.request_id, Err(error)),
-                ),
-            )
-            .await
-            .map_err(|_| ControlServerError::Timeout)?
-            .map_err(|_| ControlServerError::InvalidFrame),
+            Err(error) => {
+                let reply = stream_error_response(
+                    request.request_id,
+                    error,
+                    ready_sent,
+                    private_storage_remote_detail,
+                )?;
+                timeout(CONTROL_TIMEOUT, write_response(&mut stream, &reply))
+                    .await
+                    .map_err(|_| ControlServerError::Timeout)?
+                    .map_err(|_| ControlServerError::InvalidFrame)
+            }
         };
     }
     if matches!(
@@ -373,10 +404,12 @@ async fn handle_request(request: ControlRequest, context: &ControlContext) -> Co
         | control_request::Operation::ContentLocalFetchName(_)
         | control_request::Operation::MailboxRemote(_)
         | control_request::Operation::PrivateStorageRemote(_)
+        | control_request::Operation::PrivateStorageOutcome(_)
         | control_request::Operation::PrivateStorageMaintenance(_)
         | control_request::Operation::ContentCustody(_)
         | control_request::Operation::ContentCustodyDiscover(_)
         | control_request::Operation::ComputeRemote(_)
+        | control_request::Operation::QuoteRemote(_)
         | control_request::Operation::ContentDownloadHttps(_) => {
             // These require the same authorized stream, never a second socket or generic dispatch.
             response(
@@ -403,6 +436,14 @@ async fn handle_request(request: ControlRequest, context: &ControlContext) -> Co
         control_request::Operation::ComputeAttach(request) => content_response(
             request_id,
             context.content.compute_attach(&request, context).await,
+        ),
+        control_request::Operation::QuoteAttach(request) => content_response(
+            request_id,
+            context.content.quote_attach(&request, context).await,
+        ),
+        control_request::Operation::QuoteDetach(_) => content_response(
+            request_id,
+            context.content.quote_detach(&context.discovery).await,
         ),
         control_request::Operation::ComputeDiscover(request) => {
             match Box::pin(context.content.compute_discover(&request, context)).await {
@@ -578,6 +619,21 @@ fn content_response(
             )
         }
     }
+}
+
+fn stream_error_response(
+    request_id: Vec<u8>,
+    error: crate::content::ContentError,
+    ready_sent: bool,
+    detail: Option<volparossa_local_control::PrivateStorageRemoteDetail>,
+) -> Result<ControlResponse, ControlServerError> {
+    // READY can have been only partially written. Never inject a second frame.
+    if ready_sent {
+        return Err(ControlServerError::InvalidFrame);
+    }
+    let mut reply = content_response(request_id, Err(error));
+    reply.private_storage_remote_detail = detail;
+    Ok(reply)
 }
 
 #[allow(
@@ -1072,6 +1128,7 @@ fn response(
         request_id,
         result: result as i32,
         diagnostic_code: diagnostic_code.to_owned(),
+        private_storage_remote_detail: None,
         payload: Some(payload),
     }
 }
@@ -1124,6 +1181,33 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn private_storage_detail_never_creates_an_error_frame_after_ready_started() {
+        use crate::content::ContentError;
+        use volparossa_local_control::{
+            PrivateStorageDeadlineScope, PrivateStorageRemoteDetail, PrivateStorageRemoteStage,
+        };
+        let detail = Some(PrivateStorageRemoteDetail {
+            stage: PrivateStorageRemoteStage::Challenge as i32,
+            deadline_scope: PrivateStorageDeadlineScope::Exchange as i32,
+            tls_failure: None,
+        });
+        assert!(matches!(
+            stream_error_response(vec![1; 16], ContentError::Unavailable, true, detail),
+            Err(ControlServerError::InvalidFrame)
+        ));
+        let response =
+            stream_error_response(vec![1; 16], ContentError::Unavailable, false, detail).unwrap();
+        assert_eq!(response.result, ControlResult::Unavailable as i32);
+        assert_eq!(response.diagnostic_code, "CONTENT_UNAVAILABLE");
+        assert_eq!(response.private_storage_remote_detail, detail);
+        assert!(matches!(
+            response.payload,
+            Some(control_response::Payload::Ack(_))
+        ));
+        assert!(volparossa_local_control::encode_response(&response).is_ok());
+    }
 
     #[tokio::test]
     async fn paths_query_without_native_owner_preserves_non_mpquic_display() {

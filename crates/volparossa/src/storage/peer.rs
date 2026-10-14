@@ -1,5 +1,9 @@
 //! Private archive commands. The owner signs locally; only the agent opens overlay routes.
 
+#[path = "peer_diagnostics.rs"]
+mod diagnostics;
+#[path = "peer_outcome.rs"]
+mod outcome;
 #[path = "replicas.rs"]
 pub(super) mod replicas;
 #[path = "peer_state.rs"]

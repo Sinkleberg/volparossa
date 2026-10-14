@@ -62,7 +62,7 @@ class Wiring(unittest.TestCase):
             calls = result.stdout.splitlines()
             self.assertEqual(len(calls), expected)
             self.assertEqual(calls[:2], [
-                'sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download',
+                'sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download --profile-version 5',
                 'node --test tests/integration/test-storage-consumer-maintenance.mjs'])
             if scenario == SCENARIO:
                 self.assertEqual(calls[2:], [
@@ -92,7 +92,7 @@ class Wiring(unittest.TestCase):
         gate = WORKFLOW[start:WORKFLOW.index('\n      - name:', start + 1)]
         for required in ("if: always() && env.VOLPAROSSA_ALPHA_SCENARIO == 'cloud-upload-maintenance'",
                 'test "$TOPOLOGY_EXIT_CODE" = 0',
-                'cloud-upload-maintenance-evidence.py check-report "$report" "$GITHUB_SHA"',
+                'cloud-upload-maintenance-evidence.py check-report-v3 "$report" "$GITHUB_SHA"',
                 'private-storage-maintenance-smoke.py report "$original" "$GITHUB_SHA"',
                 'host-state-before.json', 'host-state-after.json'):
             self.assertIn(required, gate)
@@ -106,9 +106,10 @@ class Wiring(unittest.TestCase):
         old = runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))
         new = runpy.run_path(str(HERE / 'cloud-upload-maintenance-evidence.py'))
         self.assertEqual(set(old['EXPORT_NAMES']), module['MAINTENANCE_NAMES'])
-        self.assertEqual(set(old['EXPORT_NAMES']) | set(new['EXPORT_NAMES']), module['CLOUD_UPLOAD_NAMES'])
-        self.assertEqual(len(module['MAINTENANCE_NAMES']), 95)
-        self.assertEqual(len(module['CLOUD_UPLOAD_NAMES']), 135)
+        self.assertEqual(set(old['EXPORT_NAMES']) | set(new['EXPORT_NAMES'])
+            | set(new['CURRENT_EXPORT_NAMES']), module['CLOUD_UPLOAD_NAMES'])
+        self.assertEqual(len(module['MAINTENANCE_NAMES']), 112)
+        self.assertEqual(len(module['CLOUD_UPLOAD_NAMES']), 167)
         recovery = {'guest-phase.txt', 'current-phase', 'guest-exit-status', 'host-state-before.json', 'host-state-after.json'}
         self.assertFalse(module['CLOUD_UPLOAD_NAMES'] & recovery)
         self.assertEqual(module['CLOUD_UPLOAD_FILE_COUNT_LIMIT'], len(module['CLOUD_UPLOAD_NAMES'] | recovery))
@@ -118,10 +119,13 @@ class Wiring(unittest.TestCase):
         start = GUEST.index('elif [ "$scenario" = cloud-upload-maintenance ]; then\n    {')
         block = GUEST[start:GUEST.index('\nelif ', start + 1)]
         self.assertIn('private-storage-maintenance-smoke.py export-names', block)
-        self.assertIn('cloud-upload-maintenance-evidence.py export-names', block)
+        self.assertIn('cloud-upload-maintenance-evidence.py export-names-v3', block)
         self.assertIn('sort -u', block)
         self.assertIn('[ ! -L "$retained_path" ]', block)
-        self.assertIn('-le 1048576', block)
+        self.assertIn('retained_limit=1048576', block)
+        self.assertIn('[ "$retained" = cloud-upload-evidence.json ]', block)
+        self.assertIn('[ "$retained_size" -le 2097152 ]', block)
+        self.assertIn('.schema_version == 3 and .kind == "cloud-upload-maintenance-evidence"', block)
         self.assertNotIn(' -czf /home/vpci/alpha-output.tar.gz .', block)
 
     def test_all_original_named_bytes_survive_duplicate_published_work_roots(self):
@@ -142,7 +146,7 @@ class Wiring(unittest.TestCase):
             archive = collect(module, home, opt, SCENARIO)
             with tarfile.open(archive, 'r:gz') as bundle:
                 summary = json.load(bundle.extractfile('vm-incomplete.json'))
-                self.assertEqual(len(summary['diagnostics']['files']), 140)
+                self.assertEqual(len(summary['diagnostics']['files']), 172)
                 self.assertFalse(summary['success'])
                 self.assertFalse(summary['cleanup']['verified'])
                 self.assertTrue(all(not item['truncated'] for item in summary['diagnostics']['files']))
@@ -154,6 +158,28 @@ class Wiring(unittest.TestCase):
             with tarfile.open(old, 'r:gz') as bundle:
                 self.assertFalse(any(Path(name).name.startswith('cloud-upload-') for name in bundle.getnames()))
                 self.assertLessEqual(len(json.load(bundle.extractfile('vm-incomplete.json'))['diagnostics']['files']), 128)
+
+    def test_only_named_current_evidence_gets_two_mib_without_partial_export(self):
+        module = diagnostics()
+        for name, version, kind, size, included in (
+                ('cloud-upload-evidence.json', 3, 'cloud-upload-maintenance-evidence', 1050000, True),
+                ('cloud-upload-evidence.json', 2, 'cloud-upload-maintenance-evidence', 1050000, False),
+                ('cloud-upload-evidence.json', 3, 'wrong', 1050000, False),
+                ('cloud-upload-prepare.json', 3, 'cloud-upload-maintenance-evidence', 1050000, False),
+                ('cloud-upload-evidence.json', 3, 'cloud-upload-maintenance-evidence', 2097153, False)):
+            with tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary); home, opt = base / 'home', base / 'opt'
+                root = home / 'alpha-output'; root.mkdir(parents=True)
+                raw = json.dumps(dict(schema_version=version, kind=kind, padding='x' * size)).encode()
+                (root / name).write_bytes(raw)
+                archive = collect(module, home, opt, SCENARIO)
+                with tarfile.open(archive, 'r:gz') as bundle:
+                    self.assertEqual('published/' + name in bundle.getnames(), included)
+                    if included:
+                        self.assertEqual(bundle.extractfile('published/' + name).read(), raw)
+                    summary = json.load(bundle.extractfile('vm-incomplete.json'))
+                    self.assertLessEqual(summary['diagnostics']['captured_bytes'], 8388608)
+                    self.assertFalse(summary['success'])
 
     def test_outcome_priority_bounds_and_rejected_partial_or_unsafe_files(self):
         module = diagnostics()
@@ -173,7 +199,7 @@ class Wiring(unittest.TestCase):
             with tarfile.open(archive, 'r:gz') as bundle:
                 names = bundle.getnames()
                 summary = json.load(bundle.extractfile('vm-incomplete.json'))
-                self.assertLessEqual(len(summary['diagnostics']['files']), 140)
+                self.assertLessEqual(len(summary['diagnostics']['files']), 172)
                 self.assertLessEqual(summary['diagnostics']['captured_bytes'], 8388608)
                 for label in ('published', *(f'work-{i}' for i in range(1, 5))):
                     for name in ('cloud-upload-maintenance-smoke.json', 'cloud-upload-finish.json',

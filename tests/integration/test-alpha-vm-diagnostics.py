@@ -145,6 +145,27 @@ class VmFailureDiagnostics(unittest.TestCase):
         self.assertEqual(MODULE["FILE_LIMIT"], 131072)
         self.assertEqual(MODULE["TOTAL_LIMIT"], 8 * 1024 * 1024)
 
+    def test_consumer_matrix_exact_exports_are_whole_bounded_json_not_private_inputs(self):
+        names = {'storage-consumer-control-underlay.json'} | {
+            f'storage-consumer-{phase}-control-{suffix}.json'
+            for phase in ('publish', 'exercise', 'finish')
+            for suffix in ('before', 'after', 'relay0', 'relay1', 'relay2')}
+        self.assertEqual(len(names), 16)
+        self.assertTrue(names <= MODULE['MAINTENANCE_NAMES'])
+        for name in names: (self.work / name).write_bytes(b'{"synthetic":true}')
+        (self.work / 'consumer-control-raw.private').write_bytes(b'PRIVATE')
+        (self.work / 'storage-consumer-publish-control-relay0.log').write_bytes(b'PRIVATE')
+        files, summary = self.snapshot('private-storage-maintenance')
+        self.assertTrue(all(files['work-1/' + name] == b'{"synthetic":true}' for name in names))
+        self.assertFalse(any(b'PRIVATE' in raw for raw in files.values()))
+        self.assertFalse(summary['success'])
+        for name in names: (self.work / name).unlink()
+        (self.work / 'storage-consumer-control-underlay.json').write_bytes(b'"' + b'x' * 131072 + b'"')
+        (self.work / 'storage-consumer-publish-control-before.json').symlink_to(self.work / 'consumer-control-raw.private')
+        os.mkfifo(self.work / 'storage-consumer-publish-control-after.json')
+        files, _ = self.snapshot('private-storage-maintenance')
+        self.assertFalse(any(name.startswith('work-1/') for name in files))
+
     def test_maintenance_rejects_oversized_or_broken_json_and_unsafe_aggregate_files(self):
         (self.work / "private-storage-maintenance-smoke.json").write_bytes(
             json.dumps({"inert": "x" * 1048576}).encode())

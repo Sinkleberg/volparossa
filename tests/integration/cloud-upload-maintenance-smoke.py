@@ -185,6 +185,17 @@ class NodePhaseFailure(ValueError):
             node_report_sha256=report_sha, provision_sha256=provision, node_joined=True)
 
 
+class NetworkPhaseFailure(ValueError):
+    def __init__(self, phase, diagnostic):
+        require(phase in FLOW_MINIMUM, 'network_phase')
+        sampler = runpy.run_path(str(HERE / 'storage-consumer-route-sampler.py'))
+        sampler['validate_diagnostic'](diagnostic)
+        super().__init__('network_observation_failed')
+        self.report = dict(version=2, kind='cloud-upload-maintenance-orchestration', phase=phase,
+            passed=False, code='network_observation_failed', cleanup_confirmed=False,
+            network_version=2, sampler=dict(diagnostic))
+
+
 def owner_root(raw, missing=False):
     path = Path(raw)
     require(re.fullmatch(r'/opt/va\.[a-f0-9]{32}\.[A-Za-z0-9]{6}/u/a', str(path))
@@ -279,7 +290,8 @@ def prepare(root, binary, client, providers, provider_keys, provision, deadline)
     return result
 
 
-def phase(root, selected, exit_socket, flow_root, provision, deadline):
+def phase(root, selected, exit_socket, flow_root, provision, deadline, *, network_version=1):
+    require(type(network_version) is int and network_version in (1, 2), 'network_version')
     prepared = private_json(root / 'cloud-upload-prepared.json')
     require(prepared['provision_sha256'] == provision and prepared['phase'] == 'prepare'
         and prepared['passed'] is True, 'prepared_binding')
@@ -292,25 +304,44 @@ def phase(root, selected, exit_socket, flow_root, provision, deadline):
     require(Path(exit_socket) == work / 'runtime-exit/control/agent.sock'
         and Path(flow_root) == work / 'client-fixtures/private-storage-user', 'flow_locations')
     private_directory(Path(flow_root))
-    baseline_text, scope_text = os.environ['STORAGE_PROOF_BASELINE_MS'], os.environ['STORAGE_PROOF_ROUTE_SCOPE']
+    variable = 'STORAGE_PROOF_ROUTE_POLICY' if network_version == 2 else 'STORAGE_PROOF_ROUTE_SCOPE'
+    baseline_text, scope_text = os.environ['STORAGE_PROOF_BASELINE_MS'], os.environ[variable]
     require(re.fullmatch('[0-9]{1,20}', baseline_text) and len(scope_text) <= 4096, 'flow_scope')
     start, scope = int(baseline_text), json.loads(scope_text)
-    SAMPLER['validate_route_scope'](scope)
+    sampler = runpy.run_path(str(HERE / 'storage-consumer-route-sampler.py')) if network_version == 2 else SAMPLER
+    sampler['validate_policy' if network_version == 2 else 'validate_route_scope'](scope)
+    extra = {}
+    if network_version == 2:
+        underlay = os.environ['STORAGE_PROOF_UNDERLAY_SHA256']
+        require(sha(underlay), 'control_underlay_hash')
+        extra = dict(network_version=2, control_underlay_sha256=underlay)
     require(0 < start <= int(time.time() * 1000), 'flow_baseline')
     uploaded = private_json(root / 'cloud-upload-upload.json') if selected == 'finish' else None
     if uploaded is not None:
         validate_node_report(uploaded, 'upload', provision)
     minimum = flow_minimum(selected, uploaded)
-    with SAMPLER['capture'](binary, Path(exit_socket), start, minimum, client=client, scope=scope) as coverage:
-        node, report_sha = node_phase(root, selected, provision, deadline)
+    diagnostic = {}
+    sampler_failure = sampler['OLD']['SamplerFailure'] if network_version == 2 else sampler['SamplerFailure']
+    try:
+        with sampler['capture'](binary, Path(exit_socket), start, minimum, client=client,
+                **{'policy' if network_version == 2 else 'scope': scope}, diagnostic=diagnostic) as coverage:
+            node, report_sha = node_phase(root, selected, provision, deadline)
+    except sampler_failure:
+        if network_version == 2:
+            raise NetworkPhaseFailure(selected, diagnostic) from None
+        raise
     require(node['authority']['expires_at'] == authority['policy_expires_at'], 'absolute_authority_changed')
     summary = coverage.report(joined=coverage.joined)
-    SAMPLER['validate_summary'](summary, start, minimum)
-    require(summary['exit_log_sampling_version'] == 2 and not run_child.__globals__['CANCELLED']
+    sampler['validate_summary'](summary, start, minimum)
+    require(summary['exit_log_sampling_version'] == (3 if network_version == 2 else 2)
+        and not run_child.__globals__['CANCELLED']
         and time.monotonic() < deadline + 30, 'phase_deadline')
     write_json(Path(flow_root) / f'flow-cloud-upload-{selected}.json', summary)
-    return envelope(selected, node, report_sha, provision, protected_flow_proven=True,
-        minimum_protected_completions=minimum, sampler_joined=True, remote_cleanup_independently_proven=False)
+    result = envelope(selected, node, report_sha, provision, protected_flow_proven=True,
+        minimum_protected_completions=minimum, sampler_joined=True, remote_cleanup_independently_proven=False, **extra)
+    if network_version == 2:
+        result['version'] = 2
+    return result
 
 
 def cleanup_tree(root):
@@ -361,6 +392,10 @@ def cleanup(root):
 
 
 def main(arguments):
+    network_version = 1
+    if len(arguments) >= 2 and arguments[-2] == '--network-version':
+        require(arguments[-1] == '2', 'network_version')
+        network_version, arguments = 2, arguments[:-2]
     if len(arguments) == 3 and arguments[0] == 'flow-minimum':
         OLD['guard']()
         root = owner_root(arguments[2])
@@ -381,7 +416,8 @@ def main(arguments):
             result = prepare(root, arguments[2], arguments[3], arguments[4:7], arguments[7:10], provision, deadline)
         else:
             require(selected in FLOW_MINIMUM and len(arguments) == 4, 'arguments')
-            result = phase(root, selected, arguments[2], arguments[3], provision, deadline)
+            result = phase(root, selected, arguments[2], arguments[3], provision, deadline,
+                network_version=network_version)
     require(len(json.dumps(result).encode()) <= MAX_REPORT, 'report_bound')
     print(json.dumps(result, sort_keys=True))
 
@@ -400,5 +436,6 @@ if __name__ == '__main__':
     try:
         main(sys.argv[1:])
     except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
-        print(json.dumps(error.report if isinstance(error, NodePhaseFailure) else failure_report(sys.argv[1:]), sort_keys=True))
+        print(json.dumps(error.report if isinstance(error, (NodePhaseFailure, NetworkPhaseFailure))
+            else failure_report(sys.argv[1:]), sort_keys=True))
         sys.exit(1)

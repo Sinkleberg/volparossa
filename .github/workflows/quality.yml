@@ -151,6 +151,11 @@ jobs:
           VOLPAROSSA_TEST_ALLOW_SUDO_NETNS: '1'
         run: cargo test --locked --offline --workspace --all-features
 
+      - name: Check storage outcome tests without unrelated workspace feature unification
+        run: >-
+          cargo test --locked --offline -p volparossa-agent --lib
+          content::private_storage::outcome::tests:: -- --test-threads=1
+
       - name: Report namespace-backed proof outcomes
         run: |
           cargo test --locked --offline -p volparossa-linux-uapi --lib \

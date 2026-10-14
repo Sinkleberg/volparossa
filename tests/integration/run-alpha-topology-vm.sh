@@ -1102,6 +1102,7 @@ MAINTENANCE_NAMES = (FRAGMENTS_NAMES - {"private-storage-fragments-smoke.json", 
     "private-storage-maintenance-lifecycle.json",
     "private-storage-maintenance-lifecycle-failure.json",
     "private-storage-maintenance-route-diagnostic.json",
+    "private-storage-maintenance-provider-events.json",
     "private-storage-maintenance-inventory.json",
     "private-storage-maintenance-supervisor.json",
     "private-storage-maintenance-control-transition.json",
@@ -1130,10 +1131,16 @@ MAINTENANCE_LARGE_NAMES = {
     "private-storage-maintenance-smoke.json", "private-storage-maintenance-evidence.json",
     "storage-consumer-evidence.json",
 }
+CONSUMER_CONTROL_NAMES = {"storage-consumer-control-underlay.json"} | {
+    f"storage-consumer-{phase}-control-{suffix}.json"
+    for phase in ("publish", "exercise", "finish")
+    for suffix in ("before", "after", "relay0", "relay1", "relay2")
+}
+MAINTENANCE_NAMES |= CONSUMER_CONTROL_NAMES
 MAINTENANCE_PRIORITY_NAMES = {
-    name for name in MAINTENANCE_NAMES if name.startswith("storage-consumer-")
-    or name.startswith("private-storage-maintenance-") or name.endswith("_usage.json")
-    or name.endswith("private_cleanup.json")
+    name for name in MAINTENANCE_NAMES if name not in CONSUMER_CONTROL_NAMES and (
+    name.startswith("storage-consumer-") or name.startswith("private-storage-maintenance-")
+    or name.endswith("_usage.json") or name.endswith("private_cleanup.json"))
 } | {"host-state-before.json", "host-state-after.json", "guest-exit-status", "current-phase"}
 
 # Exact additional continuation outputs. No private owner/config/log glob.
@@ -1151,6 +1158,9 @@ CLOUD_UPLOAD_NAMES = MAINTENANCE_NAMES | {
         f"content-provider-adaptive-private-storage-fragments-cloud-upload-{phase}-control.json",
         *(f"private-storage-fragments-cloud-upload-{phase}-privacy-{role}.json"
           for role in ("client", "relay0", "relay1", "relay2", "exit")))),
+    *(f"cloud-upload-{phase}-control-{suffix}.json"
+      for phase in ("upload", "exercise", "finish")
+      for suffix in ("before", "after", "relay0", "relay1", "relay2")),
 }
 CLOUD_UPLOAD_PRIORITY_NAMES = MAINTENANCE_PRIORITY_NAMES | {
     name for name in CLOUD_UPLOAD_NAMES
@@ -1164,9 +1174,9 @@ CLOUD_UPLOAD_OUTCOME_NAMES = {
     "private-storage-fragments-cloud_upload_deleted_usage.json",
     "host-state-before.json", "host-state-after.json", "guest-exit-status", "current-phase",
 }
-# 135 exact old/new receipt names + five recovery names = 140 slots.
+# 167 exact old/new receipt names + five recovery names = 172 slots.
 # The old scenario stays at 128; byte-identical copies share only one slot.
-CLOUD_UPLOAD_FILE_COUNT_LIMIT = 140
+CLOUD_UPLOAD_FILE_COUNT_LIMIT = 172
 
 SIGNAL_FRAGMENT_NAMES = {"a01-expected-peers.json", "signal-backup-provision.json",
     "signal-backup-private_cleanup.json", "host-state-before.json", "host-state-after.json",
@@ -1736,6 +1746,8 @@ def collect(home, opt, revision, scenario, guest_status,
         per_file = 1048576 if scenario == "browser-network" and path.name == "browser-network-evidence.json" else FILE_LIMIT
         if scenario == "cloud-upload-maintenance" and path.name in CLOUD_UPLOAD_NAMES:
             per_file = 1048576  # Complete closed JSON; same normal-export bound, still 8MiB total.
+            if path.name == "cloud-upload-evidence.json":
+                per_file = 2097152  # Schema 3 embeds the complete preceding proof; checked below.
         if scenario == "private-storage-maintenance" and path.name in MAINTENANCE_LARGE_NAMES:
             # These aggregates embed the original bounded control-transition
             # readbacks. Match the normal export ceiling for only these names;
@@ -1750,7 +1762,12 @@ def collect(home, opt, revision, scenario, guest_status,
                 continue  # A truncated JSON tail is not structured evidence.
             if relative.endswith(".json"):
                 try:
-                    json.loads(data)
+                    parsed = json.loads(data)
+                    if scenario == "cloud-upload-maintenance" and original_size > 1048576:
+                        if not (path.name == "cloud-upload-evidence.json" and isinstance(parsed, dict)
+                                and type(parsed.get("schema_version")) is int and parsed["schema_version"] == 3
+                                and parsed.get("kind") == "cloud-upload-maintenance-evidence"):
+                            continue
                 except (ValueError, UnicodeError, RecursionError):
                     continue
             # Published and work copies of the same original bytes need only
@@ -2111,7 +2128,7 @@ elif [ "$scenario" = image-snapshot ]; then
     sudo -n python3 -B tests/integration/image-snapshot-provision.py provision --download
 elif [ "$scenario" = private-storage-maintenance ] || [ "$scenario" = cloud-upload-maintenance ]; then
     guest_phase storage-consumer-runtime-provision
-    sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download
+    sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download --profile-version 5
     /opt/volparossa-node/bin/node --test tests/integration/test-storage-consumer-maintenance.mjs
     if [ "$scenario" = cloud-upload-maintenance ]; then
         guest_phase cloud-upload-maintenance-runtime-provision
@@ -2334,13 +2351,20 @@ elif [ "$scenario" = signal-backup ] || [ "$scenario" = signal-backup-fragments 
 elif [ "$scenario" = cloud-upload-maintenance ]; then
     {
         python3 -B tests/integration/private-storage-maintenance-smoke.py export-names
-        python3 -B tests/integration/cloud-upload-maintenance-evidence.py export-names
+        python3 -B tests/integration/cloud-upload-maintenance-evidence.py export-names-v3
         printf '%s\n' host-state-before.json host-state-after.json guest-exit-status current-phase
     } | sort -u | while IFS= read -r retained; do
         case $retained in */*|'') exit 1 ;; esac
         retained_path=/home/vpci/alpha-output/$retained
         if [ -f "$retained_path" ] && [ ! -L "$retained_path" ]; then
-            [ "$(wc -c <"$retained_path")" -le 1048576 ] || exit 1
+            retained_limit=1048576
+            retained_size=$(wc -c <"$retained_path") || exit 1
+            if [ "$retained" = cloud-upload-evidence.json ] \
+                && [ "$retained_size" -le 2097152 ] \
+                && jq -e '.schema_version == 3 and .kind == "cloud-upload-maintenance-evidence"' "$retained_path" >/dev/null; then
+                retained_limit=2097152
+            fi
+            [ "$retained_size" -le "$retained_limit" ] || exit 1
             printf '%s\n' "$retained"
         fi
     done >/home/vpci/fragment-export.list

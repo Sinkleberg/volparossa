@@ -356,8 +356,10 @@ private_storage_maintenance_finalize_report() {
     # Cleanup has already captured the bounded client event ring before stopping
     # agents. Export only closed categories/counts; diagnostic failure is not a
     # replacement for the original outcome and never changes acceptance.
+    # The same Python process independently publishes a closed provider-event
+    # sidecar from the existing pre-agent-stop captures; no additional RPC.
     if python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" route-diagnostic \
-        "$WORK" >"$WORK/maintenance-route-diagnostic.part" 2>/dev/null; then
+        "$WORK" "$PHASE" "${provider_baseline_ms:-0}" >"$WORK/maintenance-route-diagnostic.part" 2>/dev/null; then
         mv -- "$WORK/maintenance-route-diagnostic.part" "$WORK/private-storage-maintenance-route-diagnostic.json" || true
     else
         rm -f -- "$WORK/maintenance-route-diagnostic.part" || true
@@ -387,7 +389,7 @@ private_storage_maintenance_finalize_report() {
        cleanup:{complete:$complete,remaining_owned_objects:$remaining},host_state:($host[0] | del(.acceptance_id)),
        scope:"Finite owner enrollment and protected renewal/repair across core restart, SIGTERM/resume and foreground revocation. Separate pinned Image encrypted snapshot and Cloud authenticated DAV-body restoration after A withdrawal, with retained original authority, actual replacement custody and independent zero provider usage. Synthetic inputs only; no running Immich/OpenCloud account server, independent-device availability, reciprocal credit, contribution resizing or full-alpha proof."}' \
         >"$WORK/private-storage-maintenance-smoke.json" || return 1
-    maintenance_exports=$(python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" export-names) || return 1
+    maintenance_exports=$(python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" export-names "$WORK") || return 1
     for maintenance_name in $maintenance_exports; do
         maintenance_artifact=$WORK/$maintenance_name
         if [ -f "$maintenance_artifact" ] && [ ! -L "$maintenance_artifact" ]; then

@@ -21,6 +21,14 @@ const PROVISION = '/opt/volparossa-storage-consumers/provision.json';
 const NODE = '/opt/volparossa-node/bin/node';
 const REVISIONS = Object.freeze({ image: 'aade424c3e96d0934edbddf31d2434757aa08564',
   cloud: '9cb94fbb83e9f503ff5a66d43ed814f556d4a3af' });
+const DIAGNOSTIC_REVISIONS = Object.freeze({ image: 'fa0438747b79bf29e49a2fe65116cb166ebe10df',
+  cloud: 'f51b49b84af404cc8dd6e377e0545e2ca1ea4569' });
+const DETAIL_REVISIONS = Object.freeze({ image: '87a8016652db629a0afefb41d88b3056539bee17',
+  cloud: '54a00b58a6c24432e7427d72ff714c786dbeb0cc' });
+const TLS_REVISIONS = Object.freeze({ image: '3b5830476dabd548debfdfade4fdf72acb4fa992',
+  cloud: 'ea24b6cd53a14b204a7b8fbfda5c76ec9ca297e7' });
+const OUTCOME_REVISIONS = Object.freeze({ image: 'ec6b9dca5789a60447c643652c93643b9a6c4af6',
+  cloud: '4409c08680eebb3d679a036546691cb541675f97' });
 const CHECKPOINTS = new Set(['enrolled', 'owner_locked', 'waiting_for_core', 'working', 'paused',
   'enrollment_expired', 'core_unavailable', 'core_turn_revoked', 'turn_completed', 'retry_pending']);
 const SQL = Buffer.from('-- VOLPAROSSA synthetic quiesced snapshot\nCREATE TABLE fixture (id integer);\nINSERT INTO fixture VALUES (1);\n');
@@ -38,6 +46,135 @@ const integer = (value, low, high) => Number.isSafeInteger(value) && value >= lo
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const fileSame = (a, b) => ['dev', 'ino', 'mode', 'uid', 'nlink', 'size', 'mtimeNs', 'ctimeNs'].every(k => a[k] === b[k]);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+const PUBLISH_STATUSES = new Set(['complete', 'incomplete', 'failed', 'cancelled', 'timed_out']);
+const PUBLISH_CODES = new Set(['ok', 'retained_operation_incomplete', 'invalid_core_report', 'core_failed',
+  'cancelled', 'timed_out', 'report_too_large', 'restore_verification_failed']);
+const observedBoolean = value => typeof value === 'boolean' ? value : null;
+const DEPOSIT_OPERATIONS = new Set(['prepare', 'reserve', 'progress', 'append', 'finalize', 'renew', 'read_range', 'delete']);
+const DEPOSIT_STAGES = new Set(['journal_open', 'authorization', 'agent_ready', 'challenge', 'signed_request',
+  'wire_receipt', 'agent_terminal', 'accounting', 'local_input', 'receipt_validation', 'journal_save', 'deadline', 'unknown']);
+const DEPOSIT_CATEGORIES = new Set(['io', 'timeout', 'protocol', 'agent_rejected', 'invalid', 'busy', 'store', 'unknown']);
+const AGENT_CODES = new Set(['CONTENT_INVALID', 'CONTENT_UNAVAILABLE', 'CONTENT_BUSY', 'CONTENT_POLICY', 'unknown']);
+const AGENT_STAGES = new Set(['unobserved', 'route_connect', 'control_selection', 'provider_lookup',
+  'provider_cardinality', 'offer_validity', 'stream_open', 'tls_handshake', 'challenge']);
+const EXCHANGE_STAGES = new Set(['stream_open', 'tls_handshake', 'challenge']);
+const TLS_FAILURES = new Set(['offer', 'configuration', 'handshake_deadline', 'authentication', 'tls_other', 'io']);
+const OUTCOME_PHASES = Object.freeze(['ready_write', 'local_request_read', 'local_request_verify',
+  'local_payload_read', 'local_payload_verify', 'admission', 'remote_request_verify', 'remote_request_write',
+  'remote_payload_write', 'remote_receipt_read', 'remote_receipt_verify', 'remote_payload_read', 'remote_payload_verify',
+  'local_receipt_write', 'local_payload_write', 'provider_tls_close', 'transport_tls_close', 'final_route_check',
+  'final_grant_check', 'final_lifetime_check', 'terminal_write']);
+const closedKeys = (value, keys) => value !== null && typeof value === 'object' && !Array.isArray(value)
+  && equal(Object.keys(value).sort(), [...keys].sort());
+
+function agentOutcome(value, stage) {
+  if (value === null) return null;
+  check(['wire_receipt', 'agent_terminal', 'deadline'].includes(stage)
+    && closedKeys(value, ['status', 'detail'])
+    && ['observed', 'missing', 'pending', 'expired', 'query_failed', 'query_timeout'].includes(value.status), 'deposit_diagnostics');
+  if (value.status !== 'observed') {
+    check(value.detail === null, 'deposit_diagnostics');
+    return { status: value.status, detail: null };
+  }
+  const d = value.detail;
+  check(closedKeys(d, ['phase', 'category', 'deadline_scope']) && OUTCOME_PHASES.includes(d.phase)
+    && ['io', 'auth', 'invalid', 'busy', 'store', 'expired', 'entropy', 'timeout', 'policy', 'unavailable', 'cancelled'].includes(d.category)
+    && ['none', 'operation', 'exchange', 'bridge', 'remote_wire'].includes(d.deadline_scope)
+    && (d.category === 'timeout') === (d.deadline_scope !== 'none')
+    && (d.deadline_scope !== 'bridge' || OUTCOME_PHASES.slice(1, 15).includes(d.phase))
+    && (d.deadline_scope !== 'remote_wire' || OUTCOME_PHASES.slice(6, 13).includes(d.phase)), 'deposit_diagnostics');
+  return { status: value.status, detail: { phase: d.phase, category: d.category, deadline_scope: d.deadline_scope } };
+}
+
+// This proof has exactly four fragments/two initial copies. The bridge already
+// checks general archive geometry; revalidate the narrower exported trial here.
+export function depositDiagnostic(value, version = 1) {
+  check([1, 2, 3, 4].includes(version), 'deposit_diagnostics');
+  check(closedKeys(value, ['version', 'failures', 'omitted_failures']) && value.version === version
+    && Array.isArray(value.failures) && value.failures.length <= 8 && value.omitted_failures === 0, 'deposit_diagnostics');
+  const seen = new Set(), failures = value.failures.map(failure => {
+    check(closedKeys(failure, ['fragment_index', 'copy_index', 'operation', 'stage', 'category', 'agent_code',
+      ...(version >= 2 ? ['agent_detail'] : []), ...(version >= 4 ? ['agent_outcome'] : [])])
+      && integer(failure.fragment_index, 0, 3) && integer(failure.copy_index, 0, 1)
+      && DEPOSIT_OPERATIONS.has(failure.operation) && DEPOSIT_STAGES.has(failure.stage)
+      && DEPOSIT_CATEGORIES.has(failure.category)
+      && (failure.category === 'agent_rejected' ? AGENT_CODES.has(failure.agent_code) : failure.agent_code === null),
+    'deposit_diagnostics');
+    let detail = null;
+    if (version >= 2 && failure.agent_detail !== null) {
+      const value = failure.agent_detail;
+      check(failure.stage === 'agent_ready' && failure.category === 'agent_rejected'
+        && AGENT_CODES.has(failure.agent_code) && failure.agent_code !== 'unknown'
+        && closedKeys(value, ['stage', 'deadline_scope', ...(version >= 3 ? ['tls_failure'] : [])])
+        && AGENT_STAGES.has(value.stage)
+        && ['none', 'operation', 'exchange'].includes(value.deadline_scope)
+        && (value.stage !== 'unobserved' || value.deadline_scope === 'operation')
+        && (value.deadline_scope !== 'exchange' || EXCHANGE_STAGES.has(value.stage))
+        && (value.deadline_scope === 'none' || failure.agent_code === 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics');
+      detail = { stage: value.stage, deadline_scope: value.deadline_scope };
+      if (version >= 3) {
+        check(value.tls_failure === null || (TLS_FAILURES.has(value.tls_failure)
+          && value.stage === 'tls_handshake' && value.deadline_scope === 'none'
+          && failure.agent_code === 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics');
+        detail.tls_failure = value.tls_failure;
+      }
+    }
+    const identity = `${failure.fragment_index}:${failure.copy_index}`;
+    check(!seen.has(identity), 'deposit_diagnostics'); seen.add(identity);
+    return { fragment_index: failure.fragment_index, copy_index: failure.copy_index,
+      operation: failure.operation, stage: failure.stage, category: failure.category, agent_code: failure.agent_code,
+      ...(version >= 2 ? { agent_detail: detail } : {}),
+      ...(version >= 4 ? { agent_outcome: agentOutcome(failure.agent_outcome, failure.stage) } : {}) };
+  });
+  return { version, failures, omitted_failures: 0 };
+}
+class PublishFailure extends Error {
+  constructor(observation) {
+    super('publish_operation');
+    this.code = 'publish_operation';
+    this.observation = Object.freeze(observation);
+  }
+}
+
+// Observe only the closed bridge result returned by this exact call. Never
+// copy its raw storage report, paths, exceptions or private journal to evidence.
+export function requirePublishComplete(value, app, operation, profileVersion = 1) {
+  check(['image', 'cloud'].includes(app) && ['create', 'deposit'].includes(operation), 'arguments');
+  check([1, 2, 3, 4, 5].includes(profileVersion), 'arguments');
+  const report = value?.storage;
+  const present = report !== null && typeof report === 'object' && !Array.isArray(report);
+  let state = 'not_applicable', diagnostic = null;
+  if (profileVersion >= 2 && operation === 'deposit') {
+    state = 'missing';
+    if (present && Object.hasOwn(report, 'deposit_diagnostics')) {
+      try {
+        diagnostic = depositDiagnostic(report.deposit_diagnostics, profileVersion - 1);
+        check(report.operation_complete === false || (report.operation_complete === true && diagnostic.failures.length === 0),
+          'deposit_diagnostics');
+        check(value.status !== 'complete' || report.operation_complete === true, 'deposit_diagnostics');
+        state = 'observed';
+      } catch { state = 'invalid'; diagnostic = null; }
+    }
+  }
+  if (value?.status === 'complete' && value.local_process_joined === true
+    && (profileVersion === 1 || operation === 'create' || (state === 'observed' && diagnostic.failures.length === 0))) return;
+  throw new PublishFailure({ version: profileVersion, app, operation,
+    status: PUBLISH_STATUSES.has(value?.status) ? value.status : 'unknown',
+    code: PUBLISH_CODES.has(value?.code) ? value.code : 'unknown',
+    local_process_joined: observedBoolean(value?.local_process_joined),
+    core_report_present: present,
+    core_operation_complete: present ? observedBoolean(report.operation_complete) : null,
+    ...(profileVersion >= 2 ? { deposit_diagnostics_state: state, deposit_diagnostics: diagnostic } : {}) });
+}
+
+export function consumerFailureReport(ctx, phase, error) {
+  const publish = error instanceof PublishFailure;
+  return { version: publish ? error.observation.version + 1 : 1, kind: 'storage-consumer-maintenance', phase, passed: false,
+    provision_sha256: ctx.provision, stage: ctx.stage,
+    code: ctx.signal.aborted ? 'phase_deadline' : FAILURE_CODES.has(error.code) ? error.code : 'application_failed',
+    ...(publish ? { publish_observation: error.observation } : {}), cleanup_confirmed: false };
+}
 
 export function fixtureBytes(label) {
   check(['image', 'cloud'].includes(label), 'fixture_label');
@@ -365,17 +502,21 @@ async function python(args, signal) {
   });
 }
 
-async function guard(root) {
+async function guard(root, profileVersion) {
   check(process.platform === 'linux' && process.getuid() !== 0 && hostname() === 'volparossa-alpha'
     && process.execPath === NODE && /^\/opt\/va\.[a-f0-9]{32}\.[A-Za-z0-9]{6}\/u\/m$/u.test(root), 'guest_only');
   await directory(root);
   const bytes = await boundedFile(PROVISION, 65536, { publicFile: true });
   const provision = JSON.parse(bytes.toString('utf8'));
-  check(provision.version === 1 && provision.kind === 'storage-consumer-maintenance-runtime-provision'
+  check(provision.version === profileVersion && provision.pins.version === profileVersion
+    && provision.kind === 'storage-consumer-maintenance-runtime-provision'
     && provision.success === true && provision.guest_only === true && provision.shared_adapter_verified === true,
   'provision');
+  const revisions = profileVersion === 5 ? OUTCOME_REVISIONS : profileVersion === 4 ? TLS_REVISIONS : profileVersion === 3 ? DETAIL_REVISIONS
+    : profileVersion === 2 ? DIAGNOSTIC_REVISIONS : REVISIONS;
   for (const [name, source] of Object.entries(provision.pins.sources)) {
-    check(Object.hasOwn(REVISIONS, name) && source.revision === REVISIONS[name], 'source_pin');
+    check(Object.hasOwn(revisions, name) && /^[a-f0-9]{40}$/u.test(revisions[name])
+      && source.revision === revisions[name], 'source_pin');
     for (const [file, record] of Object.entries(source.files)) {
       check(/^[A-Za-z0-9_./-]+$/u.test(file) && !file.split('/').includes('..') && !file.startsWith('/'), 'source_pin');
       const raw = await boundedFile(join(name === 'image' ? IMAGE : CLOUD, file), 1024 ** 2, { publicFile: true });
@@ -453,7 +594,7 @@ async function publish(ctx, m) {
         const value = name === 'image'
           ? await m.runSnapshotStorage({ operation, config: join(app, 'storage.json'), bundle: join(app, 'bundle') }, { signal: ctx.signal, storageFactory: factory })
           : await m.storePrivateFile(operation, { config: join(app, 'storage.json'), bundle: join(app, 'bundle') }, { signal: ctx.signal, storageFactory: factory });
-        check(value.status === 'complete' && value.local_process_joined === true, 'publish_operation');
+        requirePublishComplete(value, name, operation, ctx.profileVersion);
         if (operation === 'deposit') deposited = validateStorage(value, r.cipher_bytes, 'published');
       }
       if (name === 'cloud') {
@@ -603,13 +744,17 @@ async function finish(ctx, m) {
 }
 
 export async function main(argv) {
+  let profileVersion = 1;
+  if (argv.length === 4 && argv[2] === '--profile-version' && ['2', '3', '4', '5'].includes(argv[3])) {
+    profileVersion = Number(argv[3]); argv = argv.slice(0, 2);
+  }
   check(argv.length === 2 && PHASES.includes(argv[0]), 'arguments');
   process.umask(0o077);
-  const [phase, root] = argv, provision = await guard(root), cancel = new AbortController();
+  const [phase, root] = argv, provision = await guard(root, profileVersion), cancel = new AbortController();
   const abort = () => cancel.abort();
   for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(name, abort);
   const timer = setTimeout(abort, 1800000);
-  const ctx = { root, provision, cancel, signal: cancel.signal, deadline: performance.now() + 1800000, stage: 'phase_start' };
+  const ctx = { root, provision, profileVersion, cancel, signal: cancel.signal, deadline: performance.now() + 1800000, stage: 'phase_start' };
   try {
     await absent(join(root, `storage-consumer-${phase}.json`));
     if (phase !== 'prepare') {
@@ -628,10 +773,7 @@ export async function main(argv) {
   } catch (error) {
     // Export no raw app/core exception, command, path, key or process output.
     // A partial phase is never converted to success or a remote cleanup claim.
-    const report = { version: 1, kind: 'storage-consumer-maintenance', phase, passed: false,
-      provision_sha256: provision, stage: ctx.stage,
-      code: ctx.signal.aborted ? 'phase_deadline' : FAILURE_CODES.has(error.code) ? error.code : 'application_failed',
-      cleanup_confirmed: false };
+    const report = consumerFailureReport(ctx, phase, error);
     try { await writeJSON(join(root, `storage-consumer-${phase}.json`), report); } catch { /* Preserve original failure. */ }
     return report;
   } finally {

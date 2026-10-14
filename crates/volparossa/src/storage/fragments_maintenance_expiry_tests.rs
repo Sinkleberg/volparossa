@@ -1,6 +1,7 @@
 //! Clock drift across real signed storage exchanges, not protected-overlay evidence.
 
 use super::*;
+use crate::storage::peer::diagnostics::{Boundary, Operation as DiagnosticOperation, Stage};
 use tokio::{net::UnixListener, sync::oneshot, time::timeout};
 use volparossa_content::private_storage::{
     LeaseId,
@@ -235,6 +236,7 @@ async fn rejected_after_challenge(expired: bool, renewal: bool) {
                 request_id: request.request_id,
                 result: 0,
                 diagnostic_code: "PRIVATE_STORAGE_READY".into(),
+                private_storage_remote_detail: None,
                 payload: Some(Payload::PrivateStorageReady(PrivateStorageReady {
                     provider_key: provider.verifying_key().to_bytes().to_vec(),
                     challenge: challenge.encode(),
@@ -257,8 +259,17 @@ async fn rejected_after_challenge(expired: bool, renewal: bool) {
     })
     .await
     .unwrap();
+    let error = result.err().unwrap();
+    let boundary = error.downcast_ref::<Boundary>().unwrap();
+    assert!(matches!(boundary.stage, Stage::SignedRequest));
+    assert!(matches!(
+        (expired, renewal, boundary.operation),
+        (true, _, DiagnosticOperation::Progress)
+            | (false, true, DiagnosticOperation::Renew)
+            | (false, false, DiagnosticOperation::Reserve)
+    ));
     assert_eq!(
-        result.err().unwrap().to_string(),
+        error.root_cause().to_string(),
         if expired {
             "enrollment_expired"
         } else {

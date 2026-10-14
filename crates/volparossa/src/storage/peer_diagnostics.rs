@@ -1,0 +1,507 @@
+//! Bounded owner-side transfer observations, never provider denial or custody proof.
+
+use std::{fmt, io};
+
+use anyhow::Error;
+use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeStruct};
+use volparossa_content::private_storage::{
+    protocol::{ProtocolError, StorageOperation},
+    wire::WireError,
+};
+use volparossa_local_control::{
+    ControlResult, PrivateStorageDeadlineScope, PrivateStorageRemoteDetail,
+    PrivateStorageRemoteStage, PrivateStorageTlsFailure,
+};
+
+use super::outcome::AgentOutcome;
+
+const MAX_FAILURES: usize = 8;
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Operation {
+    Prepare,
+    Reserve,
+    Progress,
+    Append,
+    Finalize,
+    Renew,
+    ReadRange,
+    Delete,
+}
+
+impl From<StorageOperation> for Operation {
+    fn from(operation: StorageOperation) -> Self {
+        match operation {
+            StorageOperation::Reserve { .. } => Self::Reserve,
+            StorageOperation::Progress => Self::Progress,
+            StorageOperation::Append { .. } => Self::Append,
+            StorageOperation::Finalize => Self::Finalize,
+            StorageOperation::Renew { .. } => Self::Renew,
+            StorageOperation::ReadRange { .. } => Self::ReadRange,
+            StorageOperation::Delete => Self::Delete,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Stage {
+    JournalOpen,
+    Authorization,
+    AgentReady,
+    Challenge,
+    SignedRequest,
+    WireReceipt,
+    AgentTerminal,
+    Accounting,
+    LocalInput,
+    ReceiptValidation,
+    JournalSave,
+    Deadline,
+    Unknown,
+}
+
+/// This context contains no runtime strings, keys, archive IDs, paths or payload.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Boundary {
+    pub(super) operation: Operation,
+    pub(super) stage: Stage,
+}
+
+impl Boundary {
+    pub(super) fn new(operation: StorageOperation, stage: Stage) -> Self {
+        Self {
+            operation: operation.into(),
+            stage,
+        }
+    }
+}
+
+impl fmt::Display for Boundary {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("private storage transfer boundary failed")
+    }
+}
+
+impl std::error::Error for Boundary {}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Category {
+    Io,
+    Timeout,
+    Protocol,
+    AgentRejected,
+    Invalid,
+    Busy,
+    Store,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+enum AgentCode {
+    #[serde(rename = "CONTENT_INVALID")]
+    Invalid,
+    #[serde(rename = "CONTENT_UNAVAILABLE")]
+    Unavailable,
+    #[serde(rename = "CONTENT_BUSY")]
+    Busy,
+    #[serde(rename = "CONTENT_POLICY")]
+    Policy,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Failure {
+    #[serde(deserialize_with = "Option::deserialize")]
+    fragment_index: Option<usize>,
+    copy_index: usize,
+    operation: Operation,
+    stage: Stage,
+    category: Category,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_code: Option<AgentCode>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_detail: Option<AgentDetail>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_outcome: Option<AgentOutcome>,
+}
+
+/// Original exact six-field failure. Historical reports never gain a new claim.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct OriginalFailure {
+    #[serde(deserialize_with = "Option::deserialize")]
+    fragment_index: Option<usize>,
+    copy_index: usize,
+    operation: Operation,
+    stage: Stage,
+    category: Category,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_code: Option<AgentCode>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct AgentDetail {
+    stage: PrivateStorageRemoteStage,
+    deadline_scope: PrivateStorageDeadlineScope,
+    #[serde(deserialize_with = "Option::deserialize")]
+    tls_failure: Option<PrivateStorageTlsFailure>,
+}
+
+/// The exact v2 DTO: adding a TLS field never changes historical acceptance.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct OriginalAgentDetail {
+    stage: PrivateStorageRemoteStage,
+    deadline_scope: PrivateStorageDeadlineScope,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct OriginalDetailedFailure {
+    #[serde(deserialize_with = "Option::deserialize")]
+    fragment_index: Option<usize>,
+    copy_index: usize,
+    operation: Operation,
+    stage: Stage,
+    category: Category,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_code: Option<AgentCode>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_detail: Option<OriginalAgentDetail>,
+}
+
+/// The exact v3 DTO has TLS detail but no post-READY outcome observation.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct OriginalTlsFailure {
+    #[serde(deserialize_with = "Option::deserialize")]
+    fragment_index: Option<usize>,
+    copy_index: usize,
+    operation: Operation,
+    stage: Stage,
+    category: Category,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_code: Option<AgentCode>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_detail: Option<AgentDetail>,
+}
+
+impl AgentDetail {
+    fn from_wire(detail: PrivateStorageRemoteDetail) -> Option<Self> {
+        detail.validate().ok()?;
+        Some(Self {
+            stage: PrivateStorageRemoteStage::try_from(detail.stage).ok()?,
+            deadline_scope: PrivateStorageDeadlineScope::try_from(detail.deadline_scope).ok()?,
+            tls_failure: detail
+                .tls_failure
+                .map(PrivateStorageTlsFailure::try_from)
+                .transpose()
+                .ok()?,
+        })
+    }
+
+    fn valid_for(&self, code: Option<AgentCode>) -> bool {
+        let (result, code) = match code {
+            Some(AgentCode::Invalid) => (ControlResult::InvalidRequest, "CONTENT_INVALID"),
+            Some(AgentCode::Unavailable) => (ControlResult::Unavailable, "CONTENT_UNAVAILABLE"),
+            Some(AgentCode::Busy) => (ControlResult::InvalidState, "CONTENT_BUSY"),
+            Some(AgentCode::Policy) => (ControlResult::Policy, "CONTENT_POLICY"),
+            Some(AgentCode::Unknown) | None => return false,
+        };
+        PrivateStorageRemoteDetail {
+            stage: self.stage as i32,
+            deadline_scope: self.deadline_scope as i32,
+            tls_failure: self.tls_failure.map(|failure| failure as i32),
+        }
+        .validate_rejection(result, code)
+        .is_ok()
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct Diagnostics {
+    version: u8,
+    failures: Vec<Failure>,
+    omitted_failures: usize,
+}
+
+impl Default for Diagnostics {
+    fn default() -> Self {
+        Self {
+            version: 4,
+            failures: Vec::new(),
+            omitted_failures: 0,
+        }
+    }
+}
+
+impl Serialize for Diagnostics {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut value = serializer.serialize_struct("Diagnostics", 3)?;
+        value.serialize_field("version", &self.version)?;
+        if self.version == 1 {
+            let original: Vec<_> = self
+                .failures
+                .iter()
+                .map(|failure| OriginalFailure {
+                    fragment_index: failure.fragment_index,
+                    copy_index: failure.copy_index,
+                    operation: failure.operation,
+                    stage: failure.stage,
+                    category: failure.category,
+                    agent_code: failure.agent_code,
+                })
+                .collect();
+            value.serialize_field("failures", &original)?;
+        } else if self.version == 2 {
+            let original: Vec<_> =
+                self.failures
+                    .iter()
+                    .map(|failure| OriginalDetailedFailure {
+                        fragment_index: failure.fragment_index,
+                        copy_index: failure.copy_index,
+                        operation: failure.operation,
+                        stage: failure.stage,
+                        category: failure.category,
+                        agent_code: failure.agent_code,
+                        agent_detail: failure.agent_detail.as_ref().map(|detail| {
+                            OriginalAgentDetail {
+                                stage: detail.stage,
+                                deadline_scope: detail.deadline_scope,
+                            }
+                        }),
+                    })
+                    .collect();
+            value.serialize_field("failures", &original)?;
+        } else if self.version == 3 {
+            let original: Vec<_> = self
+                .failures
+                .iter()
+                .map(|failure| OriginalTlsFailure {
+                    fragment_index: failure.fragment_index,
+                    copy_index: failure.copy_index,
+                    operation: failure.operation,
+                    stage: failure.stage,
+                    category: failure.category,
+                    agent_code: failure.agent_code,
+                    agent_detail: failure.agent_detail.clone(),
+                })
+                .collect();
+            value.serialize_field("failures", &original)?;
+        } else {
+            value.serialize_field("failures", &self.failures)?;
+        }
+        value.serialize_field("omitted_failures", &self.omitted_failures)?;
+        value.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Diagnostics {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            version: u8,
+            failures: Vec<serde_json::Value>,
+            omitted_failures: usize,
+        }
+        let wire = Wire::deserialize(deserializer)?;
+        if !matches!(wire.version, 1..=4) || wire.failures.len() > MAX_FAILURES {
+            return Err(serde::de::Error::custom(
+                "diagnostic version or failure bound",
+            ));
+        }
+        let failures = wire
+            .failures
+            .into_iter()
+            .map(|value| {
+                let failure = if wire.version == 1 {
+                    let old: OriginalFailure = serde_json::from_value(value)?;
+                    Failure {
+                        fragment_index: old.fragment_index,
+                        copy_index: old.copy_index,
+                        operation: old.operation,
+                        stage: old.stage,
+                        category: old.category,
+                        agent_code: old.agent_code,
+                        agent_detail: None,
+                        agent_outcome: None,
+                    }
+                } else if wire.version == 2 {
+                    let original: OriginalDetailedFailure = serde_json::from_value(value)?;
+                    Failure {
+                        fragment_index: original.fragment_index,
+                        copy_index: original.copy_index,
+                        operation: original.operation,
+                        stage: original.stage,
+                        category: original.category,
+                        agent_code: original.agent_code,
+                        agent_detail: original.agent_detail.map(|detail| AgentDetail {
+                            stage: detail.stage,
+                            deadline_scope: detail.deadline_scope,
+                            tls_failure: None,
+                        }),
+                        agent_outcome: None,
+                    }
+                } else if wire.version == 3 {
+                    let original: OriginalTlsFailure = serde_json::from_value(value)?;
+                    Failure {
+                        fragment_index: original.fragment_index,
+                        copy_index: original.copy_index,
+                        operation: original.operation,
+                        stage: original.stage,
+                        category: original.category,
+                        agent_code: original.agent_code,
+                        agent_detail: original.agent_detail,
+                        agent_outcome: None,
+                    }
+                } else {
+                    serde_json::from_value::<Failure>(value)?
+                };
+                if failure.agent_detail.as_ref().is_some_and(|detail| {
+                    !(matches!(failure.stage, Stage::AgentReady)
+                        && matches!(failure.category, Category::AgentRejected)
+                        && detail.valid_for(failure.agent_code))
+                }) {
+                    return Err(<serde_json::Error as serde::de::Error>::custom(
+                        "diagnostic detail scope",
+                    ));
+                }
+                if failure.agent_outcome.as_ref().is_some_and(|outcome| {
+                    !matches!(
+                        failure.stage,
+                        Stage::WireReceipt | Stage::AgentTerminal | Stage::Deadline
+                    ) || !outcome.valid()
+                }) {
+                    return Err(<serde_json::Error as serde::de::Error>::custom(
+                        "diagnostic outcome scope",
+                    ));
+                }
+                Ok(failure)
+            })
+            .collect::<Result<Vec<_>, serde_json::Error>>()
+            .map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            version: wire.version,
+            failures,
+            omitted_failures: wire.omitted_failures,
+        })
+    }
+}
+
+impl Diagnostics {
+    pub(super) fn push(&mut self, copy_index: usize, error: &Error, fallback: Boundary) {
+        if self.failures.len() == MAX_FAILURES {
+            self.omitted_failures += 1;
+            return;
+        }
+        let boundary = error
+            .downcast_ref::<Boundary>()
+            .copied()
+            .unwrap_or(fallback);
+        let (category, agent_code) = classify(error);
+        let agent_detail = matches!(boundary.stage, Stage::AgentReady)
+            .then(|| {
+                error
+                    .downcast_ref::<crate::control::AgentRejected>()
+                    .and_then(|rejected| rejected.private_storage_remote_detail)
+                    .and_then(AgentDetail::from_wire)
+            })
+            .flatten();
+        let agent_outcome = matches!(
+            boundary.stage,
+            Stage::WireReceipt | Stage::AgentTerminal | Stage::Deadline
+        )
+        .then(|| error.downcast_ref::<AgentOutcome>().copied())
+        .flatten();
+        self.failures.push(Failure {
+            fragment_index: None,
+            copy_index,
+            operation: boundary.operation,
+            stage: boundary.stage,
+            category,
+            agent_code,
+            agent_detail,
+            agent_outcome,
+        });
+    }
+
+    /// Only merges this executable's own bounded replica report, never peer JSON.
+    pub(super) fn append_fragment(
+        &mut self,
+        fragment_index: usize,
+        report: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let child: Self = serde_json::from_value(report["deposit_diagnostics"].clone())?;
+        self.omitted_failures += child.omitted_failures;
+        for mut failure in child.failures {
+            if self.failures.len() == MAX_FAILURES {
+                self.omitted_failures += 1;
+            } else {
+                failure.fragment_index = Some(fragment_index);
+                self.failures.push(failure);
+            }
+        }
+        Ok(())
+    }
+}
+
+fn classify(error: &Error) -> (Category, Option<AgentCode>) {
+    if let Some(rejected) = error.downcast_ref::<crate::control::AgentRejected>() {
+        let code = match rejected.diagnostic_code.as_str() {
+            "CONTENT_INVALID" => AgentCode::Invalid,
+            "CONTENT_UNAVAILABLE" => AgentCode::Unavailable,
+            "CONTENT_BUSY" => AgentCode::Busy,
+            "CONTENT_POLICY" => AgentCode::Policy,
+            _ => AgentCode::Unknown,
+        };
+        return (Category::AgentRejected, Some(code));
+    }
+    if error
+        .downcast_ref::<tokio::time::error::Elapsed>()
+        .is_some()
+    {
+        return (Category::Timeout, None);
+    }
+    if let Some(wire) = error.downcast_ref::<WireError>() {
+        return (
+            match wire {
+                WireError::Io(_) => Category::Io,
+                WireError::Protocol(_) => Category::Protocol,
+                WireError::Invalid => Category::Invalid,
+                WireError::Busy => Category::Busy,
+                WireError::Store => Category::Store,
+                WireError::Timeout => Category::Timeout,
+            },
+            None,
+        );
+    }
+    if error.downcast_ref::<ProtocolError>().is_some() {
+        return (Category::Protocol, None);
+    }
+    if let Some(control) = error.downcast_ref::<volparossa_local_control::ControlProtocolError>() {
+        return (
+            match control {
+                volparossa_local_control::ControlProtocolError::Io(_) => Category::Io,
+                volparossa_local_control::ControlProtocolError::Decode(_)
+                | volparossa_local_control::ControlProtocolError::TooLarge
+                | volparossa_local_control::ControlProtocolError::Invalid(_) => Category::Invalid,
+            },
+            None,
+        );
+    }
+    if error.downcast_ref::<io::Error>().is_some() {
+        return (Category::Io, None);
+    }
+    (Category::Unknown, None)
+}
+
+#[cfg(test)]
+#[path = "peer_diagnostics_tests.rs"]
+mod tests;

@@ -374,6 +374,44 @@ connection. Grant issuance authorizes limits; it does not reserve disk or establ
 replica. See [shared-core and application lifetimes](../architecture/APPLICATION_LIFECYCLE.md) for the
 remaining enrollment, per-application authority and lifecycle work.
 
+### Bounded transfer diagnostics
+
+An incomplete deposit retains its journal and conservative storage charge. Its
+optional `deposit_diagnostics` records at most eight fragment/copy failures plus
+an omitted count; it does not replace receipts or prove provider custody.
+
+Diagnostics version 2 adds nullable `agent_detail` to each failure. A non-null
+detail is valid only for a correlated initial `PrivateStorageRemote` rejection
+at `agent_ready`. It contains two closed values: the observed preparation stage
+and `deadline_scope` (`none`, `operation` or `exchange`). The latter distinguishes
+the existing whole-operation deadline from the inner grant/offer-bounded exchange;
+neither deadline is extended. A TLS-stage observation, for example, says where
+preparation stopped, not why the provider or network failed. Unknown or
+contradictory details are rejected, not copied into public error text.
+
+There is no additional error frame after READY has begun, including a partial
+write. Historical version-1 diagnostics retain their original six failure fields.
+Addresses, provider identities, keys, paths, private journals and free-form errors
+are excluded from the exported diagnostic. Retries, authority and accounting are
+unchanged. The new detail path is a reviewed candidate awaiting hosted Rust and
+live consumer verification; see the [status ledger](../IMPLEMENTATION_STATUS.md).
+
+Provider-local diagnostics are separate from those client deposit records. The
+current candidate adds a fixed operation/phase/error-family event to the existing
+bounded log ring. The operation is named only after owner-request verification;
+earlier failures use `UNKNOWN`. Backend and receipt phases remain distinct: a
+failed receipt or timeout is not proof that an operation did not commit. The
+event contains no request identifier and cannot correlate itself to a particular
+client failure.
+
+The disposable maintenance trial exports at most 32 observed event tuples per
+role plus an omitted-record count. This sidecar's v2 validator also accepts exact
+historical v1 records. It preserves the existing 400-record ring and 65-KiB export
+limit, omits raw error text and private fields, and explicitly denies acceptance,
+causal-attribution and event-absence claims. The candidate still needs hosted
+Rust verification and a fresh live consumer trial; it changes neither deadlines
+nor receipts, authorization, retry behavior or storage accounting.
+
 ### Explicit usage
 
 The examples are templates: replace the uppercase key/hash placeholders with independently
@@ -1084,3 +1122,13 @@ network state pass. See the [source-bound evidence and historical failures](../I
 This is an explicit owner-private upload space, not recovery of ordinary
 OpenCloud accounts, permissions, sharing, writable synchronization or complete
 server-independent service. The preceding read-only trial remains unchanged.
+
+Automatic enrollment and background repair of new uploads are a separate,
+unfinished milestone. The `cloud-upload-maintenance` candidate first requires
+the complete storage-maintenance and Image/Cloud consumer proof, then tests a
+new authenticated upload under finite authority, provider withdrawal, new
+repair, two cold reads across restart and deletion of all retained copies.
+Its current evidence profile uses the same verified control underlay as the
+preceding proof, with separate per-phase captures and unchanged private data
+boundaries. A passing upload-only result above does not establish that longer
+automatic-maintenance chain.

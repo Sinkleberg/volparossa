@@ -187,6 +187,78 @@ class Contract(unittest.TestCase):
 
 
 class Orchestration(unittest.TestCase):
+    def test_dynamic_phase_uses_policy_sampler_exact_underlay_and_closed_failure(self):
+        from contextlib import contextmanager
+        current = runpy.run_path(str(HERE / 'test-cloud-upload-maintenance-evidence.py'))['fixture'](network_version=2)
+        network = current['network']['upload']
+        sampler = runpy.run_path(str(HERE / 'storage-consumer-route-sampler.py'))
+        calls, writes, fail = [], {}, [False]
+        root = Path('/inert/work/u/a')
+        client = root.parents[1] / 'runtime-client/control/agent.sock'
+        @contextmanager
+        def capture(binary, socket, baseline, minimum, **kwargs):
+            calls.append((binary, socket, baseline, minimum, kwargs))
+            if fail[0]:
+                kwargs['diagnostic'].update(version=1, kind='consumer-route-sampler-failure', phase='initial',
+                    operation='paths_before', code='process', samples=0, completed=0, failed=0)
+                raise sampler['OLD']['SamplerFailure']('PRIVATE_DO_NOT_EXPORT')
+            class Coverage:
+                joined = True
+                def report(self, *, joined):
+                    return copy.deepcopy(network['gates'])
+            yield Coverage()
+        sampler['capture'] = capture
+        digest = hashlib.sha256(b'{}').hexdigest()
+        prepared = dict(phase='prepare', passed=True, provision_sha256=PROVISION,
+            authority=dict(service_config_sha256=digest, storage_template_sha256=digest,
+                policy_expires_at=2000000000))
+        def read(path):
+            return prepared if path.name == 'cloud-upload-prepared.json' else dict(coreBinary='/inert/core', controlSocket=str(client))
+        env = dict(STORAGE_PROOF_BASELINE_MS=str(network['gates']['event_baseline_unix_ms']),
+            STORAGE_PROOF_ROUTE_POLICY=json.dumps(network['layout']['route_policy']),
+            STORAGE_PROOF_UNDERLAY_SHA256=network['layout']['control_underlay_sha256'])
+        with patch.dict(os.environ, env, clear=True), \
+                patch.dict(M['OLD'], validate_locations=lambda *args: (Path('/inert/core'), client)), \
+                patch.dict(G, private_json=read, file_bytes=lambda *a: b'{}', private_directory=lambda *a: None,
+                    node_phase=lambda *a: (report('upload'), 'b' * 64),
+                    write_json=lambda path, value: writes.update({path.name: value})), \
+                patch.object(M['runpy'], 'run_path', return_value=sampler):
+            result = M['phase'](root, 'upload', root.parents[1] / 'runtime-exit/control/agent.sock',
+                root.parents[1] / 'client-fixtures/private-storage-user', PROVISION, time.monotonic() + 30,
+                network_version=2)
+            self.assertEqual((result['version'], result['network_version']), (2, 2))
+            self.assertEqual(result['control_underlay_sha256'], env['STORAGE_PROOF_UNDERLAY_SHA256'])
+            self.assertEqual(calls[0][3], 24)
+            self.assertEqual(calls[0][4]['policy'], network['layout']['route_policy'])
+            self.assertNotIn('scope', calls[0][4])
+            self.assertEqual(writes['flow-cloud-upload-upload.json']['exit_log_sampling_version'], 3)
+            fail[0] = True
+            with self.assertRaises(M['NetworkPhaseFailure']) as caught:
+                M['phase'](root, 'upload', root.parents[1] / 'runtime-exit/control/agent.sock',
+                    root.parents[1] / 'client-fixtures/private-storage-user', PROVISION, time.monotonic() + 30,
+                    network_version=2)
+            self.assertFalse(caught.exception.report['passed'])
+            self.assertEqual(caught.exception.report['sampler']['operation'], 'paths_before')
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+            env['STORAGE_PROOF_UNDERLAY_SHA256'] = '/private/identity'
+            with patch.dict(os.environ, env), self.assertRaisesRegex(ValueError, 'control_underlay_hash'):
+                M['phase'](root, 'upload', root.parents[1] / 'runtime-exit/control/agent.sock',
+                    root.parents[1] / 'client-fixtures/private-storage-user', PROVISION, time.monotonic() + 30,
+                    network_version=2)
+
+    def test_explicit_network_cli_keeps_historical_default_and_rejects_unknown_profile(self):
+        root = Path('/inert/root')
+        calls = []
+        with patch.dict(M['OLD'], guard=lambda: None), patch.dict(G, owner_root=lambda *a, **k: root,
+                tools=lambda: PROVISION, phase=lambda *a, **kw: calls.append(kw) or {'passed': False}):
+            for suffix in ([], ['--network-version', '2']):
+                with redirect_stdout(io.StringIO()):
+                    M['main'](['upload', str(root), '/exit', '/flow', *suffix])
+            self.assertEqual(calls, [dict(network_version=1), dict(network_version=2)])
+            for version in ('1', '3', 'true', ''):
+                with self.assertRaisesRegex(ValueError, 'network_version'):
+                    M['main'](['upload', str(root), '/exit', '/flow', '--network-version', version])
+
     def test_actual_prepare_code_creates_finite_policy_but_no_enrollment_or_deposit(self):
         calls, writes = [], {}
         deadline, clock = time.monotonic() + 10, 1900000000

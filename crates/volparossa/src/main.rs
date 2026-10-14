@@ -675,6 +675,7 @@ fn print_response(response: ControlResponse) -> Result<()> {
         | Payload::MailboxReady(_)
         | Payload::ContentCustodyReady(_)
         | Payload::ComputeReady(_)
+        | Payload::QuoteReady(_)
         | Payload::ComputeTranscript(_) => {
             anyhow::bail!("unexpected content stream handoff outside an explicit transfer")
         }
@@ -756,6 +757,7 @@ fn print_response(response: ControlResponse) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&receipt)?);
         }
         Payload::PrivateStorageReady(_)
+        | Payload::PrivateStorageOutcome(_)
         | Payload::PrivateStorageMaintenanceReady(_)
         | Payload::PrivateStorageGrant(_)
         | Payload::PrivateStorageAdmission(_) => {

@@ -4,6 +4,136 @@ Original VOLPAROSSA source in this repository is licensed under GPL-3.0-only. De
 vendored components retain their own licenses. This file is a provenance record, not a substitute
 for the license text shipped by each upstream project.
 
+## Public SNP verifier fixture trial
+
+The disposable public-fixture workflow selects
+[`virtee/sev`](https://github.com/virtee/sev) version 8.0.0 at exact commit
+`a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5`, tree
+`636379a232b75ad3c0f2a079acc1788dc13a920f`. The upstream Apache-2.0
+[license](third_party/licenses/virtee-sev-8.0.0-Apache-2.0.txt) is retained
+unchanged. One explicit lockfile-only correction is applied as described below.
+This is a source-built CI probe,
+not a production dependency, prebuilt worker or task-release authority.
+
+The [exact pinset](tests/integration/protected-compute-verifier-pins.json)
+records bytes and SHA-256 for the original Cargo.toml, Cargo.lock, license,
+four-test target and public Milan certificate/report inputs. The original
+lockfile remains available unchanged in the verified upstream Git commit.
+The pinned commit updates the `rand` package to `0.8.8` but leaves
+`num-bigint-dig 0.8.6` referring to absent `rand 0.8.5`. The
+[fixture preparer](tests/integration/protected-compute-verifier.py) changes
+only that one reference to `rand 0.8.8`, without changing any package version,
+checksum or executable source. Both lockfiles are 66,223 bytes: original SHA-256
+`fe1511ef932c1a54d0cd70ac470b41de8357ab2efca9ed6b3a4ea22c3b7d3bd0`,
+effective SHA-256 `7b7dbf853cecf44a8d2a6b51283012b446db97600f4e19af36a1c642b8bfa7cb`.
+Schema-two pins and result receipts distinguish both identities; only this exact
+unstaged change is accepted after pristine-source verification. Rust 1.85.0,
+`--locked` and the `snp,crypto_nossl` feature selection
+are explicit; native compilation is confined to the disposable hosted runner.
+The compiler comes from the pinned-version Rust toolchain distribution, not a
+reproduced compiler source build. The upstream checkout and dependency sources
+retain their own notices there; neither binaries nor a vendored dependency tree
+are distributed by this change. See [trial scope and remaining requirements](docs/development/PROTECTED_COMPUTE_VERIFIER.md).
+
+## Core signature verification dependency
+
+The core [signature-facts module](crates/volparossa-content/src/provider/compute/attestation.rs)
+selects the same exact `sev` revision with default features disabled and only
+`snp,crypto_nossl`. It uses upstream Milan ARK/ASK bytes as cryptographic reference
+roots, not as independently authorized production trust. Its two unchanged
+public regression inputs are copied from `tests/certs_data/` into
+`crates/volparossa-content/tests/fixtures/snp/`: `report_milan.hex` (2,368 bytes,
+SHA-256 `3d956e9104969a038031a6b63dd6c4b60000619d37702065994f7da76f88ae7d`)
+and `vcek_milan.der` (1,360 bytes, SHA-256
+`3bbfb6ee259f75a95d13168cfdf2e034181bb93c7c016825731cbe8ea16c95e1`). They
+remain Apache-2.0 inputs under the unchanged upstream license linked above.
+`x509-cert` is constrained to 0.2.5 (Apache-2.0 OR MIT) from
+[RustCrypto formats](https://github.com/RustCrypto/formats/tree/x509-cert/v0.2.5/x509-cert)
+for certificate validity access; it is also the version in the pinned upstream
+lockfile. The workspace now adopts the exact dependency lock compiled and tested
+by [core trial 38432553365](https://github.com/VOLPAROSSA/volparossa/actions/runs/38432553365):
+143,756 bytes, SHA-256
+`f87bfe531b282c83665a066daec181564edf8d256a08a6b024e2d5810f5abbac`.
+All 531 original package identities, versions and checksums are retained. The
+29 additions belong to the verifier dependency closure; the seven additional
+feature edges at existing packages were checked against their upstream manifests.
+The 28 new registry archives match their lockfile checksums and retain compatible
+upstream licenses; the remaining addition is the exact pinned SEV Git source.
+The license collector accepts only that Git identity and unchanged Apache-2.0
+license bytes, SHA-256
+`c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4`.
+Current hosted checks use `cargo fetch --locked`, followed by locked/offline
+metadata, tests and Clippy. The standalone probe and its separate lock correction
+remain historical evidence, not substitutes for the core build.
+
+### RSA advisory scope
+
+`rsa 0.9.10` is affected by
+[RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html), which
+concerns private-key leakage through timing. It is **not patched** here. The
+selected [SEV verification code](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/src/certs/snp/cert_nossl.rs)
+uses `RsaPublicKey` and PSS/SHA-384 verification only. Its RSA operation applies
+the public exponent to a public signature; no RSA private key, decryption,
+signing or key generation is used by this core call path.
+
+The dependency check admits this advisory as non-applicable only after checking
+the exact source, features, incoming dependency edges and reviewed verifier
+source. It then creates a temporary root-only audit configuration. The ordinary
+deny configuration has no global exemption, and the separate fuzz graph neither
+uses RSA/SEV nor receives this exception. A changed dependency or use requires
+fresh review; this finding is not permission to use RSA private-key operations.
+
+The module has no vendor-collateral downloader or task-release hook. VCEK
+extension-to-chip and reported-TCB binding is checked. Production trust, current
+vendor security policy and complete worker appraisal remain separate requirements. AMD's
+[VCEK and KDS specification 57230](https://docs.amd.com/v/u/en-US/57230), revision
+1.05, identifies the product CRL endpoint and certificate extensions. Those
+vendor inputs are distinct from local authorization of roots and workload code;
+neither is supplied by a peer assertion or a successful signature check.
+
+### Guest firmware quote request
+
+The guest-session candidate reuses the same exact Apache-2.0 `sev` dependency,
+features and committed lockfile. Its only additional upstream production call
+path is [guest firmware `open` and `get_report`](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/src/firmware/guest/mod.rs):
+open the fixed `/dev/sev-guest` device and return the original `SNP_GET_REPORT`
+bytes with explicit message-version/VMPL inputs. No extended-report allocation,
+certificate downloader, derived-key operation, RSA signing, RSA decryption or
+RSA key generation is added. The public-RSA guard separately pins the reviewed
+guest source; this does not broaden the advisory exception or the fuzz graph.
+
+The guest's own ephemeral key uses the existing `RecipientKeyPair` implementation,
+not this RSA dependency. Original upstream source and notices are unchanged;
+there is no new binary, dependency version or local upstream patch. Compilation
+or synthetic collection tests cannot establish that actual firmware ran, that
+the key is protected from the host, or that the guest is an authorized worker.
+
+### Supplied Milan revocation list
+
+The candidate session verifier also uses `rsa =0.9.10` directly for public-only
+PSS/SHA-384 verification of a supplied ARK revocation list. This is the same
+Apache-2.0 OR MIT package already pinned in the lockfile, with checksum
+`b8573f03f5883dcaebdfcf4725caa1ecb9c15b2ef50c43a07b816e06799bb12d`;
+no package version is changed. The exact-source and dependency-graph guard
+now covers this second public-verification path. The advisory remains unpatched
+and the restriction against private-key operations is unchanged.
+
+The public fixture `ark_milan_20260922.crl` was retrieved unchanged from
+[AMD's Milan CRL endpoint](https://kdsintf.amd.com/vcek/v1/Milan/crl) on
+2026-10-14 (Europe/Amsterdam). It contains 866 bytes and has SHA-256
+`dd68e9e3feb97dd0e95135feeae47d9cc193c73239a6281ec9884c00d5e6a525`.
+Its ARK-Milan signature authenticates CRL number 12, valid from
+2026-09-22 07:35:42 UTC until 2026-11-09 01:00:00 UTC, with no listed
+revocations. This is public issuer-signed validation data, not VOLPAROSSA
+source code or a production trust grant; the binary has no local patches.
+
+The closed profile follows AMD 57230 revision 1.05 and
+[RFC 5280 CRL processing](https://www.rfc-editor.org/rfc/rfc5280.html#section-6.3).
+It checks the fixed Milan certificate path and a complete ARK-issued list for
+that path's ASK. It does not prove individual VCEK revocation status, absence
+of newer collateral, an acceptable firmware version or private execution.
+The fixture's validity dates do not authorize future use outside that interval.
+
 ## CometBFT ABCI transaction adapter inputs
 
 The TEST-only transaction adapter generates its wire bindings from the official
