@@ -227,7 +227,7 @@ fn guest_begin_enforces_both_clocks_and_challenge_window() {
             ..now
         },
         Stamp {
-            monotonic: now.monotonic - Duration::from_secs(1),
+            monotonic: now.monotonic.checked_sub(Duration::from_secs(1)).unwrap(),
             ..now
         },
     ] {

@@ -32,7 +32,7 @@ SNP_CHECKSUM = "fa9d0aa97897c4bce02f8b7e4afd06901b5bc04880d5b51b0542c753fb79981c
 COLLATERAL = SNP.with_name("collateral.rs")
 COLLATERAL_CHECKSUM = "c718d3fb5f1d58795ede17ad3e7e34871d3cb95331e39994e1744fc924b78b24"
 GUEST = SNP.parent.parent / "guest.rs"
-GUEST_CHECKSUM = "c5f7c8e378c697f6c9b109cb41380eeee72f409651f5bd4d01b183233efe97cb"
+GUEST_CHECKSUM = "cb29fa2c94c220692cc3ffd11a3811a7f828e587803a676097234c04deee885d"
 CONTENT = Path("crates/volparossa-content/Cargo.toml")
 MARKER = "  # Root-only public RSA exception: scripts/check-public-rsa-scope.py must pass."
 SEV_MANIFEST = dict(version="=8.0.0", git=GIT, rev=REVISION, **{"default-features": False},

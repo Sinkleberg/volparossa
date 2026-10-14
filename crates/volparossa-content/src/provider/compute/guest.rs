@@ -395,10 +395,13 @@ impl GuestQuoteSession<'_> {
     pub fn cancel(self) {}
 }
 
+#[cfg(test)]
+type TestReportSource = Box<dyn FnOnce([u8; 64]) -> Result<Vec<u8>, GuestError> + Send>;
+
 enum ReportSource {
     Firmware,
     #[cfg(test)]
-    Fake(Box<dyn FnOnce([u8; 64]) -> Result<Vec<u8>, GuestError> + Send>),
+    Fake(TestReportSource),
 }
 
 impl ReportSource {
