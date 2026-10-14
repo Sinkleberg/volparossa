@@ -12,7 +12,7 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-14
+Last updated: 2026-10-15
 
 ## Current integration and active work
 
@@ -256,6 +256,31 @@ cleanup gate consumes this diagnostic, and raw private logs remain excluded.
 All 112 focused inert checks pass: 12 parser, 63 owner, 20 hosted-wiring and
 17 VM-wiring cases. This establishes the observation contract, not the cause of
 the prior inner failure or actual Android delivery.
+
+#### Deterministic relay-cache test inputs
+
+[Quality `38641559561`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38641559561)
+on `ac2a7c7f` passes all 286 Android contract checks and strict Clippy, then fails one
+discovery test in the agent library (687 passed, one failed). Its expected
+same-sequence conflict is generated with a new random envelope nonce, but the
+fixture selects the payload's network from only the first nonce byte. Equal
+first bytes can therefore produce identical payloads, for which acceptance is
+correct. This is a fixture defect, not evidence that contradictory signed
+capabilities should be accepted.
+
+The correction gives those cache fixtures explicit network discriminators. It
+checks both acceptance of an identical signed payload and rejection of a
+different payload at the same sequence, while retaining peer limits, authenticated
+identity, expiry, policy and rollback checks. Only test inputs and assertions
+change; production cache rules and the Android workflow remain unchanged. The
+corrected Rust test still needs hosted execution.
+
+The failing checkout `2302f068` merges `ac2a7c7f` with main `7b728846`. Its
+`discovery.rs` blob is identical to the earlier successful `85978d55` Quality
+checkout. Original logs ZIP SHA-256:
+`02d7deaaed1ca9ac3a1c2ef04bf4d4df1a5b00e13d8a0c2c5d276de9869085e0`.
+The actual Android trial `38641552623` continues on original `ac2a7c7f`; this test
+correction neither restarts it nor establishes successful delivery.
 
 ### Latest storage trial
 
