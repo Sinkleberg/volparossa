@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "kind": "volparossa-weather-public-android-admission",
-  "scope": "disposable-android-core-inputs-only",
+  "scope": "disposable-joined-android-core-only",
   "sources": {
     "weather": {
       "commit": "f6ee829961da387d9c0cd71b7163b47baab434fa"

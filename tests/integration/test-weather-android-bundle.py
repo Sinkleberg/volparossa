@@ -24,7 +24,7 @@ class AndroidInputs(unittest.TestCase):
             BUILD_SHA=self.digest, BUILD_SHA_V4=self.digest)
         self.pins.start(); self.addCleanup(self.pins.stop)
         self.admitted = dict(schema=1, kind="volparossa-weather-public-android-admission",
-            scope="disposable-android-core-inputs-only", sources=dict(weather=dict(commit="a" * 40)),
+            scope="disposable-joined-android-core-only", sources=dict(weather=dict(commit="a" * 40)),
             artifacts={name: dict(repository="VOLPAROSSA/volparossa" + ("-weather" if name == "decoder" else ""),
                 run_id=index, id=index, commit="b" * 40, name=name, sha256=self.digest, bytes=42)
                 for index, name in enumerate(("decoder", "abi"), 1)},
@@ -96,6 +96,7 @@ class AndroidInputs(unittest.TestCase):
 
     def test_closed_admission_coordinates_and_bounds(self):
         for path, replacement in ((["schema"], True), (["scope"], "release"),
+                (["scope"], "disposable-android-core-inputs-only"),
                 (["sources", "weather", "commit"], "main"),
                 (["artifacts", "decoder", "repository"], "other/repo"),
                 (["artifacts", "abi", "run_id"], True), (["artifacts", "abi", "id"], 0),
@@ -111,7 +112,7 @@ class AndroidInputs(unittest.TestCase):
             value = copy.deepcopy(self.admitted); mutate(value)
             with self.assertRaises(ValueError): B["validate_android_admission"](value)
 
-    def test_readonly_archive_roundtrip_does_not_enable_runtime(self):
+    def test_readonly_archive_roundtrip_admits_dispatch_without_claiming_execution(self):
         selected = self.selected(); raw, digest = self.manifest()
         source = self.root / "inert"; source.write_bytes(self.raw); source.chmod(0o600)
         sources = dict.fromkeys(selected, source)
@@ -124,11 +125,11 @@ class AndroidInputs(unittest.TestCase):
         self.assertFalse(B["verify_tree"](frozen, digest)["runtime_executed"])
         self.assertEqual((frozen / "runtime/node").read_bytes(), self.raw)
         self.assertEqual(frozen.stat().st_mode & 0o777, 0o500)
-        # Until the joined VM/Android dispatcher is present, archive acceptance
-        # must not implicitly authorize running v6 through an older UI driver.
-        denied = self.root / "must-not-extract"
-        with self.assertRaises(ValueError): B["checked_archive"](archive, digest, denied, runtime=True)
-        self.assertFalse(denied.exists())
+        # Runtime validation admits this exact disposable profile. The separate
+        # dispatcher, original Android/core observations and cleanup must still
+        # succeed; the archive helper never executes its admitted inputs.
+        self.assertEqual(B["checked_archive"](archive, digest, runtime=True),
+                         B["checked_archive"](archive, digest))
 
     def test_capture_checks_original_decoder_proof_bytes_without_execution(self):
         records = self.decoder_records()

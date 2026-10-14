@@ -1,0 +1,571 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+"""Inert owner tests: private records and owned Python children, never an APK.
+
+Synthetic fixtures test rejection and lifecycle semantics only. They are not
+distributed-delivery evidence and cannot enter the guarded hosted workflow.
+"""
+import copy
+import ctypes
+import json
+import os
+from pathlib import Path
+import runpy
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+HERE = Path(__file__).resolve().parent
+O = runpy.run_path(str(HERE / "weather-android-owner.py"))
+G = O["run"].__globals__
+F = runpy.run_path(str(HERE / "test-weather-android-evidence.py"))
+E = O["E"]
+CORE_COMMIT = "a" * 40
+WEATHER_COMMIT = "f6ee829961da387d9c0cd71b7163b47baab434fa"
+IDENTITY = dict(core_commit=CORE_COMMIT, weather_commit=WEATHER_COMMIT, run_id="123", run_attempt="1")
+ENV = dict(GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="1")
+NATIVE_RESULT = dict(schema=1, kind="hosted-android-protected-core-installed-trial", phase="complete", success=True,
+    process_drain_confirmed=True, policy_cleanup_complete=True, host_netns_unchanged=True, synthetic=False,
+    expiry_proven=False, core_delivery=False, joined_core_acceptance=False, mobile_core=False, production_authority=False)
+INERT_ROLES = r'''
+import json, os, signal, socket, sys, time
+from pathlib import Path
+role, root, mode = sys.argv[1], Path(sys.argv[2]), sys.argv[3]
+data = json.loads((root / 'inert-roles.json').read_bytes())
+if role == 'driver':
+    (root / 'driver-ready').touch()
+    if mode == 'driver-exit': sys.exit(3)
+    while not (root / 'finalized').exists(): time.sleep(.01)
+elif role == 'read-ready':
+    if not (root / 'driver-ready').exists(): sys.exit(1)
+    if mode == 'cancel-ready': os.kill(os.getppid(), signal.SIGTERM); sys.exit(1)
+    # Match the real fixed controller: retries consume the original budget;
+    # they neither return stale remaining time nor extend the deadline.
+    data['ready']['remaining_seconds'] = data['ready']['deadline_unix_seconds'] - int(time.time())
+    print(json.dumps(data['ready']), flush=True)
+elif role == 'finalize':
+    if mode == 'finalize-fail': sys.exit(2)
+    (root / 'finalized').touch()
+    print(json.dumps(data['finalize']), flush=True)
+elif role == 'tunnel':
+    path = Path(data['socket'])
+    stream = socket.socket(socket.AF_UNIX); stream.bind(str(path)); path.chmod(0o600); stream.listen()
+    def finish(*_):
+        if mode != 'socket-left': path.unlink()
+        stream.close()
+        if mode == 'tunnel-extra-output': print('unrequested output', flush=True)
+        print(json.dumps(data['tunnel']), flush=True); sys.exit(0)
+    signal.signal(signal.SIGTERM, finish)
+    if mode == 'tunnel-exit': finish()
+    while True: time.sleep(.01)
+elif role == 'native':
+    # This role never connects to the socket or creates an Android process.
+    # Only coordinator ownership, ordering and failure propagation are tested.
+    if mode == 'native-fail': sys.exit(2)
+    if mode == 'native-deadline': time.sleep(30)
+    if mode == 'cancel-native': os.kill(os.getppid(), signal.SIGTERM); time.sleep(30)
+    path = Path(data['native_result']); path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.write_text(json.dumps(data['native'])); path.chmod(0o600)
+else:
+    raise ValueError('unknown inert role')
+'''
+
+
+def save(path, value, mode=0o600):
+    raw = value if type(value) is bytes else (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.write_bytes(raw); path.chmod(mode)
+    return E["digest"](raw)
+
+
+def mutate(path, update):
+    value = json.loads(path.read_bytes()); update(value); save(path, value)
+
+
+def tunnel_record(responses):
+    return dict(schema=6, kind="weather-android-api-tunnel", completed=6,
+        requests=dict.fromkeys(O["T"]["ROUTES"], 3), original_response_bytes=True,
+        joined_core_acceptance=False, cleanup_confirmed=True, responses=responses)
+
+
+def preparation_record():
+    return dict(schema=6, kind="weather-android-owner-preflight", identity=IDENTITY,
+        prepared_sha256=E["digest"](b"inert original preparation\n"),
+        result_sha256=E["digest"](b"inert original preparation result\n"),
+        apk=dict(bytes=1024, sha256="e" * 64), original_preparation_verified=True,
+        runtime_executed=False, publication_started=False)
+
+
+class RecordFixture(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="wa-own-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.run = self.root / "weather-client-kvm.Abc123"
+        self.weather = self.root / "weather"
+        self.output = self.root / "output"
+        for path in (self.run, self.weather, self.output): path.mkdir(mode=0o700)
+        self.private = self.run / "android-owner"; self.private.mkdir(mode=0o700)
+        self.live = self.weather / "build/hosted-android-live-ci"
+        self.proof = self.weather / "build/overmorrow-hosted-android-live-proof"
+        self.prepared = self.weather / "build/hosted-android-ci"
+        self.config = dict(schema=6, core_commit=CORE_COMMIT, weather_commit=WEATHER_COMMIT,
+            weather_root=str(self.weather), run_directory=str(self.run), output_directory=str(self.output),
+            source_sha256="7" * 64, mpquic_sha256="8" * 64, package_sha256="none",
+            weather_archive_sha256="9" * 64, weather_manifest_sha256="1" * 64)
+        self.environment = patch.dict(os.environ, ENV); self.environment.start(); self.addCleanup(self.environment.stop)
+        self.seams = patch.dict(G, CORE=self.root, hosted=lambda *_: None)
+        self.seams.start(); self.addCleanup(self.seams.stop)
+        self.guest = F["guest_summary"]()
+        self.report, _, responses, _ = F["fixture"]()
+        self.ready = dict(schema=6, kind="weather-android-guest-ready", manifest_sha256="1" * 64,
+            core_sha256="2" * 64, prepared_sha256="3" * 64,
+            # The real API owner budget is intentionally shorter than the
+            # independently created 900-second publication lifetimes.
+            deadline_unix_seconds=F["END"] // 1000 + 40, remaining_seconds=800,
+            api_socket_ready=True, cold_caches_absent=True, helper_requests=0, joined_delivery_proven=False)
+        save(self.private / "ready.json", self.ready)
+        save(self.private / "preparation.json", preparation_record())
+        save(self.private / "result.json", dict(schema=6, kind="weather-android-owner-run", identity=IDENTITY,
+            success=True, phase="complete", statuses=dict(driver=0, tunnel=0, native=0),
+            cleanup=dict(children_joined=True, forced_kill=False, output_drained=True,
+                socket_removed=True, host_netns_unchanged=True), helper_requests=0,
+            joined_core_acceptance=False, vm_cleanup_pending=True))
+        save(self.private / "finalize.json", dict(schema=6, kind="weather-android-finalize-requested",
+            prepared_sha256="3" * 64, finalize_requested=True, joined_delivery_proven=False))
+        save(self.private / "tunnel.json", tunnel_record(responses))
+        save(self.output / "weather-android-delivery-evidence.json", self.guest)
+        save(self.prepared / "prepared.json", b"inert original preparation\n")
+        save(self.prepared / "result.json", b"inert original preparation result\n")
+        preparation = preparation_record()
+        save(self.live / "admission.json", dict(schema=1, kind="hosted-android-protected-core-admission",
+            identity=IDENTITY, prepared_sha256=preparation["prepared_sha256"],
+            result_sha256=preparation["result_sha256"], apk=preparation["apk"],
+            core_executed=False, joined_core_acceptance=False))
+        save(self.live / "result.json", NATIVE_RESULT)
+        report_sha = save(self.proof / "report.json", self.report)
+        boundary_sha = save(self.proof / "emulator-boundary.json", dict(inert=True))
+        cleanup_sha = save(self.proof / "emulator-cleanup.json", dict(schema=1, direct_children_reaped=True,
+            private_avd_removed=True, private_android_home_removed=True, trial_returned=True,
+            enclosing_namespace_cleanup_required=True))
+        save(self.live / "installed.json", dict(schema=1, kind="hosted-android-protected-core-installed",
+            identity=IDENTITY, apk=preparation["apk"], installed_report_sha256=report_sha,
+            boundary_sha256=boundary_sha, emulator_cleanup_sha256=cleanup_sha, actual_installed_app=True,
+            synthetic=False, expiry_proven=False, core_delivery=False, joined_core_acceptance=False,
+            production_authority=False))
+        self.vm = self.output / "weather-android-vm-cleanup.json"
+        save(self.vm, dict(schema=6, kind="weather-android-vm-cleanup", core_commit=CORE_COMMIT,
+            weather_commit=WEATHER_COMMIT, manifest_sha256="1" * 64, driver_finished=True,
+            qemu_started=True, qemu_joined=True, private_guest_state_removed=True, owner_exit_status=0,
+            joined_core_acceptance=False))
+        self.kvm = self.root / "kvm-cleanup.json"
+        save(self.kvm, dict(schema=6, kind="weather-android-kvm-cleanup", identity=IDENTITY,
+            baseline_sha256="f" * 64, restored_sha256="f" * 64, baseline_bytes=150, restored_bytes=150,
+            original_kvm_acl_restored=True))
+
+    def join(self):
+        return O["join"](self.config)
+
+    def accept(self):
+        return O["accept"](self.output, CORE_COMMIT, WEATHER_COMMIT, "1" * 64, self.kvm)
+
+
+class JoinTests(RecordFixture):
+    def test_original_six_operations_join_without_promoting_unfinished_vm_cleanup(self):
+        result = self.join()
+        self.assertFalse(result["joined_core_acceptance"])
+        self.assertTrue(result["vm_cleanup_pending"])
+        self.assertTrue(result["original_cli_http_ui_joined"])
+        self.assertLess(self.ready["deadline_unix_seconds"], self.guest["publications"]["weather"]["expires_unix_seconds"])
+        for key in E["PRODUCTS"]:
+            self.assertEqual(result["observations"]["products"][key]["requests"], 3)
+        for private in (str(self.root), "local_output", "provider_peer_ids", "weather_root"):
+            self.assertNotIn(private, json.dumps(result))
+
+    def test_original_records_cannot_be_reencoded_changed_or_replaced(self):
+        paths = (self.prepared / "prepared.json", self.prepared / "result.json", self.proof / "report.json",
+            self.proof / "emulator-boundary.json", self.proof / "emulator-cleanup.json")
+        for path in paths:
+            original = path.read_bytes()
+            with self.subTest(path=path.name):
+                save(path, original + b"\n")
+                with self.assertRaises(ValueError): self.join()
+                save(path, original)
+
+    def test_rejects_cross_run_native_installation_and_changed_apk(self):
+        for basename, updater in (("admission.json", lambda value: value["identity"].update(run_attempt="2")),
+                ("installed.json", lambda value: value["apk"].update(sha256="0" * 64)),
+                ("result.json", lambda value: value.update(policy_cleanup_complete=False))):
+            path = self.live / basename; original = path.read_bytes()
+            with self.subTest(basename=basename), self.assertRaises(ValueError):
+                mutate(path, updater); self.join()
+            save(path, original)
+
+    def test_rejects_wrong_guest_source_binding_or_capture_and_unknown_export_fields(self):
+        path = self.output / "weather-android-delivery-evidence.json"; original = path.read_bytes()
+        for field, replacement in dict(manifest_sha256="f" * 64, core_sha256="e" * 64,
+                prepared_sha256="d" * 64, captures_validated=False, helper_requests=1, private_path="not-exportable").items():
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                mutate(path, lambda value: value.update({field: replacement})); self.join()
+            save(path, original)
+
+    def test_deadline_must_fit_both_publications_and_cover_every_original_receipt(self):
+        path = self.private / "ready.json"; original = path.read_bytes()
+        for deadline in (self.guest["publications"]["weather"]["expires_unix_seconds"] + 1,
+                self.guest["transfers"]["air_quality"][2]["completed_at_ms"] // 1000):
+            with self.subTest(deadline=deadline), self.assertRaises(ValueError):
+                mutate(path, lambda value: value.update(deadline_unix_seconds=deadline)); self.join()
+            save(path, original)
+
+    def test_no_extra_get_changed_http_body_or_unfinished_tunnel_can_join(self):
+        path = self.private / "tunnel.json"; original = path.read_bytes()
+        changes = (lambda value: value["requests"].update({next(iter(O["T"]["ROUTES"])): 4}),
+            lambda value: value["responses"][0].update(body_sha256="0" * 64),
+            lambda value: value["responses"].append(value["responses"][0]),
+            lambda value: value.update(cleanup_confirmed=False))
+        for index, update in enumerate(changes):
+            with self.subTest(index=index), self.assertRaises(ValueError): mutate(path, update); self.join()
+            save(path, original)
+
+    def test_owner_failed_cleanup_or_unrequested_finalize_is_not_accepted(self):
+        for basename, update in (("result.json", lambda value: value["cleanup"].update(forced_kill=True)),
+                ("result.json", lambda value: value["statuses"].update(driver=1)),
+                ("finalize.json", lambda value: value.update(prepared_sha256="4" * 64))):
+            path = self.private / basename; original = path.read_bytes()
+            with self.subTest(basename=basename), self.assertRaises(ValueError): mutate(path, update); self.join()
+            save(path, original)
+
+    def test_join_is_exclusive_and_never_replaces_prior_evidence(self):
+        self.join(); path = self.output / "weather-android-owner-join.json"; original = path.read_bytes()
+        with self.assertRaises(FileExistsError): self.join()
+        self.assertEqual(path.read_bytes(), original)
+
+
+class AcceptanceTests(RecordFixture):
+    def setUp(self):
+        super().setUp(); self.join()
+
+    def test_only_final_gate_promotes_after_exact_vm_and_kvm_cleanup(self):
+        result = self.accept()
+        self.assertTrue(result["passed"] and result["joined_core_acceptance"])
+        self.assertFalse(result["vm_cleanup_pending"] or result["expiry_proven"]
+            or result["physical_device"] or result["production_authority"])
+        self.assertEqual(result["guest_evidence_sha256"], E["digest"](
+            (self.output / "weather-android-delivery-evidence.json").read_bytes()))
+        self.assertFalse(result["observations"]["joined_core_acceptance"])
+
+    def test_every_vm_cleanup_fact_and_original_owner_exit_is_required(self):
+        original = self.vm.read_bytes()
+        fields = dict(driver_finished=False, qemu_started=False, qemu_joined=False,
+            private_guest_state_removed=False, owner_exit_status=1, joined_core_acceptance=True,
+            manifest_sha256="0" * 64, core_commit="0" * 40, weather_commit="1" * 40, unexpected=True)
+        for field, replacement in fields.items():
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                mutate(self.vm, lambda value: value.update({field: replacement})); self.accept()
+            save(self.vm, original)
+
+    def test_acl_restoration_requires_same_run_exact_bytes_and_digest(self):
+        original = self.kvm.read_bytes()
+        updates = (lambda value: value["identity"].update(run_id="124"),
+            lambda value: value.update(restored_sha256="1" * 64),
+            lambda value: value.update(restored_bytes=149),
+            lambda value: value.update(original_kvm_acl_restored=False),
+            lambda value: value.update(baseline_bytes=True, restored_bytes=True),
+            lambda value: value.update(unknown="private"))
+        for index, update in enumerate(updates):
+            with self.subTest(index=index), self.assertRaises(ValueError): mutate(self.kvm, update); self.accept()
+            save(self.kvm, original)
+
+    def test_cannot_change_guest_closed_record_after_the_original_join(self):
+        path = self.output / "weather-android-delivery-evidence.json"
+        mutate(path, lambda value: value.update(acquisition_sha256="0" * 64))
+        with self.assertRaises(ValueError): self.accept()
+
+    def test_cannot_promote_changed_or_overclaimed_observation_projection(self):
+        path = self.output / "weather-android-owner-join.json"; original = path.read_bytes()
+        updates = (lambda value: value["identity"].update(run_attempt="2"),
+            lambda value: value.update(joined_core_acceptance=True),
+            lambda value: value["observations"].update(expiry_proven=True),
+            lambda value: value["observations"]["products"]["weather"].update(original_receipts=["0" * 64] * 3),
+            lambda value: value["observations"]["products"]["weather"].update(requests=True),
+            lambda value: value["observations"]["products"]["weather"].update(warm_peer_bytes=1))
+        for index, update in enumerate(updates):
+            with self.subTest(index=index), self.assertRaises(ValueError): mutate(path, update); self.accept()
+            save(path, original)
+
+    def test_acceptance_requires_private_owned_files_and_is_exclusive(self):
+        self.vm.chmod(0o644)
+        with self.assertRaises(ValueError): self.accept()
+        self.vm.chmod(0o600)
+        self.accept(); path = self.output / "weather-android-hosted-acceptance.json"; raw = path.read_bytes()
+        with self.assertRaises(FileExistsError): self.accept()
+        self.assertEqual(path.read_bytes(), raw)
+
+
+class ContractTests(RecordFixture):
+    def test_children_receive_only_fixed_tool_paths_and_same_run_public_identity(self):
+        inherited = dict.fromkeys(O["ENV_KEYS"], "inert")
+        inherited.update(HTTP_PROXY="secret proxy", NODE_OPTIONS="unrequested module", GH_TOKEN="secret token")
+        with patch.dict(os.environ, inherited, clear=True): value = O["environment"]()
+        self.assertEqual(set(value), set(O["ENV_KEYS"]) | {"PATH", "LANG", "LC_ALL", "PYTHONDONTWRITEBYTECODE",
+            "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_OPTIONAL_LOCKS", "GIT_TERMINAL_PROMPT"})
+        self.assertEqual(value["PATH"], "/usr/bin:/bin")
+        self.assertEqual((O["NATIVE_SECONDS"], O["TUNNEL_SECONDS"]), (420, 480))
+
+    def test_git_head_is_compared_as_original_bytes_and_dirty_tree_check_is_required(self):
+        head = subprocess.CompletedProcess([], 0, stdout=(CORE_COMMIT + "\n").encode())
+        clean = subprocess.CompletedProcess([], 0, stdout=b"")
+        with patch.dict(G, environment=lambda: {}), patch("subprocess.run", side_effect=[head, clean]) as process:
+            O["git_check"](self.root, CORE_COMMIT)
+        self.assertEqual(process.call_count, 2)
+        self.assertEqual(process.call_args_list[0].args[0][-2:], ["rev-parse", "HEAD"])
+        self.assertEqual(process.call_args_list[1].args[0][-4:], ["diff", "--quiet", "HEAD", "--"])
+        with patch.dict(G, environment=lambda: {}), patch("subprocess.run", return_value=clean), self.assertRaises(ValueError):
+            O["git_check"](self.root, CORE_COMMIT)
+
+    def test_preflight_reuses_pinned_original_preparation_without_invoking_runtime(self):
+        calls = []
+        helper = object()
+        runtime = {"H": SimpleNamespace(policy_helper=lambda: helper),
+            "prepared_core_inputs": lambda selected: calls.append(selected) or dict(apk=preparation_record()["apk"])}
+        with patch.dict(G, git_check=lambda *args: calls.append(args)), \
+                patch.object(O["runpy"], "run_path", return_value=runtime) as load:
+            result = O["prepared"](self.weather, CORE_COMMIT, WEATHER_COMMIT)
+        self.assertEqual(result, preparation_record())
+        self.assertEqual(calls, [(self.root, CORE_COMMIT), (self.weather, WEATHER_COMMIT), helper])
+        self.assertEqual(load.call_args.args, (str(self.weather / "scripts/prepare_hosted_android_ci.py"),))
+        with self.assertRaises(ValueError): O["prepared"](self.weather, CORE_COMMIT, "f" * 40)
+
+    def test_hosted_guard_rejects_local_root_wrong_workflow_and_cross_run_identity(self):
+        good = dict(GITHUB_ACTIONS="true", RUNNER_OS="Linux", RUNNER_ENVIRONMENT="github-hosted",
+            GITHUB_REPOSITORY="VOLPAROSSA/volparossa", GITHUB_WORKFLOW="Weather Android protected core delivery",
+            GITHUB_WORKSPACE=str(self.root), GITHUB_SHA=CORE_COMMIT, VOLPAROSSA_WEATHER_SOURCE_SHA=WEATHER_COMMIT,
+            **ENV)
+        with patch.dict(os.environ, good, clear=True), patch("os.getuid", return_value=1000), \
+                patch("os.geteuid", return_value=1000), patch.object(Path, "read_text", return_value="NoNewPrivs:\t0\n"):
+            O["hosted"](CORE_COMMIT, WEATHER_COMMIT)
+            for key, value in dict(GITHUB_ACTIONS="false", GITHUB_REPOSITORY="VOLPAROSSA/volparossa-weather",
+                    GITHUB_WORKFLOW="unrelated workflow", GITHUB_SHA="b" * 40, GITHUB_RUN_ATTEMPT="0",
+                    VOLPAROSSA_WEATHER_SOURCE_SHA="c" * 40).items():
+                with self.subTest(key=key), patch.dict(os.environ, {key: value}), self.assertRaises(ValueError):
+                    O["hosted"](CORE_COMMIT, WEATHER_COMMIT)
+            with patch("os.geteuid", return_value=0), self.assertRaises(ValueError): O["hosted"](CORE_COMMIT, WEATHER_COMMIT)
+            with patch.object(Path, "read_text", return_value="NoNewPrivs:\t1\n"), self.assertRaises(ValueError):
+                O["hosted"](CORE_COMMIT, WEATHER_COMMIT)
+
+    def test_fixed_ssh_commands_have_no_caller_selected_program_or_destination(self):
+        for name in ("guest-key", "known-hosts"): save(self.run / name, b"inert\n")
+        driver = O["command"](self.config, "driver")
+        remote = driver.index("vpci@127.0.0.1")
+        self.assertEqual(driver[remote + 1:], ["/home/vpci/guest-driver.sh", CORE_COMMIT, "7" * 64,
+            "8" * 64, "none", "content-provider", "weather-client", "9" * 64, "1" * 64])
+        for action in ("read-ready", "finalize"):
+            controller = O["command"](self.config, "controller", action)
+            self.assertEqual(controller[:remote + 1], driver[:remote + 1])
+            self.assertEqual(controller[remote + 1:], ["/usr/bin/sudo", "-n", "/usr/bin/python3", "-B", O["CONTROL"], action])
+        with self.assertRaises(ValueError): O["command"](self.config, "controller", "/bin/sh")
+        self.assertEqual(O["command"](self.config, "native"), ["/usr/bin/python3", "-B",
+            str(self.weather / "scripts/prepare_hosted_android_ci.py"), "--run-protected-core",
+            "--upstream-socket", str(self.run / "android-api/core-api.sock")])
+
+    def test_configuration_has_exact_paths_pins_and_no_program_injection(self):
+        for name in ("guest-key", "known-hosts"): save(self.run / name, b"inert\n")
+        path = self.run / "android-owner-input.json"; save(path, self.config)
+        self.assertEqual(O["config"](path), self.config)
+        for field, replacement in dict(command="/bin/sh", package_sha256="0" * 64,
+                source_sha256="not-a-digest", schema=True, output_directory=str(self.run)).items():
+            value = dict(self.config); value[field] = replacement; save(path, value)
+            with self.subTest(field=field), self.assertRaises(ValueError): O["config"](path)
+        save(path, self.config)
+        linked = self.run / "configuration-link.json"; linked.symlink_to(path)
+        with self.assertRaises(ValueError): O["config"](linked)
+
+    def test_ready_budget_is_not_extended_and_historical_observation_is_not_new_authority(self):
+        now = 1792000000
+        ready = dict(self.ready, deadline_unix_seconds=now + 700, remaining_seconds=700)
+        with patch.object(O["time"], "time", return_value=now): O["ready_record"](ready, self.config)
+        for deadline, remaining in ((now - 1, 700), (now + 841, 841), (now + 700, 840), (now + 599, 599)):
+            with self.subTest(deadline=deadline), patch.object(O["time"], "time", return_value=now), self.assertRaises(ValueError):
+                O["ready_record"](dict(ready, deadline_unix_seconds=deadline, remaining_seconds=remaining), self.config)
+        with patch.object(O["time"], "time", return_value=now + 900):
+            O["ready_record"](ready, self.config, historical=True)
+
+
+class ChildTests(unittest.TestCase):
+    def setUp(self):
+        self.seams = patch.dict(G, TERM_SECONDS=0.15, KILL_SECONDS=1)
+        self.seams.start(); self.addCleanup(self.seams.stop)
+
+    def child(self, source, limit=65536):
+        pool = O["Children"]()
+        job = pool.start([sys.executable, "-B", "-u", "-c", source], "inert", {}, HERE, limit)
+        return pool, job
+
+    def assert_drained(self):
+        self.assertEqual(Path(f"/proc/self/task/{os.getpid()}/children").read_text().strip(), "")
+
+    def test_original_output_drained_before_success_and_subreaper_restored(self):
+        libc = ctypes.CDLL(None); original = ctypes.c_int()
+        self.assertEqual(libc.prctl(37, ctypes.byref(original), 0, 0, 0), 0)
+        pool, job = self.child("import sys; sys.stdout.write('original'); sys.stderr.write('diagnostic')")
+        try:
+            self.assertEqual(pool.wait(job, time.monotonic() + 2), 0)
+            self.assertEqual(bytes(job["data"]["stdout"]), b"original")
+            self.assertEqual(bytes(job["data"]["stderr"]), b"diagnostic")
+        finally: cleanup = pool.close()
+        self.assertEqual(cleanup, dict(children_joined=True, forced_kill=False, output_drained=True))
+        after = ctypes.c_int(); self.assertEqual(libc.prctl(37, ctypes.byref(after), 0, 0, 0), 0)
+        self.assertEqual(original.value, after.value); self.assert_drained()
+
+    def test_buffered_overflow_after_exit_is_not_success(self):
+        pool, job = self.child("import os; os.write(1,b'x'*4096)", limit=32)
+        try:
+            with self.assertRaises(O["Failure"]): pool.wait(job, time.monotonic() + 2)
+        finally: cleanup = pool.close()
+        self.assertTrue(cleanup["children_joined"]); self.assertFalse(cleanup["output_drained"])
+        self.assertEqual(len(job["data"]["stdout"]), 33); self.assert_drained()
+
+    def test_deadline_joins_only_the_owned_process_group(self):
+        pool, job = self.child("import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print('ready'); time.sleep(30)")
+        try:
+            until = time.monotonic() + 2
+            while not job["data"]["stdout"] and time.monotonic() < until: pool.pump()
+            self.assertTrue(job["data"]["stdout"])
+            with self.assertRaises(O["Failure"]): pool.wait(job, time.monotonic() - 1)
+        finally: cleanup = pool.close()
+        self.assertTrue(cleanup["children_joined"] and cleanup["forced_kill"])
+        self.assertEqual(job["process"].returncode, -signal.SIGKILL); self.assert_drained()
+
+    def test_exited_leader_does_not_hide_stdout_holding_detached_descendant(self):
+        source = ("import os,signal,time\nif os.fork()==0:\n os.setsid(); signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+            "print('orphan'); time.sleep(30)\nelse:\n os._exit(0)\n")
+        pool, job = self.child(source)
+        try:
+            with self.assertRaises(O["Failure"]): pool.wait(job, time.monotonic() + 0.3)
+        finally: cleanup = pool.close()
+        self.assertTrue(cleanup["children_joined"] and cleanup["forced_kill"])
+        self.assertEqual(job["process"].returncode, 0); self.assert_drained()
+
+    def test_spawn_failure_keeps_cleanup_owner_and_restores_subreaper(self):
+        pool = O["Children"]()
+        try:
+            with patch("subprocess.Popen", side_effect=OSError("private error")), self.assertRaises(OSError):
+                pool.start(["inert"], "inert", {}, HERE)
+        finally: cleanup = pool.close()
+        self.assertEqual(cleanup, dict(children_joined=True, forced_kill=False, output_drained=True)); self.assert_drained()
+
+    def test_pipe_overflow_during_shutdown_cannot_become_clean_success(self):
+        source = ("import os,signal,time\ndef stop(*_):\n os.write(2,b'x'*4096); raise SystemExit(0)\n"
+            "signal.signal(signal.SIGTERM,stop); print('ready')\nwhile True: time.sleep(.01)\n")
+        pool, job = self.child(source, limit=32)
+        try:
+            until = time.monotonic() + 2
+            while not job["data"]["stdout"] and time.monotonic() < until: pool.pump()
+            self.assertTrue(job["data"]["stdout"])
+        finally: cleanup = pool.close()
+        self.assertTrue(cleanup["children_joined"]); self.assertFalse(cleanup["output_drained"]); self.assert_drained()
+
+    def test_blocked_cancellation_is_rejected_before_any_spawn(self):
+        prior = signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGTERM])
+        try:
+            with self.assertRaises(ValueError): O["Children"]()
+        finally: signal.pthread_sigmask(signal.SIG_SETMASK, prior)
+        self.assert_drained()
+
+
+class CoordinatorTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="wa-owner-run-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.run = self.root / "weather-client-kvm.Abc123"; self.run.mkdir(mode=0o700)
+        self.weather = self.root / "weather"; self.weather.mkdir(mode=0o700)
+        self.output = self.root / "output"; self.output.mkdir(mode=0o700)
+        self.value = dict(core_commit=CORE_COMMIT, weather_commit=WEATHER_COMMIT,
+            weather_root=str(self.weather), run_directory=str(self.run), output_directory=str(self.output),
+            weather_manifest_sha256="1" * 64)
+        ready = dict(schema=6, kind="weather-android-guest-ready", manifest_sha256="1" * 64, core_sha256="2" * 64,
+            prepared_sha256="3" * 64, deadline_unix_seconds=int(time.time()) + 800, remaining_seconds=800,
+            api_socket_ready=True, cold_caches_absent=True, helper_requests=0, joined_delivery_proven=False)
+        save(self.root / "inert-roles.json", dict(ready=ready,
+            finalize=dict(schema=6, kind="weather-android-finalize-requested", prepared_sha256="3" * 64,
+                finalize_requested=True, joined_delivery_proven=False), tunnel=tunnel_record(F["fixture"]()[2]),
+            socket=str(self.run / "android-api/core-api.sock"),
+            native_result=str(self.weather / "build/hosted-android-live-ci/result.json"), native=NATIVE_RESULT))
+        self.environment = patch.dict(os.environ, ENV); self.environment.start(); self.addCleanup(self.environment.stop)
+        self.seams = patch.dict(G, CORE=self.root, prepared=lambda *_: preparation_record(), environment=lambda: {},
+            TERM_SECONDS=1, KILL_SECONDS=1, DRIVER_SECONDS=75)
+        self.seams.start(); self.addCleanup(self.seams.stop)
+
+    def run_owner(self, mode):
+        def command(_value, name, action=None):
+            return [sys.executable, "-B", "-u", "-c", INERT_ROLES, action or name, str(self.root), mode]
+        with patch.dict(G, command=command): result = O["run"](self.value)
+        self.assertEqual(Path(f"/proc/self/task/{os.getpid()}/children").read_text().strip(), "")
+        self.assertFalse(result["joined_core_acceptance"])
+        self.assertTrue(result["vm_cleanup_pending"])
+        self.assertEqual(result["helper_requests"], 0)
+        self.assertNotIn(str(self.root), json.dumps(result))
+        return result
+
+    def test_ordered_inert_lifecycle_finalizes_after_native_and_tunnel_join(self):
+        result = self.run_owner("normal")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["statuses"], dict(driver=0, tunnel=0, native=0))
+        self.assertEqual(result["cleanup"], dict(children_joined=True, forced_kill=False, output_drained=True,
+            socket_removed=True, host_netns_unchanged=True))
+        self.assertTrue((self.root / "finalized").exists())
+        self.assertFalse((self.run / "android-api/core-api.sock").exists())
+
+    def test_native_failure_never_requests_finalize(self):
+        result = self.run_owner("native-fail")
+        self.assertFalse(result["success"]); self.assertEqual(result["phase"], "native")
+        self.assertEqual(result["statuses"]["native"], 2)
+        self.assertFalse((self.root / "finalized").exists())
+        self.assertTrue(result["cleanup"]["children_joined"])
+
+    def test_native_deadline_is_abort_and_still_joins_all_children(self):
+        with patch.dict(G, NATIVE_SECONDS=0.2): result = self.run_owner("native-deadline")
+        self.assertFalse(result["success"]); self.assertEqual(result["phase"], "native")
+        self.assertTrue(result["cleanup"]["children_joined"])
+        self.assertFalse((self.root / "finalized").exists())
+
+    def test_driver_exit_cannot_be_mistaken_for_ready(self):
+        result = self.run_owner("driver-exit")
+        self.assertFalse(result["success"]); self.assertEqual(result["phase"], "read-ready")
+        self.assertIsNone(result["statuses"]["native"])
+        self.assertFalse((self.root / "finalized").exists())
+
+    def test_finalization_failure_keeps_guest_cleanup_pending(self):
+        result = self.run_owner("finalize-fail")
+        self.assertFalse(result["success"]); self.assertEqual(result["phase"], "finalize")
+        self.assertFalse((self.root / "finalized").exists())
+
+    def test_tunnel_extra_stdout_is_rejected_before_finalize(self):
+        result = self.run_owner("tunnel-extra-output")
+        self.assertFalse(result["success"]); self.assertEqual(result["phase"], "tunnel-join")
+        self.assertFalse((self.root / "finalized").exists())
+
+    def test_tunnel_leftover_socket_is_not_silently_removed_or_promoted(self):
+        result = self.run_owner("socket-left")
+        self.assertFalse(result["success"] or result["cleanup"]["socket_removed"])
+        self.assertTrue((self.run / "android-api/core-api.sock").exists())
+        self.assertFalse((self.root / "finalized").exists())
+
+    def test_cancel_after_tunnel_and_native_spawn_joins_without_finalize(self):
+        def interrupt(*_): raise O["Failure"]("inert cancellation")
+        prior = signal.signal(signal.SIGTERM, interrupt)
+        try: result = self.run_owner("cancel-native")
+        finally: signal.signal(signal.SIGTERM, prior)
+        self.assertFalse(result["success"])
+        self.assertTrue(result["cleanup"]["children_joined"] and result["cleanup"]["socket_removed"])
+        self.assertFalse((self.root / "finalized").exists())
+
+
+if __name__ == "__main__": unittest.main()

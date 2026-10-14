@@ -98,6 +98,9 @@ jobs:
           python3 -B tests/integration/test-weather-android-control.py
           python3 -B tests/integration/test-weather-android-evidence.py
           python3 -B tests/integration/test-weather-android-delivery-shell.py
+          python3 -B tests/integration/test-weather-android-owner.py
+          python3 -B tests/integration/test-weather-android-vm-wiring.py
+          python3 -B tests/integration/test-weather-android-hosted-wiring.py
           sh -n tests/integration/weather-android-delivery.sh
           shellcheck --severity=warning tests/integration/weather-android-delivery.sh
 

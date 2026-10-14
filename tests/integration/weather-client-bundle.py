@@ -359,11 +359,11 @@ def public_overmorrow_admission():
 
 
 def validate_android_admission(value):
-    """Reviewed guest inputs only; APK and joined execution require new evidence."""
+    """Reviewed disposable Android/core inputs, never successful runtime evidence."""
     require(type(value) is dict and set(value) == {"schema", "kind", "scope", "sources", "artifacts", "files"}
         and type(value["schema"]) is int and value["schema"] == 1
         and value["kind"] == "volparossa-weather-public-android-admission"
-        and value["scope"] == "disposable-android-core-inputs-only"
+        and value["scope"] == "disposable-joined-android-core-only"
         and type(value["sources"]) is dict and set(value["sources"]) == {"weather"})
     source = value["sources"]["weather"]
     require(type(source) is dict and set(source) == {"commit"} and type(source["commit"]) is str
@@ -1116,8 +1116,9 @@ def checked_archive(archive, expected, root=None, *, runtime=False, report_versi
         require(read_exact(source, -item.size % 512) == b"\0" * (-item.size % 512))
         selected = manifest(raw, expected)
         # Only profiles with explicit joined-runtime dispatch may execute.
-        # Android v6 is archive-only until its separate runner is integrated.
-        require(not runtime or selected["version"] in (1, 2, 3, 4, 5))
+        # V6 uses the separate owned Android runner, not an older browser UI.
+        # Admitting exact inputs is never evidence that execution passed.
+        require(not runtime or selected["version"] in (1, 2, 3, 4, 5, 6))
         if root is not None:
             new_path(root); root.mkdir(mode=0o700)
         for name, record in sorted(selected["files"].items()):

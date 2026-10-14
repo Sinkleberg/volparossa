@@ -31,8 +31,8 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | PR19 proves the installed lifecycle with synthetic products. PR21 adds explicit cache creation/reuse; PR22 is merged as `93770b59` with a private API-only Unix listener, separate native preparation/live entrypoints and optional private original CLI receipt retention. Component and CodeQL checks pass on exact source `f6ee8299`. The core's v6 guest-input/tunnel candidate still requires joined orchestration and packet, custody and cleanup evidence. Live product expiry, physical devices and iOS remain open; the historical synthetic expiry and real web proofs are unchanged. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38519187504` fails Cloud FINALIZE after READY with `wire_receipt/io`; its separate base-maintenance restores and cleanup pass. Candidate `8ea8a059` adds bounded diagnostics for the exact failed local request and passes Quality `38592307081` and CodeQL `38592303405`. Actual trial `38595365736` is dispatched on that exact source with profile 5 and unchanged acceptance criteria. Consumer repair, restore and remote cleanup remain unproved pending its result. Cloud PR234 waits for this shared integration. |
+| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | PR19 proves the installed lifecycle with synthetic products. PR21 adds explicit cache creation/reuse; PR22 is merged as `93770b59` with separate native preparation/live entrypoints. Exact Weather source `f6ee8299` passes components and CodeQL; core guest candidate `709ec8aa` passes Quality `38597941234`. The next candidate connects the hosted owner, native app and disposable VM, with original-receipt and teardown gates. Actual joined execution remains unproved. Live expiry, physical devices and iOS remain open; historical synthetic expiry and real web proofs are unchanged. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38519187504` fails Cloud FINALIZE after READY with `wire_receipt/io`; its separate base-maintenance restores and cleanup pass. Diagnostic candidate `8ea8a059` passes workspace Quality and CodeQL, but actual `38595365736` fails before topology execution: the isolated agent test build lacks Tokio `test-util`. Correction `d22f7892` passes Quality `38601264906`, including seven isolated-package outcome tests; actual trial `38607252325` is dispatched on that exact source. The original FINALIZE failure, consumer repair/restore and remote cleanup remain open. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 and PR247 are merged; main `17afa3f0` contains the finite operator grants, guest module, protected exchange and CLI verifier. Corrected source `09b0d3cc` passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`. Software evidence does not establish production-route execution, production authority, current vendor appraisal, an approved measured workload or actual private execution. Suitable confidential-computing hardware is unavailable; storage and Android integration continue in parallel. |
 
@@ -50,8 +50,9 @@ without allowing directory-descriptor reuse to redirect a write.
 
 The core candidate's v6 input bundle contains only 39 explicitly admitted source,
 Node and decoder members. It excludes a browser, SDK, APK and synthetic provider.
-Its archive validation is not runtime admission: the existing topology runtime
-remains limited to profiles 1–5 until the separate Android/VM dispatcher is wired.
+Its archive validation alone is not runtime proof. The separate Android/VM
+dispatcher now admits profile 6 only with the exact prepared Weather source;
+profiles 1–5 retain their existing dispatch and evidence contracts.
 The API-only tunnel is bounded and preserves the live socket through final
 Android identity checks; its local tests use owned processes and Unix sockets,
 not SSH, a VM, real peers or an Android device.
@@ -64,10 +65,10 @@ historical cold-transfer and browser evidence cannot be relabeled as Android
 evidence. Independent review checks all 39 admitted inputs against the exact
 Weather source and previously admitted decoder artifacts.
 
-Core candidate `449677d5` passes the complete hosted Quality run
-[`38588733490`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38588733490).
-The next candidate adds the owned worker-service lifecycle, fixed guest control
-handshake and guest dispatch after publisher cleanup. Its receipt verifier
+Core guest candidate `709ec8aa` passes the complete hosted Quality run
+[`38597941234`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38597941234).
+It adds the owned worker-service lifecycle, fixed guest control handshake and
+guest dispatch after publisher cleanup. Its receipt verifier
 preserves the six original CLI operations and joins HTTP body hashes to the
 installed app's observations. Both products share a capture window; this is not
 the older proof's pair of independent captures. Local synthetic contract tests
@@ -77,10 +78,17 @@ The required next joined proof must bind an Android-initiated first GET to its
 original cold core receipt, actual protected paths and the same response bytes
 shown by the app. Native build preparation must precede publication. Fresh
 background/resume follows two tap refreshes without an extra fetch; it is not
-live-expiry proof. Host orchestration, the combined resource/deadline budget and
-final evidence export still need to be connected before admitting profile 6 at
-runtime. No local native build or host-network change was performed for these
-components.
+live-expiry proof. The next candidate connects host orchestration and the separate
+native preparation/live entrypoints. It admits the combined guest and emulator
+only with at least 10 GiB available memory and bounded execution time; publication
+lifetimes are not extended. A shell-only cancellation must stop and join the
+owned coordinator before destroying the guest. Final acceptance requires original
+CLI/HTTP/UI evidence from this run, completed VM destruction and byte-identical
+restoration of the hosted runner's temporary KVM ACL. Only explicitly named,
+closed evidence is exported, never raw private receipts or native state.
+
+These are implemented candidate gates, not a completed Android-to-core trial.
+No local native build or host-network change was performed for these components.
 
 ### Latest storage trial
 
@@ -103,9 +111,23 @@ and [CodeQL `38592303405`](https://github.com/VOLPAROSSA/volparossa/actions/runs
 pass, including the outcome registry, actual Unix-UID query, CLI diagnostics and
 stream-close-before-query tests. Quality tests the PR merge candidate; the actual
 [consumer trial `38595365736`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38595365736)
-is dispatched directly on `8ea8a059bc66ac38dbc920d156a018ee2038e767`. Its result is
-still required; neither the new diagnostics nor passing component tests establish
-consumer restoration.
+runs directly on `8ea8a059bc66ac38dbc920d156a018ee2038e767` and fails before the
+topology starts. Its isolated `cargo test -p volparossa-agent --lib maintenance`
+build cannot compile the outcome tests: Tokio `advance` and `start_paused` require
+the missing `test-util` feature. The broad workspace build had obtained that
+feature through another test dependency; its pass did not prove this isolated
+build. The topology exit code is 101, not a new storage-operation failure.
+
+Correction `d22f7892` explicitly adds Tokio `test-util` only to the agent's
+development dependencies and adds the isolated outcome-test command to Quality.
+[Quality `38601264906`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38601264906)
+passes, including all seven isolated outcome tests after the workspace suite.
+One new [actual trial `38607252325`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38607252325)
+is dispatched on `d22f7892c76020a3addaf360a3b01507ff7164fd`; its result is pending.
+The correction does not change production Tokio features, add a FINALIZE retry,
+alter the profile-5 acceptance conditions or resolve the original Cloud I/O
+failure. Neither the diagnostics nor passing component tests establish consumer
+restoration.
 
 The failed run `38519187504` completes the separate base-maintenance lifecycle, two whole-archive
 verified restores, deletion of all eleven base copies and the foreground copy,

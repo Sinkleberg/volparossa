@@ -1,0 +1,552 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+"""Own one hosted Android/core trial; never request or synthesize a product.
+
+The enclosing VM shell owns QEMU and archive retrieval. This owner launches the
+fixed guest-driver SSH process itself, then the fixed API-only tunnel and the
+already prepared Weather runtime. `join` runs after the shell retrieves the
+closed guest artifact. VM destruction remains a separate acceptance gate.
+"""
+import argparse
+from contextlib import contextmanager
+import ctypes
+import json
+import os
+from pathlib import Path
+import re
+import runpy
+import selectors
+import signal
+import stat
+import subprocess
+import sys
+import time
+
+HERE = Path(__file__).resolve().parent
+CORE = HERE.parents[1]
+E = runpy.run_path(str(HERE / "weather-android-evidence.py"))
+T = runpy.run_path(str(HERE / "weather-android-tunnel.py"))
+require, same, exact, digest = E["require"], E["same"], E["exact"], E["digest"]
+CONTROL = "/usr/local/libexec/volparossa-weather-android-control.py"
+PROFILE = "android-protected-core-v6"
+FIELDS = {"schema", "core_commit", "weather_commit", "weather_root", "run_directory", "output_directory",
+    "source_sha256", "mpquic_sha256", "package_sha256", "weather_archive_sha256", "weather_manifest_sha256"}
+SHA40 = re.compile(r"[a-f0-9]{40}")
+# This enclosing native budget is intentionally tighter than the pinned
+# Weather wrapper's internal limit. It leaves cleanup/finalization time within
+# the unchanged tunnel and original publication budgets; a slower run fails,
+# rather than extending an authorization or substituting a prepared UI report.
+DRIVER_SECONDS, NATIVE_SECONDS, TUNNEL_SECONDS = 2400, 420, 480
+TERM_SECONDS, KILL_SECONDS = 30, 5
+SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+ENV_KEYS = ("GITHUB_ACTIONS", "RUNNER_OS", "RUNNER_ENVIRONMENT", "GITHUB_REPOSITORY", "GITHUB_WORKFLOW",
+    "GITHUB_WORKSPACE", "GITHUB_SHA", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "VOLPAROSSA_WEATHER_SOURCE_SHA")
+
+
+class Failure(ValueError): pass
+
+
+def canonical(path, *, directory=False, mode=None):
+    path = Path(path)
+    require(path.is_absolute() and path.resolve(strict=True) == path and not re.search(r"[\x00-\x1f\x7f]", str(path)))
+    info = path.lstat()
+    require((stat.S_ISDIR if directory else stat.S_ISREG)(info.st_mode) and info.st_uid == os.getuid()
+        and not info.st_mode & 0o022 and (mode is None or stat.S_IMODE(info.st_mode) == mode))
+    if not directory: require(info.st_nlink == 1)
+    return path
+
+
+def read(path, limit=65536, mode=0o600):
+    return E["private_bytes"](Path(path), limit, os.getuid(), mode)
+
+
+def document(path, limit=65536, mode=0o600):
+    return E["decode"](read(path, limit, mode), limit)
+
+
+def write(path, value):
+    raw = (json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode()
+    require(len(raw) <= 65536)
+    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "wb") as stream:
+        os.fchmod(stream.fileno(), 0o600); stream.write(raw); stream.flush()
+    return digest(raw)
+
+
+def environment():
+    return dict(PATH="/usr/bin:/bin", LANG="C.UTF-8", LC_ALL="C.UTF-8", PYTHONDONTWRITEBYTECODE="1",
+        GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null", GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0",
+        **{key: os.environ[key] for key in ENV_KEYS})
+
+
+def identity(core_commit, weather_commit):
+    return dict(core_commit=core_commit, weather_commit=weather_commit,
+        run_id=os.environ["GITHUB_RUN_ID"], run_attempt=os.environ["GITHUB_RUN_ATTEMPT"])
+
+
+def hosted(core_commit, weather_commit):
+    require(os.getuid() == os.geteuid() != 0 and SHA40.fullmatch(core_commit) and SHA40.fullmatch(weather_commit))
+    expected = dict(GITHUB_ACTIONS="true", RUNNER_OS="Linux", RUNNER_ENVIRONMENT="github-hosted",
+        GITHUB_REPOSITORY="VOLPAROSSA/volparossa", GITHUB_WORKFLOW="Weather Android protected core delivery",
+        GITHUB_WORKSPACE=str(CORE), GITHUB_SHA=core_commit, VOLPAROSSA_WEATHER_SOURCE_SHA=weather_commit)
+    require(all(os.environ.get(k) == v for k, v in expected.items()))
+    require(all(re.fullmatch(r"[1-9][0-9]{0,19}", os.environ.get(k, "")) for k in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT")))
+    # The pinned runtime must install/remove its scoped policy via sudo. Do not
+    # inherit the unrelated no-new-privileges wrapper of older VM-only trials.
+    require("NoNewPrivs:\t0" in Path("/proc/self/status").read_text().splitlines())
+
+
+def git_check(root, commit):
+    canonical(root, directory=True)
+    base = ["/usr/bin/git", "--no-optional-locks", "-c", "core.hooksPath=/dev/null", "-C", str(root)]
+    result = subprocess.run(base + ["rev-parse", "HEAD"], stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=environment(), timeout=10, check=True)
+    require(result.stdout == (commit + "\n").encode())
+    subprocess.run(base + ["-c", "diff.autoRefreshIndex=false", "diff", "--quiet", "HEAD", "--"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        env=environment(), timeout=15, check=True)
+
+
+def prepared(weather, core_commit, weather_commit):
+    """Authenticate the existing preparation without running SDK/native code."""
+    hosted(core_commit, weather_commit)
+    weather = canonical(weather, directory=True)
+    require(weather != CORE and weather.is_relative_to(CORE))
+    pin = json.loads((HERE / "weather-public-android-v6.json").read_bytes())
+    same(weather_commit, pin["sources"]["weather"]["commit"])
+    git_check(CORE, core_commit); git_check(weather, weather_commit)
+    runtime = runpy.run_path(str(weather / "scripts/prepare_hosted_android_ci.py"))
+    helper = runtime["H"].policy_helper()
+    value = runtime["prepared_core_inputs"](helper)
+    result = dict(schema=6, kind="weather-android-owner-preflight", identity=identity(core_commit, weather_commit),
+        prepared_sha256=digest(read(weather / "build/hosted-android-ci/prepared.json", 2 * 1024**2)),
+        result_sha256=digest(read(weather / "build/hosted-android-ci/result.json")), apk=value["apk"],
+        original_preparation_verified=True, runtime_executed=False, publication_started=False)
+    return result
+
+
+def config(path):
+    value = document(path, 8192); exact(value, FIELDS); same(value["schema"], 6)
+    hosted(value["core_commit"], value["weather_commit"])
+    for key in ("source_sha256", "mpquic_sha256", "weather_archive_sha256", "weather_manifest_sha256"):
+        E["hashes"](value, (key,))
+    same(value["package_sha256"], "none")
+    weather = canonical(value["weather_root"], directory=True)
+    run = canonical(value["run_directory"], directory=True, mode=0o700)
+    output = canonical(value["output_directory"], directory=True)
+    require(weather.is_relative_to(CORE) and weather != CORE and run.parent == output.parent
+        and run.is_relative_to(CORE) and output.is_relative_to(CORE) and output != run
+        and re.fullmatch(r"weather-client-kvm\.[A-Za-z0-9]{6}", run.name)
+        and Path(path) == run / "android-owner-input.json")
+    for name in ("guest-key", "known-hosts"): canonical(run / name, mode=0o600)
+    socket = run / "android-api/core-api.sock"
+    require(len(os.fsencode(socket)) < 104)
+    return value
+
+
+def ssh(value, suffix):
+    run = Path(value["run_directory"])
+    base = T["ssh_command"](run / "guest-key", run / "known-hosts")
+    return base[:-6] + suffix
+
+
+def command(value, name, action=None):
+    run, weather = Path(value["run_directory"]), Path(value["weather_root"])
+    if name == "driver":
+        return ssh(value, ["/home/vpci/guest-driver.sh", value["core_commit"], value["source_sha256"],
+            value["mpquic_sha256"], "none", "content-provider", "weather-client",
+            value["weather_archive_sha256"], value["weather_manifest_sha256"]])
+    if name == "controller":
+        require(action in ("read-ready", "finalize"))
+        return ssh(value, ["/usr/bin/sudo", "-n", "/usr/bin/python3", "-B", CONTROL, action])
+    if name == "tunnel":
+        return ["/usr/bin/python3", "-B", str(HERE / "weather-android-tunnel.py"), "host", "--socket",
+            str(run / "android-api/core-api.sock"), "--ssh-key", str(run / "guest-key"), "--known-hosts", str(run / "known-hosts")]
+    same(name, "native")
+    return ["/usr/bin/python3", "-B", str(weather / "scripts/prepare_hosted_android_ci.py"),
+        "--run-protected-core", "--upstream-socket", str(run / "android-api/core-api.sock")]
+
+
+@contextmanager
+def cancellation_blocked():
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, SIGNALS)
+    try: yield previous
+    finally: signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+
+class Children:
+    """Own only newly spawned sessions; drain pipes and adopted descendants."""
+    def __init__(self):
+        self.jobs = []; self.selector = selectors.DefaultSelector(); self.overflow = False
+        self.children = Path(f"/proc/self/task/{os.getpid()}/children")
+        require(not self.children.read_text().strip() and len(list(Path("/proc/self/task").iterdir())) == 1)
+        require(not set(signal.pthread_sigmask(signal.SIG_BLOCK, [])) & set(SIGNALS))
+        self.libc = ctypes.CDLL(None, use_errno=True); self.old_reaper = ctypes.c_int()
+        require(self.libc.prctl(37, ctypes.byref(self.old_reaper), 0, 0, 0) == 0
+            and self.libc.prctl(36, 1, 0, 0, 0) == 0)
+
+    def start(self, argv, name, env, cwd, limit=65536):
+        job = dict(name=name, process=None, data={"stdout": bytearray(), "stderr": bytearray()}, open=set(), limit=limit)
+        self.jobs.append(job)
+        with cancellation_blocked() as mask:
+            job["process"] = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                env=env, cwd=cwd, close_fds=True, start_new_session=True,
+                preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_SETMASK, mask))
+            for name in job["data"]:
+                stream = getattr(job["process"], name); os.set_blocking(stream.fileno(), False)
+                self.selector.register(stream, selectors.EVENT_READ, (job, name)); job["open"].add(name)
+        return job
+
+    def pump(self, timeout=0.05, *, cleanup=False):
+        for entry, _ in self.selector.select(max(0, min(timeout, 0.1))):
+            job, name = entry.data
+            raw = os.read(entry.fileobj.fileno(), min(65536, max(1, job["limit"] + 1 - len(job["data"][name]))))
+            if raw:
+                job["data"][name].extend(raw)
+                if len(job["data"][name]) <= job["limit"]: continue
+                self.overflow = True
+            self.selector.unregister(entry.fileobj); job["open"].remove(name); entry.fileobj.close()
+            if raw and not cleanup: raise Failure("output-limit")
+        for job in self.jobs:
+            if job["process"] is not None: job["process"].poll()
+
+    @staticmethod
+    def done(job):
+        return job["process"] is not None and job["process"].returncode is not None and not job["open"]
+
+    @staticmethod
+    def signal(job, sig):
+        process = job["process"]
+        if process is not None and process.returncode is None:
+            try: os.killpg(process.pid, sig)
+            except ProcessLookupError: pass
+
+    def wait(self, job, deadline, driver=None, wall_deadline=None):
+        while not self.done(job):
+            if time.monotonic() >= deadline or (wall_deadline is not None and time.time() >= wall_deadline):
+                raise Failure("deadline")
+            self.pump()
+            if driver is not None and driver["process"].returncode is not None: raise Failure("driver-exited")
+        return job["process"].returncode
+
+    def close(self):
+        checked, forced, drained = True, False, False
+        previous = {sig: signal.signal(sig, signal.SIG_IGN) for sig in SIGNALS}
+        try:
+            for sig, seconds in ((signal.SIGTERM, TERM_SECONDS), (signal.SIGKILL, KILL_SECONDS)):
+                for job in self.jobs:
+                    if job["process"] is not None and job["process"].returncode is None:
+                        if sig == signal.SIGKILL: forced = True
+                        try: self.signal(job, sig)
+                        except OSError: checked = False
+                until = time.monotonic() + seconds
+                while time.monotonic() < until:
+                    try:
+                        self.pump(cleanup=True)
+                        leaders = {job["process"].pid for job in self.jobs if job["process"] is not None}
+                        for raw in self.children.read_text().split()[:128]:
+                            pid = int(raw)
+                            if pid not in leaders and os.waitpid(pid, os.WNOHANG)[0] == 0:
+                                if sig == signal.SIGKILL: forced = True
+                                try: os.kill(pid, sig)
+                                except ProcessLookupError: pass
+                        if not self.children.read_text().strip() and not self.selector.get_map():
+                            drained = True; break
+                    except (OSError, ValueError): checked = False
+                if drained: break
+            if drained and self.libc.prctl(36, self.old_reaper.value, 0, 0, 0) != 0: checked = False
+        finally:
+            for job in self.jobs:
+                if job["process"] is not None:
+                    for name in job["data"]:
+                        try: getattr(job["process"], name).close()
+                        except OSError: checked = False
+            self.selector.close()
+            for sig, handler in previous.items(): signal.signal(sig, handler)
+        return dict(children_joined=drained, forced_kill=forced, output_drained=checked and not self.overflow)
+
+
+def ready_record(value, selected, *, historical=False):
+    exact(value, ("schema", "kind", "manifest_sha256", "core_sha256", "prepared_sha256", "deadline_unix_seconds",
+        "remaining_seconds", "api_socket_ready", "cold_caches_absent", "helper_requests", "joined_delivery_proven"))
+    same(value["schema"], 6); same(value["kind"], "weather-android-guest-ready")
+    E["hashes"](value, ("manifest_sha256", "core_sha256", "prepared_sha256"))
+    same(value["manifest_sha256"], selected["weather_manifest_sha256"])
+    same(value["api_socket_ready"], True); same(value["cold_caches_absent"], True)
+    same(value["helper_requests"], 0); same(value["joined_delivery_proven"], False)
+    E["integer"](value["remaining_seconds"], 600, 840); E["integer"](value["deadline_unix_seconds"], 1)
+    if not historical:
+        require(599 <= value["deadline_unix_seconds"] - time.time() <= 840
+            and abs(value["deadline_unix_seconds"] - int(time.time()) - value["remaining_seconds"]) <= 2)
+
+
+def tunnel_record(value):
+    exact(value, ("schema", "kind", "completed", "requests", "original_response_bytes", "joined_core_acceptance",
+        "cleanup_confirmed", "responses"))
+    same(value["schema"], 6); same(value["kind"], "weather-android-api-tunnel"); same(value["completed"], 6)
+    same(value["requests"], dict.fromkeys(T["ROUTES"], 3)); same(value["original_response_bytes"], True)
+    same(value["joined_core_acceptance"], False); same(value["cleanup_confirmed"], True)
+    require(type(value["responses"]) is list and len(value["responses"]) == 6)
+    seen = set()
+    for response in value["responses"]:
+        E["validate_response"](response); seen.add((response["product"], response["ordinal"]))
+    same(seen == {(key, ordinal) for key in E["PRODUCTS"] for ordinal in (1, 2, 3)}, True)
+
+
+def native_result(value):
+    same(value, dict(schema=1, kind="hosted-android-protected-core-installed-trial", phase="complete", success=True,
+        process_drain_confirmed=True, policy_cleanup_complete=True, host_netns_unchanged=True, synthetic=False,
+        expiry_proven=False, core_delivery=False, joined_core_acceptance=False, mobile_core=False, production_authority=False))
+
+
+def preparation_record(value, expected_identity):
+    exact(value, ("schema", "kind", "identity", "prepared_sha256", "result_sha256", "apk",
+        "original_preparation_verified", "runtime_executed", "publication_started"))
+    same(value["schema"], 6); same(value["kind"], "weather-android-owner-preflight")
+    same(value["identity"], expected_identity)
+    E["hashes"](value, ("prepared_sha256", "result_sha256"))
+    exact(value["apk"], ("bytes", "sha256")); E["hashes"](value["apk"], ("sha256",))
+    E["integer"](value["apk"]["bytes"], 1, 192 * 1024**2)
+    same(value["original_preparation_verified"], True)
+    same(value["runtime_executed"], False); same(value["publication_started"], False)
+
+
+def run(value):
+    preparation = prepared(Path(value["weather_root"]), value["core_commit"], value["weather_commit"])
+    preparation_record(preparation, identity(value["core_commit"], value["weather_commit"]))
+    run_dir, weather = Path(value["run_directory"]), Path(value["weather_root"])
+    private, socket_parent = run_dir / "android-owner", run_dir / "android-api"
+    private.mkdir(mode=0o700); socket_parent.mkdir(mode=0o700)
+    canonical(private, directory=True, mode=0o700); canonical(socket_parent, directory=True, mode=0o700)
+    write(private / "preparation.json", preparation)
+    pool = Children(); env = environment(); phase, success, ready = "driver", False, None
+    netns = os.readlink("/proc/self/ns/net"); outer = time.monotonic() + DRIVER_SECONDS
+    statuses = dict(driver=None, tunnel=None, native=None)
+    try:
+        driver = pool.start(command(value, "driver"), "driver", env, CORE, 4 * 1024**2)
+        phase = "read-ready"
+        while ready is None:
+            require(len(pool.jobs) < 1202 and time.monotonic() < outer)
+            probe = pool.start(command(value, "controller", "read-ready"), "controller", env, CORE, 16384)
+            status = pool.wait(probe, min(outer, time.monotonic() + 12), driver)
+            if status == 0:
+                ready = E["decode"](bytes(probe["data"]["stdout"]), 16384); ready_record(ready, value)
+                break
+            # Failed readiness probes carry no evidence; retain no remote text.
+            for raw in probe["data"].values(): raw.clear()
+            if time.monotonic() >= outer: raise Failure("deadline")
+            until = min(outer, time.monotonic() + 2)
+            while time.monotonic() < until:
+                pool.pump()
+                if driver["process"].returncode is not None: raise Failure("driver-exited")
+        write(private / "ready.json", ready)
+        absolute = ready["deadline_unix_seconds"]
+        publication_deadline = time.monotonic() + absolute - time.time()
+        phase = "tunnel"
+        tunnel_started = time.monotonic()
+        tunnel = pool.start(command(value, "tunnel"), "tunnel", env, CORE)
+        socket = socket_parent / "core-api.sock"
+        until = min(outer, publication_deadline - 90, time.monotonic() + 5)
+        while not socket.exists():
+            if time.monotonic() >= until: raise Failure("deadline")
+            pool.pump()
+            if driver["process"].returncode is not None: raise Failure("driver-exited")
+            if tunnel["process"].returncode is not None: raise Failure("tunnel-exited")
+        info = T["owned"](socket, stat.S_ISSOCK, 0o600); socket_identity = info.st_dev, info.st_ino
+        require(list(socket_parent.iterdir()) == [socket])
+        phase = "native"
+        native = pool.start(command(value, "native"), "native", env, weather, 2 * 1024**2)
+        deadline = min(outer - 60, publication_deadline - 90, tunnel_started + NATIVE_SECONDS)
+        while not pool.done(native):
+            if time.monotonic() >= deadline or time.time() >= absolute - 90: raise Failure("deadline")
+            pool.pump()
+            if driver["process"].returncode is not None: raise Failure("driver-exited")
+            if tunnel["process"].returncode is not None: raise Failure("tunnel-exited")
+        statuses["native"] = native["process"].returncode; same(statuses["native"], 0)
+        native_result(document(weather / "build/hosted-android-live-ci/result.json"))
+        require(T["same_socket"](socket, socket_identity))
+        phase = "tunnel-join"
+        pool.signal(tunnel, signal.SIGTERM)
+        statuses["tunnel"] = pool.wait(tunnel, min(publication_deadline - 60, tunnel_started + TUNNEL_SECONDS,
+            time.monotonic() + 10), driver, absolute - 60)
+        same(statuses["tunnel"], 0)
+        tunnel_value = E["decode"](bytes(tunnel["data"]["stdout"]), 65536); tunnel_record(tunnel_value)
+        require(not socket.exists() and not list(socket_parent.iterdir()))
+        write(private / "tunnel.json", tunnel_value)
+        phase = "finalize"
+        require(time.time() < absolute and time.monotonic() < publication_deadline)
+        request = pool.start(command(value, "controller", "finalize"), "controller", env, CORE, 16384)
+        same(pool.wait(request, min(publication_deadline, time.monotonic() + 12), wall_deadline=absolute), 0)
+        finalized = E["decode"](bytes(request["data"]["stdout"]), 16384)
+        same(finalized, dict(schema=6, kind="weather-android-finalize-requested", prepared_sha256=ready["prepared_sha256"],
+            finalize_requested=True, joined_delivery_proven=False))
+        write(private / "finalize.json", finalized)
+        phase = "driver-join"
+        statuses["driver"] = pool.wait(driver, min(outer, publication_deadline + 60), wall_deadline=absolute + 60)
+        same(statuses["driver"], 0)
+        phase, success = "complete", True
+    except (Failure, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        success = False
+    finally:
+        cleanup = pool.close()
+    socket_absent = not (socket_parent / "core-api.sock").exists() and not list(socket_parent.iterdir())
+    unchanged = os.readlink("/proc/self/ns/net") == netns
+    success = success and all((cleanup["children_joined"], cleanup["output_drained"], not cleanup["forced_kill"], socket_absent, unchanged))
+    result = dict(schema=6, kind="weather-android-owner-run", identity=identity(value["core_commit"], value["weather_commit"]),
+        success=success, phase=phase, statuses=statuses, cleanup=dict(**cleanup, socket_removed=socket_absent,
+        host_netns_unchanged=unchanged), helper_requests=0, joined_core_acceptance=False, vm_cleanup_pending=True)
+    write(private / "result.json", result)
+    return result
+
+
+def join(value):
+    """Combine only original closed records; QEMU/host teardown is still external."""
+    private = Path(value["run_directory"]) / "android-owner"
+    weather = Path(value["weather_root"])
+    owner = document(private / "result.json")
+    expected_identity = identity(value["core_commit"], value["weather_commit"])
+    same(owner, dict(schema=6, kind="weather-android-owner-run", identity=expected_identity, success=True,
+        phase="complete", statuses=dict(driver=0, tunnel=0, native=0), cleanup=dict(children_joined=True,
+        forced_kill=False, output_drained=True, socket_removed=True, host_netns_unchanged=True),
+        helper_requests=0, joined_core_acceptance=False, vm_cleanup_pending=True))
+    ready = document(private / "ready.json")
+    # Historical ready is bound below, not re-authorized after its deadline.
+    ready_record(ready, value, historical=True)
+    same(document(private / "finalize.json"), dict(schema=6, kind="weather-android-finalize-requested",
+        prepared_sha256=ready["prepared_sha256"], finalize_requested=True, joined_delivery_proven=False))
+    tunnel = document(private / "tunnel.json"); tunnel_record(tunnel)
+    guest_path = Path(value["output_directory"]) / "weather-android-delivery-evidence.json"
+    guest_raw = read(guest_path); guest = E["decode"](guest_raw, 65536); E["validate_guest_export"](guest)
+    for key in ("manifest_sha256", "core_sha256", "prepared_sha256"): same(guest[key], ready[key])
+    # The owner budget starts before publishing and is deliberately shorter
+    # than each immutable publication's lifetime. Do not require equal clocks
+    # or renew either authorization merely to make the records agree.
+    require(ready["deadline_unix_seconds"] <= min(
+        item["expires_unix_seconds"] for item in guest["publications"].values()))
+    for rows in guest["transfers"].values():
+        require(all(row["completed_at_ms"] < ready["deadline_unix_seconds"] * 1000 for row in rows))
+    live = weather / "build/hosted-android-live-ci"
+    native_result(document(live / "result.json"))
+    preparation = document(private / "preparation.json")
+    preparation_record(preparation, expected_identity)
+    for basename, key in (("prepared.json", "prepared_sha256"), ("result.json", "result_sha256")):
+        same(digest(read(weather / "build/hosted-android-ci" / basename, 2 * 1024**2)), preparation[key])
+    same(document(live / "admission.json"), dict(schema=1, kind="hosted-android-protected-core-admission",
+        identity=expected_identity, prepared_sha256=preparation["prepared_sha256"], result_sha256=preparation["result_sha256"],
+        apk=preparation["apk"], core_executed=False, joined_core_acceptance=False))
+    proof = weather / "build/overmorrow-hosted-android-live-proof"
+    raw = read(proof / "report.json")
+    boundary_raw, cleanup_raw = read(proof / "emulator-boundary.json"), read(proof / "emulator-cleanup.json")
+    E["decode"](boundary_raw, 65536)  # Only its authenticated digest is exported.
+    same(E["decode"](cleanup_raw, 65536), dict(schema=1, direct_children_reaped=True, private_avd_removed=True,
+        private_android_home_removed=True, trial_returned=True, enclosing_namespace_cleanup_required=True))
+    same(document(live / "installed.json"), dict(schema=1, kind="hosted-android-protected-core-installed",
+        identity=expected_identity, apk=preparation["apk"], installed_report_sha256=digest(raw),
+        boundary_sha256=digest(boundary_raw), emulator_cleanup_sha256=digest(cleanup_raw), actual_installed_app=True,
+        synthetic=False, expiry_proven=False, core_delivery=False, joined_core_acceptance=False, production_authority=False))
+    report = E["decode"](raw, 65536)
+    observed = E["join_observations"](report, guest["transfers"], tunnel["responses"], guest["publications"])
+    result = dict(schema=6, kind="weather-android-owner-join", identity=expected_identity,
+        manifest_sha256=ready["manifest_sha256"], core_sha256=ready["core_sha256"], prepared_sha256=ready["prepared_sha256"],
+        guest_evidence_sha256=digest(guest_raw), original_android_report_sha256=digest(raw),
+        tunnel_sha256=digest(read(private / "tunnel.json")), owner_result_sha256=digest(read(private / "result.json")),
+        observations=observed, installed_android_observed=True, original_cli_http_ui_joined=True,
+        helper_requests=0, joined_core_acceptance=False, vm_cleanup_pending=True)
+    write(Path(value["output_directory"]) / "weather-android-owner-join.json", result)
+    return result
+
+
+def candidate(value, guest, expected_identity, manifest):
+    """Validate the closed projection after the original private records vanish."""
+    exact(value, ("schema", "kind", "identity", "manifest_sha256", "core_sha256", "prepared_sha256",
+        "guest_evidence_sha256", "original_android_report_sha256", "tunnel_sha256", "owner_result_sha256",
+        "observations", "installed_android_observed", "original_cli_http_ui_joined", "helper_requests",
+        "joined_core_acceptance", "vm_cleanup_pending"))
+    same(value["schema"], 6); same(value["kind"], "weather-android-owner-join"); same(value["identity"], expected_identity)
+    E["hashes"](value, ("manifest_sha256", "core_sha256", "prepared_sha256", "guest_evidence_sha256",
+        "original_android_report_sha256", "tunnel_sha256", "owner_result_sha256"))
+    same(value["manifest_sha256"], manifest)
+    for key in ("manifest_sha256", "core_sha256", "prepared_sha256"): same(value[key], guest[key])
+    for key in ("installed_android_observed", "original_cli_http_ui_joined", "vm_cleanup_pending"): same(value[key], True)
+    same(value["helper_requests"], 0); same(value["joined_core_acceptance"], False)
+    observed = value["observations"]
+    exact(observed, ("schema", "kind", "profile", "products", "matched_original_receipts_and_http_and_ui",
+        "joined_core_acceptance", "expiry_proven"))
+    same(observed["schema"], 6); same(observed["kind"], "weather-android-observation-join")
+    same(observed["profile"], PROFILE); same(observed["matched_original_receipts_and_http_and_ui"], True)
+    same(observed["joined_core_acceptance"], False); same(observed["expiry_proven"], False)
+    exact(observed["products"], E["PRODUCTS"])
+    for key in E["PRODUCTS"]:
+        item, publication = observed["products"][key], guest["publications"][key]
+        exact(item, ("forecast_sha256", "manifest_id", "cold_receipt_sha256", "original_receipts", "response_sha256",
+            "cold_peer_bytes", "warm_peer_bytes", "requests", "native_rows"))
+        same(item["forecast_sha256"], publication["sha256"]); same(item["manifest_id"], publication["manifest_id"])
+        same(item["original_receipts"], [row["stdout_sha256"] for row in guest["transfers"][key]])
+        same(item["cold_receipt_sha256"], item["original_receipts"][0])
+        require(type(item["response_sha256"]) is list and len(item["response_sha256"]) == 3
+            and all(type(item) is str and E["HEX"].fullmatch(item) for item in item["response_sha256"]))
+        same(item["cold_peer_bytes"], publication["bytes"]); same(item["warm_peer_bytes"], 0)
+        same(item["requests"], 3); same(item["native_rows"], 4 if key == "weather" else 5)
+
+
+def accept(output, core_commit, weather_commit, manifest, kvm_cleanup):
+    """Promote only after the enclosing owner has joined and removed its VM."""
+    hosted(core_commit, weather_commit)
+    output = canonical(output, directory=True)
+    require(output.is_relative_to(CORE) and output != CORE and type(manifest) is str and E["HEX"].fullmatch(manifest))
+    expected_identity = identity(core_commit, weather_commit)
+    raw = read(output / "weather-android-owner-join.json"); joined = E["decode"](raw, 65536)
+    guest_raw = read(output / "weather-android-delivery-evidence.json")
+    guest = E["decode"](guest_raw, 65536); E["validate_guest_export"](guest)
+    candidate(joined, guest, expected_identity, manifest)
+    same(joined["guest_evidence_sha256"], digest(guest_raw))
+    vm_raw = read(output / "weather-android-vm-cleanup.json")
+    same(E["decode"](vm_raw, 65536), dict(schema=6, kind="weather-android-vm-cleanup", core_commit=core_commit,
+        weather_commit=weather_commit, manifest_sha256=manifest, driver_finished=True, qemu_started=True,
+        qemu_joined=True, private_guest_state_removed=True, owner_exit_status=0, joined_core_acceptance=False))
+    kvm_raw = read(canonical(kvm_cleanup, mode=0o600)); kvm = E["decode"](kvm_raw, 65536)
+    exact(kvm, ("schema", "kind", "identity", "baseline_sha256", "restored_sha256", "baseline_bytes", "restored_bytes",
+        "original_kvm_acl_restored"))
+    same(kvm["schema"], 6); same(kvm["kind"], "weather-android-kvm-cleanup"); same(kvm["identity"], expected_identity)
+    E["hashes"](kvm, ("baseline_sha256", "restored_sha256")); same(kvm["baseline_sha256"], kvm["restored_sha256"])
+    E["integer"](kvm["baseline_bytes"], 1, 65536); same(kvm["baseline_bytes"], kvm["restored_bytes"])
+    same(kvm["original_kvm_acl_restored"], True)
+    result = dict(schema=6, kind="weather-android-hosted-acceptance", profile=PROFILE, identity=expected_identity,
+        manifest_sha256=manifest, core_sha256=joined["core_sha256"], prepared_sha256=joined["prepared_sha256"],
+        owner_join_sha256=digest(raw), guest_evidence_sha256=digest(guest_raw), vm_cleanup_sha256=digest(vm_raw),
+        kvm_cleanup_sha256=digest(kvm_raw), observations=joined["observations"], passed=True,
+        joined_core_acceptance=True, vm_cleanup_pending=False, helper_requests=0,
+        expiry_proven=False, physical_device=False, production_authority=False)
+    write(output / "weather-android-hosted-acceptance.json", result)
+    return result
+
+
+def main():
+    os.umask(0o077)
+    parser = argparse.ArgumentParser(description=__doc__)
+    actions = parser.add_subparsers(dest="action", required=True)
+    first = actions.add_parser("preflight")
+    for key in ("weather-root", "core-commit", "weather-commit"): first.add_argument("--" + key, required=True)
+    for name in ("run", "join"):
+        actions.add_parser(name).add_argument("--config", required=True, type=Path)
+    last = actions.add_parser("accept")
+    for key in ("output", "core-commit", "weather-commit", "manifest", "kvm-cleanup"):
+        last.add_argument("--" + key, required=True)
+    args = parser.parse_args()
+    def interrupted(*_): raise Failure("interrupted")
+    previous = {sig: signal.signal(sig, interrupted) for sig in SIGNALS}
+    try:
+        if args.action == "preflight": result = prepared(Path(args.weather_root), args.core_commit, args.weather_commit)
+        elif args.action == "run": result = run(config(args.config))
+        elif args.action == "join": result = join(config(args.config))
+        else: result = accept(Path(args.output), args.core_commit, args.weather_commit, args.manifest, Path(args.kvm_cleanup))
+        print(json.dumps(result, sort_keys=True, separators=(",", ":")), flush=True)
+        if result.get("success") is False: raise SystemExit(1)
+    finally:
+        for sig, handler in previous.items(): signal.signal(sig, handler)
+
+
+if __name__ == "__main__":
+    try: main()
+    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
+        print('{"schema":6,"kind":"weather-android-owner-rejected","success":false}', flush=True)
+        raise SystemExit(1) from None
