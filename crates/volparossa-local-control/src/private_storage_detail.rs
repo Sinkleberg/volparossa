@@ -85,7 +85,7 @@ pub enum PrivateStorageStreamFailure {
     TransportTls = 6,
     /// Initial transport path setup failed.
     InitialPaths = 7,
-    /// Writing or flushing the original OPEN_TCP frame failed; not a remote ACK.
+    /// Writing or flushing the original `OPEN_TCP` frame failed; not a remote ACK.
     OpenTcpWrite = 8,
     /// Required kernel subflows did not become ready.
     SubflowReadiness = 9,

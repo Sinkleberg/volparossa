@@ -68,6 +68,13 @@ behavior changes; fresh hosted validation remains required. The original log ZIP
 is retained with SHA-256
 `5b13d2fe1f380b88d242d01a961563d65b7d0e1c89ec1977445a0f4632afc208`.
 
+Follow-up Quality `38636353400` on `ae592cfb` passes formatting, dependency
+checks and standalone fuzz lint, then stops at one `doc_markdown` lint: the
+`OPEN_TCP` identifier in a source comment needs backticks. The comment is corrected
+without executable changes. Workspace and targeted Rust tests have not yet run
+for this candidate. Original log ZIP SHA-256:
+`e4077a60a4fcbeef61d7cb22c267edec2c20d9ae26e45a17c6f8b3436de4d99a`.
+
 ### Latest storage trial
 
 [Run `38611919770`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38611919770),
