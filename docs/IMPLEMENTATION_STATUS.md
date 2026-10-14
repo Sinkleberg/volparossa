@@ -75,6 +75,18 @@ without executable changes. Workspace and targeted Rust tests have not yet run
 for this candidate. Original log ZIP SHA-256:
 `e4077a60a4fcbeef61d7cb22c267edec2c20d9ae26e45a17c6f8b3436de4d99a`.
 
+Quality [`38638283974`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38638283974)
+on `473a0da6` passes formatting, dependency checks and standalone fuzz lint, then
+stops at four strict Clippy findings. Two require appropriate value/reference
+passing; the other two are function-length limits. The correction borrows the
+activation failure, copies the two-byte diagnostic value and moves the unchanged
+JSON scope checks into a helper. A documented, function-local length allowance
+keeps the ordered stream handshake, transfer and cleanup in one ownership scope.
+No deadline, acceptance rule or error mapping changes. Workspace and targeted
+Rust tests were skipped, so compilation and execution still require fresh hosted
+validation before an actual storage trial. Original log ZIP SHA-256:
+`afc0d769391add76f4492cab4218165dd5bff5ed1d181e86ed76e055bbc7452e`.
+
 ### Latest storage trial
 
 [Run `38611919770`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38611919770),

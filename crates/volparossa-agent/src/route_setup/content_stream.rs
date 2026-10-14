@@ -35,7 +35,7 @@ impl ContentStreamOpenFailure {
         Self { cause, route_error }
     }
 
-    pub(crate) const fn cause(&self) -> ContentStreamOpenCause {
+    pub(crate) const fn cause(self) -> ContentStreamOpenCause {
         self.cause
     }
 
@@ -43,7 +43,7 @@ impl ContentStreamOpenFailure {
         self.route_error
     }
 
-    pub(super) fn from_activation(failure: ProductionMptcpClientFailure) -> Self {
+    pub(super) fn from_activation(failure: &ProductionMptcpClientFailure) -> Self {
         Self::new(
             activation_cause(failure.stage()),
             ClientRouteConnectError::TransportRuntimeUnavailable,

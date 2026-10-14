@@ -1736,7 +1736,7 @@ impl ClientRouteControl {
             now_ms,
         )
         .await
-        .map_err(ContentStreamOpenFailure::from_activation)
+        .map_err(|failure| ContentStreamOpenFailure::from_activation(&failure))
     }
 
     /// Retain the carrying route's control identity for generic service lookup.

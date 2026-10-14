@@ -375,6 +375,31 @@ impl Serialize for Diagnostics {
     }
 }
 
+impl Failure {
+    fn validate_scope(&self) -> Result<(), serde_json::Error> {
+        if self.agent_detail.as_ref().is_some_and(|detail| {
+            !(matches!(self.stage, Stage::AgentReady)
+                && matches!(self.category, Category::AgentRejected)
+                && detail.valid_for(self.agent_code))
+        }) {
+            return Err(<serde_json::Error as serde::de::Error>::custom(
+                "diagnostic detail scope",
+            ));
+        }
+        if self.agent_outcome.as_ref().is_some_and(|outcome| {
+            !matches!(
+                self.stage,
+                Stage::WireReceipt | Stage::AgentTerminal | Stage::Deadline
+            ) || !outcome.valid()
+        }) {
+            return Err(<serde_json::Error as serde::de::Error>::custom(
+                "diagnostic outcome scope",
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl<'de> Deserialize<'de> for Diagnostics {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
@@ -450,25 +475,7 @@ impl<'de> Deserialize<'de> for Diagnostics {
                 } else {
                     serde_json::from_value::<Failure>(value)?
                 };
-                if failure.agent_detail.as_ref().is_some_and(|detail| {
-                    !(matches!(failure.stage, Stage::AgentReady)
-                        && matches!(failure.category, Category::AgentRejected)
-                        && detail.valid_for(failure.agent_code))
-                }) {
-                    return Err(<serde_json::Error as serde::de::Error>::custom(
-                        "diagnostic detail scope",
-                    ));
-                }
-                if failure.agent_outcome.as_ref().is_some_and(|outcome| {
-                    !matches!(
-                        failure.stage,
-                        Stage::WireReceipt | Stage::AgentTerminal | Stage::Deadline
-                    ) || !outcome.valid()
-                }) {
-                    return Err(<serde_json::Error as serde::de::Error>::custom(
-                        "diagnostic outcome scope",
-                    ));
-                }
+                failure.validate_scope()?;
                 Ok(failure)
             })
             .collect::<Result<Vec<_>, serde_json::Error>>()

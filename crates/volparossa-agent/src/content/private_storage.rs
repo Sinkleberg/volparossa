@@ -482,6 +482,10 @@ async fn remote(
     clippy::too_many_arguments,
     reason = "Two request-local observers preserve existing stream and deadline ownership"
 )]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the ordered handshake, transfer and stream cleanup in one ownership scope"
+)]
 async fn exchange(
     request: &RemoteRequest,
     selected: SelectedProvider,
