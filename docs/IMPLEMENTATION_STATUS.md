@@ -1771,6 +1771,18 @@ finite authority and recovery requirements are unchanged. Its protected trial
 follows the still-unproven preceding storage milestone. This source integration
 does not establish a passed automatic-upload maintenance chain.
 
+Cloud [Quality `38611923475`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38611923475)
+on exact `803f2c34365020f500b984ec060e91a05eb6a1e7` passes Clippy, workspace
+tests and the isolated agent (seven) and content-wire (25) tests, then fails a
+static timeout-expression assertion before the Cloud-specific checks. The
+assertion omitted the existing, separate 270-minute Cloud workflow limit.
+The correction adds that exact term to the expected expression; the workflow,
+all other scenario limits and production code are unchanged. The complete
+non-mutating KVM contract now passes locally, with its existing CLI fixture
+skip when no test binary is provided. This corrects the harness expectation,
+not an application or peer-storage failure. The original log archive has
+SHA-256 `88d5e6aebe7d42757b508bf59b8cdef0836d5b04c7301216336f1ec193dd7479`.
+
 Core [Quality run 38298055486](https://github.com/VOLPAROSSA/volparossa/actions/runs/38298055486)
 checks exact `613a1ea0` and passes strict Clippy, 619 CLI tests and the inert
 harness. All five absolute-authority regressions execute successfully, including
