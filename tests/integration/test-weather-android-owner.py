@@ -26,6 +26,8 @@ O = runpy.run_path(str(HERE / "weather-android-owner.py"))
 G = O["run"].__globals__
 F = runpy.run_path(str(HERE / "test-weather-android-evidence.py"))
 E = O["E"]
+K = O["K"]
+KF = runpy.run_path(str(HERE / "test-weather-android-kvm.py"))
 CORE_COMMIT = "a" * 40
 WEATHER_COMMIT = "f6ee829961da387d9c0cd71b7163b47baab434fa"
 IDENTITY = dict(core_commit=CORE_COMMIT, weather_commit=WEATHER_COMMIT, run_id="123", run_attempt="1")
@@ -41,8 +43,8 @@ from pathlib import Path
 role, root, mode = sys.argv[1], Path(sys.argv[2]), sys.argv[3]
 data = json.loads((root / 'inert-roles.json').read_bytes())
 if role == 'driver':
-    (root / 'driver-ready').touch()
     if mode == 'driver-exit': sys.exit(3)
+    (root / 'driver-ready').touch()
     while not (root / 'finalized').exists(): time.sleep(.01)
 elif role == 'read-ready':
     if not (root / 'driver-ready').exists(): sys.exit(1)
@@ -73,6 +75,8 @@ elif role == 'native':
     if mode.startswith('native-diagnostic'):
         print('PRIVATE stdout https://example.invalid/private-token', flush=True)
         print('PRIVATE stderr private-key-fragment', file=sys.stderr, flush=True)
+        if 'kvm' in mode:
+            print('VOLPAROSSA_ANDROID_KVM_OBSERVATION ' + json.dumps(data['kvm']), flush=True)
         print('VOLPAROSSA_ANDROID_NATIVE_DIAGNOSTIC ' + json.dumps(data['diagnostic']), flush=True)
         if mode == 'native-diagnostic-trailing': print('PRIVATE trailing data', flush=True)
         sys.exit(1)
@@ -357,6 +361,34 @@ class FailureRecordTests(RecordFixture):
         for job in (self.native_job(status=None), self.native_job(opened=("stdout",)), self.native_job(limit=32)):
             self.assertEqual(O["native_diagnostic"](job), dict(state="rejected", record=None))
 
+    def test_separate_kvm_marker_binds_identity_and_exact_original_guard(self):
+        before = KF["private_fixture"]()
+        value = K["native_record"](IDENTITY, before, before, "available", before)
+        prefix = K["PREFIX"].encode()
+        line = prefix + json.dumps(value).encode() + b"\n"
+        diagnostic = O["N"]["PREFIX"].encode() + json.dumps(dict(NATIVE_DIAGNOSTIC, code="KVM_REQUIRED_NO_TCG")).encode() + b"\n"
+        job = self.native_job(b"PRIVATE raw\n" + line + diagnostic)
+        observed = O["native_kvm"](job, IDENTITY)
+        self.assertEqual(observed, dict(state="available", record=value))
+        self.assertNotIn("PRIVATE", json.dumps(observed))
+        self.assertEqual(O["native_kvm"](None, IDENTITY), dict(state="absent", record=None))
+        self.assertEqual(O["native_kvm"](self.native_job(), IDENTITY), dict(state="absent", record=None))
+        success = dict(value, at_kvm_guard_failure=None)
+        self.assertEqual(O["native_kvm"](self.native_job(prefix + json.dumps(success).encode() + b"\n", status=0), IDENTITY),
+            dict(state="available", record=success))
+        failures = (line + diagnostic + b"trailing\n", line + line + diagnostic, line + diagnostic[:-1],
+            line + b"\n" + diagnostic, line + self.native_job()["data"]["stdout"],
+            prefix + b"x" * 8192 + b"\n" + diagnostic,
+            prefix + json.dumps(dict(value, extra="PRIVATE")).encode() + b"\n" + diagnostic,
+            prefix + json.dumps(dict(value, identity=dict(IDENTITY, run_attempt="2"))).encode() + b"\n" + diagnostic,
+            prefix + json.dumps(dict(value, joined_core_acceptance=True)).encode() + b"\n" + diagnostic,
+            prefix + b"\xff\n" + diagnostic)
+        for raw in failures:
+            self.assertEqual(O["native_kvm"](self.native_job(raw), IDENTITY), dict(state="rejected", record=None))
+        for job in (self.native_job(line + diagnostic, status=None), self.native_job(line + diagnostic, opened=("stdout",)),
+                self.native_job(line + diagnostic, limit=32), self.native_job(line, status=0)):
+            self.assertEqual(O["native_kvm"](job, IDENTITY), dict(state="rejected", record=None))
+
     def test_original_result_and_emulator_cleanup_are_separate_diagnostic_facts(self):
         records = O["native_originals"](self.weather, dict.fromkeys(O["NATIVE_RECORDS"], False))
         self.assertEqual(records["result"], dict(state="available", facts=NATIVE_RESULT))
@@ -423,6 +455,24 @@ class ContractTests(RecordFixture):
         self.assertEqual(calls, [(self.root, CORE_COMMIT), (self.weather, WEATHER_COMMIT), helper])
         self.assertEqual(load.call_args.args, (str(self.weather / "scripts/prepare_hosted_android_ci.py"),))
         with self.assertRaises(ValueError): O["prepared"](self.weather, CORE_COMMIT, "f" * 40)
+
+    def test_preflight_kvm_unavailable_exports_only_diagnostic_and_stops_before_guest(self):
+        before = dict(KF["private_fixture"](), open_result="eacces", real_write=False)
+        with patch.dict(G, prepared=lambda *_: preparation_record()), patch.dict(K, snapshot=lambda: before):
+            with self.assertRaisesRegex(ValueError, "kvm-unavailable"):
+                O["preflight"](self.weather, CORE_COMMIT, WEATHER_COMMIT, self.output)
+        path = self.output / K["NAME"]
+        receipt = K["validate_receipt"](json.loads(path.read_bytes()))
+        self.assertEqual(receipt["phase"], "preflight")
+        self.assertEqual(receipt["owner_before_publication"]["open_result"], "eacces")
+        self.assertFalse(receipt["joined_core_acceptance"])
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+    def test_kvm_receipt_alone_never_supplies_acceptance_records(self):
+        receipt = K["receipt"](IDENTITY, "owner", KF["private_fixture"]())
+        save(self.output / K["NAME"], receipt)
+        (self.private / "result.json").unlink()
+        with self.assertRaises(FileNotFoundError): self.join()
 
     def test_hosted_guard_rejects_local_root_wrong_workflow_and_cross_run_identity(self):
         good = dict(GITHUB_ACTIONS="true", RUNNER_OS="Linux", RUNNER_ENVIRONMENT="github-hosted",
@@ -585,6 +635,8 @@ class CoordinatorTests(unittest.TestCase):
         self.seams = patch.dict(G, CORE=self.root, prepared=lambda *_: preparation_record(), environment=lambda: {},
             TERM_SECONDS=1, KILL_SECONDS=1, DRIVER_SECONDS=75)
         self.seams.start(); self.addCleanup(self.seams.stop)
+        self.kvm_seam = patch.dict(K, snapshot=lambda: KF["private_fixture"]())
+        self.kvm_seam.start(); self.addCleanup(self.kvm_seam.stop)
 
     def run_owner(self, mode):
         def command(_value, name, action=None):
@@ -606,6 +658,20 @@ class CoordinatorTests(unittest.TestCase):
         self.assertTrue((self.root / "finalized").exists())
         self.assertFalse((self.run / "android-api/core-api.sock").exists())
         self.assertFalse((self.output / O["FAILURE_NAME"]).exists())
+
+    def test_kvm_access_loss_stops_before_driver_or_publication_and_preserves_failure_schema(self):
+        before = dict(KF["private_fixture"](), open_result="eperm")
+        with patch.dict(K, snapshot=lambda: before): result = self.run_owner("normal")
+        self.assertEqual(result["phase"], "driver")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["statuses"], dict(driver=None, tunnel=None, native=None))
+        self.assertFalse((self.root / "driver-ready").exists())
+        receipt = K["validate_receipt"](json.loads((self.output / K["NAME"]).read_bytes()))
+        self.assertEqual(receipt["owner_before_publication"]["open_result"], "eperm")
+        self.assertEqual(receipt["native"], dict(state="absent", record=None))
+        failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
+        self.assertNotIn("kvm", failure)
+        self.assertEqual(failure["schema"], 6)
 
     def test_native_failure_never_requests_finalize(self):
         result = self.run_owner("native-fail")
@@ -639,6 +705,42 @@ class CoordinatorTests(unittest.TestCase):
         with self.assertRaises(ValueError): O["join"](self.value)
         with self.assertRaises(FileExistsError): O["write"](path, {})
         self.assertEqual(path.read_bytes(), raw)
+
+    def test_kvm_guard_diagnostic_has_separate_closed_receipt_and_no_acceptance(self):
+        before = KF["private_fixture"]()
+        lost = dict(before, real_read=False, real_write=False, open_result="eacces")
+        observation = K["native_record"](IDENTITY, before, before, "available", lost)
+        mutate(self.root / "inert-roles.json", lambda value: value.update(
+            diagnostic=dict(NATIVE_DIAGNOSTIC, code="KVM_REQUIRED_NO_TCG"), kvm=observation))
+        result = self.run_owner("native-diagnostic-kvm")
+        self.assertFalse(result["success"])
+        self.assertTrue(result["cleanup"]["children_joined"])
+        path = self.output / K["NAME"]; raw = path.read_bytes()
+        receipt = K["validate_receipt"](json.loads(raw))
+        self.assertEqual(receipt["native"], dict(state="available", record=observation))
+        self.assertEqual(receipt["native"]["record"]["at_kvm_guard_failure"]["open_result"], "eacces")
+        self.assertTrue(all(receipt["native"]["record"]["at_kvm_guard_failure"][key] for key in K["COMPARISONS"]))
+        self.assertFalse(any(receipt[key] for key in ("joined_core_acceptance", "physical_device", "production_authority")))
+        for secret in (b"PRIVATE", b"12345", b"23456", b"34567", str(self.root).encode()):
+            self.assertNotIn(secret, raw)
+        self.assertFalse((self.root / "finalized").exists())
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
+        self.assertNotIn("kvm", failure)
+        self.assertEqual(failure["native_diagnostic"]["record"]["code"], "KVM_REQUIRED_NO_TCG")
+
+    def test_rejected_kvm_marker_never_prevents_owned_cleanup_or_exports_raw_data(self):
+        before = KF["private_fixture"]()
+        observation = K["native_record"](IDENTITY, before, before, "available", before)
+        observation["private"] = "PRIVATE_CANARY"
+        mutate(self.root / "inert-roles.json", lambda value: value.update(
+            diagnostic=dict(NATIVE_DIAGNOSTIC, code="KVM_REQUIRED_NO_TCG"), kvm=observation))
+        result = self.run_owner("native-diagnostic-kvm-invalid")
+        receipt = json.loads((self.output / K["NAME"]).read_bytes())
+        self.assertEqual(receipt["native"], dict(state="rejected", record=None))
+        self.assertFalse(result["success"])
+        self.assertTrue(result["cleanup"]["children_joined"])
+        self.assertNotIn("PRIVATE", json.dumps(receipt))
 
     def test_malformed_native_diagnostic_cannot_skip_cleanup_or_request_finalize(self):
         mutate(self.root / "inert-roles.json", lambda value: value["diagnostic"].update(private="PRIVATE"))

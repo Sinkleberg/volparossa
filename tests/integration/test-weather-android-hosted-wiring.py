@@ -63,6 +63,7 @@ class AndroidHostedWiring(unittest.TestCase):
         self.assertIn('(.files | length) == 39', SOURCE)
         self.assertIn('python3 -B tests/integration/test-weather-android-vm-wiring.py', SOURCE)
         self.assertIn('python3 -B tests/integration/test-weather-android-native.py', SOURCE)
+        self.assertIn('python3 -B tests/integration/test-weather-android-kvm.py', SOURCE)
 
     def test_nested_checkout_and_vm_output_are_ignored_and_socket_bound_is_checked(self):
         paths = re.findall(r'(?m)^          path: ([.a-zA-Z0-9_/-]+)$', SOURCE)
@@ -204,6 +205,8 @@ class AndroidHostedWiring(unittest.TestCase):
         section = block('Prepare offline Android APK before any guest publication')
         self.assertIn('prepare_hosted_android_ci.py" --prepare-protected-core', section)
         self.assertIn('weather-android-owner.py preflight --weather-root "$weather"', section)
+        self.assertIn('--kvm-output "$WEATHER_OUTPUT"', section)
+        self.assertEqual(SOURCE.count('sudo -n setfacl -m'), 1)
         self.assertIn('--weather-commit "$VOLPAROSSA_WEATHER_SOURCE_SHA"', section)
         self.assertNotIn('--run-protected-core', SOURCE)  # The owner controls this, never an independent workflow child.
 
@@ -285,6 +288,7 @@ class AndroidHostedWiring(unittest.TestCase):
             '${{ env.WEATHER_OUTPUT }}/weather-android-delivery-evidence.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-owner-join.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-owner-failure.json',
+            '${{ env.WEATHER_OUTPUT }}/weather-android-kvm-observation.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-vm-cleanup.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-hosted-acceptance.json',
             '${{ env.WEATHER_INPUTS }}/kvm-cleanup.json',

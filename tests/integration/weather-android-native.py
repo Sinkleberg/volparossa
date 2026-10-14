@@ -18,6 +18,8 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 CORE = HERE.parents[1]
+K = runpy.run_path(str(HERE / "weather-android-kvm.py"))
+E = runpy.run_path(str(HERE / "weather-android-evidence.py"))
 WEATHER_COMMIT = "f6ee829961da387d9c0cd71b7163b47baab434fa"
 ENTRYPOINT_SHA256 = "fdf07c912236ecc7f08bb2c63af97e2a2a799409d58b8a2736f172123ae5c490"
 PREFIX = "VOLPAROSSA_ANDROID_NATIVE_DIAGNOSTIC "
@@ -150,8 +152,26 @@ def verified_script(weather, core_commit, weather_commit, socket):
     return script
 
 
+def load_kvm_baseline(socket, selected_identity):
+    # The only readable baseline belongs to this owner's canonical run tree.
+    # Failure remains diagnostic: original Weather admission still decides.
+    path = Path(socket)
+    try:
+        require(path.name == "core-api.sock" and path.parent.name == "android-api"
+            and path.is_absolute() and path.parent.parent.is_relative_to(CORE)
+            and re.fullmatch(r"weather-client-kvm\.[A-Za-z0-9]{6}", path.parent.parent.name),
+            "NATIVE_LAUNCHER_PATH")
+        target = path.parent.parent / "android-owner/kvm-baseline.json"
+        value = E["decode"](E["private_bytes"](target, 16384, os.getuid(), 0o600), 16384)
+        return K["baseline"](value, selected_identity), "available"
+    except FileNotFoundError: return None, "absent"
+    except (OSError, ValueError, TypeError, KeyError, RecursionError): return None, "rejected"
+
+
 def main(arguments):
     previous, interrupted = sys.argv, None
+    observation, before, initial, selected_identity = None, None, None, None
+    baseline_state = "absent"
     try:
         require(len(arguments) == 8 and arguments[::2] == ["--weather-root", "--core-commit",
             "--weather-commit", "--upstream-socket"], "NATIVE_LAUNCHER_ARGUMENTS")
@@ -159,17 +179,41 @@ def main(arguments):
         script = verified_script(weather, core_commit, weather_commit, socket)
         runtime = runpy.run_path(str(script), run_name="__volparossa_android_native__")
         interrupted = runtime["H"].Interrupted
+        selected_identity = dict(core_commit=core_commit, weather_commit=weather_commit,
+            run_id=os.environ["GITHUB_RUN_ID"], run_attempt=os.environ["GITHUB_RUN_ATTEMPT"])
+        # This baseline is private owner state, never an exported artifact. A
+        # missing/rejected diagnostic baseline does not replace Weather guards.
+        try:
+            initial, baseline_state = load_kvm_baseline(socket, selected_identity)
+            before = K["snapshot"]()
+            observation = K["native_record"](selected_identity, before, initial, baseline_state)
+        except (OSError, ValueError, TypeError, KeyError, RecursionError, NotImplementedError):
+            # Diagnostic failure is explicitly absent in the owner's receipt;
+            # it must not become a replacement for the original native guard.
+            observation = None
         sys.argv = [str(script), "--run-protected-core", "--upstream-socket", socket]
         # Invoke the original entrypoint, including every guard. Its generic
         # __main__ catch is the only bypassed layer; its internal finally and
         # cleanup still run before our exception handler sees any failure.
         runtime["main"]()
+        if observation is not None:
+            print("\n" + K["PREFIX"] + json.dumps(observation, sort_keys=True, separators=(",", ":")), flush=True)
         return 0
     except BaseException as error:
         value = diagnostic(error, interrupted)
+        # Probe again only for the exact original KVM guard. Never replace the
+        # original failure with an observation/serialization failure.
+        if observation is not None:
+            if value["category"] == "value" and value["code"] == "KVM_REQUIRED_NO_TCG":
+                try:
+                    observation = K["native_record"](selected_identity, before, initial,
+                        baseline_state, K["snapshot"]())
+                except (OSError, ValueError, TypeError, KeyError, RecursionError): pass
+            print("\n" + K["PREFIX"] + json.dumps(observation, sort_keys=True, separators=(",", ":")), flush=True)
         # Prefix and final line are parsed strictly by the owner. Existing
         # native output is not republished as evidence; its old pipe cap stays.
-        print("\n" + PREFIX + json.dumps(value, sort_keys=True, separators=(",", ":")), flush=True)
+        print(("" if observation is not None else "\n") + PREFIX
+            + json.dumps(value, sort_keys=True, separators=(",", ":")), flush=True)
         return 1
     finally:
         sys.argv = previous

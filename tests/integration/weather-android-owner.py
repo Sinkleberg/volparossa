@@ -27,6 +27,7 @@ CORE = HERE.parents[1]
 E = runpy.run_path(str(HERE / "weather-android-evidence.py"))
 T = runpy.run_path(str(HERE / "weather-android-tunnel.py"))
 N = runpy.run_path(str(HERE / "weather-android-native.py"))
+K = N["K"]
 require, same, exact, digest = E["require"], E["same"], E["exact"], E["digest"]
 CONTROL = "/usr/local/libexec/volparossa-weather-android-control.py"
 PROFILE = "android-protected-core-v6"
@@ -129,6 +130,17 @@ def prepared(weather, core_commit, weather_commit):
         prepared_sha256=digest(read(weather / "build/hosted-android-ci/prepared.json", 2 * 1024**2)),
         result_sha256=digest(read(weather / "build/hosted-android-ci/result.json")), apk=value["apk"],
         original_preparation_verified=True, runtime_executed=False, publication_started=False)
+    return result
+
+
+def preflight(weather, core_commit, weather_commit, output):
+    result = prepared(weather, core_commit, weather_commit)
+    output = canonical(output, directory=True)
+    require(output.is_relative_to(CORE) and output != CORE)
+    before = K["snapshot"]()
+    if not K["usable"](before):
+        write(output / K["NAME"], K["receipt"](identity(core_commit, weather_commit), "preflight", before))
+        raise Failure("kvm-unavailable")
     return result
 
 
@@ -326,6 +338,33 @@ def native_diagnostic(job):
         return dict(state="rejected", record=None)
 
 
+def native_kvm(job, expected_identity):
+    """A separate receipt, not an extension of either schema6 failure record."""
+    absent = dict(state="absent", record=None)
+    if job is None: return absent
+    try:
+        require(job["process"] is not None and job["process"].returncode is not None and not job["open"])
+        require(all(len(raw) <= job["limit"] for raw in job["data"].values()))
+        raw = bytes(job["data"]["stdout"]); prefix = K["PREFIX"].encode("ascii")
+        if prefix not in raw: return absent
+        require(raw.endswith(b"\n") and raw.count(prefix) == 1)
+        lines = raw[:-1].rsplit(b"\n", 2)
+        diagnostic = native_diagnostic(job)
+        if job["process"].returncode != 0:
+            require(diagnostic["state"] == "available" and len(lines) >= 2)
+            line = lines[-2]
+        else: line = lines[-1]
+        require(line.startswith(prefix) and len(line) <= 8192)
+        value = K["validate_native"](E["decode"](line[len(prefix):], 8192))
+        same(value["identity"], expected_identity)
+        if value["at_kvm_guard_failure"] is not None:
+            require(diagnostic["state"] == "available" and diagnostic["record"]["category"] == "value"
+                and diagnostic["record"]["code"] == "KVM_REQUIRED_NO_TCG")
+        return dict(state="available", record=value)
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        return dict(state="rejected", record=None)
+
+
 def native_facts(name, value):
     """Closed original Weather schemas; these facts grant no acceptance."""
     if name == "result":
@@ -416,11 +455,15 @@ def run(value):
     private.mkdir(mode=0o700); socket_parent.mkdir(mode=0o700)
     canonical(private, directory=True, mode=0o700); canonical(socket_parent, directory=True, mode=0o700)
     write(private / "preparation.json", preparation)
+    kvm_before = K["snapshot"]()
+    write(private / "kvm-baseline.json", K["baseline_record"](
+        identity(value["core_commit"], value["weather_commit"]), kvm_before))
     preexisting = {name: os.path.lexists(weather / relative) for name, relative in NATIVE_RECORDS.items()}
     pool = Children(); env = environment(); phase, success, ready = "driver", False, None
     netns = os.readlink("/proc/self/ns/net"); outer = time.monotonic() + DRIVER_SECONDS
     statuses = dict(driver=None, tunnel=None, native=None)
     try:
+        require(K["usable"](kvm_before))
         driver = pool.start(command(value, "driver"), "driver", env, CORE, 4 * 1024**2)
         phase = "read-ready"
         while ready is None:
@@ -495,6 +538,10 @@ def run(value):
         host_netns_unchanged=unchanged), helper_requests=0, joined_core_acceptance=False, vm_cleanup_pending=True)
     write(private / "result.json", result)
     if not success: export_failure(value, result, pool, preexisting)
+    native_job = next((job for job in pool.jobs if job["name"] == "native"), None)
+    observed = native_kvm(native_job, result["identity"])
+    write(Path(value["output_directory"]) / K["NAME"], K["receipt"](result["identity"], "owner", kvm_before,
+        observed["state"], observed["record"]))
     return result
 
 
@@ -628,6 +675,7 @@ def main():
     actions = parser.add_subparsers(dest="action", required=True)
     first = actions.add_parser("preflight")
     for key in ("weather-root", "core-commit", "weather-commit"): first.add_argument("--" + key, required=True)
+    first.add_argument("--kvm-output", required=True, type=Path)
     for name in ("run", "join"):
         actions.add_parser(name).add_argument("--config", required=True, type=Path)
     last = actions.add_parser("accept")
@@ -637,7 +685,8 @@ def main():
     def interrupted(*_): raise Failure("interrupted")
     previous = {sig: signal.signal(sig, interrupted) for sig in SIGNALS}
     try:
-        if args.action == "preflight": result = prepared(Path(args.weather_root), args.core_commit, args.weather_commit)
+        if args.action == "preflight": result = preflight(Path(args.weather_root), args.core_commit,
+            args.weather_commit, args.kvm_output)
         elif args.action == "run": result = run(config(args.config))
         elif args.action == "join": result = join(config(args.config))
         else: result = accept(Path(args.output), args.core_commit, args.weather_commit, args.manifest, Path(args.kvm_cleanup))
