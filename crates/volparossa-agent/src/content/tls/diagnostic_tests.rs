@@ -180,9 +180,12 @@ async fn actual_ten_second_handshake_deadline_is_distinct_from_io_and_drops_stre
     ));
     assert!(started.elapsed() >= HANDSHAKE_TIMEOUT);
     let mut hello = Vec::new();
-    timeout(Duration::from_secs(2), silent_server.read_to_end(&mut hello))
-        .await
-        .unwrap()
-        .unwrap();
+    timeout(
+        Duration::from_secs(2),
+        silent_server.read_to_end(&mut hello),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(hello.first(), Some(&0x16));
 }

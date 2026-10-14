@@ -86,9 +86,9 @@ pub mod control_request {
         ContentExportRequest, ContentFetchNameRequest, ContentFetchRequest, ContentImportRequest,
         ContentLocalFetchNameRequest, ContentPolicyApplyRequest, ContentServeRequest, Empty,
         HttpsContentFetchRequest, LogQuery, MailboxRemoteRequest, MailboxServeRequest,
-        PrivateStorageAdmissionRequest, PrivateStorageGrantRequest, PrivateStorageMaintenanceRequest,
-        PrivateStorageRemoteRequest, PrivateStorageServeRequest, QuoteAttachRequest,
-        QuoteRemoteRequest, RoleChange,
+        PrivateStorageAdmissionRequest, PrivateStorageGrantRequest,
+        PrivateStorageMaintenanceRequest, PrivateStorageRemoteRequest, PrivateStorageServeRequest,
+        QuoteAttachRequest, QuoteRemoteRequest, RoleChange,
     };
 
     /// Exactly one supported CLI-to-agent operation.

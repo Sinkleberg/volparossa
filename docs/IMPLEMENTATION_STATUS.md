@@ -350,6 +350,14 @@ covers registration and withdrawal after deactivation. These five integration
 regressions, like the fifteen TLS cases, still need hosted Rust execution. No local
 Rust tool or active host-network configuration was used or changed.
 
+Quality `38516807829` on merge `82c85276` stops at formatting. Its actual PR
+checkout `4dce53ec` has the same tree `6ab983224611e2017b0c347fc006b9b2e03871ad`.
+The original log ZIP is
+`0091792b1500ee6e562d76169c82367a2f1b86dc9624ea02197eae37bde30239`.
+Nine formatter hunks across eight files have been applied from that original
+output, without a local Rust invocation. Shellcheck, Clippy, dependency checks and
+Rust tests did not run in this attempt; corrected hosted acceptance remains open.
+
 ### Explicit local policy for protected compute
 
 [PR244](https://github.com/VOLPAROSSA/volparossa/pull/244), merged in `b39b8ea3`,

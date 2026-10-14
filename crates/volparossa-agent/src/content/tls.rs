@@ -121,13 +121,12 @@ where
     // libp2p TLS requires mutual authentication. A one-session key avoids turning a cache
     // request into a durable Client-node-to-publication association at the provider.
     let ephemeral = identity::Keypair::generate_ed25519();
-    let mut config = libp2p::tls::make_client_config(&ephemeral, Some(peer))
-        .map_err(|_| {
-            (
-                ContentTlsError::Configuration,
-                PrivateStorageTlsFailure::Configuration,
-            )
-        })?;
+    let mut config = libp2p::tls::make_client_config(&ephemeral, Some(peer)).map_err(|_| {
+        (
+            ContentTlsError::Configuration,
+            PrivateStorageTlsFailure::Configuration,
+        )
+    })?;
     config.alpn_protocols = vec![CONTENT_ALPN.to_vec()];
     config.enable_sni = true;
     let hostname = ServerName::try_from(offer.endpoint().hostname().to_owned())
@@ -146,7 +145,10 @@ where
     if tls.get_ref().1.alpn_protocol() != Some(CONTENT_ALPN)
         || tls.get_ref().1.protocol_version() != Some(rustls::ProtocolVersion::TLSv1_3)
     {
-        return Err((ContentTlsError::Handshake, PrivateStorageTlsFailure::TlsOther));
+        return Err((
+            ContentTlsError::Handshake,
+            PrivateStorageTlsFailure::TlsOther,
+        ));
     }
     Ok(tls)
 }

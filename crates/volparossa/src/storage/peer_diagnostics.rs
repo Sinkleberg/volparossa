@@ -240,25 +240,24 @@ impl Serialize for Diagnostics {
                 .collect();
             value.serialize_field("failures", &original)?;
         } else if self.version == 2 {
-            let original: Vec<_> = self
-                .failures
-                .iter()
-                .map(|failure| OriginalDetailedFailure {
-                    fragment_index: failure.fragment_index,
-                    copy_index: failure.copy_index,
-                    operation: failure.operation,
-                    stage: failure.stage,
-                    category: failure.category,
-                    agent_code: failure.agent_code,
-                    agent_detail: failure
-                        .agent_detail
-                        .as_ref()
-                        .map(|detail| OriginalAgentDetail {
-                            stage: detail.stage,
-                            deadline_scope: detail.deadline_scope,
+            let original: Vec<_> =
+                self.failures
+                    .iter()
+                    .map(|failure| OriginalDetailedFailure {
+                        fragment_index: failure.fragment_index,
+                        copy_index: failure.copy_index,
+                        operation: failure.operation,
+                        stage: failure.stage,
+                        category: failure.category,
+                        agent_code: failure.agent_code,
+                        agent_detail: failure.agent_detail.as_ref().map(|detail| {
+                            OriginalAgentDetail {
+                                stage: detail.stage,
+                                deadline_scope: detail.deadline_scope,
+                            }
                         }),
-                })
-                .collect();
+                    })
+                    .collect();
             value.serialize_field("failures", &original)?;
         } else {
             value.serialize_field("failures", &self.failures)?;

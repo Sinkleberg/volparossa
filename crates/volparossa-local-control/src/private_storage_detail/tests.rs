@@ -220,7 +220,10 @@ fn tls_failure_rejects_success_other_failure_codes_and_non_ack_payloads() {
             response.diagnostic_code = code.into();
             assert_response_validity(&response, false);
         }
-        for payload in [None, Some(Payload::Status(crate::StatusSnapshot::default()))] {
+        for payload in [
+            None,
+            Some(Payload::Status(crate::StatusSnapshot::default())),
+        ] {
             let mut response = tls_rejected(failure);
             response.payload = payload;
             assert_response_validity(&response, false);

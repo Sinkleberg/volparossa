@@ -219,7 +219,13 @@ async fn automatic_quote_only_refresh_registers_then_withdraws_after_deactivatio
         timeout(Duration::from_secs(5), refresh).await.unwrap(),
         ProviderRefresh::Withdrawn
     ));
-    assert_eq!(timeout(Duration::from_secs(5), actor).await.unwrap().unwrap(), 1);
+    assert_eq!(
+        timeout(Duration::from_secs(5), actor)
+            .await
+            .unwrap()
+            .unwrap(),
+        1
+    );
     timeout(Duration::from_secs(5), supervisor)
         .await
         .unwrap()

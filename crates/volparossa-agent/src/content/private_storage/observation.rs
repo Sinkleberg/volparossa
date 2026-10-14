@@ -29,8 +29,10 @@ impl Observation {
             .store(Stage::Unobserved as i32, Ordering::Relaxed);
         self.deadline
             .store(Deadline::None as i32, Ordering::Relaxed);
-        self.tls_failure
-            .store(PrivateStorageTlsFailure::Unobserved as i32, Ordering::Relaxed);
+        self.tls_failure.store(
+            PrivateStorageTlsFailure::Unobserved as i32,
+            Ordering::Relaxed,
+        );
     }
 
     pub(super) fn record_tls_failure(&self, failure: PrivateStorageTlsFailure) {

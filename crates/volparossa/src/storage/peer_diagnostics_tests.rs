@@ -303,7 +303,10 @@ async fn correlated_agent_detail_reaches_only_the_bounded_ready_failure_projecti
     let mut fragments = Diagnostics::default();
     for fragment in 0..9 {
         fragments
-            .append_fragment(fragment, &serde_json::json!({"deposit_diagnostics": report}))
+            .append_fragment(
+                fragment,
+                &serde_json::json!({"deposit_diagnostics": report}),
+            )
             .unwrap();
     }
     let joined = serde_json::to_value(fragments).unwrap();
