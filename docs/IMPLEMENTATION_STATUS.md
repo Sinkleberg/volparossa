@@ -36,6 +36,68 @@ The immediate milestones build on the retained candidates and evidence below:
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 is merged as `e282a3ce`; its guest module has passing software evidence. PR247 connects that module to finite operator grants, protected transport and CLI verification. Original run `38511031734` on `85a01382` passes 52 appraisal, 16 guest and twelve new quote tests plus targeted Clippy. Quality `38511036689` stops at one CLI naming lint; the private-type rename is reviewed, but corrected workspace acceptance and execution of eight new agent/control/CLI tests remain required. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
 
+### Hickory resolver security candidate
+
+An isolated dependency candidate backports the upstream DNSSEC-bogus answer
+check to the Rust-1.85-compatible `hickory-resolver 0.25.2`. It rejects bogus
+answers before cache insertion or alias following when resolver validation is
+enabled. The root and fuzz graphs retain the existing API/version and use the
+same reviewed path source. Production DNS settings, relay routing, trust anchors
+and the separate shared-DNS `Proof::Secure` requirement are unchanged.
+
+The second CNAME advisory concerns recursive resolution. Source review locates
+the fixed code in the separate 0.25 recursor, absent from both locked graphs;
+the stub's matching-answer chain receives focused regression coverage and a
+graph-scope guard. This is not an unrestricted exemption for Hickory 0.25.
+Archive, patch, reconstructed tree and unchanged license checks bind the exact
+candidate; package notice collection includes the new path. Neither advisory
+is dismissed or hidden by a new scanner exception.
+
+Rust compilation, the expanded offline backport regressions and the full locked
+dependency/packaging checks still require hosted execution. Local source-only
+verification reconstructs all four vendor trees exactly and verifies all license
+and harness hashes. Shell syntax, ShellCheck, the four existing inert SEV license
+fixtures and focused resolver notice collection pass. Independent source review
+checks the ten new resolver cases and the manually extended standalone lock;
+this is not Cargo resolution or executed Rust evidence. The concurrent
+storage and Android actual trials keep their original source revisions and
+remain independent of this candidate. See the
+[reviewed dependency sources](../third_party/rust/README.md#resolver-validation-and-cname-scope)
+for upstream fixes and the precise reachability assessment.
+
+The first [hosted Quality run `38619532866`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38619532866)
+on `a61465b1` stops at the isolated harness's locked dependency fetch. Root and
+fuzz locked fetches succeed; Cargo requires a harness lock update. PR merge
+`b3806ae8` has the exact candidate tree. Formatting and shell checks pass, but
+resolver compilation, regression execution and full dependency/license checks
+have not run. Original logs ZIP SHA-256 is
+`096d1f762f007784b5f23cfc9363b636d75924a93cef3af28495c20d2940265c`.
+Reconcile that standalone lock with Cargo on the disposable hosted runner,
+retain the original and generated lock difference, and keep the locked gate
+failing until the reviewed correction is committed. Do not infer a valid lock
+from a manually complete-looking dependency graph.
+
+The failure-only diagnostic copies the authenticated standalone harness and its
+four reviewed vendor trees to temporary runner storage, then asks the already
+installed Cargo 1.85 to reconcile that lock offline without building. It exports
+only the before/after public locks, their diff and a closed status. Root, fuzz
+and original harness locks stay unchanged, and the original locked-fetch exit
+still fails Quality. A generated lock is evidence to review, not an automatic
+correction or a passed regression suite.
+
+[Run `38622766542`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38622766542)
+on `33ff90c3` preserves the original locked-fetch failure and successfully
+reconciles the isolated lock with Cargo 1.85 offline. The exact generated diff
+adds only `uuid 1.24.0` edges to the already-present `js-sys` and `wasm-bindgen`
+nodes. No registry version or checksum changes; all three original locks remain
+unchanged in that run. Artifact `11923890129` ZIP SHA-256 is
+`a252d588381aa94d8cd7ad773843406af0248f173278883f6345330b3be645b4`.
+The two-line correction is now applied byte-for-byte; the standalone lock hash
+and its three provenance references are updated to
+`965c606acf0c93d9a9d6b8415b3ae503185e8b3ec7eecf3d6251c9047cd14659`.
+This identifies and corrects the lock discrepancy, not a successful resolver
+test execution; fresh locked-fetch and Rust results are still required.
+
 ### Authorized quote exchange candidate
 
 The new quote-only path connects guest-owned evidence collection to the existing
