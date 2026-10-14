@@ -930,14 +930,7 @@ fn validate_response(response: &ControlResponse) -> Result<(), ControlProtocolEr
         control_response::Payload::MailboxReady(ready) => ready.validate()?,
         control_response::Payload::PrivateStorageReady(ready) => ready.validate()?,
         control_response::Payload::PrivateStorageOutcome(outcome) => {
-            outcome.validate()?;
-            if response.result != ControlResult::Ok as i32
-                || response.diagnostic_code != "PRIVATE_STORAGE_OUTCOME"
-            {
-                return Err(ControlProtocolError::Invalid(
-                    "private storage outcome envelope",
-                ));
-            }
+            validate_storage_outcome_response(response, outcome)?;
         }
         control_response::Payload::PrivateStorageMaintenanceReady(ready) => ready.validate()?,
         control_response::Payload::PrivateStorageGrant(grant) => grant.validate()?,
@@ -952,6 +945,21 @@ fn validate_response(response: &ControlResponse) -> Result<(), ControlProtocolEr
         control_response::Payload::Ack(_)
         | control_response::Payload::Status(_)
         | control_response::Payload::Roles(_) => {}
+    }
+    Ok(())
+}
+
+fn validate_storage_outcome_response(
+    response: &ControlResponse,
+    outcome: &PrivateStorageOutcome,
+) -> Result<(), ControlProtocolError> {
+    outcome.validate()?;
+    if response.result != ControlResult::Ok as i32
+        || response.diagnostic_code != "PRIVATE_STORAGE_OUTCOME"
+    {
+        return Err(ControlProtocolError::Invalid(
+            "private storage outcome envelope",
+        ));
     }
     Ok(())
 }

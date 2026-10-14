@@ -230,6 +230,37 @@ mod tests {
     }
 
     #[test]
+    fn outcome_response_rejects_wrong_result_or_code_on_both_wire_boundaries() {
+        for (result, code) in [
+            (ControlResult::Unavailable, "PRIVATE_STORAGE_OUTCOME"),
+            (ControlResult::Ok, "UNKNOWN_REPLY"),
+        ] {
+            let response = ControlResponse {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                request_id: vec![2; 16],
+                result: result as i32,
+                diagnostic_code: code.into(),
+                private_storage_remote_detail: None,
+                payload: Some(Payload::PrivateStorageOutcome(
+                    PrivateStorageOutcome::default(),
+                )),
+            };
+            assert!(matches!(
+                encode_response(&response),
+                Err(ControlProtocolError::Invalid(
+                    "private storage outcome envelope"
+                ))
+            ));
+            assert!(matches!(
+                decode_response(&response.encode_to_vec()),
+                Err(ControlProtocolError::Invalid(
+                    "private storage outcome envelope"
+                ))
+            ));
+        }
+    }
+
+    #[test]
     fn outcome_rejects_unknown_enums_bad_ids_and_counterfeit_timeout_or_status() {
         for length in [0, 15, 17, 4096] {
             assert!(
