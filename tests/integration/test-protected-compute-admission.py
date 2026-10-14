@@ -1010,14 +1010,14 @@ class ProbeContracts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'evidence_profile'):
                 P.envelope('inert', historical=historical, endorsement=endorsement)
 
-    def test_hosted_branch_gate_keeps_exact_five_branches_only(self):
+    def test_hosted_branch_gate_keeps_exact_six_branches_only(self):
         env = dict(GITHUB_ACTIONS='true', RUNNER_ENVIRONMENT='github-hosted',
             GITHUB_REPOSITORY='VOLPAROSSA/volparossa', GITHUB_WORKFLOW='Protected compute core evidence')
         for branch in ('feature/protected-compute-admission', 'feature/protected-compute-endorsement',
-                'feature/protected-compute-cert-profile', 'feature/protected-compute-collateral', 'feature/protected-compute-local-policy', 'main', 'feature/protected-compute-local-policy-other', 'feature/protected-compute-collateral-other', 'feature/protected-compute-cert-profile-other', 'feature/protected-compute-endorsement-other'):
+                'feature/protected-compute-cert-profile', 'feature/protected-compute-collateral', 'feature/protected-compute-local-policy', 'feature/protected-compute-guest', 'main', 'feature/protected-compute-guest-other', 'feature/protected-compute-local-policy-other', 'feature/protected-compute-collateral-other', 'feature/protected-compute-cert-profile-other', 'feature/protected-compute-endorsement-other'):
             with patch.dict(os.environ, dict(env, GITHUB_REF='refs/heads/' + branch)), patch.object(P.os, 'getuid', return_value=1000):
                 if branch in ('feature/protected-compute-admission', 'feature/protected-compute-endorsement',
-                        'feature/protected-compute-cert-profile', 'feature/protected-compute-collateral', 'feature/protected-compute-local-policy'):
+                        'feature/protected-compute-cert-profile', 'feature/protected-compute-collateral', 'feature/protected-compute-local-policy', 'feature/protected-compute-guest'):
                     P.hosted()
                 else:
                     with self.assertRaisesRegex(ValueError, 'disposable_branch_only'): P.hosted()
@@ -1247,7 +1247,7 @@ class ProbeContracts(unittest.TestCase):
 
     def test_workflow_has_exact_branch_source_and_export_closure(self):
         raw = WORKFLOW.read_text()
-        self.assertIn('branches: [feature/protected-compute-admission, feature/protected-compute-endorsement, feature/protected-compute-cert-profile, feature/protected-compute-collateral, feature/protected-compute-local-policy]', raw)
+        self.assertIn('branches: [feature/protected-compute-admission, feature/protected-compute-endorsement, feature/protected-compute-cert-profile, feature/protected-compute-collateral, feature/protected-compute-local-policy, feature/protected-compute-guest]', raw)
         self.assertIn("if: github.ref == 'refs/heads/feature/protected-compute-admission' || github.ref == 'refs/heads/feature/protected-compute-endorsement' || github.ref == 'refs/heads/feature/protected-compute-cert-profile'", raw)
         self.assertIn('Execute exactly fifty-two core evidence tests offline', raw)
         self.assertIn('cancel-in-progress: false', raw)

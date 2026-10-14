@@ -238,15 +238,21 @@ for the fixture's exact digest, issuer and validity window. This change adds no
 collateral downloader, protected worker, admission permit or private-input
 release. The hardware trial below remains required.
 
-## Explicit owner local policy candidate
+## Explicit owner local policy
 
-The next candidate adds immutable `LocalPolicy` expectations to `SessionOwner`:
+Merged [PR244](https://github.com/VOLPAROSSA/volparossa/pull/244) adds immutable
+`LocalPolicy` expectations to `SessionOwner`:
 an exact public measurement, minimum guest SVN, four independently selected TCB
 minima and an explicit SMT choice. It has no production defaults. Each minimum
 contains bootloader, TEE, SNP and microcode security-version components; every
 component must meet its own floor. A larger earlier component cannot compensate
 for a smaller later one. Debug and migration-agent permission remain forbidden.
-Rust compilation and the 52-test hosted profile remain pending for this candidate.
+The [original hosted run](https://github.com/VOLPAROSSA/volparossa/actions/runs/38491020699)
+on `761d72b1` passes Rust compilation, all 52 named tests and targeted Clippy.
+Its independently reconstructed evidence, plus the separate Quality and CodeQL
+results, is retained in the [implementation ledger](../IMPLEMENTATION_STATUS.md#explicit-local-policy-for-protected-compute).
+This establishes the local comparisons and challenge binding, not a protected
+worker or current vendor-security decision.
 
 The supported Milan report fields are distinct:
 
@@ -301,9 +307,65 @@ is not independent evidence of trustworthy report-key provenance.
 All four bound-evidence obligations remain: production root authorization,
 individual VCEK status and collateral freshness, current vendor security/TCB
 appraisal beyond these local comparisons, and authorized workload/key origin.
-This candidate adds no report-version fallback, root authority, network call,
+This implementation adds no report-version fallback, root authority, network call,
 worker permit or private-input release. A current vendor mitigation appraisal
 and the real protected-worker trial remain separate requirements.
+
+## Guest-side session candidate
+
+The `provider::compute::guest` module adds the other side of the existing
+challenge protocol. Original hosted run
+[`38502691198`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38502691198)
+on `62261f3e` passes compilation, 52 existing appraisal tests, targeted Clippy and
+16 new software lifecycle tests. This is not an admitted private worker.
+No suitable SNP hardware is currently available for a successful firmware or
+two-node private-task trial.
+
+A `GuestSessionOwner` has an explicit expiry, a finite attempt budget and at most
+one active session. It accepts only the existing canonical version-two challenge,
+checks wall-clock and monotonic deadlines, rejects reuse, and generates its own
+ephemeral recipient key. There is no imported private-key parameter or private-key
+export. This is **process-owned key material**, not proof that a hypervisor or
+device administrator cannot read it; that requires an approved measured guest
+and actual confidential-computing verification.
+
+The production quote operation opens the fixed Linux `/dev/sev-guest` device
+through the already pinned upstream library. It calls `SNP_GET_REPORT` with the
+challenge-and-key-bound `REPORT_DATA`, message version one and VMPL zero. Message
+version is not report version: the received report must actually be the supported
+1,184-byte version-two format. Unsupported versions, lengths, VMPL values or
+bindings reject without rewriting the signed bytes or inventing a fallback.
+The operation fetches no certificates and accepts no caller-supplied device path.
+
+Cancellation erases the owned key even while a firmware call is in progress. A
+blocking ioctl is not claimed to be interruptible: its session slot stays occupied
+until the call returns and is joined by its caller. Dropping the session also
+erases the key; expiry is enforced at the next operation or drop, not by a hidden
+timer. Quote responses expose only public report and binding data. Receiving such
+a response does not create verified evidence, task authority or permission to
+release private input. Raw reports can contain hardware identifiers and must not
+be logged, publicly cached or published as routine diagnostics.
+
+Sixteen new Rust tests exercise canonical request/response bounds, fresh keys,
+replay and attempt limits, cancellation during collection, expiry, report rejection
+and separation from the real verifier. Positive collection cases use an explicitly
+test-only synthetic source; production uses only firmware. The separate hosted
+software receipt requires the existing 52 appraisal tests and targeted Clippy first
+and retains their source/lock binding. Historical appraisal receipts keep their
+original scope. Both original artifacts have been independently checked against
+the exact source tree, unchanged committed lockfile, test names and joined command
+processes. The [implementation ledger](../IMPLEMENTATION_STATUS.md#guest-owned-protected-compute-session-candidate)
+retains the artifact hashes and earlier failed attempts; neither software success
+nor a compiled firmware call proves execution inside an approved confidential guest.
+
+Remaining integration includes an authorized caller over the protected provider
+stream, an approved guest image and model/runtime assets, full report appraisal,
+and protected task-input/output handling. This module installs no daemon, changes
+no host configuration, starts no listener or scheduler, and does not enable private
+network execution merely because the firmware call compiles.
+
+Source references: the pinned [firmware API](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/src/firmware/guest/mod.rs)
+and the [Linux SEV guest interface](https://www.kernel.org/doc/html/latest/virt/coco/sev-guest.html).
 
 ## What is still needed before private tasks can run remotely
 

@@ -40,6 +40,7 @@ mod snp;
 
 pub use collateral::VendorCrlFacts;
 pub use policy::{LocalPolicy, MilanTcb, SmtPolicy, TcbMinimums};
+pub(super) use session::challenge_window;
 pub use session::{
     BoundSessionEvidence, PendingSession, SessionLimits, SessionOwner, session_report_data,
 };

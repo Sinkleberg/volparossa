@@ -396,6 +396,22 @@ are excluded from the exported diagnostic. Retries, authority and accounting are
 unchanged. The new detail path is a reviewed candidate awaiting hosted Rust and
 live consumer verification; see the [status ledger](../IMPLEMENTATION_STATUS.md).
 
+Provider-local diagnostics are separate from those client deposit records. The
+current candidate adds a fixed operation/phase/error-family event to the existing
+bounded log ring. The operation is named only after owner-request verification;
+earlier failures use `UNKNOWN`. Backend and receipt phases remain distinct: a
+failed receipt or timeout is not proof that an operation did not commit. The
+event contains no request identifier and cannot correlate itself to a particular
+client failure.
+
+The disposable maintenance trial exports at most 32 observed event tuples per
+role plus an omitted-record count. This sidecar's v2 validator also accepts exact
+historical v1 records. It preserves the existing 400-record ring and 65-KiB export
+limit, omits raw error text and private fields, and explicitly denies acceptance,
+causal-attribution and event-absence claims. The candidate still needs hosted
+Rust verification and a fresh live consumer trial; it changes neither deadlines
+nor receipts, authorization, retry behavior or storage accounting.
+
 ### Explicit usage
 
 The examples are templates: replace the uppercase key/hash placeholders with independently

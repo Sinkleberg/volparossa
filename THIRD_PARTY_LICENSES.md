@@ -91,6 +91,23 @@ vendor security policy and complete worker appraisal remain separate requirement
 vendor inputs are distinct from local authorization of roots and workload code;
 neither is supplied by a peer assertion or a successful signature check.
 
+### Guest firmware quote request
+
+The guest-session candidate reuses the same exact Apache-2.0 `sev` dependency,
+features and committed lockfile. Its only additional upstream production call
+path is [guest firmware `open` and `get_report`](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/src/firmware/guest/mod.rs):
+open the fixed `/dev/sev-guest` device and return the original `SNP_GET_REPORT`
+bytes with explicit message-version/VMPL inputs. No extended-report allocation,
+certificate downloader, derived-key operation, RSA signing, RSA decryption or
+RSA key generation is added. The public-RSA guard separately pins the reviewed
+guest source; this does not broaden the advisory exception or the fuzz graph.
+
+The guest's own ephemeral key uses the existing `RecipientKeyPair` implementation,
+not this RSA dependency. Original upstream source and notices are unchanged;
+there is no new binary, dependency version or local upstream patch. Compilation
+or synthetic collection tests cannot establish that actual firmware ran, that
+the key is protected from the host, or that the guest is an authorized worker.
+
 ### Supplied Milan revocation list
 
 The candidate session verifier also uses `rsa =0.9.10` directly for public-only

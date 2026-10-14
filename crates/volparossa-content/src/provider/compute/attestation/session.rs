@@ -77,10 +77,31 @@ pub fn session_report_data(
     challenge: &[u8],
     proposed_session_key: &[u8; 32],
 ) -> Result<[u8; 64], EvidenceError> {
-    if challenge.is_empty()
-        || challenge.len() > MAX_CHALLENGE_BYTES
-        || *proposed_session_key == [0; 32]
-    {
+    if *proposed_session_key == [0; 32] {
+        return Err(EvidenceError::Encoding);
+    }
+    decode_challenge(challenge)?;
+    let binding = Binding {
+        challenge: challenge.to_vec(),
+        proposed_session_key: proposed_session_key.to_vec(),
+    };
+    let mut digest = Sha512::new();
+    digest.update(BINDING_DOMAIN);
+    digest.update(binding.encode_to_vec());
+    Ok(digest.finalize().into())
+}
+
+// Guest collection shares the exact verifier-side canonical parser. These times
+// are untrusted request fields; the guest must still compare both to its clock.
+pub(in crate::provider::compute) fn challenge_window(
+    challenge: &[u8],
+) -> Result<(u64, u64), EvidenceError> {
+    let parsed = decode_challenge(challenge)?;
+    Ok((parsed.created_at, parsed.expires_at))
+}
+
+fn decode_challenge(challenge: &[u8]) -> Result<Challenge, EvidenceError> {
+    if challenge.is_empty() || challenge.len() > MAX_CHALLENGE_BYTES {
         return Err(EvidenceError::Encoding);
     }
     let parsed = Challenge::decode(challenge).map_err(|_| EvidenceError::Encoding)?;
@@ -98,14 +119,7 @@ pub fn session_report_data(
     {
         return Err(EvidenceError::Encoding);
     }
-    let binding = Binding {
-        challenge: challenge.to_vec(),
-        proposed_session_key: proposed_session_key.to_vec(),
-    };
-    let mut digest = Sha512::new();
-    digest.update(BINDING_DOMAIN);
-    digest.update(binding.encode_to_vec());
-    Ok(digest.finalize().into())
+    Ok(parsed)
 }
 
 #[derive(Clone, Copy)]
