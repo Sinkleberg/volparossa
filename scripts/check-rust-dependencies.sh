@@ -197,6 +197,15 @@ verify_vendor \
     65d70d1559f2209a76b3ca68357c86bd94c9046e0b5dd22b0b3458ad418b1786
 
 verify_vendor \
+    third_party/rust/sources/hickory-resolver-0.25.2.crate \
+    dc62a9a99b0bfb44d2ab95a7208ac952d31060efc16241c87eaf36406fecf87a \
+    third_party/rust/patches/hickory-resolver-0.25.2-dnssec.patch \
+    2e070665e78337e620dfb3f8c15ff09a938ad3fa711e240798732de4c204f1b2 \
+    hickory-resolver-0.25.2 \
+    cce65437d685b2911c283c4f739fbe08017ae1cd4b80a5895cba3f99110c9b3e \
+    omit
+
+verify_vendor \
     third_party/rust/sources/time-0.3.41.crate \
     8a7619e19bc266e0f9c5e6686659d394bc57973859340060a69221e57dbc0c40 \
     third_party/rust/patches/time-0.3.41-rustsec.patch \
@@ -220,6 +229,12 @@ check_sha256 \
     dc470946f0a127507a9e577a20da1eb19eae0abc383b2be1f786f6427944f06c \
     third_party/rust/vendor/hickory-proto-0.25.2/LICENSE-MIT
 check_sha256 \
+    6b9522191b8cb7126b2d214edd7f782d2ccd83c467e9c03b8af9e0bf903b49b4 \
+    third_party/rust/vendor/hickory-resolver-0.25.2/LICENSE-APACHE
+check_sha256 \
+    dc470946f0a127507a9e577a20da1eb19eae0abc383b2be1f786f6427944f06c \
+    third_party/rust/vendor/hickory-resolver-0.25.2/LICENSE-MIT
+check_sha256 \
     0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594 \
     third_party/rust/vendor/time-0.3.41/LICENSE-Apache
 check_sha256 \
@@ -237,18 +252,21 @@ check_sha256 \
 pass 'upstream Apache-2.0 and MIT license files are unchanged'
 
 check_sha256 \
-    bee77a5a6fa12bdd6fcc4fcee18f831e4f11e7c392583c4cffb13b884d50fd37 \
+    0a7ee00f815244d31dc06b7d707c67d5c5ea044f5c0490a774735931c228d13c \
     third_party/rust/backport-regressions/Cargo.toml
 check_sha256 \
     aabd2af12e26033cb8de9b63841b54574718406e4479b47e41bc0d92fc6f14e0 \
     third_party/rust/backport-regressions/.cargo/config.toml
 check_sha256 \
-    796ae0f160c8d95aa6e395dc56f266273e47928b097c318bdc0dfa499b8dadfd \
+    2a6f58b0f92f55d9a98e15956d4ff74214e711d1f1aaa8314c7cce39af21ae03 \
     third_party/rust/backport-regressions/src/lib.rs
 check_sha256 \
-    08e7bcd46d2e3f7411e8f4e855c70027f627be6061f63ab459c43f41a687c5cc \
+    c41ab6922715e7a2e9772b9b70c64024f6629dcdc6280b763eaefc3eb52c809f \
+    third_party/rust/backport-regressions/src/resolver.rs
+check_sha256 \
+    f5cb8b7c0aaed551c70d2182da7ac984944991f8de5bd42d8e9b1cadb2a5bc76 \
     third_party/rust/backport-regressions/Cargo.lock
-pass 'isolated dependency-security regression harness and rustc-1.85 lock are unchanged'
+pass 'isolated dependency-security regression harness and Rust-1.85-targeted lock match reviewed hashes'
 
 if [ "$mode" = vendor_only ]; then
     exit 0
@@ -259,7 +277,7 @@ CARGO_TARGET_DIR="$audit_tmp/backport-target" \
         --manifest-path third_party/rust/backport-regressions/Cargo.toml \
         --locked \
         --offline
-pass 'all five dependency-security regressions passed, including Yamux fail-closed and wrapper-policy handling'
+pass 'dependency-security regressions passed, including resolver validation, CNAME scope and Yamux policy'
 
 command -v jq >/dev/null 2>&1 ||
     fail 'jq is required to verify exact locked package provenance'
@@ -279,6 +297,21 @@ root_deny_config="$audit_tmp/root-deny.toml"
 python3 -B scripts/test-public-rsa-scope.py
 python3 -B scripts/check-public-rsa-scope.py \
     "$root_metadata" "$fuzz_metadata" "$root_deny_config"
+
+for graph in "$root_metadata" "$fuzz_metadata"; do
+    check_single_path_package \
+        "$graph" \
+        hickory-resolver \
+        0.25.2 \
+        "$repository_root/third_party/rust/vendor/hickory-resolver-0.25.2/Cargo.toml"
+    # GHSA-6f2x-v7q7-m7m5 fixes recursive resolution, which is a separate
+    # crate in 0.25. The pinned stub is tested independently; its scope must
+    # not silently expand to the recursor or the restructured 0.26 graph.
+    jq -e '[.packages[] | select(.name == "hickory-recursor" or
+        .name == "hickory-net" or .name == "hickory-server")] | length == 0' \
+        "$graph" >/dev/null || fail 'reviewed Hickory stub-only graph scope changed'
+done
+pass 'root and fuzz graphs use only the reviewed resolver backport and contain no Hickory recursor'
 
 check_single_path_package \
     "$root_metadata" \

@@ -36,6 +36,35 @@ The immediate milestones build on the retained candidates and evidence below:
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 is merged as `e282a3ce`; its guest module has passing software evidence. PR247 connects that module to finite operator grants, protected transport and CLI verification. Original run `38511031734` on `85a01382` passes 52 appraisal, 16 guest and twelve new quote tests plus targeted Clippy. Quality `38511036689` stops at one CLI naming lint; the private-type rename is reviewed, but corrected workspace acceptance and execution of eight new agent/control/CLI tests remain required. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
 
+### Hickory resolver security candidate
+
+An isolated dependency candidate backports the upstream DNSSEC-bogus answer
+check to the Rust-1.85-compatible `hickory-resolver 0.25.2`. It rejects bogus
+answers before cache insertion or alias following when resolver validation is
+enabled. The root and fuzz graphs retain the existing API/version and use the
+same reviewed path source. Production DNS settings, relay routing, trust anchors
+and the separate shared-DNS `Proof::Secure` requirement are unchanged.
+
+The second CNAME advisory concerns recursive resolution. Source review locates
+the fixed code in the separate 0.25 recursor, absent from both locked graphs;
+the stub's matching-answer chain receives focused regression coverage and a
+graph-scope guard. This is not an unrestricted exemption for Hickory 0.25.
+Archive, patch, reconstructed tree and unchanged license checks bind the exact
+candidate; package notice collection includes the new path. Neither advisory
+is dismissed or hidden by a new scanner exception.
+
+Rust compilation, the expanded offline backport regressions and the full locked
+dependency/packaging checks still require hosted execution. Local source-only
+verification reconstructs all four vendor trees exactly and verifies all license
+and harness hashes. Shell syntax, ShellCheck, the four existing inert SEV license
+fixtures and focused resolver notice collection pass. Independent source review
+checks the ten new resolver cases and the manually extended standalone lock;
+this is not Cargo resolution or executed Rust evidence. The concurrent
+storage and Android actual trials keep their original source revisions and
+remain independent of this candidate. See the
+[reviewed dependency sources](../third_party/rust/README.md#resolver-validation-and-cname-scope)
+for upstream fixes and the precise reachability assessment.
+
 ### Authorized quote exchange candidate
 
 The new quote-only path connects guest-owned evidence collection to the existing

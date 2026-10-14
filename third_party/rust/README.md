@@ -1,7 +1,8 @@
 # Reviewed Rust dependency security changes
 
 VOLPAROSSA targets Debian 13 amd64 and its stable Rust 1.85 compiler. The
-upstream fixed releases `hickory-proto 0.26.1` and `time 0.3.47` both
+upstream fixed releases `hickory-proto 0.26.1`, `hickory-resolver 0.26.2`
+and `time 0.3.47` all
 declare Rust 1.88, so the locked compatible releases are reconstructed from
 their exact crates.io archives and receive minimal source backports. The
 published `libp2p-yamux 0.47.0` also retains a `yamux 0.12` compatibility
@@ -23,6 +24,7 @@ revision is retained alongside the reconstructed source.
 | Crate | crates.io archive SHA-256 | crates.io VCS revision | Original MSRV |
 |---|---|---|---|
 | `hickory-proto 0.25.2` | `f8a6fe56c0038198998a6f217ca4e7ef3a5e51f46163bd6dd60b5c71ca6c6502` | `527c9f470a418cf6b92da902ea0aaa5749963d59` | 1.71.1 |
+| `hickory-resolver 0.25.2` | `dc62a9a99b0bfb44d2ab95a7208ac952d31060efc16241c87eaf36406fecf87a` | `527c9f470a418cf6b92da902ea0aaa5749963d59` | 1.71.1 |
 | `time 0.3.41` | `8a7619e19bc266e0f9c5e6686659d394bc57973859340060a69221e57dbc0c40` | `cc35dcfcde917bb833c114e2b4c00292a374c4ba` | 1.67.1 |
 | `libp2p-yamux 0.47.0` | `f15df094914eb4af272acf9adaa9e287baa269943f32ea348ba29cfb9bfc60d8` | `9736aacf814eb7b9df0372c5f9adcffba8a4b212` | 1.83.0 |
 
@@ -34,6 +36,7 @@ the checksums recorded by crates.io and the pre-patch `Cargo.lock`.
 | Patch | SHA-256 | Resulting vendor-tree SHA-256 |
 |---|---|---|
 | `patches/hickory-proto-0.25.2-rustsec.patch` | `bd1d5df1a13574d5c8b546e1a53dfde04d524353a646c8235786d7724215828a` | `65d70d1559f2209a76b3ca68357c86bd94c9046e0b5dd22b0b3458ad418b1786` |
+| `patches/hickory-resolver-0.25.2-dnssec.patch` | `2e070665e78337e620dfb3f8c15ff09a938ad3fa711e240798732de4c204f1b2` | `cce65437d685b2911c283c4f739fbe08017ae1cd4b80a5895cba3f99110c9b3e` |
 | `patches/time-0.3.41-rustsec.patch` | `bc4ad8b199c3284c59b1aa259d5ec907d43f7cb898083a8d5ab99a71cc7a5c8a` | `722fc9e265043f6d683a365596063ad3b192a7d4dce542f9aa56bee65ccfdd7b` |
 | `patches/libp2p-yamux-0.47.0-single-backend.patch` | `1a845f6cfaa57c993b54f654dc8e9294a450de8c46be323618481a7cc750740d` | `a7a9977042b6d9f602e98d67dc8409c485b5e588f79f8567b9b5b6ec9587e4fb` |
 
@@ -46,7 +49,7 @@ find . -type f -print0 |
     sha256sum
 ```
 
-The Hickory patch:
+The Hickory proto patch:
 
 - caps the linear `BinEncoder` name-compression candidate set at the upstream
   limit of 64 and tests that a 65th candidate is not retained, remediating
@@ -54,6 +57,41 @@ The Hickory patch:
 - rejects an NSEC3 proof before allocation when the SOA is not an ancestor of
   the query name and tests the cross-zone case, remediating
   RUSTSEC-2026-0118.
+
+### Resolver validation and CNAME scope
+
+[GHSA-5j98-2g5x-46v6](https://github.com/hickory-dns/hickory-dns/security/advisories/GHSA-5j98-2g5x-46v6)
+describes a lookup API returning success for DNSSEC-bogus records when validation
+is enabled. The resolver backport applies the answer-record check from upstream
+commit `92f93c0b889f6a292bc943304d88c4c6561fe1b9` before cache insertion and CNAME
+handling. It uses the existing 0.25 error type; the 0.26 network/error/server
+reorganization is not imported. Negative proof errors already remain errors in
+the pinned 0.25 path. Focused regressions cover the error boundary, cache behavior
+and preservation of non-bogus and validation-disabled behavior.
+
+The production shared-DNS validator uses `DnssecDnsHandle` and separately requires
+`Proof::Secure` for every accepted A/AAAA record. It does not use the affected
+resolver convenience API. Discovery uses the resolver through `libp2p-dns` with
+its existing system configuration; this change does not turn that path into a
+DNSSEC-authenticated service or alter host DNS settings.
+
+[GHSA-6f2x-v7q7-m7m5](https://github.com/hickory-dns/hickory-dns/security/advisories/GHSA-6f2x-v7q7-m7m5)
+describes unnecessary recursive queries for unrelated CNAME records. Its upstream
+fixes `4689fc8d3ddd3e3f99ec1b7be4e2e9e78afd2e6b` and
+`ccd6952378f250c714fc2af0cb1053e1c179f832` change the 0.26 recursor. In 0.25 that
+implementation belongs to the separate `hickory-recursor` crate, absent from both
+VOLPAROSSA graphs. The pinned stub instead follows matching answer-section names
+through one next-query chain. Its unrelated-answer, authority/additional and
+bounded-chain cases are covered by regressions; graph checks reject introduction
+of the recursor. This is a limited source-and-reachability assessment, not a claim
+that every 0.25 Hickory deployment is unaffected. No advisory dismissal or new
+scanner exception is introduced for either GHSA.
+
+As with the Yamux reconstruction, the resolver crate's embedded development
+`Cargo.lock` is omitted from the vendor tree. The unchanged archive preserves it;
+the root, fuzz and isolated regression locks define the graphs actually built.
+
+### Existing time and Yamux backports
 
 The `time` patch ports the upstream 32-level RFC 2822 comment recursion bound
 and tests both the accepted boundary and fail-closed over-limit case,
@@ -108,10 +146,10 @@ bytes, trust-anchor files, licenses, or cryptographic implementation change.
 The standalone fuzz graph does not depend on the UDP resolver and still
 forbids both DNSSEC backends and the regression adapter.
 
-The isolated harness has its own rustc-1.85-resolved `Cargo.lock` with SHA-256
-`08e7bcd46d2e3f7411e8f4e855c70027f627be6061f63ab459c43f41a687c5cc`.
-It executes all three backport regressions plus two bounded Yamux regressions
-without network access:
+The isolated harness has its own Rust-1.85-targeted `Cargo.lock` with SHA-256
+`f5cb8b7c0aaed551c70d2182da7ac984944991f8de5bd42d8e9b1cadb2a5bc76`.
+It tests compression, NSEC3, RFC 2822 parsing, resolver validation and CNAME
+scope, plus two bounded Yamux cases, without network access:
 
 ```sh
 cargo test \
@@ -147,8 +185,8 @@ after `scripts/check-rust-dependencies.sh`:
 3. byte-compares the reconstruction with the Cargo path override;
 4. verifies unchanged upstream license files and the complete tree hashes;
 5. verifies the exact isolated-harness files and lock, then executes the
-   compression, NSEC3, RFC 2822, and Yamux regressions offline;
-6. proves both locked graphs use all three local paths and contain only fixed
+   compression, NSEC3, RFC 2822, resolver and Yamux regressions offline;
+6. proves both locked graphs use the reviewed local paths and contain only fixed
    `yamux 0.13.10`; production explicitly enables only Hickory `dnssec-ring`,
    while the standalone fuzz graph excludes DNSSEC; both reject the
    regression-only feature and `dnssec-aws-lc-rs`;
