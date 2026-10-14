@@ -584,11 +584,12 @@ async fn exchange(
     // This terminal proves route/policy/TLS closure, not custody by itself. Exact lease,
     // stored prefix and expiry are in the owner-verified signed receipt sent beforehand.
     outcome.enter(OutcomePhase::TerminalWrite);
+    let bytes = transfer.ciphertext_bytes;
     send(
         local,
         id,
         "CONTENT_OK",
-        Payload::Content(route_receipt(transfer.ciphertext_bytes, request.peer, control)),
+        Payload::Content(route_receipt(bytes, request.peer, control)),
     )
     .await
 }
