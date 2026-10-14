@@ -7,6 +7,7 @@
 pub mod attestation;
 pub mod dataset;
 pub mod guest;
+pub mod quote;
 mod protocol;
 mod transcript;
 

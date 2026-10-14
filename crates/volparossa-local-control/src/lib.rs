@@ -19,6 +19,8 @@ pub use compute_control::{
 mod custody;
 mod mailbox;
 mod private_storage;
+mod quote;
+pub use quote::{QuoteAttachRequest, QuoteReady, QuoteRemoteRequest};
 pub use content::{
     ContentCacheLimits, ContentExportRequest, ContentFetchNameRequest, ContentFetchRequest,
     ContentImportRequest, ContentLocalFetchNameRequest, ContentPolicyApplyRequest,
@@ -64,7 +66,7 @@ pub struct ControlRequest {
     /// One allowlisted operation.
     #[prost(
         oneof = "control_request::Operation",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45"
     )]
     pub operation: Option<control_request::Operation>,
 }
@@ -80,7 +82,7 @@ pub mod control_request {
         ContentLocalFetchNameRequest, ContentPolicyApplyRequest, ContentServeRequest, Empty,
         HttpsContentFetchRequest, LogQuery, MailboxRemoteRequest, MailboxServeRequest,
         PrivateStorageAdmissionRequest, PrivateStorageGrantRequest, PrivateStorageRemoteRequest,
-        PrivateStorageServeRequest, RoleChange,
+        PrivateStorageServeRequest, QuoteAttachRequest, QuoteRemoteRequest, RoleChange,
     };
 
     /// Exactly one supported CLI-to-agent operation.
@@ -185,6 +187,15 @@ pub mod control_request {
         /// Delegate only one finite app-scoped TCP gateway, never admin socket authority.
         #[prost(message, tag = "42")]
         BrowserGatewayGrant(BrowserGatewayGrantRequest),
+        /// Explicitly authorize a finite exact-requester guest quote attachment.
+        #[prost(message, tag = "43")]
+        QuoteAttach(QuoteAttachRequest),
+        /// Cancel the current quote attachment without changing the compute broker.
+        #[prost(message, tag = "44")]
+        QuoteDetach(Empty),
+        /// Upgrade this exact socket for one distinct protected quote exchange.
+        #[prost(message, tag = "45")]
+        QuoteRemote(QuoteRemoteRequest),
     }
 }
 
@@ -270,7 +281,7 @@ pub struct ControlResponse {
     /// Typed response body.
     #[prost(
         oneof = "control_response::Payload",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33"
     )]
     pub payload: Option<control_response::Payload>,
 }
@@ -284,7 +295,7 @@ pub mod control_response {
         ContentCustodyDiscovered, ContentCustodyReady, ContentPolicyReceipt, ContentReceipt,
         ContentTransferReady, Empty, HttpsContentTransferReady, LogList, MailboxReady,
         NamedContentTransferReady, PathList, PeerList, PolicySnapshot, PrivateStorageAdmission,
-        PrivateStorageGrant, PrivateStorageReady, RoleSnapshot, SessionList, StatusSnapshot,
+        PrivateStorageGrant, PrivateStorageReady, QuoteReady, RoleSnapshot, SessionList, StatusSnapshot,
     };
 
     /// Exactly one response body.
@@ -359,6 +370,9 @@ pub mod control_response {
         /// Secret single-use delegation, delivered only to the existing operator boundary.
         #[prost(message, tag = "32")]
         BrowserGatewayGranted(BrowserGatewayGranted),
+        /// Route, TLS and signed quote challenge are ready; no quote or admission yet.
+        #[prost(message, tag = "33")]
+        QuoteReady(QuoteReady),
     }
 }
 
@@ -763,6 +777,8 @@ fn validate_request(request: &ControlRequest) -> Result<(), ControlProtocolError
         control_request::Operation::ContentPolicyApply(request) => request.validate()?,
         control_request::Operation::ComputeAttach(request) => request.validate()?,
         control_request::Operation::ComputeRemote(request) => request.validate()?,
+        control_request::Operation::QuoteAttach(request) => request.validate()?,
+        control_request::Operation::QuoteRemote(request) => request.validate()?,
         control_request::Operation::ComputeDiscover(request) => {
             request.eligibility()?;
         }
@@ -798,6 +814,7 @@ fn validate_request(request: &ControlRequest) -> Result<(), ControlProtocolError
         | control_request::Operation::PolicyStatus(_)
         | control_request::Operation::Roles(_)
         | control_request::Operation::ContentStop(_)
+        | control_request::Operation::QuoteDetach(_)
         | control_request::Operation::ContentStatus(_) => {}
     }
     Ok(())
@@ -885,6 +902,7 @@ fn validate_response(response: &ControlResponse) -> Result<(), ControlProtocolEr
         control_response::Payload::ContentCustodyReady(ready) => ready.validate()?,
         control_response::Payload::ContentCustodyDiscovered(discovered) => discovered.validate()?,
         control_response::Payload::ComputeReady(ready) => ready.validate()?,
+        control_response::Payload::QuoteReady(ready) => ready.validate()?,
         control_response::Payload::ComputeDiscovered(discovered) => discovered.validate()?,
         control_response::Payload::ComputeTranscript(transcript) => transcript.validate()?,
         control_response::Payload::Ack(_)

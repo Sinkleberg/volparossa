@@ -180,25 +180,28 @@ class GuestEvidenceContracts(unittest.TestCase):
             with self.assertRaises(ValueError): G.directory(work)
 
     def test_guest_cli_uses_original_hosted_gate_and_fixed_commands(self):
-        for phase in ('test', 'receipt'):
+        for phase, branch in ((phase, branch) for phase in ('test', 'receipt')
+                for branch in ('feature/protected-compute-guest', 'feature/protected-compute-quote-exchange')):
             with patch.object(G.P, 'hosted') as gate, patch.object(G.P, 'install_signals'), \
                     patch.object(G.P, 'workdir', return_value=Path('/inert')), patch.object(G.P, 'cargo_env'), \
-                    patch.dict(os.environ, GITHUB_REF='refs/heads/feature/protected-compute-guest'), \
+                    patch.dict(os.environ, GITHUB_REF='refs/heads/' + branch), \
                     patch.object(G, 'execute' if phase == 'test' else 'receipt') as action:
                 G.main([phase]); gate.assert_called_once(); action.assert_called_once_with(Path('/inert'))
         for args in ([], ['compile'], ['test', 'extra']):
             with patch.object(G.P, 'hosted') as gate, self.assertRaises(ValueError): G.main(args)
             gate.assert_not_called()
-        with patch.object(G.P, 'hosted'), patch.dict(os.environ, GITHUB_REF='refs/heads/main'), \
-                self.assertRaisesRegex(ValueError, 'guest_branch_only'):
-            G.main(['test'])
+        for branch in ('main', 'feature/protected-compute-quote-exchange-other'):
+            with patch.object(G.P, 'hosted'), patch.dict(os.environ, GITHUB_REF='refs/heads/' + branch), \
+                    self.assertRaisesRegex(ValueError, 'guest_branch_only'):
+                G.main(['test'])
 
     def test_workflow_keeps_guest_exports_and_historical_exports_separate(self):
         raw = (G.P.ROOT / '.github/workflows/protected-compute-admission.yml').read_text()
         expected = re.findall(r'\$\{\{ runner.temp \}\}/volparossa-protected-compute-admission/guest-evidence/(\S+)', raw)
         self.assertEqual(tuple(expected), G.EXPORTS)
-        self.assertIn('if: success() && github.ref == \'refs/heads/feature/protected-compute-guest\'', raw)
-        self.assertIn('if: always() && github.ref == \'refs/heads/feature/protected-compute-guest\'', raw)
+        branches = "(github.ref == 'refs/heads/feature/protected-compute-guest' || github.ref == 'refs/heads/feature/protected-compute-quote-exchange')"
+        self.assertIn('if: success() && ' + branches, raw)
+        self.assertIn('if: always() && ' + branches, raw)
         self.assertIn('protected-compute-guest.py test', raw)
         self.assertIn('protected-compute-guest.py receipt', raw)
         self.assertIn('protected-compute-guest-software-${{ github.sha }}', raw)

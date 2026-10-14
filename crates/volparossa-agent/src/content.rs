@@ -19,6 +19,8 @@ mod named_admission_tests;
 mod object_policy;
 mod parallel;
 mod private_storage;
+mod quote;
+mod quote_remote;
 mod recent;
 mod rediscovery;
 #[cfg(test)]
@@ -118,6 +120,9 @@ pub(crate) struct ContentRuntime {
     worker_budget: worker_budget::WorkerBudget,
     contribution: Arc<Mutex<Option<Arc<contribution::ContributionRuntime>>>>,
     compute: Arc<Mutex<Option<Arc<compute::Attachment>>>>,
+    quote: Arc<Mutex<Option<quote::Attachment>>>,
+    // Process-long: cancelling/detaching a service cannot create another firmware slot.
+    quote_firmware: Arc<tokio::sync::Semaphore>,
     object_policy: volparossa_content::object_policy::ObjectPolicyGate,
     object_policy_owner: Arc<std::sync::OnceLock<object_policy::ObjectPolicyOwner>>,
 }
@@ -172,6 +177,8 @@ impl ContentRuntime {
             worker_budget: worker_budget::WorkerBudget::default(),
             contribution: Arc::new(Mutex::new(None)),
             compute: Arc::new(Mutex::new(None)),
+            quote: Arc::new(Mutex::new(None)),
+            quote_firmware: Arc::new(tokio::sync::Semaphore::new(1)),
             object_policy: volparossa_content::object_policy::ObjectPolicyGate::default(),
             object_policy_owner: Arc::new(std::sync::OnceLock::new()),
         })
@@ -341,7 +348,7 @@ impl ContentRuntime {
             .set_priority(CONTRIBUTION_SOCKET_PRIORITY)
             .map_err(|_| ContentError::Unavailable)?;
         // The listener and a verified registration exist before announcing service availability.
-        if !options.automatic || registry.has_live_publications(now()) || registry.has_compute() {
+        if !options.automatic || registry.has_live_publications(now()) || registry.has_compute() || registry.has_quote() {
             context
                 .discovery
                 .register_content_offer(self.offer(endpoint.clone())?)
@@ -438,6 +445,7 @@ impl ContentRuntime {
                             && !registry.has_private_storage()
                             && !registry.has_custody()
                             && !registry.has_compute()
+                            && !registry.has_quote()
                         {
                             drop(registry);
                             let _ = discovery.withdraw_content_offer().await;
@@ -505,6 +513,9 @@ impl ContentRuntime {
         let mut current = self.service.lock().await;
         if let Some(attachment) = self.compute.lock().await.take() {
             attachment.deactivate();
+        }
+        if let Some(attachment) = self.quote.lock().await.take() {
+            attachment.stop().await;
         }
         if let Some(service) = current.take() {
             let _ = service.stop.send(true);

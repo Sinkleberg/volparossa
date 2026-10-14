@@ -274,6 +274,7 @@ pub struct PublicationRegistry {
     private_storage: Option<Arc<crate::private_storage::wire::StorageService>>,
     custody: Option<Arc<custody::CustodyService>>,
     compute: Option<Arc<compute::ComputeService>>,
+    quote: Option<Arc<compute::quote::QuoteService>>,
 }
 #[derive(Clone)]
 struct RegisteredPublication {
@@ -357,6 +358,22 @@ impl PublicationRegistry {
     /// Whether a caller explicitly attached a compute service, independent of public files.
     pub fn has_compute(&self) -> bool {
         self.compute.is_some()
+    }
+
+    /// Attach explicit finite quote authority alongside, not instead of, public compute.
+    pub fn set_quote(&mut self, service: Arc<compute::quote::QuoteService>) {
+        self.quote = Some(service);
+    }
+
+    /// Remove this quote attachment without withdrawing unrelated public services.
+    /// The attachment owner must also deactivate its service and supervisor.
+    pub fn clear_quote(&mut self) {
+        self.quote = None;
+    }
+
+    /// Only a supervised, finite quote owner keeps automatic provider discovery live.
+    pub fn has_quote(&self) -> bool {
+        self.quote.as_ref().is_some_and(|service| service.is_active())
     }
 
     /// Register the original independently verified envelope without opting into replication.
@@ -604,6 +621,19 @@ where
         let selector: Selector = timeout_at(session.selector_deadline, read_frame(stream))
             .await
             .map_err(|_| ProviderError::Timeout)??;
+        if selector.version == compute::quote::SELECTOR_VERSION
+            && selector.operation == compute::quote::SELECTOR_OPERATION
+            && selector.manifest_id.is_empty()
+        {
+            registry
+                .quote
+                .as_ref()
+                .ok_or(ProviderError::Missing)?
+                .serve(stream)
+                .await
+                .map_err(|_| ProviderError::Protocol)?;
+            return Ok(TransferProgress::default());
+        }
         if selector.version == compute::SELECTOR_VERSION
             && selector.operation == compute::SELECTOR_OPERATION
             && selector.manifest_id.is_empty()
