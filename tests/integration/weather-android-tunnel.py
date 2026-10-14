@@ -30,6 +30,28 @@ EXCHANGE_SECONDS = 190
 MAX_REQUESTS = 6
 GUEST_STATE = Path("/run/volparossa-weather-android/endpoint.json")
 GUEST_HELPER = "/usr/local/libexec/volparossa-weather-android-tunnel.py"
+PREFIX = "VOLPAROSSA_WEATHER_ANDROID_TUNNEL_DIAGNOSTIC "
+MAX_DIAGNOSTIC_BYTES = 4096  # Includes the UTF-8 marker and final LF.
+PHASES = frozenset(("admission", "listen", "accept", "request-read", "request-limit", "exchange-spawn",
+    "exchange-write", "exchange-read", "exchange-client", "exchange-join", "exchange-deadline",
+    "exchange-protocol", "response-observe", "response-send", "hold-open", "exchange-cleanup", "socket-cleanup"))
+REASONS = {
+    "deadline": frozenset(("accept", "request-read", "exchange-read", "exchange-join", "exchange-deadline",
+        "response-send", "hold-open")),
+    "interrupted": PHASES | {None},
+    "request-rejected": frozenset(("request-read", "request-limit")),
+    "client-disconnected": frozenset(("exchange-client", "response-send")),
+    "extra-request": frozenset(("exchange-client", "hold-open")),
+    "child-failed": frozenset(("exchange-join",)),
+    "response-bound": frozenset(("exchange-read",)),
+    "response-rejected": frozenset(("exchange-protocol", "response-observe")),
+    "cleanup-failed": frozenset(("exchange-cleanup", "socket-cleanup")),
+    "io-error": PHASES | {None},
+    "guard-rejected": frozenset(("admission", "listen", "exchange-spawn", "exchange-write")),
+}
+HTTP_STATUSES = frozenset(("200", "400", "403", "404", "405", "408", "429", "500", "502", "503", "504",
+    "other", "invalid"))
+PRODUCTS = dict(zip(ROUTES, ("weather", "air_quality")))
 
 
 class TunnelInterrupted(Exception):
@@ -39,6 +61,151 @@ class TunnelInterrupted(Exception):
 def require(value):
     if not value:
         raise ValueError("weather_android_tunnel_rejected")
+
+
+def validate_diagnostic(value):
+    """Failure-only observations; neither raw HTTP nor guest cleanup authority."""
+    require(type(value) is dict and set(value) == {"schema", "kind", "success", "joined_core_acceptance", "primary", "cleanup"})
+    require(type(value["schema"]) is int and value["schema"] == 1
+        and value["kind"] == "weather-android-tunnel-diagnostic"
+        and value["success"] is False and value["joined_core_acceptance"] is False)
+    facts = value["primary"]
+    require(type(facts) is dict and set(facts) == {"phase", "reason", "product", "ordinal", "completed",
+        "requests", "ssh_status", "http_status"})
+    phase, reason, product, ordinal = (facts[key] for key in ("phase", "reason", "product", "ordinal"))
+    require(phase is None or type(phase) is str and phase in PHASES)
+    require(reason is None or type(reason) is str and reason in REASONS and phase in REASONS[reason])
+    require(product is None or type(product) is str and product in PRODUCTS.values())
+    counts = facts["requests"]
+    require(type(counts) is dict and set(counts) == set(PRODUCTS.values())
+        and all(type(count) is int and 0 <= count <= 3 for count in counts.values()))
+    require(type(facts["completed"]) is int and 0 <= facts["completed"] <= sum(counts.values()) <= MAX_REQUESTS)
+    require(ordinal is None or type(ordinal) is int and 1 <= ordinal <= 3
+        and product is not None and ordinal == counts[product])
+    if product is None: require(ordinal is None)
+    if phase in {None, "admission", "listen", "accept", "request-read", "hold-open"}:
+        require(product is None and ordinal is None)
+    if phase == "request-limit": require(product is not None and ordinal is None)
+    active = {"exchange-spawn", "exchange-write", "exchange-read", "exchange-client", "exchange-join",
+        "exchange-deadline", "exchange-protocol", "response-observe", "response-send", "exchange-cleanup"}
+    if phase in active: require(product is not None and ordinal is not None)
+    if phase in {None, "admission", "listen"}: require(sum(counts.values()) == 0 and facts["completed"] == 0)
+    if phase in {"accept", "request-read", "request-limit", "hold-open"}:
+        require(facts["completed"] == sum(counts.values()))
+    if phase in active - {"response-send", "exchange-cleanup"}:
+        require(facts["completed"] + 1 == sum(counts.values()))
+    if phase == "hold-open": require(facts["completed"] == MAX_REQUESTS)
+    status = facts["ssh_status"]
+    require(status is None or type(status) is int and -255 <= status <= 255)
+    if status is not None:
+        require(phase in {"exchange-join", "exchange-deadline", "exchange-protocol", "response-observe",
+            "response-send", "exchange-cleanup", "socket-cleanup"})
+    if reason == "child-failed": require(status is not None and status != 0)
+    if phase in {"exchange-deadline", "exchange-protocol", "response-observe", "response-send"}:
+        require(status == 0 and type(status) is int)
+    http = facts["http_status"]
+    require(http is None or type(http) is str and http in HTTP_STATUSES)
+    if http is not None:
+        require(phase in {"exchange-join", "exchange-deadline", "exchange-protocol", "response-observe",
+            "response-send", "exchange-cleanup", "socket-cleanup"})
+    cleanup = value["cleanup"]
+    require(type(cleanup) is dict and set(cleanup) == {"exchange_child_joined", "socket_removed"}
+        and all(item is None or type(item) is bool for item in cleanup.values()))
+    encoded = PREFIX + json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
+    require(len(encoded.encode("utf-8")) <= MAX_DIAGNOSTIC_BYTES)
+    return value
+
+
+class TunnelDiagnostic:
+    """Snapshot the first failure before retirement, with no exception text.
+
+    Requests count only quota-admitted attempts; completed counts the original
+    successful send/deadline completions, not merely bytes sent. ordinal names
+    the current admitted attempt, not a retry. Reasons describe the observed
+    decision, not an inferred malicious client or remote root cause.
+    Cleanup flags refer only to this exchange group and this socket inode.
+    """
+    def __init__(self):
+        self.active = False
+        self.facts = dict(phase=None, reason=None, product=None, ordinal=None, completed=0,
+            requests=dict.fromkeys(PRODUCTS.values(), 0), ssh_status=None, http_status=None)
+        self.primary = None
+        self.cleanup = dict(exchange_child_joined=None, socket_removed=None)
+
+    def phase(self, phase):
+        self.facts["phase"] = phase
+
+    def next_request(self, phase):
+        self.facts.update(phase=phase, product=None, ordinal=None, ssh_status=None, http_status=None)
+        self.cleanup["exchange_child_joined"] = None
+
+    def selected(self, route):
+        self.facts.update(product=PRODUCTS[route], ordinal=None)
+
+    def admitted(self, route, ordinal):
+        product = PRODUCTS[route]
+        self.facts["requests"][product] = ordinal
+        self.facts.update(product=product, ordinal=ordinal)
+
+    def completed(self, count):
+        self.facts["completed"] = count
+
+    def child_started(self):
+        self.cleanup["exchange_child_joined"] = False
+
+    def child_status(self, status):
+        self.facts["ssh_status"] = status if type(status) is int and -255 <= status <= 255 else None
+
+    def http(self, raw):
+        # Inspect only the fixed status prefix. Never retain reason phrases,
+        # headers, a URL, body, hash, exception text or remote identity.
+        prefix = bytes(raw[:13])
+        status = "invalid"
+        if len(prefix) == 13 and prefix.startswith(b"HTTP/1.1 ") and prefix[12:] == b" " and prefix[9:12].isdigit():
+            number = prefix[9:12].decode("ascii")
+            status = number if number in HTTP_STATUSES else "other"
+        self.facts["http_status"] = status
+
+    def cleaned(self, key, value):
+        self.cleanup[key] = value
+
+    def capture(self, error):
+        if self.primary is not None: return
+        phase, reason = self.facts["phase"], None
+        if phase in {"exchange-cleanup", "socket-cleanup"}: reason = "cleanup-failed"
+        elif isinstance(error, TunnelInterrupted): reason = "interrupted"
+        elif isinstance(error, (TimeoutError, subprocess.TimeoutExpired)): reason = "deadline"
+        elif isinstance(error, BrokenPipeError) and phase in {"exchange-client", "response-send"}:
+            reason = "client-disconnected"
+        elif isinstance(error, OSError): reason = "io-error"
+        elif isinstance(error, ValueError):
+            reason = {"request-read": "request-rejected", "request-limit": "request-rejected",
+                "exchange-client": "extra-request", "hold-open": "extra-request", "exchange-read": "response-bound",
+                "exchange-join": "child-failed", "exchange-protocol": "response-rejected",
+                "response-observe": "response-rejected"}.get(phase, "guard-rejected")
+        if reason is not None and phase not in REASONS[reason]: reason = None
+        self.primary = {**self.facts, "requests": dict(self.facts["requests"]), "reason": reason}
+
+    def record(self):
+        require(self.primary is not None)
+        return validate_diagnostic(dict(schema=1, kind="weather-android-tunnel-diagnostic", success=False,
+            joined_core_acceptance=False, primary=self.primary, cleanup=dict(self.cleanup)))
+
+
+def observe(diagnostic, method, *args):
+    # A broken optional observation cannot change the original failure or skip
+    # cleanup. No clocks, process polls or external reads are performed here.
+    if diagnostic is not None:
+        try: getattr(diagnostic, method)(*args)
+        except (AttributeError, OSError, ValueError, KeyError, TypeError, RecursionError): pass
+
+
+def emit_diagnostic(diagnostic):
+    if diagnostic is None or not diagnostic.active: return
+    try:
+        value = diagnostic.record()
+        print(PREFIX + json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False), flush=True)
+    except (AttributeError, OSError, ValueError, KeyError, TypeError, RecursionError): pass
 
 
 def canonical(path):
@@ -129,14 +296,17 @@ def stop_child(child):
     require(not group_alive(child.pid))
 
 
-def exchange(command, request, deadline, *, client=None):
+def exchange(command, request, deadline, *, client=None, diagnostic=None):
     """Own one SSH process group; bound output before collecting it."""
+    observe(diagnostic, "phase", "exchange-spawn")
     require(request == canonical_request(request_path(request)))
     require(deadline > time.monotonic())
     child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True,
                              env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"})
     try:
+        observe(diagnostic, "child_started")
+        observe(diagnostic, "phase", "exchange-write")
         child.stdin.write(request)
         child.stdin.close()
         child.stdin = None
@@ -146,11 +316,13 @@ def exchange(command, request, deadline, *, client=None):
             if client is not None:
                 ready.register(client, selectors.EVENT_READ, "client")
             while True:
+                observe(diagnostic, "phase", "exchange-read")
                 remaining = deadline - time.monotonic()
                 events = ready.select(max(0, remaining))
                 if remaining <= 0 or not events:
                     raise TimeoutError("weather_android_tunnel_deadline")
                 if any(key.data == "client" for key, _ in events):
+                    observe(diagnostic, "phase", "exchange-client")
                     # A bodyless, single-request caller has no further bytes to
                     # send. EOF is cancellation; extra bytes are a protocol error.
                     if not client.recv(1, socket.MSG_PEEK):
@@ -161,14 +333,28 @@ def exchange(command, request, deadline, *, client=None):
                     break
                 response.extend(chunk)
                 require(len(response) <= MAX_RESPONSE)
-        require(child.wait(timeout=max(0.001, deadline - time.monotonic())) == 0)
+        observe(diagnostic, "phase", "exchange-join")
+        observe(diagnostic, "http", response)
+        status = child.wait(timeout=max(0.001, deadline - time.monotonic()))
+        observe(diagnostic, "child_status", status)
+        require(status == 0)
+        observe(diagnostic, "phase", "exchange-deadline")
         if time.monotonic() >= deadline:
             raise TimeoutError("weather_android_tunnel_deadline")
+        observe(diagnostic, "phase", "exchange-protocol")
         require(response.startswith(b"HTTP/1.1 ") and b"\r\n\r\n" in response)
         return bytes(response)
+    except BaseException as error:
+        observe(diagnostic, "capture", error)
+        raise
     finally:
         try:
+            observe(diagnostic, "phase", "exchange-cleanup")
             stop_child(child)
+            observe(diagnostic, "cleaned", "exchange_child_joined", True)
+        except BaseException as error:
+            observe(diagnostic, "capture", error)
+            raise
         finally:
             if child.stdin is not None:
                 child.stdin.close()
@@ -195,13 +381,14 @@ def same_socket(path, identity):
             and (current.st_dev, current.st_ino) == identity)
 
 
-def serve(path, command, lifetime=480, *, notify=None, hold_open=False, observe_responses=False):
+def serve(path, command, lifetime=480, *, notify=None, hold_open=False, observe_responses=False, diagnostic=None):
+    observe(diagnostic, "phase", "listen")
     require(type(lifetime) is int and 1 <= lifetime <= 480)
     require(type(hold_open) is bool)
     require(type(observe_responses) is bool)
     # Only the host observes response hashes. The installed, fixed-name guest
     # helper stays standalone and needs no extra root-staged Python modules.
-    observe = runpy.run_path(str(Path(__file__).with_name("weather-android-evidence.py")))["response_observation"] \
+    response_observer = runpy.run_path(str(Path(__file__).with_name("weather-android-evidence.py")))["response_observation"] \
         if observe_responses else None
     path = Path(path)
     parent_info = owned(path.parent, stat.S_ISDIR, 0o700)
@@ -221,34 +408,44 @@ def serve(path, command, lifetime=480, *, notify=None, hold_open=False, observe_
         server.bind(str(path))  # Exclusive bind; never unlink a pre-existing name.
         info = path.lstat()
         identity = (info.st_dev, info.st_ino)
+        observe(diagnostic, "cleaned", "socket_removed", False)
         os.chmod(path, 0o600)
         owned(path, stat.S_ISSOCK, 0o600)
         server.listen(1)
         if notify:
             notify()
         while result["completed"] < MAX_REQUESTS:
+            observe(diagnostic, "next_request", "accept")
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("weather_android_tunnel_lifetime")
             server.settimeout(remaining)
             connection, _ = server.accept()
             with connection:
+                observe(diagnostic, "phase", "request-read")
                 request = receive_request(connection, min(deadline, time.monotonic() + 3))
                 route = request_path(request)
+                observe(diagnostic, "phase", "request-limit")
+                observe(diagnostic, "selected", route)
                 require(counts[route] < 3)
                 counts[route] += 1
+                observe(diagnostic, "admitted", route, counts[route])
                 response = exchange(command, request, min(deadline, time.monotonic() + EXCHANGE_SECONDS),
-                                    client=connection)
-                observation = observe(route, counts[route], response) if observe is not None else None
+                                    client=connection, diagnostic=diagnostic)
+                observe(diagnostic, "phase", "response-observe")
+                observation = response_observer(route, counts[route], response) if response_observer is not None else None
+                observe(diagnostic, "phase", "response-send")
                 connection.settimeout(max(0.001, min(5, deadline - time.monotonic())))
                 connection.sendall(response)
                 if time.monotonic() >= deadline:
                     raise TimeoutError("weather_android_tunnel_deadline")
                 result["completed"] += 1
+                observe(diagnostic, "completed", result["completed"])
                 if observe_responses:
                     result["responses"].append(observation)
         require(set(counts.values()) == {3})
         if hold_open:
+            observe(diagnostic, "next_request", "hold-open")
             # Keep the same inode available for the Android runner's final
             # identity check. The owner sends TERM only after joining that run.
             server.settimeout(max(0.001, deadline - time.monotonic()))
@@ -256,22 +453,32 @@ def serve(path, command, lifetime=480, *, notify=None, hold_open=False, observe_
             unexpected.close()
             raise ValueError("weather_android_tunnel_extra_request")
         return result
-    except TunnelInterrupted:
+    except TunnelInterrupted as error:
         if hold_open and result["completed"] == MAX_REQUESTS:
             return result
+        observe(diagnostic, "capture", error)
+        raise
+    except BaseException as error:
+        observe(diagnostic, "capture", error)
         raise
     finally:
-        server.close()
-        os.umask(previous_umask)
+        observe(diagnostic, "phase", "socket-cleanup")
         try:
-            current_parent = owned(path.parent, stat.S_ISDIR, 0o700)
-            parent_unchanged = ((current_parent.st_dev, current_parent.st_ino)
-                                == (parent_info.st_dev, parent_info.st_ino))
-        except (OSError, ValueError):
-            parent_unchanged = False
-        if identity is not None and parent_unchanged and same_socket(path, identity):
-            path.unlink()
-            result["cleanup_confirmed"] = True
+            server.close()
+            os.umask(previous_umask)
+            try:
+                current_parent = owned(path.parent, stat.S_ISDIR, 0o700)
+                parent_unchanged = ((current_parent.st_dev, current_parent.st_ino)
+                                    == (parent_info.st_dev, parent_info.st_ino))
+            except (OSError, ValueError):
+                parent_unchanged = False
+            if identity is not None and parent_unchanged and same_socket(path, identity):
+                path.unlink()
+                result["cleanup_confirmed"] = True
+                observe(diagnostic, "cleaned", "socket_removed", True)
+        except BaseException as error:
+            observe(diagnostic, "capture", error)
+            raise
         # A renamed/replaced path is not proof that our original name vanished.
         # Preserve the replacement and report uncertainty rather than delete it.
 
@@ -370,7 +577,7 @@ def guest():
         forward_response(upstream, sys.stdout.buffer, deadline)
 
 
-def main():
+def main(diagnostic=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="mode", required=True)
     commands.add_parser("guest")
@@ -382,13 +589,16 @@ def main():
     if args.mode == "guest":
         guest()
         return
+    if diagnostic is not None: diagnostic.active = True
+    observe(diagnostic, "phase", "admission")
     require(os.geteuid() != 0 and os.environ.get("GITHUB_ACTIONS") == "true"
             and os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted"
             and os.environ.get("GITHUB_REPOSITORY") == "VOLPAROSSA/volparossa"
             and os.environ.get("GITHUB_WORKFLOW") == "Weather Android protected core delivery")
     # Android sees only the socket parent; neither credentials nor other files.
     require(args.socket.parent.resolve() not in (args.ssh_key.parent.resolve(), args.known_hosts.parent.resolve()))
-    result = serve(args.socket, ssh_command(args.ssh_key, args.known_hosts), hold_open=True, observe_responses=True)
+    result = serve(args.socket, ssh_command(args.ssh_key, args.known_hosts), hold_open=True, observe_responses=True,
+        diagnostic=diagnostic)
     print(json.dumps(result, sort_keys=True))
 
 
@@ -397,8 +607,11 @@ if __name__ == "__main__":
         raise TunnelInterrupted("weather_android_tunnel_interrupted")
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, interrupted)
+    diagnostic = TunnelDiagnostic()
     try:
-        main()
-    except (OSError, ValueError, TunnelInterrupted, subprocess.SubprocessError):
+        main(diagnostic)
+    except (OSError, ValueError, TunnelInterrupted, subprocess.SubprocessError) as error:
+        observe(diagnostic, "capture", error)
+        emit_diagnostic(diagnostic)
         print("weather_android_tunnel_failed", file=sys.stderr)
         raise SystemExit(1) from None

@@ -32,7 +32,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | Quality `38647964779` passes the owner-stop correction. Actual `38647976460` on `bae082b5` fails with tunnel exit 1 during native wait, before cleanup; driver/native still run and no owner budget has expired. The tunnel's underlying cause is not recorded. Owner/VM/ACL cleanup passes, but native process and policy cleanup remain unconfirmed. Joined delivery, live expiry, physical devices and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38519187504` fails Cloud FINALIZE after READY with `wire_receipt/io`; its separate base-maintenance restores and cleanup pass. Diagnostic candidate `8ea8a059` passes workspace Quality and CodeQL, but actual `38595365736` fails before topology execution: the isolated agent test build lacks Tokio `test-util`. Correction `d22f7892` passes Quality `38601264906`, including seven isolated-package outcome tests; actual trial `38607252325` is dispatched on that exact source. The original FINALIZE failure, consumer repair/restore and remote cleanup remain open. Cloud PR234 waits for this shared integration. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38643001237` again proves the separate base lifecycle, but Image append fails before READY with an operation deadline during the challenge exchange. PR232 now distinguishes time before and within that exchange; trial `38653857407` on `7b27d13d` is running. Consumer repair, restoration and remote cleanup remain unproved. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 and PR247 are merged; main `17afa3f0` contains the finite operator grants, guest module, protected exchange and CLI verifier. Corrected source `09b0d3cc` passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`. Software evidence does not establish production-route execution, production authority, current vendor appraisal, an approved measured workload or actual private execution. Suitable confidential-computing hardware is unavailable; storage and Android integration continue in parallel. |
 
@@ -332,11 +332,33 @@ Original artifact `11935480319` contains thirteen files, ZIP SHA-256
 `7a0e55d83f976d4b7160148f191996ca99b35e5ebe3957cba483f880823d8dfd`;
 log ZIP SHA-256
 `28f4714654a5b36b354b74d4c8d9ffbf7009806e6dcb7359f116ba0c90e6d87e`.
-No acceptance receipt exists. The current tunnel collapses request, child and
+No acceptance receipt exists. That revision's tunnel collapses request, child and
 HTTP-response failures into one fixed message and emits no failure receipt.
-The next step is a bounded, request-correlated tunnel observation before its
-cleanup, retaining the existing deadlines and acceptance rules. Neither a
-timeout increase nor an unchanged retry is supported by this result.
+Neither a timeout increase nor an unchanged retry is supported by this result.
+
+#### Tunnel failure observation candidate
+
+The next candidate preserves the first tunnel failure before cleanup. A closed,
+failure-only record contains its phase, error category, product and bounded
+request counters, observed SSH exit status and an allowlisted HTTP status.
+Cleanup observations remain separate. No response body, header, URL, identity,
+exception text or raw child output is exported; the complete marked record is
+limited to 4,096 bytes.
+
+The owner admits this optional record only after all child groups have joined
+and output has drained. Missing, duplicate, truncated or invalid records remain
+unknown. Failure schema 8 adds the nullable record without changing the earlier
+owner-stop observation; success and joined acceptance retain schema 6. Existing
+deadlines, six-request limits, source pins, authorization and cleanup operations
+are unchanged. This candidate still needs hosted validation and a fresh actual
+trial; it does not establish the cause or resolution of the original failure.
+
+All 39 tunnel, 80 owner, twenty hosted-workflow and seventeen VM-wiring checks
+pass locally without a native build. They cover a private Unix-socket HTTP 503,
+child failure, client disconnect, deadlines, preservation of the first error
+across cleanup failures, malformed and duplicate records, and unchanged success
+receipts. These controlled process/contract tests are not Android-to-core
+delivery evidence.
 
 #### Deterministic relay-cache test inputs
 

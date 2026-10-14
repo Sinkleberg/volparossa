@@ -429,6 +429,28 @@ def native_diagnostic(job):
         return dict(state="rejected", record=None)
 
 
+def tunnel_diagnostic(job):
+    """Optional original tunnel facts, never a replacement for owner_stop.
+
+    Only a failed, joined and fully drained child can supply the closed final
+    marker. Missing or rejected diagnostics carry no facts or acceptance.
+    """
+    if job is None: return None
+    try:
+        require(job["process"] is not None and not job["open"])
+        status = job["process"].returncode
+        E["integer"](status, -255, 255); require(status != 0)
+        require(all(len(raw) <= job["limit"] for raw in job["data"].values()))
+        raw = bytes(job["data"]["stdout"]); prefix = T["PREFIX"].encode("ascii")
+        require(raw.endswith(b"\n") and raw.count(prefix) == 1)
+        line = raw[:-1].rsplit(b"\n", 1)[-1]
+        require(line.startswith(prefix) and len(line) + 1 <= T["MAX_DIAGNOSTIC_BYTES"])
+        value = E["decode"](line[len(prefix):], T["MAX_DIAGNOSTIC_BYTES"])
+        return T["validate_diagnostic"](value)
+    except (AttributeError, OSError, ValueError, KeyError, TypeError, RecursionError):
+        return None
+
+
 def native_kvm(job, expected_identity):
     """A separate receipt, not an extension of either schema6 failure record."""
     absent = dict(state="absent", record=None)
@@ -517,9 +539,11 @@ def export_failure(value, result, pool, preexisting, stop):
     jobs = {job["name"]: job for job in pool.jobs if job["name"] in result["statuses"]}
     statuses = {name: job["process"].returncode if (job := jobs.get(name)) is not None
         and job["process"] is not None else None for name in result["statuses"]}
-    failure = dict(schema=7, kind="weather-android-owner-failure", identity=result["identity"],
+    failure = dict(schema=8, kind="weather-android-owner-failure", identity=result["identity"],
         phase=result["phase"], statuses=statuses, owner_cleanup=result["cleanup"],
         owner_stop=validate_owner_stop(stop),
+        tunnel_diagnostic=tunnel_diagnostic(jobs.get("tunnel"))
+            if result["cleanup"]["children_joined"] and result["cleanup"]["output_drained"] else None,
         native_diagnostic=native_diagnostic(jobs.get("native")),
         weather_records=native_originals(Path(value["weather_root"]), preexisting),
         diagnostic_only=True, success=False, joined_core_acceptance=False, vm_cleanup_pending=True,

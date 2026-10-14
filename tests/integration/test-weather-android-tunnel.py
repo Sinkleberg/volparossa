@@ -6,6 +6,8 @@ Synthetic responses prove transport bounds/cleanup only. They cannot establish
 source acquisition, protected core routes, cache custody or installed-app use.
 """
 import importlib.util
+from contextlib import redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
@@ -62,7 +64,7 @@ class TunnelTests(unittest.TestCase):
     def exchange(self, supplied, seconds=2):
         return T.exchange(supplied, T.canonical_request(T.ROUTES[0]), time.monotonic() + seconds)
 
-    def run_server(self, *, notify=None, supplied=None, observe_responses=False):
+    def run_server(self, *, notify=None, supplied=None, observe_responses=False, diagnostic=None):
         ready = threading.Event()
         outcome = {}
 
@@ -74,7 +76,7 @@ class TunnelTests(unittest.TestCase):
         def run():
             try:
                 outcome["result"] = T.serve(self.path, supplied or responder(), lifetime=5, notify=started,
-                                            observe_responses=observe_responses)
+                                            observe_responses=observe_responses, diagnostic=diagnostic)
             except BaseException as error:
                 outcome["error"] = error
                 ready.set()
@@ -97,6 +99,166 @@ class TunnelTests(unittest.TestCase):
                     return bytes(reply)
                 reply.extend(block)
                 self.assertLessEqual(len(reply), T.MAX_RESPONSE)
+
+    def diagnostic_failure(self, *, supplied=None, observe_responses=False, diagnostic=None):
+        diagnostic = diagnostic or T.TunnelDiagnostic()
+        diagnostic.active = True
+        thread, outcome = self.run_server(supplied=supplied, observe_responses=observe_responses,
+            diagnostic=diagnostic)
+        self.assertEqual(self.fetch(T.ROUTES[0]), b"")
+        thread.join(3)
+        self.assertFalse(thread.is_alive())
+        self.assertNotIn("result", outcome)
+        self.assertIn("error", outcome)
+        return diagnostic, outcome
+
+    def test_diagnostic_distinguishes_original_503_before_response_observer_rejection(self):
+        response = RESPONSE.replace(b"200 OK", b"503 Service Unavailable")
+        diagnostic, outcome = self.diagnostic_failure(supplied=responder(response), observe_responses=True)
+        self.assertIsInstance(outcome["error"], ValueError)
+        value = diagnostic.record()
+        self.assertEqual(value["primary"], dict(phase="response-observe", reason="response-rejected",
+            product="weather", ordinal=1, completed=0, requests=dict(weather=1, air_quality=0),
+            ssh_status=0, http_status="503"))
+        self.assertEqual(value["cleanup"], dict(exchange_child_joined=True, socket_removed=True))
+        self.assertFalse(value["success"]); self.assertFalse(value["joined_core_acceptance"])
+
+    def test_diagnostic_keeps_original_child_status_and_no_private_child_output(self):
+        child = command("import sys;sys.stdin.buffer.read();sys.stdout.buffer.write(" + repr(RESPONSE)
+            + ");sys.stderr.write('PRIVATE-key-https://private.invalid/');sys.exit(7)")
+        diagnostic, _ = self.diagnostic_failure(supplied=child)
+        value = diagnostic.record()
+        self.assertEqual((value["primary"]["phase"], value["primary"]["reason"], value["primary"]["ssh_status"]),
+            ("exchange-join", "child-failed", 7))
+        self.assertEqual(value["primary"]["http_status"], "200")
+        self.assertTrue(value["cleanup"]["exchange_child_joined"])
+        self.assertNotIn("PRIVATE", json.dumps(value)); self.assertNotIn("private.invalid", json.dumps(value))
+
+    def test_diagnostic_capture_fault_does_not_mask_failure_or_skip_cleanup(self):
+        diagnostic = T.TunnelDiagnostic()
+        with patch.object(diagnostic, "capture", side_effect=ValueError("PRIVATE-error")):
+            diagnostic, outcome = self.diagnostic_failure(diagnostic=diagnostic, observe_responses=True)
+        self.assertIsInstance(outcome["error"], ValueError)
+        self.assertIsNone(diagnostic.primary)
+        self.assertEqual(diagnostic.cleanup, dict(exchange_child_joined=True, socket_removed=True))
+        output = io.StringIO()
+        with redirect_stdout(output): T.emit_diagnostic(diagnostic)
+        self.assertEqual(output.getvalue(), "")
+
+    def test_primary_child_failure_survives_interrupted_exchange_cleanup(self):
+        original = T.stop_child
+        def interrupted(child):
+            original(child)
+            raise T.TunnelInterrupted("PRIVATE-cleanup")
+        child = command("import sys;sys.stdin.buffer.read();sys.exit(9)")
+        with patch.object(T, "stop_child", side_effect=interrupted):
+            diagnostic, outcome = self.diagnostic_failure(supplied=child)
+        self.assertIsInstance(outcome["error"], T.TunnelInterrupted)
+        value = diagnostic.record()
+        self.assertEqual((value["primary"]["reason"], value["primary"]["ssh_status"]), ("child-failed", 9))
+        self.assertEqual(value["cleanup"], dict(exchange_child_joined=False, socket_removed=True))
+
+    def test_primary_response_failure_survives_interrupted_socket_cleanup(self):
+        original = Path.unlink
+        def interrupted(path, *args, **kwargs):
+            if path == self.path: raise T.TunnelInterrupted("PRIVATE-socket-cleanup")
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "unlink", interrupted):
+            diagnostic, outcome = self.diagnostic_failure(observe_responses=True)
+        self.assertIsInstance(outcome["error"], T.TunnelInterrupted)
+        value = diagnostic.record()
+        self.assertEqual((value["primary"]["phase"], value["primary"]["reason"]),
+            ("response-observe", "response-rejected"))
+        self.assertEqual(value["cleanup"], dict(exchange_child_joined=True, socket_removed=False))
+        self.assertTrue(self.path.is_socket())
+
+    def test_diagnostic_early_exchange_guard_has_no_invented_child_or_status(self):
+        diagnostic = T.TunnelDiagnostic(); diagnostic.admitted(T.ROUTES[0], 1)
+        with patch.object(T.subprocess, "Popen", side_effect=AssertionError("must not spawn")):
+            try:
+                T.exchange(responder(), T.canonical_request(T.ROUTES[0]), time.monotonic() - 1,
+                    diagnostic=diagnostic)
+            except ValueError as error: diagnostic.capture(error)
+        value = diagnostic.record()
+        self.assertEqual((value["primary"]["phase"], value["primary"]["reason"]),
+            ("exchange-spawn", "guard-rejected"))
+        self.assertIsNone(value["primary"]["ssh_status"])
+        self.assertIsNone(value["primary"]["http_status"])
+        self.assertEqual(value["cleanup"], dict(exchange_child_joined=None, socket_removed=None))
+
+    def test_diagnostic_exact_schema_and_phase_counter_status_scope(self):
+        diagnostic, _ = self.diagnostic_failure(observe_responses=True)
+        valid = diagnostic.record()
+        changes = [lambda value: value.update(extra="PRIVATE"), lambda value: value.update(schema=True),
+            lambda value: value.update(success=True), lambda value: value.update(joined_core_acceptance=True),
+            lambda value: value["primary"].update(phase="PRIVATE"), lambda value: value["primary"].update(reason="PRIVATE"),
+            lambda value: value["primary"].update(product="PRIVATE"), lambda value: value["primary"].update(ordinal=True),
+            lambda value: value["primary"].update(ordinal=2), lambda value: value["primary"].update(completed=2),
+            lambda value: value["primary"].update(completed=True), lambda value: value["primary"]["requests"].update(weather=4),
+            lambda value: value["primary"]["requests"].update(weather=True), lambda value: value["primary"].update(ssh_status=True),
+            lambda value: value["primary"].update(ssh_status=-256), lambda value: value["primary"].update(http_status="PRIVATE"),
+            lambda value: value["primary"].update(http_status=503), lambda value: value["primary"].update(reason="child-failed"),
+            lambda value: value["primary"].update(phase="request-limit"), lambda value: value["primary"].update(phase="accept"),
+            lambda value: value["cleanup"].update(socket_removed=1), lambda value: value["cleanup"].update(vm_removed=True)]
+        for change in changes:
+            candidate = json.loads(json.dumps(valid)); change(candidate)
+            with self.assertRaises((ValueError, TypeError)): T.validate_diagnostic(candidate)
+        for key in valid:
+            candidate = dict(valid); candidate.pop(key)
+            with self.assertRaises(ValueError): T.validate_diagnostic(candidate)
+
+    def test_marker_bound_includes_prefix_and_lf_and_exception_text_is_never_retained(self):
+        diagnostic = T.TunnelDiagnostic(); diagnostic.active = True; diagnostic.phase("admission")
+        diagnostic.capture(ValueError("PRIVATE-key-https://private.invalid/path"))
+        output = io.StringIO()
+        with redirect_stdout(output): T.emit_diagnostic(diagnostic)
+        marker = output.getvalue()
+        self.assertTrue(marker.startswith(T.PREFIX)); self.assertEqual(len(marker.splitlines()), 1)
+        self.assertTrue(marker.endswith("\n")); self.assertNotIn("PRIVATE", marker); self.assertNotIn("private.invalid", marker)
+        value = json.loads(marker[len(T.PREFIX):])
+        with patch.object(T, "MAX_DIAGNOSTIC_BYTES", len(marker.encode()) - 1), self.assertRaises(ValueError):
+            T.validate_diagnostic(value)
+        with patch.object(T, "MAX_DIAGNOSTIC_BYTES", len(marker.encode())):
+            self.assertEqual(T.validate_diagnostic(value), value)
+        self.assertIsNone(value["primary"]["product"]); self.assertIsNone(value["primary"]["ssh_status"])
+
+    def test_http_status_observation_is_only_a_fixed_allowlist_not_the_reason_or_body(self):
+        for raw, expected in [(b"HTTP/1.1 503 PRIVATE\r\n\r\nPRIVATE", "503"),
+            (b"HTTP/1.1 418 PRIVATE", "other"), (b"HTTP/1.0 200 OK", "invalid"), (b"PRIVATE", "invalid")]:
+            diagnostic = T.TunnelDiagnostic(); diagnostic.http(raw)
+            self.assertEqual(diagnostic.facts["http_status"], expected)
+            self.assertNotIn("PRIVATE", json.dumps(diagnostic.facts))
+
+    def test_unobserved_facts_stay_null_and_partial_observation_is_not_guessed(self):
+        diagnostic = T.TunnelDiagnostic(); diagnostic.active = True
+        diagnostic.capture(RuntimeError("PRIVATE-unknown"))
+        value = diagnostic.record()
+        self.assertEqual(value["primary"], dict(phase=None, reason=None, product=None, ordinal=None,
+            completed=0, requests=dict(weather=0, air_quality=0), ssh_status=None, http_status=None))
+        self.assertEqual(value["cleanup"], dict(exchange_child_joined=None, socket_removed=None))
+        # An interrupt between quota admission and the next phase observation
+        # leaves an incomplete combination. Do not infer the missing phase.
+        diagnostic = T.TunnelDiagnostic(); diagnostic.active = True
+        diagnostic.phase("request-limit"); diagnostic.admitted(T.ROUTES[0], 1)
+        diagnostic.capture(T.TunnelInterrupted("PRIVATE-between-observations"))
+        with self.assertRaises(ValueError): diagnostic.record()
+        output = io.StringIO()
+        with redirect_stdout(output): T.emit_diagnostic(diagnostic)
+        self.assertEqual(output.getvalue(), "")
+
+    def test_host_cli_admission_failure_emits_only_one_closed_marker_and_original_exit(self):
+        result = subprocess.run([sys.executable, "-B", str(HERE / "weather-android-tunnel.py"), "host",
+            "--socket", "/PRIVATE/socket", "--ssh-key", "/PRIVATE/key", "--known-hosts", "/PRIVATE/hosts"],
+            env={"PATH": "/usr/bin:/bin", "GITHUB_ACTIONS": "false"}, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=3, check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, b"weather_android_tunnel_failed\n")
+        self.assertLessEqual(len(result.stdout), T.MAX_DIAGNOSTIC_BYTES)
+        self.assertEqual(len(result.stdout.splitlines()), 1)
+        self.assertTrue(result.stdout.startswith(T.PREFIX.encode()))
+        self.assertNotIn(b"PRIVATE", result.stdout)
+        value = json.loads(result.stdout[len(T.PREFIX):])
+        self.assertEqual(T.validate_diagnostic(value)["primary"]["phase"], "admission")
 
     def test_parser_admits_only_fixed_bodyless_get_and_drops_non_authority_headers(self):
         for route in T.ROUTES:
@@ -168,7 +330,8 @@ class TunnelTests(unittest.TestCase):
         weather, air = proof["http"]("weather", 1), proof["http"]("air_quality", 1)
         child = command("import sys;raw=sys.stdin.buffer.read();sys.stdout.buffer.write("
             + repr(air) + " if b'/air-quality ' in raw else " + repr(weather) + ")")
-        thread, outcome = self.run_server(supplied=child, observe_responses=True)
+        diagnostic = T.TunnelDiagnostic(); diagnostic.active = True
+        thread, outcome = self.run_server(supplied=child, observe_responses=True, diagnostic=diagnostic)
         for ordinal in (1, 2, 3):
             for route, expected in zip(T.ROUTES, (weather, air)):
                 self.assertEqual(self.fetch(route), expected)
@@ -181,6 +344,12 @@ class TunnelTests(unittest.TestCase):
             self.assertFalse(item["joined_core_acceptance"])
         self.assertTrue(result["cleanup_confirmed"])
         self.assertNotIn('"forecast":', json.dumps(result))
+        self.assertIsNone(diagnostic.primary)
+        self.assertEqual(diagnostic.facts["completed"], 6)
+        self.assertEqual(diagnostic.facts["requests"], dict(weather=3, air_quality=3))
+        output = io.StringIO()
+        with redirect_stdout(output): T.emit_diagnostic(diagnostic)
+        self.assertEqual(output.getvalue(), "")
 
     def test_explicit_response_observer_rejects_unbound_json_without_forwarding(self):
         thread, outcome = self.run_server(observe_responses=True)
@@ -200,10 +369,16 @@ class TunnelTests(unittest.TestCase):
         marker = self.root / "pid.json"
         child = command("import os,time,json;from pathlib import Path;Path(" + repr(str(marker))
                         + ").write_text(json.dumps({'pid':os.getpid()}));time.sleep(20)")
+        diagnostic = T.TunnelDiagnostic(); diagnostic.admitted(T.ROUTES[0], 1)
         with self.assertRaises((TimeoutError, subprocess.TimeoutExpired)):
-            self.exchange(child, seconds=.3)
+            T.exchange(child, T.canonical_request(T.ROUTES[0]), time.monotonic() + .3, diagnostic=diagnostic)
         if marker.exists():
             self.assertFalse(live_process(json.loads(marker.read_text())["pid"]))
+        value = diagnostic.record()
+        self.assertEqual((value["primary"]["phase"], value["primary"]["reason"]), ("exchange-read", "deadline"))
+        self.assertIsNone(value["primary"]["ssh_status"])
+        self.assertIsNone(value["primary"]["http_status"])
+        self.assertEqual(value["cleanup"], dict(exchange_child_joined=True, socket_removed=None))
 
     def test_bounded_guest_input_reader_requires_eof_before_original_deadline(self):
         good = T.canonical_request(T.ROUTES[0])
@@ -319,7 +494,8 @@ class TunnelTests(unittest.TestCase):
         marker = self.root / "disconnect-child.json"
         supplied = command("import os,time,json;from pathlib import Path;Path(" + repr(str(marker))
                            + ").write_text(json.dumps({'pid':os.getpid()}));time.sleep(20)")
-        thread, outcome = self.run_server(supplied=supplied)
+        diagnostic = T.TunnelDiagnostic()
+        thread, outcome = self.run_server(supplied=supplied, diagnostic=diagnostic)
         child_pid = None
         try:
             with socket.socket(socket.AF_UNIX) as client:
@@ -335,6 +511,12 @@ class TunnelTests(unittest.TestCase):
             self.assertIsInstance(outcome.get("error"), BrokenPipeError)
             self.assertFalse(live_process(child_pid))
             self.assertFalse(self.path.exists())
+            value = diagnostic.record()
+            self.assertEqual((value["primary"]["phase"], value["primary"]["reason"]),
+                ("exchange-client", "client-disconnected"))
+            self.assertIsNone(value["primary"]["ssh_status"])
+            self.assertIsNone(value["primary"]["http_status"])
+            self.assertEqual(value["cleanup"], dict(exchange_child_joined=True, socket_removed=True))
         finally:
             if child_pid and live_process(child_pid):
                 os.kill(child_pid, signal.SIGKILL)
@@ -442,10 +624,15 @@ class TunnelTests(unittest.TestCase):
                 offset[0] = 10
             return value
         deadline = original_clock() + 2
+        diagnostic = T.TunnelDiagnostic(); diagnostic.admitted(T.ROUTES[0], 1)
         with patch.object(T, "time", SimpleNamespace(monotonic=lambda: original_clock() + offset[0], sleep=time.sleep)), \
                 patch.object(T.subprocess, "Popen", side_effect=spawn), patch.object(T.os, "read", side_effect=read), \
                 self.assertRaises(TimeoutError):
-            T.exchange(responder(), T.canonical_request(T.ROUTES[0]), deadline)
+            T.exchange(responder(), T.canonical_request(T.ROUTES[0]), deadline, diagnostic=diagnostic)
+        value = diagnostic.record()
+        self.assertEqual((value["primary"]["phase"], value["primary"]["reason"]), ("exchange-deadline", "deadline"))
+        self.assertEqual((value["primary"]["ssh_status"], value["primary"]["http_status"]), (0, "200"))
+        self.assertTrue(value["cleanup"]["exchange_child_joined"])
 
     def test_forward_response_copies_exact_bytes_and_restores_prior_pipe_flags(self):
         for blocking in (False, True):

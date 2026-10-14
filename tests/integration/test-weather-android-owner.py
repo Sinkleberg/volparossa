@@ -39,6 +39,11 @@ NATIVE_RESULT = dict(schema=1, kind="hosted-android-protected-core-installed-tri
     expiry_proven=False, core_delivery=False, joined_core_acceptance=False, mobile_core=False, production_authority=False)
 NATIVE_DIAGNOSTIC = dict(schema=6, kind="weather-android-native-diagnostic", outcome="failed", category="value",
     code="CORE_SOCKET_ONLY", joined_core_acceptance=False)
+TUNNEL_DIAGNOSTIC = dict(schema=1, kind="weather-android-tunnel-diagnostic", success=False,
+    joined_core_acceptance=False,
+    primary=dict(phase="exchange-join", reason="child-failed", product="weather", ordinal=1,
+        completed=0, requests=dict(weather=1, air_quality=0), ssh_status=1, http_status=None),
+    cleanup=dict(exchange_child_joined=True, socket_removed=True))
 INERT_ROLES = r'''
 import json, os, signal, socket, sys, time
 from pathlib import Path
@@ -73,12 +78,19 @@ elif role == 'tunnel':
     if mode == 'tunnel-exit': finish()
     while True:
         if mode == 'tunnel-exit-native' and (root / 'native-started').exists(): finish()
+        if mode.startswith('tunnel-diagnostic') and (root / 'native-started').exists():
+            path.unlink(); stream.close()
+            print('PRIVATE tunnel stdout https://example.invalid/private-key', flush=True)
+            print('PRIVATE tunnel stderr credential', file=sys.stderr, flush=True)
+            print('VOLPAROSSA_WEATHER_ANDROID_TUNNEL_DIAGNOSTIC ' + json.dumps(data['tunnel_diagnostic']), flush=True)
+            if mode == 'tunnel-diagnostic-trailing': print('PRIVATE trailing output', flush=True)
+            sys.exit(1)
         time.sleep(.01)
 elif role == 'native':
     # This role never connects to the socket or creates an Android process.
     # Only coordinator ownership, ordering and failure propagation are tested.
     (root / 'native-started').touch()
-    if mode in ('driver-exit-native', 'tunnel-exit-native'): time.sleep(30)
+    if mode in ('driver-exit-native', 'tunnel-exit-native') or mode.startswith('tunnel-diagnostic'): time.sleep(30)
     if mode == 'native-fail': sys.exit(2)
     if mode.startswith('native-diagnostic'):
         if 'inner' in mode:
@@ -286,7 +298,7 @@ class AcceptanceTests(RecordFixture):
 
     def test_failure_diagnostic_is_never_join_or_acceptance_authority(self):
         path = self.output / O["FAILURE_NAME"]
-        for schema in (6, 7):
+        for schema in (6, 7, 8):
             save(path, dict(schema=schema, kind="weather-android-owner-failure", joined_core_acceptance=False))
             with self.assertRaises(ValueError): self.join()
             with self.assertRaises(ValueError): self.accept()
@@ -442,6 +454,75 @@ class FailureRecordTests(RecordFixture):
                 self.assertEqual(O["native_diagnostic"](self.native_job(raw)), dict(state="rejected", record=None))
         for job in (self.native_job(status=None), self.native_job(opened=("stdout",)), self.native_job(limit=32)):
             self.assertEqual(O["native_diagnostic"](job), dict(state="rejected", record=None))
+
+    def tunnel_marker(self, value=None):
+        return O["T"]["PREFIX"].encode() + json.dumps(TUNNEL_DIAGNOSTIC if value is None else value).encode() + b"\n"
+
+    def test_only_unique_closed_last_tunnel_marker_is_exported_without_private_streams(self):
+        raw = b"PRIVATE stdout\n" + self.tunnel_marker()
+        for status in (1, -signal.SIGTERM):
+            with self.subTest(status=status):
+                result = O["tunnel_diagnostic"](self.native_job(raw, status=status))
+                self.assertEqual(result, TUNNEL_DIAGNOSTIC)
+                self.assertNotIn("PRIVATE", json.dumps(result))
+        self.assertIsNone(O["tunnel_diagnostic"](None))
+        self.assertIsNone(O["tunnel_diagnostic"](self.native_job(b"PRIVATE unmarked stdout")))
+        stderr_only = self.native_job(b"PRIVATE unmarked stdout")
+        stderr_only["data"]["stderr"] = bytearray(self.tunnel_marker())
+        self.assertIsNone(O["tunnel_diagnostic"](stderr_only))
+        for job in (self.native_job(raw, status=None), self.native_job(raw, status=0),
+                self.native_job(raw, status=True), self.native_job(raw, status=256),
+                self.native_job(raw, opened=("stdout",)), self.native_job(raw, opened=("stderr",)),
+                self.native_job(raw, limit=32)):
+            self.assertIsNone(O["tunnel_diagnostic"](job))
+
+    def test_tunnel_marker_duplicate_nonfinal_unknown_and_private_fields_yield_no_facts(self):
+        marker = self.tunnel_marker(); prefix = O["T"]["PREFIX"].encode()
+        cases = [marker[:-1], marker + b"PRIVATE trailing\n", marker + marker,
+            marker + b"PRIVATE between\n" + marker, prefix + b"{}\n", prefix + b"\xff\n",
+            marker[:-2] + b',"schema":1}\n', self.tunnel_marker(dict(TUNNEL_DIAGNOSTIC, PRIVATE="secret")),
+            self.tunnel_marker(dict(TUNNEL_DIAGNOSTIC, schema=2)),
+            self.tunnel_marker(dict(TUNNEL_DIAGNOSTIC, joined_core_acceptance=True)),
+            self.tunnel_marker(dict(TUNNEL_DIAGNOSTIC, success=True))]
+        for field, replacement in (("phase", "PRIVATE stage"), ("reason", "PRIVATE error"),
+                ("product", "https://private.invalid/secret"), ("ordinal", 4), ("ssh_status", "PRIVATE"),
+                ("http_status", "PRIVATE"), ("requests", dict(weather=1, air_quality=0, PRIVATE=1))):
+            value = copy.deepcopy(TUNNEL_DIAGNOSTIC); value["primary"][field] = replacement
+            cases.append(self.tunnel_marker(value))
+        for raw in cases:
+            with self.subTest(length=len(raw)):
+                self.assertIsNone(O["tunnel_diagnostic"](self.native_job(raw)))
+        with patch.dict(O["T"], validate_diagnostic=lambda *_: (_ for _ in ()).throw(ValueError("PRIVATE parse"))):
+            self.assertIsNone(O["tunnel_diagnostic"](self.native_job(marker)))
+
+    def test_nullable_tunnel_observations_never_invent_primary_or_cleanup_facts(self):
+        unknown = copy.deepcopy(TUNNEL_DIAGNOSTIC)
+        unknown["primary"] = dict(phase=None, reason=None, product=None, ordinal=None, completed=0,
+            requests=dict(weather=0, air_quality=0), ssh_status=None, http_status=None)
+        unknown["cleanup"] = dict(exchange_child_joined=None, socket_removed=None)
+        self.assertEqual(O["tunnel_diagnostic"](self.native_job(self.tunnel_marker(unknown))), unknown)
+
+    def test_tunnel_marker_bound_includes_prefix_and_final_newline(self):
+        marker = self.tunnel_marker()
+        padding = O["T"]["MAX_DIAGNOSTIC_BYTES"] - len(marker)
+        bounded = marker[:-1] + b" " * padding + b"\n"
+        self.assertEqual(len(bounded), O["T"]["MAX_DIAGNOSTIC_BYTES"])
+        self.assertEqual(O["tunnel_diagnostic"](self.native_job(bounded)), TUNNEL_DIAGNOSTIC)
+        self.assertIsNone(O["tunnel_diagnostic"](self.native_job(bounded[:-1] + b" \n")))
+
+    def test_tunnel_export_requires_confirmed_group_join_and_drain(self):
+        result = json.loads((self.private / "result.json").read_bytes()); result["success"] = False
+        job = self.native_job(self.tunnel_marker()); job["name"] = "tunnel"
+        for field in ("children_joined", "output_drained"):
+            failed = copy.deepcopy(result); failed["cleanup"][field] = False
+            with patch.dict(G, tunnel_diagnostic=lambda *_: self.fail("unconfirmed child diagnostic decoded")):
+                O["export_failure"](self.config, failed, SimpleNamespace(jobs=[job]),
+                    dict.fromkeys(O["NATIVE_RECORDS"], False), None)
+            path = self.output / O["FAILURE_NAME"]
+            failure = json.loads(path.read_bytes()); path.unlink()
+            self.assertEqual(failure["schema"], 8)
+            self.assertIsNone(failure["tunnel_diagnostic"])
+            self.assertFalse(failure["success"] or failure["joined_core_acceptance"])
 
     def test_separate_kvm_marker_binds_identity_and_exact_original_guard(self):
         before = KF["private_fixture"]()
@@ -823,6 +904,7 @@ class CoordinatorTests(unittest.TestCase):
             prepared_sha256="3" * 64, deadline_unix_seconds=int(time.time()) + 800, remaining_seconds=800,
             api_socket_ready=True, cold_caches_absent=True, helper_requests=0, joined_delivery_proven=False)
         save(self.root / "inert-roles.json", dict(ready=ready, diagnostic=NATIVE_DIAGNOSTIC,
+            tunnel_diagnostic=TUNNEL_DIAGNOSTIC,
             finalize=dict(schema=6, kind="weather-android-finalize-requested", prepared_sha256="3" * 64,
                 finalize_requested=True, joined_delivery_proven=False), tunnel=tunnel_record(F["fixture"]()[2]),
             socket=str(self.run / "android-api/core-api.sock"),
@@ -872,7 +954,7 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(receipt["native"], dict(state="absent", record=None))
         failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
         self.assertNotIn("kvm", failure)
-        self.assertEqual(failure["schema"], 7)
+        self.assertEqual(failure["schema"], 8)
         self.assertEqual(failure["owner_stop"]["reason"], "guard-rejected")
         self.assertEqual(failure["owner_stop"]["stage"], "driver")
         self.assertTrue(all(child["state"] == "not-started" for child in failure["owner_stop"]["children"].values()))
@@ -926,7 +1008,7 @@ class CoordinatorTests(unittest.TestCase):
         self.assertFalse(result["success"])
         path = self.output / O["FAILURE_NAME"]; raw = path.read_bytes(); failure = json.loads(raw)
         self.assertEqual(set(failure), {"schema", "kind", "identity", "phase", "statuses", "owner_cleanup", "owner_stop",
-            "native_diagnostic", "weather_records", "diagnostic_only", "success", "joined_core_acceptance",
+            "native_diagnostic", "tunnel_diagnostic", "weather_records", "diagnostic_only", "success", "joined_core_acceptance",
             "vm_cleanup_pending", "expiry_proven", "physical_device", "production_authority"})
         self.assertEqual(failure["identity"], IDENTITY)
         self.assertEqual(failure["native_diagnostic"], dict(state="available", record=NATIVE_DIAGNOSTIC))
@@ -961,7 +1043,7 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(receipt["records"], {name: dict(state="available", facts=value)
             for name, value in originals.items()})
         failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
-        self.assertEqual(failure["schema"], 7)
+        self.assertEqual(failure["schema"], 8)
         self.assertEqual(result["schema"], 6)
         self.assertNotIn("inner", failure)
         self.assertNotIn("PRIVATE", json.dumps(receipt))
@@ -1073,7 +1155,57 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(stop["children"]["tunnel"]["status"], 0)
         self.assertEqual(stop["children"]["native"]["state"], "running")
         self.assertTrue(result["cleanup"]["children_joined"])
+        self.assertIsNone(failure["tunnel_diagnostic"])
         self.assertFalse((self.root / "finalized").exists())
+
+    def test_tunnel_failure_facts_follow_cleanup_without_overwriting_original_owner_stop(self):
+        closed = []
+        original_close, original_decode = O["Children"].close, O["tunnel_diagnostic"]
+        def close(pool):
+            result = original_close(pool); closed.append(result); return result
+        def decode(job):
+            self.assertEqual(len(closed), 1)
+            self.assertTrue(closed[0]["children_joined"] and closed[0]["output_drained"])
+            self.assertFalse(job["open"])
+            return original_decode(job)
+        with patch.object(O["Children"], "close", close), patch.dict(G, tunnel_diagnostic=decode):
+            result = self.run_owner("tunnel-diagnostic-early")
+        failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
+        self.assertEqual((result["schema"], failure["schema"]), (6, 8))
+        self.assertEqual(failure["tunnel_diagnostic"], TUNNEL_DIAGNOSTIC)
+        stop = failure["owner_stop"]
+        self.assertEqual((stop["reason"], stop["stage"], stop["budgets"]), ("tunnel-exited", "native-wait", []))
+        self.assertEqual(stop["children"]["tunnel"]["status"], 1)
+        self.assertEqual(stop["children"]["native"]["state"], "running")
+        self.assertIsNone(stop["children"]["native"]["status"])
+        self.assertEqual(failure["statuses"]["native"], -signal.SIGTERM)
+        self.assertEqual(failure["owner_cleanup"], result["cleanup"])
+        self.assertFalse(any(failure[key] for key in ("success", "joined_core_acceptance", "expiry_proven",
+            "physical_device", "production_authority")))
+        self.assertNotIn("PRIVATE", json.dumps(failure)); self.assertNotIn(str(self.root), json.dumps(failure))
+        self.assertFalse((self.root / "finalized").exists())
+        with self.assertRaises(ValueError): O["join"](self.value)
+
+    def test_nonfinal_tunnel_marker_keeps_stop_and_cleanup_but_no_diagnostic_facts(self):
+        result = self.run_owner("tunnel-diagnostic-trailing")
+        failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
+        self.assertFalse(result["success"])
+        self.assertTrue(result["cleanup"]["children_joined"] and result["cleanup"]["output_drained"])
+        self.assertEqual(failure["owner_stop"]["reason"], "tunnel-exited")
+        self.assertIsNone(failure["tunnel_diagnostic"])
+        self.assertNotIn("PRIVATE", json.dumps(failure))
+        self.assertFalse((self.root / "finalized").exists())
+
+    def test_tunnel_validator_failure_preserves_original_stop_result_and_cleanup(self):
+        with patch.dict(O["T"], validate_diagnostic=lambda *_: (_ for _ in ()).throw(ValueError("PRIVATE parse"))):
+            result = self.run_owner("tunnel-diagnostic-early")
+        failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
+        self.assertFalse(result["success"])
+        self.assertTrue(result["cleanup"]["children_joined"] and result["cleanup"]["socket_removed"])
+        self.assertIsNone(failure["tunnel_diagnostic"])
+        self.assertEqual(failure["owner_stop"]["reason"], "tunnel-exited")
+        self.assertTrue((self.output / K["NAME"]).is_file() and (self.output / D["NAME"]).is_file())
+        self.assertNotIn("PRIVATE", json.dumps(failure))
 
     def test_pipe_io_error_is_distinct_and_never_exports_private_error_text(self):
         original = O["Children"].pump
