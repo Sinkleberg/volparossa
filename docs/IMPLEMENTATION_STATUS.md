@@ -31,7 +31,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | PR19 proves the installed lifecycle with synthetic products; PR22 supplies separate preparation/live entrypoints. Actual `38641552623` on `ac2a7c7f` passes KVM admission but is interrupted during the installed trial. Owner/VM/ACL cleanup passes; native process and policy cleanup are unconfirmed. The first owner stop reason is missing, so it must be retained before cleanup changes process statuses. Joined delivery, live expiry, physical devices and iOS remain open. |
+| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | Quality `38647964779` passes the owner-stop correction. Actual `38647976460` on `bae082b5` fails with tunnel exit 1 during native wait, before cleanup; driver/native still run and no owner budget has expired. The tunnel's underlying cause is not recorded. Owner/VM/ACL cleanup passes, but native process and policy cleanup remain unconfirmed. Joined delivery, live expiry, physical devices and iOS remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38519187504` fails Cloud FINALIZE after READY with `wire_receipt/io`; its separate base-maintenance restores and cleanup pass. Diagnostic candidate `8ea8a059` passes workspace Quality and CodeQL, but actual `38595365736` fails before topology execution: the isolated agent test build lacks Tokio `test-util`. Correction `d22f7892` passes Quality `38601264906`, including seven isolated-package outcome tests; actual trial `38607252325` is dispatched on that exact source. The original FINALIZE failure, consumer repair/restore and remote cleanup remain open. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 and PR247 are merged; main `17afa3f0` contains the finite operator grants, guest module, protected exchange and CLI verifier. Corrected source `09b0d3cc` passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`. Software evidence does not establish production-route execution, production authority, current vendor appraisal, an approved measured workload or actual private execution. Suitable confidential-computing hardware is unavailable; storage and Android integration continue in parallel. |
@@ -257,7 +257,7 @@ All 112 focused inert checks pass: 12 parser, 63 owner, 20 hosted-wiring and
 17 VM-wiring cases. This establishes the observation contract, not the cause of
 the prior inner failure or actual Android delivery.
 
-#### Current Android interruption
+#### Earlier Android interruption
 
 Actual [run `38641552623`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38641552623)
 uses exact `ac2a7c7f8ebc2ead7c83263b82fd8f0437cfb362` and the same Weather
@@ -297,8 +297,46 @@ All 136 focused inert checks pass: 72 owner, 20 hosted-workflow, 17 VM-wiring,
 12 inner-diagnostic and 15 native-launcher tests. They cover deadline sources,
 early driver/tunnel exit, cancellation, I/O failure and pre-cleanup status
 retention. Execution limits, publication lifetimes, Weather source and cleanup
-ordering are unchanged. The failed run's cause and joined delivery still need
-an actual trial with this correction.
+ordering are unchanged. The following actual trial verifies the new observation,
+but does not establish joined delivery.
+
+#### Latest Android tunnel interruption
+
+[Quality `38647964779`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38647964779)
+passes all 295 Android checks, including 72 owner cases, and 3,661 workspace
+tests with seven ignores. Its original checkout `742dae8e` merges main
+`7b728846` and `bae082b5`; Android files and the corrected discovery test match
+the head, but the whole checkout does not. Three namespace proofs and one
+optional CLI compatibility case skip. Log ZIP SHA-256:
+`0b8d12a84d8f4b59cb817c0e441b0a1a3d41fd2d2d066c67003bf9b7bda95a0d`.
+
+Actual [run `38647976460`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38647976460)
+checks exact `bae082b580cc57723ceef22890e0418d49455328`, tree
+`36d2f396d65f3f12b14765beca787e1dfdfaeb3f`, with the same Weather pin. Its schema-7
+owner record now establishes the first stop before cleanup: `tunnel-exited`
+during `native-wait`, tunnel status 1 with both output pipes closed. Driver and
+native are still running; the expired-budget list is empty and output overflow
+is false. APK preparation and KVM admission pass. This identifies the failed
+component, not the tunnel's underlying error.
+
+Native interruption and `CLEANUP_UNCONFIRMED` follow that stop. Native process
+drain and policy cleanup remain false; emulator cleanup and the two inner
+diagnostic observations are absent. Owner children join without forced killing,
+output drains and its socket is removed with the network namespace unchanged.
+QEMU joins and private guest state is removed, but the driver does not finish.
+The original 77-byte KVM ACL is restored exactly at SHA-256
+`1e4f78ad9620be770ef90f96d7235e9c4f9be95014122d28899ac95266d57f6d`.
+These outer cleanup facts do not establish native cleanup or acceptance.
+
+Original artifact `11935480319` contains thirteen files, ZIP SHA-256
+`7a0e55d83f976d4b7160148f191996ca99b35e5ebe3957cba483f880823d8dfd`;
+log ZIP SHA-256
+`28f4714654a5b36b354b74d4c8d9ffbf7009806e6dcb7359f116ba0c90e6d87e`.
+No acceptance receipt exists. The current tunnel collapses request, child and
+HTTP-response failures into one fixed message and emits no failure receipt.
+The next step is a bounded, request-correlated tunnel observation before its
+cleanup, retaining the existing deadlines and acceptance rules. Neither a
+timeout increase nor an unchanged retry is supported by this result.
 
 #### Deterministic relay-cache test inputs
 
@@ -316,7 +354,7 @@ checks both acceptance of an identical signed payload and rejection of a
 different payload at the same sequence, while retaining peer limits, authenticated
 identity, expiry, policy and rollback checks. Only test inputs and assertions
 change; production cache rules and the Android workflow remain unchanged. The
-corrected Rust test still needs hosted execution.
+corrected Rust test passes in the subsequent Quality run above.
 
 The failing checkout `2302f068` merges `ac2a7c7f` with main `7b728846`. Its
 `discovery.rs` blob is identical to the earlier successful `85978d55` Quality
