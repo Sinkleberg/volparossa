@@ -175,7 +175,8 @@ class GuestEvidenceContracts(unittest.TestCase):
             work = Path(tmp); other = work / 'other'; other.mkdir(mode=0o700)
             path = work / 'guest-evidence'; path.symlink_to(other, target_is_directory=True)
             with self.assertRaises(ValueError): G.directory(work)
-            path.unlink(); path.mkdir(mode=0o755)
+            path.unlink(); path.mkdir(mode=0o700)
+            path.chmod(0o755)  # Explicit unsafe fixture, independent of caller umask.
             with self.assertRaises(ValueError): G.directory(work)
 
     def test_guest_cli_uses_original_hosted_gate_and_fixed_commands(self):

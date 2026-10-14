@@ -182,7 +182,10 @@ fn guest_request_rejects_unknown_noncanonical_and_oversized_bytes() {
         noncanonical,
         unsupported,
     ] {
-        assert!(matches!(QuoteRequest::decode(&raw), Err(GuestError::Encoding)));
+        assert!(matches!(
+            QuoteRequest::decode(&raw),
+            Err(GuestError::Encoding)
+        ));
     }
     let mut unknown_challenge = request.challenge;
     unknown_challenge.extend_from_slice(&[0x48, 1]);
@@ -200,7 +203,11 @@ fn guest_begin_enforces_both_clocks_and_challenge_window() {
         now,
     )
     .unwrap();
-    for (created, expires) in [(now.unix + 1, now.unix + 30), (now.unix - 1, now.unix), (0, 30)] {
+    for (created, expires) in [
+        (now.unix + 1, now.unix + 30),
+        (now.unix - 1, now.unix),
+        (0, 30),
+    ] {
         assert!(matches!(
             owner.begin_at(request_at(created, expires), now),
             Err(GuestError::Expired)
@@ -308,7 +315,8 @@ fn guest_cancel_erases_key_before_or_after_collection() {
     let cancellation = before.cancellation();
     cancellation.cancel();
     assert!(erased(&cancellation));
-    let never_called = ReportSource::Fake(Box::new(|_| panic!("cancelled request reached firmware")));
+    let never_called =
+        ReportSource::Fake(Box::new(|_| panic!("cancelled request reached firmware")));
     assert!(matches!(
         before.collect_source(never_called),
         Err(GuestError::Cancelled)

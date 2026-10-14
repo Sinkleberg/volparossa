@@ -5,8 +5,8 @@ use sha2::{Digest as _, Sha256};
 use subtle::ConstantTimeEq as _;
 
 use super::{
-    GuestError,
     super::attestation::{challenge_window, session_report_data},
+    GuestError,
 };
 
 /// Maximum canonical request size; the embedded challenge remains limited to 256 bytes.
@@ -37,7 +37,8 @@ impl QuoteRequest {
     /// # Errors
     /// Rejects anything outside the existing canonical challenge-v2 profile.
     pub fn from_challenge(challenge: &[u8]) -> Result<Self, GuestError> {
-        let (created_at, expires_at) = challenge_window(challenge).map_err(|_| GuestError::Encoding)?;
+        let (created_at, expires_at) =
+            challenge_window(challenge).map_err(|_| GuestError::Encoding)?;
         Ok(Self {
             challenge: challenge.to_vec(),
             created_at,

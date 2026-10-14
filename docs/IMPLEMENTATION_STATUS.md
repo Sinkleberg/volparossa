@@ -32,7 +32,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Join core-delivered products to the now-proven installed Android refresh/background-expiry lifecycle. | PR19 is merged as `ad10d7d9`, with the exact tested tree of `576550f3`. Original Android `38497919547` and component `38497925414` pass; the Android proof includes real tap refresh, background/resume, hidden expired tables, unchanged three requests per product and full cleanup. Products are synthetic in this trial. Actual core delivery into Android, physical devices and iOS remain open; separate web evidence is unchanged. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Actual trial `38486236267` on `2827d1a3` passes the base lifecycle but fails Cloud publication. Candidate `0057262e` gives each eligible consumer broker exact provider-control reachability inside the disposable topology and binds observed payload completions to their route contexts. Original actual trial `38497089463` is running; Quality `38497060046` and CodeQL `38497058053` pass. Consumer repair, restore, deletion and reciprocal capacity remain unproven; Cloud PR234 waits for this shared integration. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Original actual trial `38497089463` on `0057262e` fails Cloud publication with a FINALIZE `wire_receipt/io` result. Local cleanup passes, but remote cleanup and provider usage are not confirmed. Quality `38497060046` and CodeQL `38497058053` pass and do not replace actual acceptance. Consumer repair, restore, deletion and reciprocal capacity remain unproven; Cloud PR234 waits for this shared integration. |
 | Protected remote compute — `volparossa`, then Code/Browser | Add the guest-owned ephemeral key, actual firmware quote request and bounded evidence exchange needed for a private task on another node. | PR238, PR240, PR242 and PR244 are merged; all 52 named appraisal tests, targeted Clippy, Quality and CodeQL pass on `761d72b1`. The guest-side candidate adds firmware access and 16 software lifecycle tests, with hosted Rust results still pending. It does not release private input or replace appraisal. Production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
 
 ### Guest-owned protected-compute session candidate
@@ -54,6 +54,19 @@ software tests to hardware verification, worker admission or private execution.
 The guest key is process-owned, not proven hardware-nonexportable. Approved images,
 authorized model/runtime assets, protected stream wiring, complete appraisal and
 a real confidential-computing two-node trial remain open.
+
+The first hosted attempt `38501558705` on `ce3dd8c5` passes all 64 existing inert
+checks but fails one new permissions fixture before compiler installation. Under
+the runner's `umask 077`, `mkdir(mode=0755)` creates a safe `0700` directory; the
+test incorrectly expected rejection. The fixture now explicitly applies `0755`,
+without changing the production gate. Separate Quality `38501620664` stops at
+formatting; its exact formatter changes are applied without running Rust locally.
+Neither failed run establishes compilation, Clippy or the 16 Rust lifecycle tests.
+The first run's original log ZIP matches SHA-256
+`b38bd2fe33bf6d2e9dc7d3391ee8e678b33b50db0572fd0dbb79804800a5f4dc`;
+its API lists no result artifacts because preparation was not reached. The corrected
+12 guest contracts pass under both `umask 077` and `022`, and all 12 public-RSA
+scope regressions pass with the formatter-only guest-source hash updated.
 
 ### Installed Android Weather lifecycle integrated
 
@@ -96,8 +109,15 @@ ZIP is `0837eeaa7672edd8867fc167fadf54961a087678cc6991b6da4eb492345b1d1e`.
 CodeQL `38497058053` passes all four analyses and aggregate status on that source;
 the original log ZIP is
 `e04b1c439be2a87270f2d27cabfedc640c2b70034799e6100b30176dda190ac7`.
-These independently checked results do not substitute for the still-running
-original actual storage trial `38497089463`.
+These independently checked results do not substitute for the original actual
+storage trial `38497089463`, which has now failed at `storage-consumer-publish`.
+Its Cloud receipt contains one failure for fragment zero/copy zero: FINALIZE,
+`wire_receipt/io`, with no correlated agent code or detail. This boundary does not
+identify a cause or establish custody. The 76-member original artifact ZIP is
+`d4fe157a03c2712f79176d08651820a258624cad7148f4166ef21485d733020a`.
+Local cleanup reports zero owned objects and unchanged surrounding host state;
+consumer remote cleanup and provider usage remain unconfirmed. Further audit of
+the original records is in progress; repair and consumer restoration are not passed.
 
 ### Explicit local policy for protected compute
 

@@ -114,7 +114,12 @@ impl SessionKey {
     }
 
     fn check(&self) -> Result<(), GuestError> {
-        if self.0.lock().map_err(|_| GuestError::Unavailable)?.is_none() {
+        if self
+            .0
+            .lock()
+            .map_err(|_| GuestError::Unavailable)?
+            .is_none()
+        {
             return Err(GuestError::Cancelled);
         }
         Ok(())
@@ -294,7 +299,11 @@ impl<'a> GuestSession<'a> {
 
     fn check_at(&self, now: Stamp) -> Result<(), GuestError> {
         let result = (|| {
-            let state = self.owner.state.lock().map_err(|_| GuestError::Unavailable)?;
+            let state = self
+                .owner
+                .state
+                .lock()
+                .map_err(|_| GuestError::Unavailable)?;
             if state.cancelled {
                 return Err(GuestError::Cancelled);
             }

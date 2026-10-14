@@ -315,7 +315,10 @@ and the real protected-worker trial remain separate requirements.
 
 The new `provider::compute::guest` module adds the other side of the existing
 challenge protocol. It is a software candidate awaiting hosted compilation and
-tests, not an admitted private worker. No suitable SNP hardware is currently
+tests, not an admitted private worker. Its first hosted attempt stops before
+compilation on a permissions test fixture; the corrected fixture explicitly sets
+its intentionally unsafe mode instead of depending on the caller's umask.
+No suitable SNP hardware is currently
 available for a successful firmware or two-node private-task trial.
 
 A `GuestSessionOwner` has an explicit expiry, a finite attempt budget and at most
@@ -349,7 +352,7 @@ and separation from the real verifier. Positive collection cases use an explicit
 test-only synthetic source; production uses only firmware. The separate hosted
 software receipt requires the existing 52 appraisal tests and targeted Clippy first
 and retains their source/lock binding. Historical appraisal receipts keep their
-original scope. Test execution and compiler results remain pending for this candidate.
+original scope. Rust-test execution and compiler results remain pending for this candidate.
 
 Remaining integration includes an authorized caller over the protected provider
 stream, an approved guest image and model/runtime assets, full report appraisal,
