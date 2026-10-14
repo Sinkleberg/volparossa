@@ -6,6 +6,7 @@
 
 pub mod attestation;
 pub mod dataset;
+pub mod guest;
 mod protocol;
 mod transcript;
 

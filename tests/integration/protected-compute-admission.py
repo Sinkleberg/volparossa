@@ -469,7 +469,7 @@ def hosted():
         and os.environ.get('GITHUB_REF') in ('refs/heads/feature/protected-compute-admission',
             'refs/heads/feature/protected-compute-endorsement',
             'refs/heads/feature/protected-compute-cert-profile', 'refs/heads/feature/protected-compute-collateral',
-            'refs/heads/feature/protected-compute-local-policy')
+            'refs/heads/feature/protected-compute-local-policy', 'refs/heads/feature/protected-compute-guest')
         and os.getuid() != 0, 'disposable_branch_only')
 
 
