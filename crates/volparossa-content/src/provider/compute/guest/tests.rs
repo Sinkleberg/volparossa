@@ -490,7 +490,7 @@ fn guest_firmware_errors_have_no_quote_or_fallback() {
             Err(GuestError::DeviceUnavailable | GuestError::Firmware)
         ));
         assert!(erased(&cancellation));
-        assert!(owner.state.lock().unwrap().active.is_none());
+        assert!(owner.inner.state.lock().unwrap().active.is_none());
     }
 }
 

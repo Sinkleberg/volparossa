@@ -313,13 +313,13 @@ and the real protected-worker trial remain separate requirements.
 
 ## Guest-side session candidate
 
-The new `provider::compute::guest` module adds the other side of the existing
-challenge protocol. It is a software candidate awaiting hosted compilation and
-tests, not an admitted private worker. Its first hosted attempt stops before
-compilation on a permissions test fixture; the corrected fixture explicitly sets
-its intentionally unsafe mode instead of depending on the caller's umask.
-No suitable SNP hardware is currently
-available for a successful firmware or two-node private-task trial.
+The `provider::compute::guest` module adds the other side of the existing
+challenge protocol. Original hosted run
+[`38502691198`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38502691198)
+on `62261f3e` passes compilation, 52 existing appraisal tests, targeted Clippy and
+16 new software lifecycle tests. This is not an admitted private worker.
+No suitable SNP hardware is currently available for a successful firmware or
+two-node private-task trial.
 
 A `GuestSessionOwner` has an explicit expiry, a finite attempt budget and at most
 one active session. It accepts only the existing canonical version-two challenge,
@@ -352,16 +352,94 @@ and separation from the real verifier. Positive collection cases use an explicit
 test-only synthetic source; production uses only firmware. The separate hosted
 software receipt requires the existing 52 appraisal tests and targeted Clippy first
 and retains their source/lock binding. Historical appraisal receipts keep their
-original scope. Rust-test execution and compiler results remain pending for this candidate.
+original scope. Both original artifacts have been independently checked against
+the exact source tree, unchanged committed lockfile, test names and joined command
+processes. The [implementation ledger](../IMPLEMENTATION_STATUS.md#guest-owned-protected-compute-session-candidate)
+retains the artifact hashes and earlier failed attempts; neither software success
+nor a compiled firmware call proves execution inside an approved confidential guest.
 
-Remaining integration includes an authorized caller over the protected provider
-stream, an approved guest image and model/runtime assets, full report appraisal,
-and protected task-input/output handling. This module installs no daemon, changes
-no host configuration, starts no listener or scheduler, and does not enable private
-network execution merely because the firmware call compiles.
+The candidate below connects an authorized caller to this module over the existing
+protected provider stream. An approved guest image and model/runtime assets, full
+report appraisal and protected task-input/output handling remain required. The
+guest module itself installs no daemon, changes no host configuration and starts
+no listener or scheduler. A compiled firmware call does not enable private work.
 
 Source references: the pinned [firmware API](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/src/firmware/guest/mod.rs)
 and the [Linux SEV guest interface](https://www.kernel.org/doc/html/latest/virt/coco/sev-guest.html).
+
+## Authorized quote exchange candidate
+
+The `feature/protected-compute-quote-exchange` candidate adds an explicit
+quote-only service and CLI. It does not admit a worker or send a private task.
+Original hosted run `38511031734` on `85a01382` passes all 52 appraisal tests,
+16 guest tests and twelve quote tests, plus targeted content Clippy. Independent
+reconstruction and root replay bind those executed results to the original
+artifacts, source and unchanged lockfile. Workspace Quality stops at one CLI
+naming lint; the private-type rename is reviewed but still needs hosted
+acceptance. The eight agent/control/CLI tests have not yet executed, and CodeQL
+remains pending. The earlier failed attempts and passing guest runs retain their
+own revision-specific evidence in the implementation ledger. No suitable
+confidential-computing hardware is currently available.
+
+### Operator authority and cancellation
+
+`volparossa compute quote attach` uses the existing protected local control
+socket. It requires `--bind`, `--advertised-hostname`, `--requester-key`,
+`--max-seconds` and `--max-attempts`; none grants general peer access. The exact
+requester key must be valid and nonzero. The grant permits at most 600 seconds
+and 64 attempts, while each quote retains the existing shorter challenge limit.
+Current participation, endpoint policy and service registration are checked
+again during operation. Public compute and quote registration remain separate.
+
+`volparossa compute quote detach` revokes the grant and retained keys. A live
+supervisor also revokes them on expiry or authority loss. Guest sessions own
+their state without exporting private keys; dropping their owner cancels any
+surviving session. A process-wide single permit stays with the blocking firmware
+worker until its real return, even if its async supervisor has been cancelled.
+Detach therefore does not promise an interrupted ioctl or immediate free capacity.
+
+### One fresh protected exchange
+
+`volparossa compute quote verify` requires `--provider-key`, `--public-policy`,
+`--vcek` and `--vendor-crl`. The public policy is strict JSON, bounded to 4 KiB,
+with explicit version, public policy identifier, measurement, guest SVN,
+current/reported/committed/launch TCB floors and SMT choice. It supplies no
+production root override or private task context. The bounded DER certificate
+and CRL are supplied locally; this command does not fetch collateral.
+
+The agent opens the existing protected route, checks the selected provider's
+offer and pinned TLS identity, and receives its signed quote challenge. Only
+then does it tell the CLI that the stream is ready. The CLI creates its fresh
+30-second, one-use verifier session after that readiness response, so route setup
+does not consume the verifier's short challenge lifetime.
+
+Provider selector 7 and signing domain `VOLPAROSSA/compute-quote/v1\0` are distinct
+from public compute selector 5 and its unchanged domain. Bounded binary frames
+travel over the same owned connection, not a transcript file or a new unprotected
+listener. The response binds the exact request and guest-generated public key.
+Transport closure and a final route/policy check precede reference verification.
+
+The CLI prints only closed evidence status and the outstanding appraisal
+obligations. It never prints a raw report, hardware identifier, key or transcript.
+Reference verification keeps `complete_appraisal`, `worker_admission` and
+`private_input_released` false. The receiving authorized requester necessarily
+processes the report in memory; this exchange is not anonymous quote disclosure.
+
+### Evidence required for integration
+
+Twelve content regressions cover message separation, exact authorization,
+bounded framing, retained-key expiry, delivery failure, cancellation during
+firmware work, late results, policy loss and finite attempts. These twelve tests
+pass in the hosted run above. Eight more tests cover the agent, local control
+messages and CLI policy/output; their workspace execution is still pending.
+Synthetic firmware is test-only and cannot be selected by production configuration.
+
+The separate quote software receipt requires the original source and lock binding,
+52 appraisal tests, targeted Clippy and 16 guest tests before accepting the exact
+twelve quote results. It does not treat these tests as proof of production-route
+execution, confidential hardware, complete appraisal or private-task execution.
+The [implementation ledger](../IMPLEMENTATION_STATUS.md#authorized-quote-exchange-candidate)
+tracks this candidate separately from the integrated guest module.
 
 ## What is still needed before private tasks can run remotely
 

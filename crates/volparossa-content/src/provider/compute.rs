@@ -8,6 +8,7 @@ pub mod attestation;
 pub mod dataset;
 pub mod guest;
 mod protocol;
+pub mod quote;
 mod transcript;
 
 pub use transcript::{

@@ -142,8 +142,13 @@ impl OwnerState {
 }
 
 /// One finite guest owner. No `Clone`/deserializer, default policy or background work.
-/// A session borrows this owner and retains its slot through collection and response.
+/// Owned sessions retain private shared state, never clone the owner's authority.
+/// Dropping this public owner still cancels every session immediately.
 pub struct GuestSessionOwner {
+    inner: Arc<OwnerInner>,
+}
+
+struct OwnerInner {
     limits: GuestLimits,
     created: Stamp,
     deadline: Instant,
@@ -174,14 +179,16 @@ impl GuestSessionOwner {
             .checked_add(Duration::from_secs(seconds))
             .ok_or(GuestError::Configuration)?;
         Ok(Self {
-            limits,
-            created: now,
-            deadline,
-            state: Mutex::new(OwnerState {
-                cancelled: false,
-                remaining: limits.maximum_attempts,
-                seen: Vec::with_capacity(usize::from(limits.maximum_attempts)),
-                active: None,
+            inner: Arc::new(OwnerInner {
+                limits,
+                created: now,
+                deadline,
+                state: Mutex::new(OwnerState {
+                    cancelled: false,
+                    remaining: limits.maximum_attempts,
+                    seen: Vec::with_capacity(usize::from(limits.maximum_attempts)),
+                    active: None,
+                }),
             }),
         })
     }
@@ -190,6 +197,7 @@ impl GuestSessionOwner {
     /// An in-flight firmware call retains its slot until it actually returns.
     pub fn cancel(&self) {
         let mut state = self
+            .inner
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -197,15 +205,24 @@ impl GuestSessionOwner {
         state.erase_active();
     }
 
-    fn check_time(&self, now: Stamp) -> Result<(), GuestError> {
-        if now.unix < self.created.unix
-            || now.unix >= self.limits.expires_at
-            || now.monotonic < self.created.monotonic
-            || now.monotonic >= self.deadline
-        {
-            return Err(GuestError::Expired);
-        }
-        Ok(())
+    pub(super) fn deadline(&self) -> Instant {
+        self.inner.deadline
+    }
+
+    pub(super) fn check_live(&self) -> Result<(), GuestError> {
+        self.inner.check_time(Stamp::now()?)
+    }
+
+    #[cfg(test)]
+    pub(super) fn active_cancellation(&self) -> Option<GuestCancellation> {
+        self.inner
+            .state
+            .lock()
+            .unwrap()
+            .active
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .map(GuestCancellation)
     }
 
     /// Admit one canonical fresh challenge and generate a new process-owned key.
@@ -215,16 +232,20 @@ impl GuestSessionOwner {
     ///
     /// # Errors
     /// Rejects cancellation, expiry, replay, occupied capacity or unavailable entropy.
-    pub fn begin(&self, request: QuoteRequest) -> Result<GuestSession<'_>, GuestError> {
+    pub fn begin(&self, request: QuoteRequest) -> Result<GuestSession, GuestError> {
         self.begin_at(request, Stamp::now()?)
     }
 
-    fn begin_at(&self, request: QuoteRequest, now: Stamp) -> Result<GuestSession<'_>, GuestError> {
-        let mut state = self.state.lock().map_err(|_| GuestError::Unavailable)?;
+    fn begin_at(&self, request: QuoteRequest, now: Stamp) -> Result<GuestSession, GuestError> {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| GuestError::Unavailable)?;
         if state.cancelled {
             return Err(GuestError::Cancelled);
         }
-        if let Err(error) = self.check_time(now) {
+        if let Err(error) = self.inner.check_time(now) {
             state.erase_active();
             return Err(error);
         }
@@ -236,7 +257,7 @@ impl GuestSessionOwner {
         if state.seen.contains(&challenge_hash) {
             return Err(GuestError::Replay);
         }
-        let expires_at = request.expires_at.min(self.limits.expires_at);
+        let expires_at = request.expires_at.min(self.inner.limits.expires_at);
         let deadline = now
             .monotonic
             .checked_add(Duration::from_secs(expires_at - now.unix))
@@ -248,7 +269,7 @@ impl GuestSessionOwner {
         let key = Arc::new(SessionKey(Mutex::new(Some(key))));
         state.active = Some(Arc::downgrade(&key));
         Ok(GuestSession {
-            owner: self,
+            owner: Arc::clone(&self.inner),
             key,
             request,
             public_key,
@@ -256,6 +277,19 @@ impl GuestSessionOwner {
             expires_at,
             deadline,
         })
+    }
+}
+
+impl OwnerInner {
+    fn check_time(&self, now: Stamp) -> Result<(), GuestError> {
+        if now.unix < self.created.unix
+            || now.unix >= self.limits.expires_at
+            || now.monotonic < self.created.monotonic
+            || now.monotonic >= self.deadline
+        {
+            return Err(GuestError::Expired);
+        }
+        Ok(())
     }
 }
 
@@ -271,6 +305,11 @@ impl Drop for GuestSessionOwner {
 pub struct GuestCancellation(Arc<SessionKey>);
 
 impl GuestCancellation {
+    #[cfg(test)]
+    pub(super) fn is_erased(&self) -> bool {
+        self.0.0.lock().unwrap().is_none()
+    }
+
     /// Erase the session key now; does not claim the firmware ioctl has stopped.
     pub fn cancel(&self) {
         self.0.erase();
@@ -278,8 +317,8 @@ impl GuestCancellation {
 }
 
 /// Unique one-shot preparation. The key and occupied slot live through the ioctl.
-pub struct GuestSession<'a> {
-    owner: &'a GuestSessionOwner,
+pub struct GuestSession {
+    owner: Arc<OwnerInner>,
     key: Arc<SessionKey>,
     request: QuoteRequest,
     public_key: [u8; 32],
@@ -288,7 +327,10 @@ pub struct GuestSession<'a> {
     deadline: Instant,
 }
 
-impl<'a> GuestSession<'a> {
+impl GuestSession {
+    pub(super) const fn deadline(&self) -> Instant {
+        self.deadline
+    }
     /// Obtain cancellation authority without sharing the private key or slot.
     pub fn cancellation(&self) -> GuestCancellation {
         GuestCancellation(Arc::clone(&self.key))
@@ -330,11 +372,14 @@ impl<'a> GuestSession<'a> {
     ///
     /// # Errors
     /// Rejects device/firmware errors, expiry/cancellation, or report binding errors.
-    pub fn collect_quote(self) -> Result<GuestQuoteSession<'a>, GuestError> {
+    pub fn collect_quote(self) -> Result<GuestQuoteSession, GuestError> {
         self.collect_source(ReportSource::Firmware)
     }
 
-    fn collect_source(self, source: ReportSource) -> Result<GuestQuoteSession<'a>, GuestError> {
+    pub(super) fn collect_source(
+        self,
+        source: ReportSource,
+    ) -> Result<GuestQuoteSession, GuestError> {
         self.check_at(Stamp::now()?)?;
         let data = session_report_data(&self.request.challenge, &self.public_key)
             .map_err(|_| GuestError::Encoding)?;
@@ -349,7 +394,7 @@ impl<'a> GuestSession<'a> {
     }
 }
 
-impl Drop for GuestSession<'_> {
+impl Drop for GuestSession {
     fn drop(&mut self) {
         self.key.erase();
         let mut state = self
@@ -363,12 +408,19 @@ impl Drop for GuestSession<'_> {
 
 /// Process-owned key retained with one collected quote, not an execution permit.
 /// Dropping this value erases the key and releases the occupied owner slot.
-pub struct GuestQuoteSession<'a> {
-    session: GuestSession<'a>,
+pub struct GuestQuoteSession {
+    session: GuestSession,
     response: QuoteResponse,
 }
 
-impl GuestQuoteSession<'_> {
+impl GuestQuoteSession {
+    pub(super) const fn deadline(&self) -> Instant {
+        self.session.deadline
+    }
+
+    pub(super) fn challenge_binding(&self) -> [u8; 32] {
+        self.session.request.sha256()
+    }
     /// Check current owner/session validity before exposing public quote bytes.
     /// The returned response remains untrusted evidence, not a live capability.
     ///
@@ -396,9 +448,9 @@ impl GuestQuoteSession<'_> {
 }
 
 #[cfg(test)]
-type TestReportSource = Box<dyn FnOnce([u8; 64]) -> Result<Vec<u8>, GuestError> + Send>;
+pub(super) type TestReportSource = Box<dyn FnOnce([u8; 64]) -> Result<Vec<u8>, GuestError> + Send>;
 
-enum ReportSource {
+pub(super) enum ReportSource {
     Firmware,
     #[cfg(test)]
     Fake(TestReportSource),

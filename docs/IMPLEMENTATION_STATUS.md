@@ -32,8 +32,83 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Join core-delivered products to the now-proven installed Android refresh/background-expiry lifecycle. | PR19 is merged as `ad10d7d9`, with the exact tested tree of `576550f3`. Original Android `38497919547` and component `38497925414` pass; the Android proof includes real tap refresh, background/resume, hidden expired tables, unchanged three requests per product and full cleanup. Products are synthetic in this trial. Actual core delivery into Android, physical devices and iOS remain open; separate web evidence is unchanged. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Original actual trial `38497089463` on `0057262e` fails Cloud publication with a FINALIZE `wire_receipt/io` result. Local cleanup passes, but remote cleanup and provider usage are not confirmed. Quality `38497060046` and CodeQL `38497058053` pass and do not replace actual acceptance. Consumer repair, restore, deletion and reciprocal capacity remain unproven; Cloud PR234 waits for this shared integration. |
-| Protected remote compute — `volparossa`, then Code/Browser | Add the guest-owned ephemeral key, actual firmware quote request and bounded evidence exchange needed for a private task on another node. | PR238, PR240, PR242 and PR244 are merged; all 52 named appraisal tests, targeted Clippy, Quality and CodeQL pass on `761d72b1`. The guest-side candidate adds firmware access and 16 software lifecycle tests, with hosted Rust results still pending. It does not release private input or replace appraisal. Production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Original actual trial `38497089463` on `0057262e` fails Cloud publication with a FINALIZE `wire_receipt/io` result. Diagnostic candidate `b9a8905e` passes Quality `38505948590`, including eleven new Rust cases, and CodeQL `38505945732`. Actual trial `38508516347` is pending on that exact source. These diagnostics do not establish a fix; consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
+| Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
+| Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 is merged as `e282a3ce`; its guest module has passing software evidence. PR247 connects that module to finite operator grants, protected transport and CLI verification. Original run `38511031734` on `85a01382` passes 52 appraisal, 16 guest and twelve new quote tests plus targeted Clippy. Quality `38511036689` stops at one CLI naming lint; the private-type rename is reviewed, but corrected workspace acceptance and execution of eight new agent/control/CLI tests remain required. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
+
+### Authorized quote exchange candidate
+
+The new quote-only path connects guest-owned evidence collection to the existing
+protected provider stream. An operator must explicitly authorize one requester
+identity, a lifetime of at most ten minutes and at most 64 attempts. Registration
+is independent of public compute. A separate operation selector and signing
+domain prevent public-job messages from being treated as attestation requests.
+
+The CLI creates its fresh, one-use challenge only after route setup, pinned TLS
+and the provider's authenticated challenge have succeeded. It receives the bounded
+binary quote on that same local control connection, completes transport and policy
+checks, then applies the existing reference-evidence verifier. No raw report,
+hardware identifier, key or transcript is printed or put in a public cache.
+The result keeps full appraisal, worker admission and private-input release false.
+
+The service owns retained keys and an expiry supervisor. Detach, authority loss
+and expiry revoke the key without claiming that a blocking firmware ioctl has
+stopped. One process-wide permit remains with the actual worker until it returns,
+including across detach and reattach. This prevents cancelled requests from
+creating an unbounded series of firmware workers.
+
+Original hosted run
+[`38511031734`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38511031734)
+on `85a013825ce33e2122de344092d8a3889a4af2b5` passes all 52 appraisal tests,
+16 guest tests and twelve quote tests, with zero failures or ignored tests.
+Targeted content Clippy also passes. The separate quote receipt requires the
+appraisal and guest results from that same source; all three stages actually
+execute. Independent reconstruction and root replay confirm the original
+artifacts, exact tree `4a64a68df7a3ba572a572d7b20336dccdc0666f1`, unchanged
+committed lockfile and the digest chain between prerequisite receipts.
+
+The original core, guest and quote artifact ZIPs are respectively
+`e4e66a899b324c57e90c355f20f149c32c4549b249107c3768708ca501b18c04`,
+`d48540551b72e3efb83aabd2653940be4c3c69dcbae3530f62a53a7b3427fcbc`
+and `50bfd73b1cc61d13005145ad802e5c4afd6d8cc8ef65c3daaa81de9772e33eca`;
+the original log ZIP is
+`45d8e1dd32c49ac607e7682e53d4695624035f4ca33a0ef7c3eefbf4706c3001`.
+These synthetic guest and quote reports do not prove firmware success, a working
+production route, confidential hardware, full appraisal, worker admission or
+private-task execution. See the
+[quote exchange guide](development/PROTECTED_COMPUTE_VERIFIER.md#authorized-quote-exchange-candidate)
+for commands and the remaining authority boundaries.
+
+Original run
+[`38510015317`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38510015317)
+on `944da52cb9b5bbfed29f2f3e93b337f83b4b56f8` fails three Clippy rules:
+`similar_names`, `map_unwrap_or` and `ignored_unit_patterns`. Its 52 exact
+appraisal tests pass with zero failures or ignored tests. The guest and quote
+steps are skipped; their artifacts contain only failed receipts, not executed
+tests. Independent reconstruction and root replay confirm the exact source,
+unchanged committed lock, original artifacts and this limited result. The core
+artifact ZIP is
+`6411652b4098e504bf50d8891be281401a4f2f24518944b76883705c9a5ac944`;
+the original log ZIP is
+`10bf16d005a56ef7de6b1b39a918506c896da85b3b93b39c2c92cde352deec3c`.
+
+Separate Quality run `38510082539` fails formatting before strict workspace
+Clippy or workspace tests. Its original log ZIP is
+`dc81f3443896e67a3883fcc8ec4b0bb5b5e5b4839d1fb017e17081c9caf4808a`.
+The exact hosted formatter output has been applied and its eleven resulting
+files checked by hash. The three Clippy corrections preserve the same lazy
+deadline fallback, unit-output polling and test behavior; no lint gate is relaxed.
+The corrected revision passes the targeted core/guest/quote run above. Separate
+Quality `38511036689` passes formatting, fuzz lint and dependency/license checks,
+then stops at `struct_field_names` in the CLI's private `PublicPolicy` type.
+Workspace tests, including the eight new agent/control/CLI cases, are skipped.
+Its original log ZIP is
+`73cd058d0f2d9554d0676dd48bb809aaea88c44e63bcaa05edf6b5265ba5bf99`.
+Renaming that private type to `PublicExpectations` leaves the JSON
+`public_policy_id` field, strict schema, policy criteria and CLI options unchanged.
+Independent review confirms the narrow correction. Corrected workspace acceptance
+is still required; CodeQL `38511032900` on `85a01382` is also pending. No local
+Rust tool was run.
 
 ### Guest-owned protected-compute session candidate
 
@@ -45,15 +120,42 @@ bounded request/response codecs belong to the same session. A cancelled in-fligh
 firmware call retains its slot until it returns; cancellation does not claim to
 interrupt an ioctl. Production cannot select the synthetic source used by tests.
 
-Sixteen Rust lifecycle tests and a separate source-bound hosted evidence profile
-have been added. The 64 existing inert harness tests, 12 guest evidence contracts
-and 12 public-RSA source/graph regressions pass locally; independent Rust and
-harness review finds no blocking issue. Compiler and Rust-test results are pending. The existing 52
-appraisal tests and Clippy remain prerequisites; the new receipt cannot promote
+Original hosted run
+[`38502691198`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38502691198)
+on `62261f3e534c237f0fbfa4b5906bb3fd8c6fadf9` passes compilation, all 52 existing
+appraisal tests, targeted Clippy and all 16 new Rust lifecycle tests, with zero
+failures or ignored tests. The 64 existing inert harness tests, 12 guest evidence
+contracts and 12 public-RSA source/graph regressions also pass. Independent Rust
+and harness review finds no blocking issue. The new receipt cannot promote
 software tests to hardware verification, worker admission or private execution.
 The guest key is process-owned, not proven hardware-nonexportable. Approved images,
 authorized model/runtime assets, protected stream wiring, complete appraisal and
 a real confidential-computing two-node trial remain open.
+
+Independent reconstruction and root replay bind both original artifacts to tree
+`88bb1a2027e690934dcf3303b41b9329a764c071`, the unchanged committed lockfile and
+resolved dependency projection. All five command leaders are joined, without
+capture errors. The 15-file core artifact ZIP is
+`240f34c904c9c852a3811f1fb47e9580dcae1329fe140451ab93d35b14c2797c`;
+the three-file guest artifact ZIP is
+`3752bfe480b9218016f2f1f0189d5ddb23ef2fef31f6bea43aad6c95966f7a92`.
+The guest receipt binds the exact original prerequisite report and retains false
+firmware-success, hardware, full-appraisal, worker-admission, private-input and
+protected-execution scopes.
+
+Quality `38502695418` passes strict workspace Clippy and the same 16 guest and
+52 appraisal tests. Its exact merge checkout has the candidate tree. Unfiltered
+summaries total 3,635 passed, zero failed and seven ignored, excluding six filtered
+child summaries. Three namespace probes are explicitly skipped; the non-mutating
+harness also has one Python skip. These are not live network or hardware proofs.
+The original Quality log ZIP is
+`284ab161b7d44f2693d9cc39359c198b69b1b7b1541c61aaeb81abcfb068c48f`.
+CodeQL `38502691747` passes all four analyses and its aggregate, with no reported
+findings. The Rust extractor retains two file diagnostics, so extraction is not
+complete or error-free. Its original log ZIP is
+`78c734ff952b4f07d3ed83005454afe82f515304e293bc31a6477c9be060369c`.
+The reviewed software slice is integrated through
+[PR246](https://github.com/VOLPAROSSA/volparossa/pull/246), merge `e282a3ce`.
 
 The first hosted attempt `38501558705` on `ce3dd8c5` passes all 64 existing inert
 checks but fails one new permissions fixture before compiler installation. Under
@@ -67,6 +169,18 @@ The first run's original log ZIP matches SHA-256
 its API lists no result artifacts because preparation was not reached. The corrected
 12 guest contracts pass under both `umask 077` and `022`, and all 12 public-RSA
 scope regressions pass with the formatter-only guest-source hash updated.
+
+The second attempt `38502007781` on `12086fca` compiles and passes all 52 appraisal
+tests, then fails strict Clippy on two test-only expressions: callback type
+complexity and unchecked `Instant` subtraction. Its guest tests are not reached.
+Quality `38502011206` records the same genuine errors before its final cancelled
+status; workspace tests are skipped. A test-only type alias and checked subtraction
+fix those expressions in `62261f3e`, without changing production behavior or
+relaxing the lint gates. The original failed core and guest artifact ZIPs remain
+`9dd366afebbc556527f676fc860113db526b0848ee1084e8b2360a249fbb41b3`
+and `a11b3feeb5893064df1da7d4b25b52483a7a3b816a5540a9d3cfb8c3b876041b`;
+the original cancelled Quality log ZIP is
+`504419253efacb0c79e18a0e6fafab0f4c023d62b68908b6a20a8dfb2d200905`.
 
 ### Installed Android Weather lifecycle integrated
 
@@ -116,8 +230,47 @@ Its Cloud receipt contains one failure for fragment zero/copy zero: FINALIZE,
 identify a cause or establish custody. The 76-member original artifact ZIP is
 `d4fe157a03c2712f79176d08651820a258624cad7148f4166ef21485d733020a`.
 Local cleanup reports zero owned objects and unchanged surrounding host state;
-consumer remote cleanup and provider usage remain unconfirmed. Further audit of
-the original records is in progress; repair and consumer restoration are not passed.
+consumer remote cleanup and provider usage remain unconfirmed. Independent audit
+and root replay of the originals confirm the separate base cycle: restart/resume,
+three replacements, two non-consuming byte-verified restores, deletion of all
+eleven retained copies and zero final base-provider usage. The failed combined
+report still rejects at the acceptance gate; this base result does not establish
+consumer repair or restoration. One provider's broad protocol-error count is
+uncorrelated and does not identify the Cloud failure's cause. The original log ZIP
+is `f745d42ad072ca38f34a376b57f6784f347a8c6ffb9df7d94bee1ecfc11bee03`.
+
+Candidate `506b4c49` adds one provider-local, closed operation/phase/error-family
+tuple alongside the existing error event. It distinguishes backend failure from
+receipt failure after an operation may already have committed; it does not add
+a wire reply or establish a request correlation. The bounded diagnostic sidecar
+keeps exact v1 compatibility and adds at most 32 observed tuples per role in v2,
+with explicit omissions and unchanged size limits. It exports no identifiers,
+addresses, paths, keys, payloads or nested error text. Deadlines, retries, quotas,
+authorization and the blocking worker's disk permit remain unchanged.
+
+Independent source review, 62 inert smoke checks and 41 wiring checks pass.
+Diagnostic revision `b9a8905e3b0b95d0e44cd41d083776cf0fa0b86e` passes original
+Quality run `38505948590`, including strict workspace Clippy and all eleven new
+Rust regressions. These cover a lost receipt after a durable commit, actual
+database/integrity/lease errors, outer timeout and cancellation with a still-owned
+blocking permit. The content suite reports 192 passes, zero failures and zero
+ignored tests. Three namespace probes and one inert Python case are skipped;
+these component results are not live consumer acceptance.
+
+Original CodeQL run `38505945732` passes all four analyses and its aggregate;
+two Rust extraction diagnostics remain explicit. Independent reconstruction
+and root replay bind the original logs and API results to tree
+`7b6d96080ca6a6e0f56345e11164fc1717ff03b6`. The Quality log ZIP is
+`56ec2335afc2177a83b043dcf80875d9cd3533321baa4e0dadf1c655175b1f11`;
+the CodeQL log ZIP is
+`8c8870bf2f08c0516aedfc3bbaa3e335ebe2fe3335ce1e550dd79b8b86f1acc4`.
+
+Actual Image/Cloud trial
+[`38508516347`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38508516347)
+is pending on that exact revision. The existing broad wire-test filter includes
+all eleven new cases. Diagnostic preparation is not a fix for the original Cloud
+failure; the new run must separately establish publication, maintenance, restore,
+deletion, provider usage and cleanup before consumer acceptance can pass.
 
 ### Explicit local policy for protected compute
 
@@ -274,11 +427,28 @@ Four later relay0 exact-provider lookups are recorded; without per-copy timing,
 they do not explain the earlier TLS or stream-open failures. Provider registration
 itself remains local and DHT-based, not permanently bound to the first broker.
 
-The next consumer-only fixture will give each eligible broker tightly filtered
-UDP control reachability and verify each new route context independently. It must
-preserve the original base archive and transition evidence, the exact relay/exit
-privacy boundaries, finite grants and deadlines. This is not yet wired or proven
-in the actual topology; no product lifetime or retry is enlarged to compensate.
+Candidate `6e180af1` wires a separate consumer-only network profile after the
+original base archive has been deleted and its transition verified. Nine
+UDP-only control links connect the three eligible brokers to the three storage
+providers inside the owned disposable namespaces. Exact kernel readbacks and
+three separately owned control captures accompany each consumer phase. No
+direct client/provider payload path, Internet forwarding or product change is
+introduced.
+
+The observer binds each periodically sampled context to its exact two relay
+paths, exit and distinct control broker; it does not merge contexts into one
+authority or claim continuous observation. Actual exit completions and the final
+selected route must match observed contexts. Historical evidence schemas remain
+readable; the new schema keeps the existing size and export limits. Worker-flow
+reads are restricted to three fixed paths and the isolation receipt's owner,
+with unchanged private permissions and bounded, no-follow reads.
+
+Independent source review and 152 root-run targeted inert checks pass, including
+route changes, malformed evidence, worker ownership, capture cleanup and export
+priority. Shell syntax and the two new helpers' ShellCheck pass. This merge
+preserves main's newer compute code and both evidence histories. A fresh hosted
+trial remains required: these checks do not prove consumer acceptance. Existing
+source pins, grants, lifetimes, retries and deadlines are unchanged.
 
 The intervening [trial on `599a4595`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38453132258)
 passes the 29 selected Rust tests and builds the production binaries, then fails
@@ -320,9 +490,16 @@ Candidate `5fbc9e11` corrects the fixture's idle/stable-target refresh handling.
 Its 73 Node checks, 15 Python checks and three acceptance guards pass. Component
 run `38486138553` also passes on the same tree; neither proves installed-app
 acceptance. Its [Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38486131965)
-fails during dependency setup at the 300-second package-install bound, before
-the app is built or exercised. Candidate `a96c5445` changes only that setup
-bound to 600 seconds and its guards, not the app's refresh or expiry criteria.
+ends with exit 124 at the 300-second prerequisite-install limit while downloading
+OpenJDK 17, before input acquisition, KVM authorization, builds or app execution.
+There is no artifact or app-cleanup receipt. The original eleven-member log ZIP
+has SHA-256
+`9fc1f8a9d10ca00c652fdce9ee868bf5c8a5007c5335df4148f9a998c4370a2e`.
+This infrastructure failure does not test or refute the refresh correction.
+
+Candidate `a96c5445` raises the existing prerequisite-install budget to 600
+seconds; seven targeted inert guards pass. This changes only setup and its
+guards, not the app's refresh or expiry criteria.
 
 The [trial on `a96c5445`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38487100122)
 passes the installed app's exact initial rows and metadata, then fails at
@@ -395,14 +572,23 @@ Candidate `e752b8f` reuses the one fresh expiry-ready snapshot for all pre-HOME
 UI checks, eliminating one redundant VM traversal. Both clock checks, the
 4,500 ms lifetime, 6,000 ms background pause, deadlines and three requests per
 product remain unchanged. Independent review, 79 Node tests and 16 preparer tests
-pass. Original Android run `38494081824` nevertheless fails `clock_expired`
-after initial tables and actual refresh pass; the latest full snapshot observes
-the app paused and each product has three requests. Resume and hidden expired
-tables are not reached. Cleanup passes. Its original artifact matches SHA-256
+pass. Its [original Android run](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38494081824)
+again passes exact initial rows and actual tap-driven refresh, then fails at
+`background-resume-expiry/clock_validity` with `clock_expired`. Both products
+have exactly three requests; the latest snapshot is paused. The 6,000 ms pause
+and resume are not reached. Which clock expired and whether the actual pause
+occurred before expiry remain unestablished; no timing saving was measured.
+
+Independent reconstruction verifies the exact source/tree, all fifteen step-log
+bindings, nine overlay files, native source profile and three toolchain
+provenance hashes. The original 46-member artifact matches SHA-256
 `6997b94d169340fe64756c5c0c6fa26e079a83cae79c50666ff7882a28df53d0`.
-That observer optimization is not a measured timing improvement or an established
-explanation of the preceding failure. The later successful `576550f3` trial above
-does not relabel this historical failure.
+App, forwarding, VM, emulator children, private AVD/home and policy cleanup pass;
+the host network namespace and original KVM ACL are preserved. Component run
+`38494077538` passes on the same tree, separately from native acceptance.
+The observer optimization did not resolve this trial. The later successful
+`576550f3` trial above does not relabel this historical failure or extend the
+product's validity window.
 
 The [trial on `84d06151`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38477028643)
 receives successful HTTP responses, completes both bodies and decodes both JSON
@@ -647,6 +833,729 @@ Rust 1.85.0, source/fixture pins, test selection and `--locked` remain unchanged
 No protected worker, remote private-task release or B04 completion is claimed.
 Public peer tasks and the current local private service remain unchanged.
 See [the bounded trial and missing admission checks](development/PROTECTED_COMPUTE_VERIFIER.md).
+
+### Earlier bounded storage-branch evidence
+
+The following snapshot is retained from storage candidate `2827d1a3`.
+Its plan, pending checks and candidate descriptions are historical and apply
+only to the revisions named below. The current outcomes and required next
+steps are recorded in the preceding sections; these earlier statements do
+not supersede later failures or establish new integration or datapath proof.
+
+| Historical workstream and repositories | Milestone at that revision | Dependencies and remaining blockers at that revision |
+| --- | --- | --- |
+| Native Overmorrow — `volparossa-weather` | Exercise the installed Android app and verify its actual refresh and expiry behavior. | PR19 remains separate from the web proof. Trial `38471918136` on `d4c1a30c` reaches the read-only observer and both product requests, but observes no required tables or matching metadata in sixteen collections. Component run `38471928142` passes separately. Widget behavior, refresh, expiry and iOS remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume authorized maintenance and restore through a consumer after provider replacement. | PR232's trial `38466019672` on `a5f5abb7` passes the separate base-storage sequence, but Cloud publication fails at one TLS and four provider-lookup boundaries. Quality `38461709170` passes all sixteen diagnostic regressions; CodeQL also passes. The new refresh-scheduling correction and six regressions require hosted verification. Consumer repair, restore, deletion and reciprocal capacity remain unproven. |
+| Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
+| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | PR236 and PR238 are integrated in main. Candidate `2ebf27af` passes 22 actual signature/session/endorsement tests, targeted Clippy, workspace Quality and the separate CodeQL aggregate. Full certificate and revocation appraisal, authorized worker admission and actual protected execution remain open. No suitable confidential-computing server is available; public fixtures and ordinary cloud runners do not prove confidential hardware. |
+
+#### Historical provider refresh correction
+
+The original [trial on `a5f5abb7`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38466019672)
+fails during Cloud publication after one `tls_handshake` and four
+`provider_lookup` failures. These closed observations do not establish their
+inner causes. Its separately validated base-storage receipts pass upload,
+restart/resume, replacement, two byte-verified restores and deletion of all
+eleven copy records with zero final base-provider usage. Disposable cleanup
+leaves zero owned objects and unchanged surrounding guest network state;
+partial consumer remote deletion remains unproven. The original 71-member
+artifact matches SHA-256
+`1d2230fe6bde1048aba73f88f99e3b9889d47cacd432c8253b3085690b22c36d`.
+
+Source review identifies a separate scheduling defect: awaiting provider
+registration inside the accept-loop branch can stall new TLS connections.
+The correction retains one cancellable refresh future while continuing to
+poll accepts and stop requests. Cancellation is rechecked after waiting for
+policy state. Six new regressions cover pending registration, real TCP/TLS,
+no overlap, recovery, stop, fatal failure and expired offers. Source review
+and formatting pass; hosted compilation and execution remain required.
+This is not yet a demonstrated cause or remedy for the failed Cloud trial.
+Authority, deadlines, retries and the four-session bound are unchanged.
+
+#### Earlier results and checks
+
+The latest [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38453132258)
+fails during the initial opaque-file upload, before owner maintenance or Image/Cloud
+publication. The primary result is `cli_exit`; a later sampler query also fails
+but does not identify the upload cause. The old wrapper discarded the failed
+command's output before parsing it, so the absence of exported agent detail does
+not establish that the core emitted none. All 29 existing targeted Rust tests
+pass; none of the sixteen new diagnostic regressions is selected by that trial.
+
+Its 21-member artifact matches SHA-256
+`759ab3bc82175ece49211b37e458ed67be38c7941780d67dd08412c66ca606a8`.
+Private-file cleanup passes, but aggregate cleanup reports one unidentified
+remaining owned object. The surrounding disposable guest's network state is
+unchanged; that narrower result is not complete cleanup or provider deletion.
+
+[Quality on the same storage revision](https://github.com/VOLPAROSSA/volparossa/actions/runs/38457984132)
+stops at strict Clippy: four oversized future frames and one conditional-style
+lint. Workspace tests are skipped. The follow-up boxes those four futures and
+uses an equivalent conditional, preserving deadline construction, cancellation
+and READY framing. It is not a demonstrated explanation of the failed upload.
+
+The separately reviewed upload wrapper labels create, deposit, progress,
+redeposit, renewal, status and foreground seeding before each call. On a failed
+deposit it retains only validated existing v1/v2 diagnostics, bounded exit status
+and output-state categories. It exports no raw output, identities or paths and
+does not replace the primary failure with a sampler or diagnostic failure.
+All 172 targeted inert checks pass, including seven new regressions. The
+combined source and actual storage path still require hosted verification.
+
+The latest [Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38455347639)
+passes both builds, isolation and installation. Its cleanup ownership shows that
+the initial force-stop completed; failure lies in app start, PID lookup or PID
+validation. The exact operation remains unknown. All app/forward/VM/process/KVM
+cleanup checks pass. Its original 46-member artifact matches SHA-256
+`52f328d65aae5e0edc8262a4ebcca4888fc14585544ebbfe1a30759caa233a0c`.
+The candidate adds only closed startup boundaries and prevents a pre-query
+interruption from inheriting a stale PID-validation label. Its 22 Node,
+13 preparer and three acceptance checks pass; commands, deadlines, rights and
+success criteria are unchanged. Component checks do not prove native operation.
+
+The following [trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38458960244)
+on that candidate again passes both builds, isolation and installation. It
+records `installed-app / app_start / adb_signal / SIGKILL`, with no exit code or
+established cause. This isolates the `am start -W` boundary; it does not prove
+why the command was killed, a running app PID or native UI behavior. All stated
+cleanup checks pass. The original 46-member artifact matches SHA-256
+`2f5e0a69e4892d616af4f9ed3176aad86554b6b84014bc0e6ce55430327e8742`.
+
+Compute's [targeted verification](https://github.com/VOLPAROSSA/volparossa/actions/runs/38455979301)
+and [Quality run](https://github.com/VOLPAROSSA/volparossa/actions/runs/38455986117)
+pass on the integrated candidate. All 22 exact attestation tests run; the
+workspace reports 3,589 passed, none failed and seven ignored. Three optional
+namespace probes internally skip, so no live datapath proof follows from those
+probes. All four CodeQL analyses and the separate aggregate pass without alert
+suppression. Historical failed analyses below remain failures of their original
+revisions; the passing public-fixture evidence grants no private-input authority.
+
+#### Earlier storage and Android integration evidence
+
+The earlier [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38326191629)
+on `1a1dbd82` passes the core storage sequence, then fails at
+`cloud_publish / publish_operation`. The original consumer receipt does not
+distinguish create from deposit or identify the returned core status. Consumer
+repair, authenticated reads and deletion are not reached, so the complete run
+remains failed. Successful local cleanup does not prove deletion of those
+partially published consumer objects from providers.
+
+The separately validated core receipts prove daemon restart, unchanged owner
+authority and journals, a fresh owner resuming, and cursor progression
+`3 → 4 → 8 → 9`. Control switches from relay0 to relay2 with matching kernel
+and filter observations. Upload, lifecycle, restore and finish record
+74, 32, 44 and 29 completed MPTCP-TLS flows respectively, using two real relay
+paths with no direct client-to-exit packets, unexpected packets or capture
+drops. Two restores succeed without the original source or unavailable
+provider A. All eleven retained core copies are then deleted, with zero
+provider charges. The actual guest-root state is unchanged after cleanup.
+
+All 71 original proof members and their ZIP digest are checked:
+`98a17e682037e725b558a3d00e737507a56217cd9f5eef7784fbfceb6aa5d6f6`.
+The original log ZIP has SHA-256
+`9f250b34d945272512e507d59bb7fef2ac265bc77c195b13b7da12105406ea05`.
+[Quality 38326182328](https://github.com/VOLPAROSSA/volparossa/actions/runs/38326182328)
+passes on verified PR merge `abfde4f2` of main `3dcdffa0` and `1a1dbd82`:
+3,588 workspace tests pass, none fail and seven are ignored. The corrected
+finite-authority timer/socket test also passes in the actual guest's targeted
+13 owner, six agent and ten wire tests. Quality's three skipped namespace
+proofs are not substitutes for the separate live evidence above.
+
+The new consumer failure diagnostic records only fixed application/operation,
+status/code and boolean result observations. Unknown values remain unknown;
+it exports no raw core report, stderr, private journal or path. Schema-two
+failure receipts remain distinct from historical schema-one evidence. Fourteen
+inert Node tests and twenty Python tests pass, including independent review.
+The next actual trial must identify and resolve the Cloud failure; neither a
+larger quota nor a longer deadline is justified by the current evidence.
+
+The following [trial `38416109564`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38416109564)
+on `f09e7718` again passes core restart/repair, two complete source-free restores
+and deletion of all eleven core copies. Cloud create succeeds, then deposit
+returns `retained_operation_incomplete`; the original transfer error was not
+retained. Consumer repair, restore and deletion remain unproved. The original
+71-member artifact matches SHA-256
+`edf34b055d964228bfaa43a25da6741318b8cf2c57d246b9c55a752775d61477`.
+[Quality `38417397926`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38417397926)
+passes on `7bfdae85`, separately from that failed consumer scenario.
+
+The next candidate retains typed owner-side deposit boundaries, closed error
+categories and observed agent rejection codes, limited to eight copy failures
+plus the exact omitted count. It does not export error text, paths, keys or
+provider identities, infer a quota denial, or change accounting, authority,
+deadlines or retries. The six new Rust tests and extended real Unix/SQLite
+lost-terminal test now pass in hosted Quality `38435177375`, with two separate
+expiry assertion failures described below.
+
+Explicit consumer profile 2 pins Image `fa043874` and Cloud `f51b49b8`, using
+the same reviewed adapter bytes. Profile 1 and its original pins are unchanged.
+Schema-three failure evidence carries validated diagnostics or an explicit
+missing/invalid state; successful component checks cannot upgrade historical
+failures. The 118 targeted Node/Python wiring checks pass; Image's 44 adapter
+and Cloud's 34 focused checks pass separately. The complete live consumer
+scenario remained unproved by those component checks.
+
+[Trial `38441174652`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38441174652)
+on `ff0ddd38` records seven Cloud reserve failures at `agent_ready`, all with
+`CONTENT_UNAVAILABLE`, and no omitted failures. It does not identify a provider
+quota, expired grant or underlying route/TLS failure. Cloud catalog publication,
+consumer maintenance, restores and remote cleanup are not reached. The separate
+core lifecycle and two non-consuming restores pass; local fixture teardown and
+unchanged guest-root network state do not prove deletion of the consumer objects.
+The original 71-member artifact has SHA-256
+`2e7272c499f2f765393273659d92743ab70433c0f003722c88fef9c551e59e65`.
+
+The next candidate carries an optional, closed agent observation only on a
+correlated initial private-storage rejection. It distinguishes route connection,
+control/provider selection, offer validity, stream opening, TLS and challenge
+exchange, with a separate observation of which existing local deadline elapsed.
+It exports no free text, addresses, identities or private task data, and adds no
+error frame after READY has started. Diagnostics version 2 preserves historical
+version-1 reports without inventing observations. Consumer profile 3 pins Image
+`87a80166` and Cloud `54a00b58` to identical adapter bytes; profiles 1 and 2 stay
+unchanged. Image's 47 targeted tests and Cloud's four child-boundary plus one
+provenance test pass, as do 126 targeted consumer provision, orchestration and
+evidence checks. Independent source reviews pass; the 16 new Rust regressions
+and the complete storage scenario still need hosted verification.
+
+[Quality `38432837860`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38432837860)
+on `826f8101` passes dependency/license checks, then fails Clippy because the
+new diagnostic test helper takes an error by value without consuming it.
+Workspace tests are skipped. Its GitHub merge checkout has the same tree as
+the candidate. The original 18-member log archive has SHA-256
+`07879d5be96e72b72fff9f4d2c3cfe571a5913da9fc88024a805eb456871baf2`.
+The correction only borrows that test argument; assertions and production
+behavior are unchanged. Exact-file formatting and source review pass; hosted
+validation continued in the next run.
+
+[Quality `38435177375`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38435177375)
+on `12da0a5b` passes dependency/license gates and strict Clippy. The binary's
+620 tests report 618 passed and two failures. All six new diagnostics tests and
+the real lost-terminal resume/failover/delete test pass. Two maintenance-expiry
+assertions still compare the old inner reason to the new generic outer context;
+the original rejection is retained in the error chain. The combined reserve/renew
+test stops at reserve, so its renew subcase and later workspace binaries are not
+reached. Namespace-report and harness steps are also skipped.
+
+The original 19-member log ZIP passes CRC checks, SHA-256
+`8e349411f2e2082e411f3be61806c7af8130d342aa18d76801b854944e2ed1fe`.
+Actual merge checkout `e893cb74` has parents `d9144484` and `12da0a5b`, and the
+same tree as that head. The follow-up changes only the shared expiry test:
+assert the exact `SignedRequest` boundary and Progress/Reserve/Renew operation,
+then the unchanged root-cause string. It retains the socket-EOF proof that no
+operation was signed after rejection. No production authority, cap, timeout or
+expiry changes are made. Exact-file formatting and review pass; full hosted
+acceptance remains required before the next live consumer trial.
+
+The preceding [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38323695908)
+on `f7269a9b` stops in `storage-maintenance-targeted-tests`, before topology setup.
+Twelve owner tests pass; the waiting-for-core expiry test returns `Elapsed(())`
+at its three-second join timeout. Its original output does not identify which
+joined future was still waiting. The seven original artifact files match the
+GitHub digest. The incomplete report leaves cleanup and host-state preservation
+unverified; it provides no route, lifecycle or consumer acceptance.
+
+The test previously set expiry to wall-clock time plus one second before signing,
+fsync and socket setup. Source permits the owner to expire before the listener
+observes a request, leaving that test's server waiting. This is a source-supported
+race, not a demonstrated attribution of the failed run's timeout. The corrected
+test retains one finite signed deadline, first observes the real Unix-socket
+request, then pauses, advances and resumes only Tokio's derived timer. Separate
+bounded guards require the owner to finish, close the actual socket, retain zero
+turns and write `enrollment_expired`. The already-expired no-connect test remains.
+This is virtual-timer and socket-cancellation coverage, not evidence of elapsed
+wall-clock expiry. Production code, authority and runtime limits are unchanged;
+hosted compilation and execution now pass in `38326191629` as recorded above.
+
+[Quality 38323653485](https://github.com/VOLPAROSSA/volparossa/actions/runs/38323653485)
+passes on PR merge `3685f313` of main `3dcdffa0` and the original `f7269a9b`:
+3,588 workspace tests pass, none fail and seven are ignored. All 13 maintenance
+tests pass there, including the older expiry test that failed in the KVM guest;
+this does not supersede that separate failure or test the new correction.
+Strict Clippy, license and harness checks pass. Three namespace proofs and one
+optional real-CLI Python check explicitly skip. Original logs and merge parents
+are verified; this is not protected-network acceptance.
+
+The preceding [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38318750829)
+on `fd9130e6` fails at `verify_retained/lifecycle_copy_count_changed`, before
+reconnect-transition or consumer acceptance. Its original closed diagnostic
+records copy counts `[3,2,2,2]`, one placement authorization, five committed,
+three uncertain and one unattempted record. Conservative charged payload remains
+1,573,010 bytes, exactly twice the original ciphertext. Cleanup succeeds with
+zero owned objects. The original artifact and log evidence are retained; private
+journals were not exported and cannot be reconstructed from these counters.
+
+Source inspection identifies a valid intervening state: the working checkpoint
+does not pause the owner before signing a replacement intent. The parent intent
+is durably signed before its child journal and before survivor readback or target
+reservation. This is a source-supported explanation, not retrospective proof
+that every private binding in the failed run matched it.
+
+The fixture candidate keeps the historical counter-only validator separate.
+Its current check authenticates through the actual CLI, retains the original
+signed root, enrollment and eight journal identities, and recomputes their full
+charge. It admits at most the first fragment's A-to-C signed intent, using the
+unchanged C grant and original finite expiry, with an exactly matching child
+that is still unattempted and lease-free. A bounded private hash anchor binds
+that intent through restart, the final three placements, both complete restores
+and deletion of all eleven records. It is removed during private cleanup and
+never exported. Production behavior, grants, deadlines, repair turns and
+network acceptance are unchanged. All 39 wiring and 37 maintenance tests pass,
+including independent review;
+their bound journal fixtures are explicitly synthetic, not cryptographic or
+network evidence. The later core sequence in `38326191629` passes; other, more advanced
+loss states are not admitted by this deliberately narrow fixture correction.
+
+The preceding [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38313487736)
+on `fd0e245e` fails at `broker_validated`, with control-relay relation `same`
+and exit status 1. The original artifact contains no transition record or
+intermediate control snapshot, so the exact failing command within that stage
+is not established. The later owner `termination_signal` is cleanup, not the
+primary error. All 13 owner, six agent and ten wire tests pass. Initial upload
+retains eight copies and 74 completed protected flows over two used relay paths;
+the original network validator passes. All 25 original proof files and the
+artifact's matching GitHub digest are retained. Cleanup leaves zero owned objects
+and byte-identical guest-root network snapshots, without proving successful repair.
+
+Inspection and a failing-then-passing actual Python CLI regression identify a
+concrete validator incompatibility: the original topology emits eleven peer
+roles, while the current transition and consumer validators expected eight.
+Both now require exactly the original eleven, including bootstrap contacts and
+the secondary exit; all identities must remain unique and bounded. Those extra
+roles do not become permitted custody brokers. Historical schema 1 explicitly
+retains its old eight-role shape. Two closed supervisor stages now distinguish
+the initial snapshot operation from its before-transition validation. No route,
+grant, retry, deadline or evidence-acceptance requirement is weakened.
+
+All 23 consumer-evidence, 37 maintenance and 34 full wiring tests pass on the
+stable corrected tree, with independent review. The CLI and shell tests use
+synthetic kernel snapshots, not actual kernel execution. A new disposable trial
+must still prove the transition, repair and both consumer restores before the
+longer Cloud upload/repair/restore continuation can proceed.
+
+[Quality 38313456210](https://github.com/VOLPAROSSA/volparossa/actions/runs/38313456210)
+passes on actual PR merge `dc770f19` of main `3dcdffa0` and `fd0e245e`:
+3,588 workspace tests pass, none fail and seven are ignored, including all
+614 passing CLI tests. Original logs are retained and integrity checked.
+Three namespace checks and one optional real-CLI Python check explicitly skip;
+this Quality result is not protected-network acceptance for the correction.
+
+The preceding [storage trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38307755528)
+fails specifically at `control_match`, with `control_relay_relation=different`.
+The owner's later `termination_signal` is cleanup, not the primary I/O cause.
+All 13 owner, six agent and ten wire tests pass; eight copies are uploaded over
+74 completed protected flows, with the original network validator passing.
+Reconnect selects after two attempts. The original artifact matches GitHub's
+digest, and all 24 files are retained. Cleanup leaves zero owned objects and
+byte-identical guest-root network snapshots.
+
+The fixture correction verifies the old owned links and filters before removing
+them, proves the detached state, then creates only the newly selected broker's
+three links. Both UDP-only filters are installed before the new links go UP.
+Actual kernel route/filter readbacks and phase captures bind the transition;
+the original upload layout and route files remain unchanged. Grants, journals,
+authorization expiry, production routing and retry limits do not change.
+All 37 maintenance, 21 consumer-evidence, 33 wiring and seven VM-diagnostic tests
+pass, with independent review. Current schema 4 and consumer schema 2 require
+the transition; older schemas remain explicitly historical. Five exact exports
+are added. Only the three aggregate reports use the existing normal 1 MiB
+ceiling during emergency collection; standalone receipts, 128 file slots and
+the shared 8 MiB limit are unchanged. No truncated JSON is accepted.
+
+Separate [Quality](https://github.com/VOLPAROSSA/volparossa/actions/runs/38307715713)
+passes for `910ae86e` through PR merge `c117bbad`, including all 614 CLI tests.
+Three namespace checks explicitly skip and provide no live datapath evidence.
+The controlled rebinding still needs a successful real disposable trial before the
+longer Cloud upload/repair/restore continuation can proceed.
+
+The [Android trial on `6fb0114c`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38314299583)
+passes the actual isolated AVD-create preflight after adding only the pinned
+official emulator-package descriptor. Acquisition and clean strict-offline APK
+build receipts match within the run. The subsequent installed-app phase stops
+after 34.075 seconds with `CHILD_MEMORY_BOUND`: sampled aggregate RSS is
+3,240,882,176 bytes against the 3 GiB cap. No inner boot/install/UI result is
+retained. Process drain, policy removal and staging removal remain unconfirmed;
+restored KVM access and an unchanged host network namespace are separate checks.
+Original proof/log bytes and all fifteen step-log hashes are retained and checked.
+
+Candidate `cdf604e` gives only the fixed installed-emulator phase a 4 GiB budget;
+preflights, guest RAM, CPU/time limits, sandbox and cleanup requirements are
+unchanged, including the shared runner's existing launch and continuous reserves.
+All 130 inert Android and 40 shared-helper tests pass. Independent review passes.
+[Actual trial 38316868986](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38316868986)
+has failed; its original reports are being inspected without inferring the cause
+from the preceding run. Separate [component CI](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38316872807)
+passes 305 tests on the actual PR merge; neither result yet proves installed-app
+operation or successful cleanup after emulator execution.
+
+The earlier [Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38312147795)
+uses the corrected exact SDK prompt boundary and observes
+`emulator_package_missing`, after repository loading, ABI selection and the
+hardware question. Its bounded diagnostic exports no variable message content.
+All 123 targeted inert Android tests pass; the runtime failure and separate
+[Git-fixture component failure](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38312152639)
+were open at that revision. The descriptor and isolated Git fixture are corrected
+in the later candidate above. Neither diagnostic coverage nor prior APK builds
+prove installed app behavior.
+
+#### Earlier trial evidence
+
+The seventh [Android attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38254164363)
+retains its failed result: process drain could not be confirmed after the memory
+stop, so the policy and staging remain retained. KVM access restoration and an
+unchanged host network namespace pass separately; they are not complete cleanup.
+Weather `0dbc2d05481fb793f1398398091b57ecc030d86c` explicitly changes only the
+app-build budget and adds closed Java/Dart/other memory diagnostics; the memory
+reserve and other process budgets are unchanged. Its 97 targeted checks pass.
+The [eighth attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38256253721)
+stays under the aggregate cap (4,012,879,872 bytes) but fails with Java heap
+exhaustion in Jetifier. Its process drain, policy/staging cleanup and KVM-access
+restoration pass. Weather `f40711e03b8be65de5556ddf4f0397c33ff65b81` skips only the
+exact native-only engine JAR, supported by the pinned Flutter and AGP sources.
+The 78 targeted root checks pass, with independent review. The
+[ninth actual build](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38259586563)
+passes Kotlin/Java compilation, then reports a disappeared Gradle daemon during
+dex merging. The measured peak is 4,060,364,800 bytes, below the cap; no monitor
+stop is recorded. Cleanup and all nine original step-log hashes pass. The
+underlying failure remains unknown: full daemon/JVM and CPU-limit observations
+were not retained. Bounded diagnostics are next, not an unsubstantiated resource
+increase. No APK, offline rebuild or installed-app result is claimed.
+Weather `29bf7c4beb13d4ba856ac113ef52a14a492068c3` adds only bounded diagnostic
+markers, shared memory-event deltas and sampled individual Java CPU usage/limits.
+All 119 targeted inert tests and independent review pass. The
+[tenth hosted Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38272739293)
+fails during dex merging and now retains actual `OutOfMemoryError: Java heap
+space` messages. One Java process reaches a sampled 902.140 CPU seconds against
+its 900-second soft/hard limits; the receipt does not identify the daemon or prove
+its final kill cause. Aggregate peak RSS is 3,969,150,976 bytes, below 4 GiB.
+Shared memory-event deltas are zero, without establishing child-level attribution.
+All nine original step-log hashes match; process, policy/staging and KVM cleanup
+pass. No APK or installed-app proof exists. Resource limits remain unchanged and
+no development-host native build ran.
+
+Weather `c9392fb` limits the pinned AGP internal D8 pool to one thread for the
+two fixed app builds. The [eleventh trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38279184264)
+still loses its daemon during dex merging after 614.585 seconds. The complete
+bounded new daemon and step logs contain no observed heap-exhaustion markers;
+one sampled Java process reaches 902.940 CPU seconds against its actual
+900-second limits. This does not establish a kill cause. Peak aggregate RSS is
+3,970,863,104 bytes, below 4 GiB. Nine log hashes, process drain, staging/policy
+cleanup and KVM restoration pass. Weather `1da6f2a` gives only those two app
+commands a 1,800-second per-process CPU budget at the single outer boundary;
+the 900-second wall deadline, memory cap/reserve, heap and concurrency remain
+unchanged. An insufficient inherited hard limit is rejected before launch.
+All 126 targeted inert Python/Node checks and independent review pass.
+The [twelfth exact-source trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38282437155)
+fails at `public-acquisition-build` with `PHASE_DEADLINE` after 900.130 seconds.
+The last logged task is `mergeExtDexDebug`; that is not a measurement of time
+spent in that task alone. A sampled Java process reaches 1,662.590 CPU seconds
+under the actual 1,800-second limit, while peak aggregate RSS remains below
+4 GiB at 3,988,389,888 bytes. These observations do not identify an internal D8
+or garbage-collection cause. Nine original step-log hashes match. Process drain,
+policy removal and staging removal remain unconfirmed; unchanged host network
+namespace and restored KVM access are separate results, not complete cleanup.
+No APK, offline rebuild or installed-app behavior has been proved. The next
+step is bounded task/implementation analysis, not a blind retry or limit increase.
+
+Weather `809cc44e` applies the existing Kotlin in-process setting to the app and
+Flutter's included Gradle build using their shared, private Gradle home. The
+[thirteenth trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38288008577)
+confirms both scopes in the actual offline repository fixture. The app build
+still fails during dex merging after 663.058 seconds, now with explicit Java
+heap-exhaustion messages. Peak aggregate RSS is 3,299,090,432 bytes and maximum
+sampled individual Java CPU is 1,257.580 seconds under its 1,800-second limit.
+All nine original log hashes match; process drain, policy/staging cleanup and
+KVM restoration pass. The scoped follow-up raises only the app-build heap from
+1,024 to 1,536 MiB. Aggregate memory, host reserve, concurrency and time limits
+remain unchanged; actual build fit and installed-app operation remain unproved.
+
+The [fourteenth trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38290352014)
+on `7f071b2b` stops earlier, during pinned public-input preparation, with
+`ARCHIVE_DIGEST`. That check combines byte length and digest without naming the
+failed package; the retained traceback cannot identify which pin failed. No KVM,
+Gradle or APK trial runs, so this is not a test of the larger app heap. Original
+logs and the three preparation-artifact files are retained. Source pins and
+integrity checks remain unchanged while the rejected input is investigated.
+
+The [fifteenth Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38291836603)
+on `68059b02` passes input preparation and the real repository fixture, then
+fails at `:app:configureCMakeDebug[arm64-v8a]` because CMake 3.22.1 is missing
+from the read-only SDK. The build exits 1 after 705.209 seconds with peak
+aggregate RSS 3,539,718,144 bytes, below 4 GiB. No heap-exhaustion marker is
+observed. All nine original step-log hashes match; process drain, policy/staging
+removal, KVM restoration and unchanged host network namespace pass. There is
+still no completed APK, offline rebuild or installed-app result. Weather
+`bf6004f9` adds the exact official CMake archive and its constrained rootless
+layout, preserving notices and all existing integrity and resource limits.
+All 82 inert Android tests and independent review pass; native proof remains
+separate from those checks.
+
+The [sixteenth Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38295005766)
+on `bf6004f9` verifies the CMake input and successfully builds the APK. The
+strict, networkless rebuild runs Gradle `clean` and succeeds too: both receipts
+record 74,366,059 bytes and SHA256
+`501c0b2a2d658df7388b75f11d61407c5dbf774c8c0d94655491af55d2ea3184`.
+Acquisition and offline builds take 551.094 and 93.814 seconds, respectively;
+their peak aggregate RSS remains below 4 GiB. The subsequent emulator trial
+exits 1 after 333 milliseconds with only `CHILD_FAILED`; the precise internal
+operation is not recorded. All 13 original step-log hashes match. Process drain,
+policy/staging removal, private emulator-state removal, KVM restoration and
+unchanged host network namespace pass. This proves debug builds in that runner,
+not app installation, operation or release readiness. Add bounded emulator
+substep diagnostics rather than treating the generic error as a known cause.
+
+The [seventeenth Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38298489504)
+on `44a1de30` again passes acquisition and a clean strict-offline build. Its two
+APK receipts agree on 74,366,059 bytes and SHA256
+`6bcb97f7788a805a1202bef5d0a2423735fe65c9c8025a10593a01d42404cd23`.
+That hash differs from the preceding run; only within-run agreement is proved.
+The APK itself was not exported after the later failure. All 13 original step
+logs match their recorded sizes and hashes, and the proof ZIP matches GitHub's
+digest. The closed diagnostic identifies `avd_create`: `avdmanager` exits 1,
+with all 1,526 output bytes inspected but no recognized cause. Emulator boot,
+installation and UI checks were not reached. Process, private AVD, policy,
+staging and KVM cleanup pass. The next step is a bounded execution of that exact
+isolated AVD-create operation before costly app builds, not a speculative SDK,
+Java or sandbox change.
+
+The first [maintenance trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38251889540)
+produces no topology artifact because preflight fails before the VM or Rust
+tests. The separate [Quality run](https://github.com/VOLPAROSSA/volparossa/actions/runs/38251890260)
+rejects one unnecessary qualification in the new future-size test. The correction
+preserves that assertion and changes no production code. These failed runs remain
+part of the evidence; passing lightweight checks do not replace runtime proof.
+
+The next [Quality run](https://github.com/VOLPAROSSA/volparossa/actions/runs/38254373355)
+passes strict Clippy. Its CLI tests report 613 passed and one failed: a test-wide
+10-second timeout interrupts the fourth resumed signed/SQLite turn after actual
+reconnect progress. The final custody assertions were not reached, so that test
+remains failed. The correction gives this four-turn fixture 20 seconds, without
+changing production deadlines, authority, turn count or final assertions.
+[Quality run 38257720027](https://github.com/VOLPAROSSA/volparossa/actions/runs/38257720027)
+passes strict Clippy, workspace tests and the inert integration harness. Its
+run head is `2321b964`; the actual checkout is PR merge `73a46fed` into main
+`3dcdffa0`. All 614 CLI tests pass, including the reconnect test and all five
+expiry regressions, with none ignored in that binary. Seven tests elsewhere
+in the workspace are explicitly ignored. The three separate namespace checks
+skip because user namespaces are denied; their green step is not live datapath
+or cleanup evidence. The inert harness also records one Python skip.
+
+The separate [protected trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38254422045)
+fails at `private-storage-maintenance-core-restart` with
+`MAINTENANCE_CORE_LIFECYCLE_FAILED`, after the initial upload and revocation
+checks. Its closed failure report has no completed maintenance aggregate.
+Cleanup leaves zero owned objects and unchanged guest-root network state;
+that does not claim development-host equality or a successful restart/repair.
+The owner Rust filter selected zero tests; six agent and ten wire tests passed
+separately. The runtime subcause remains unknown because its closed failure
+receipt was not exported. Preserve this failure and require a nonempty actual
+owner-test gate plus bounded diagnostic export, not a speculative runtime fix.
+The reviewed follow-up requires all 13 named owner-maintenance tests to execute
+successfully as well as a zero Cargo exit, and exports only a validated,
+8 KiB-bounded lifecycle failure receipt. All 53 targeted lightweight tests and
+shell syntax checks pass; the change adds diagnostics, not a runtime repair.
+The [next protected trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38262146653)
+uses exact source `0dcbaa2f14d5b9cefc0bab6ccc742a11d371404b` and fails at
+`await_coordinator` with `lifecycle_deadline`. All 13 named owner tests actually
+pass, as do the six agent and ten wire tests. The closed diagnostic retains
+cursor 3 before the lifecycle and the last observed cursor 4 at core loss;
+cleanup joins the owner and leaves zero owned objects. The guest-root network
+state is unchanged. The owner exit status is measured after cleanup, not proof
+that its artificial eight-turn allowance was exhausted.
+The fixture's coordinator wait is only 180 seconds, whereas its existing
+supervisor may spend 30 seconds starting the daemon, 60 on inventory and 600 on
+route selection. The corrected fixture shares one existing 1,800-second lifecycle
+budget across its waits, bounded also by the original signed enrollment expiry.
+Normal owner service continues through preparation without an artificial
+eight-turn cap; output remains limited to 256 KiB and 128 records. A final expiry
+check after sampler cleanup prevents late success publication. No production
+timeouts or signed authority change. The ready record is also published atomically
+after its bytes and metadata are complete; this separate publication correction
+is not the identified cause of the timeout. All 59 targeted lightweight tests,
+shell syntax and independent review pass. A new actual protected-network trial
+must still prove restart, subsequent repair and cleanup.
+[Quality run 38262056663](https://github.com/VOLPAROSSA/volparossa/actions/runs/38262056663)
+passes on PR merge `4f1caa46011d85843f61e0ae8b3bd7cfa19f98a5`: all 614 CLI
+tests, including reconnect and the five expiry cases, pass. The three separate
+namespace reports again skip; the failed protected topology remains a separate
+acceptance requirement.
+
+The [protected trial on `561ccecd`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38278880434)
+fails at `verify_retained` with `lifecycle_charge_changed`, before successful
+restart/repair. Its checkpoint is `core_unavailable`, with cursor 3 before the
+lifecycle and last observed cursor 4. That code combines four assertions:
+total charge, fragment count, copy counts and placement-authorizations count.
+The original receipt does not retain those values, so it does not establish
+that byte charges changed. The owner is joined during cleanup, all private
+fixture cleanup checks pass, no owned objects remain and guest-root network
+state is unchanged. The follow-up separates the failure codes and records
+bounded structural counters from the same status response, without exporting
+keys, leases, paths or raw journals or weakening any assertion.
+All 62 targeted smoke, wiring and sampler tests pass, with independent review;
+historical schema-1 receipts remain readable without rewriting their contents.
+
+The [diagnostic protected trial on `d3c8add2`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38283604570)
+passes the core-loss and reconnect lifecycle. The original owner observes cursor
+3 before loss, 4 at loss and 8 after reconnect; a fresh owner resumes at 9.
+Enrollment and original identities remain unchanged, reconciled payload charge
+is 1,573,010 bytes, and 32 completed protected flows support this lifecycle phase.
+The subsequent repair phase still fails before successful reconstruction or
+acknowledged provider deletion. Its primary error is unclassified after turn 21;
+the separate sampler also rejects a changed path-ID-to-relay mapping. The retained
+receipt does not identify whether that mapping change is a slot permutation or
+different relay peers, and cannot establish the primary repair error by itself.
+
+Actual provider usage, measured after reconnect and before withdrawal, already
+differs from the fixture's original allocation: A holds 262,217 bytes in two
+leases, B holds 524,425 bytes in four and C holds 786,432 bytes in three.
+That is a net 262,144-byte lease moved from A to C, with unchanged total charge;
+the fixed expectation of three still-outstanding A copies no longer describes
+this run. The corrected fixture binds the measured custody before withdrawal to
+the original signed placement intentions and completed replacements. At least one
+original A copy must remain live, requiring a new read-back-verified replacement
+after withdrawal. It still requires all three replacement identities, eleven
+retained records, honest remaining A charges, two complete surviving-provider
+restores and acknowledged deletion of all copies followed by zero provider usage.
+It does not reset journals, grant fresh authority or relax the route check.
+Historical receipts remain readable but cannot satisfy current acceptance without
+the new baseline. All 74 targeted maintenance, fragment and consumer-evidence
+checks pass; 23 sampler checks separately exercise bounded mapping diagnostics.
+Independent source review passes. Actual execution of the corrected combined
+trial remains required. The failed trial's private cleanup passes, no owned objects
+remain, and guest-root network state is unchanged. This is not a completed
+maintenance or consumer-storage proof.
+
+[Quality run 38277482349](https://github.com/VOLPAROSSA/volparossa/actions/runs/38277482349)
+passes for that head, actually testing PR merge `2c807c7a` into `3dcdffa0`.
+All 614 CLI tests pass, including reconnect and the five expiry cases; seven
+workspace tests remain explicitly ignored. The three separate namespace
+checks skip under the runner's user-namespace policy. This is not a substitute
+for the failed protected lifecycle trial.
+
+[Quality run 38286762674](https://github.com/VOLPAROSSA/volparossa/actions/runs/38286762674)
+on `747b0fd7` fails a separate public-code fixture: the agent binary reports
+686 passing tests and one `Authentication` error. The fixture samples the clock
+separately for a source manifest and its enclosing dataset. At a second boundary,
+the enclosing expiry can exceed the source expiry, which production validation
+correctly rejects. Test-only correction `7e5a5ecd` shares one validity interval
+and adds a deterministic signed-manifest boundary regression, retaining rejection
+of an enclosing expiry one second too late. Formatter and source review pass;
+hosted compilation and execution of the corrected test remain required.
+
+The following [Quality run](https://github.com/VOLPAROSSA/volparossa/actions/runs/38291738772)
+passes for head `5a7207cd`, actually checking merge `1c011e79` into `3dcdffa0`.
+Strict Clippy, all 614 CLI tests, all 688 agent tests and the inert integration
+harness pass. This includes the corrected authentication fixture and all 13
+maintenance-owner tests. The three separate namespace checks skip because user
+namespaces are denied; they are not protected-datapath proof.
+
+The separate [maintenance trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38291834265)
+on exact `5a7207cd` fails at `private-storage-fragments-prepare` with
+`FRAGMENTS_ROUTE_UNAVAILABLE`. It does not reach lifecycle, repair or consumers.
+The final acceptance gate correctly rejects the original report. Guest cleanup
+is complete, zero owned objects remain and the guest-root network baseline is
+unchanged. The retained output does not identify the underlying route-selection
+or route-scope failure: existing closed route diagnostics were not enabled and
+exported for this scenario. Preserve the failure and add those bounded
+observations without changing route selection, retries, deadlines or acceptance.
+The diagnostic candidate now records whether the last selection was initial or
+after reconnect, its closed result category and bounded preselection counts.
+Missing, malformed or ambiguous observations remain unknown. One exact export
+contains no raw logs, paths, identities or private markers, and explicitly is not
+acceptance evidence. All 70 targeted smoke, wiring and selection tests pass;
+the original failed report remains rejected even if diagnostic generation fails.
+
+The [following maintenance trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38297150483)
+on exact `a80ec391` still fails before the first upload. The new diagnostic
+identifies initial Connect, with 15 attempts, 14 retries and last result
+`NO_ELIGIBLE_PATHS`; no route-readiness poll or redraw was reached. Bounded
+preselection observations include both invalid snapshots and a missing-exit
+result, but cannot establish which prerequisite was absent on the final attempt.
+All 13 required owner tests pass separately. Cleanup is complete, zero owned
+objects remain and the guest-root network baseline is unchanged. This is not
+lifecycle, repair or consumer proof.
+
+Source inspection finds that the maintenance shortcut starts initial Connect
+without the bounded advertisement-inventory gate already used on reconnect.
+The correction reuses that read-only gate for R0/R1/R2 and the primary exit;
+the custody peers R3/R4/R5 are intentionally hidden from the client. It preserves
+the existing 60-second inventory deadline, per-query limit, Connect retries and
+selection policy. Only a validated, bounded, closed receipt is exported, with
+inventory availability explicitly distinct from a working route. All 70 targeted
+tests, shell checks and independent review pass. Actual protected execution must
+still prove this candidate. The separate [Quality run](https://github.com/VOLPAROSSA/volparossa/actions/runs/38297104612)
+for `a80ec391`, checking merge `1f6d5a8` into `3dcdffa0`, passes strict Clippy,
+all 614 CLI tests, all 688 agent tests and the inert harness. Its namespace
+checks do not establish the failed storage trial's missing live proof.
+
+[Image PR6](https://github.com/VOLPAROSSA/volparossa-image/pull/6) at `aade424c`
+adds finite maintenance supervision and same-adapter foreground stop/join/resume;
+53 targeted tests pass. [Cloud PR13](https://github.com/VOLPAROSSA/volparossa-cloud/pull/13)
+at `9cb94fbb` reuses those exact bytes for catalog/upload access; 101 tests pass
+and three explicitly staged SDK tests are skipped. Both are independently
+reviewed draft candidates. Their local process/contract checks, including
+synthetic GPG operations, do not prove real peer-backed consumer maintenance.
+The new consumer continuation is wired into the maintenance topology after the
+original archive has been deleted. It stages those exact Image/Cloud sources,
+their licenses and the verified Node runtime only inside the disposable guest.
+It exercises an encrypted Image snapshot restore and an authenticated Cloud
+catalog DAV read through the maintained adapters, after removing local ciphertext
+and taking the first provider offline. Fresh finite grants do not reserve storage
+credit. The same original enrollment remains in use through repair, foreground
+reads and renewed retention; restored ciphertext must decrypt to the synthetic
+application inputs. The first provider's retained data remains charged until
+its store returns and all copies are deleted.
+
+Current acceptance requires both the original maintenance proof and this
+continuation in one schema-3 report, bound to the same peers, route and isolation.
+Each consumer phase has its own packet/control observations and drained protected
+flow counters; actual provider usage must begin and end at zero. Local private
+cleanup is checked separately. Historical schema-2 reports remain inspectable
+but cannot pass the new acceptance gate. The consumer driver, wrapper, provisioning
+and evidence checks have passed targeted inert tests and independent review;
+all 133 targeted Python/Node checks and shell syntax checks pass. The combined
+live trial has not yet passed. Earlier Image/Cloud pins and browser
+proofs are unchanged, and this is not a running Immich or OpenCloud account server.
+New Cloud uploads are not automatically enrolled by this first read-focused
+slice and must not be presented as maintained uploads.
+The maintenance fixture now explicitly gives each disposable provider 2 MiB,
+so each surviving store can hold both application ciphertexts, each bounded to
+1 MiB. Other profiles retain 1 MiB, reopen keeps the existing store capacity,
+and the 256 MiB free-space reserve is unchanged. This changes neither production
+contribution policy nor the signed owner grants. Seven inert shell checks pass;
+actual combined consumer execution remains required.
+
+The separate [Cloud PR14](https://github.com/VOLPAROSSA/volparossa-cloud/pull/14)
+at `cea181f` adds automatic enrollment for new uploads under one finite policy.
+Admission reserves each archive's maximum charge before deposit; confirmed
+two-copy storage, signed enrollment and maintenance registration precede READY.
+A private durable journal preserves the original deadline and outstanding
+reservations across restart. Uncertain obligations retain their budget; neither
+expiry nor a delete response silently creates new capacity. Existing committed
+files remain readable after maintenance authority expires. This is application
+admission accounting, not proof of reciprocal physical capacity.
+
+The first workspace can now begin with an explicitly created, genuinely encrypted
+empty catalog; missing or corrupt catalogs still fail closed. Three focused
+tests exercise actual GPG, HTTP upload, restart and cold read with a synthetic
+core. Two tests using the actual pinned OpenCloud SDK pass upload, listing and
+exact readback with both legacy and finite-maintenance configurations. Image PR7
+preserves the absolute deadline in its adapter. Core PR233 supplies the matching
+signed deadline primitive. Source/contract review and consumer checks pass; the
+real joined protected upload, provider-loss repair, repeated restoration and
+all-provider zero-usage finish remain required. These candidates do not replace
+the older pinned read-focused maintenance trial or prove a server-independent
+OpenCloud service.
+
+Core [Quality run 38298055486](https://github.com/VOLPAROSSA/volparossa/actions/runs/38298055486)
+checks exact `613a1ea0` and passes strict Clippy, 619 CLI tests and the inert
+harness. All five absolute-authority regressions execute successfully, including
+actual signed bytes, delayed signing, backwards/expired clocks and unchanged
+relative-only behavior. Seven other workspace tests remain ignored; three
+separate live namespace checks explicitly skip under the runner policy. These
+results establish the deadline primitive, not the pending protected Cloud chain.
+
+
 
 ### Core attestation and owner session candidate
 
@@ -899,6 +1808,40 @@ legitimate root-owned Java binary through a conflicting runner-ownership hash
 check. App compilation and emulator execution are not reached; cleanup restores
 the original KVM access. These failed attempts remain separate from the passing
 web proof.
+
+Subsequent Android attempts pass Java verification and then the actual offline
+Gradle repository fixture. An [earlier attempt](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38249512469)
+also verifies the JVM's bounded 4,096-descriptor profile, but the app build lacks
+Android platforms 34/35 required by the unchanged locked plugins. APK generation,
+offline rebuild and emulator execution remain unproved. Original step-log hashes
+match their receipts; process, policy and KVM-access cleanup pass. The corrected
+candidate adds only those two official platform archives to the existing
+read-only SDK preparation. The next attempt verifies them but exceeds the build
+memory cap; its incomplete cleanup and the smaller build profile are recorded
+in the current execution plan above.
+
+### Private storage maintenance candidate
+
+[Draft PR232](https://github.com/VOLPAROSSA/volparossa/pull/232) connects explicit,
+finite owner authorization to the core's existing background-work budget. The
+candidate preserves enrollment, archive identities, cursor and conservative
+storage charges across owner and core interruptions. It rechecks the original
+authorization expiry before signing delayed operations; reconnecting does not
+create a new grant or extend that authority.
+
+The independently reviewed harness requires a real disposable core restart,
+the same surviving owner, SIGTERM checkpoint and fresh-owner resume, followed
+by protected repair, two reconstructions without the withdrawn provider and
+complete cleanup. Its 77 lightweight tests pass; they are not network evidence.
+The first [hosted source check](https://github.com/VOLPAROSSA/volparossa/actions/runs/38249410405)
+stops at strict Clippy, including large async futures and documentation lint,
+before running the Rust tests. The correction boxes the shared maintenance
+future without changing task ownership or cancellation, and addresses the
+remaining import, unit-pattern and documentation diagnostics. Both corrected
+source verification and the actual protected trial remain required. The planned
+trial does not prove live elapsed
+expiry, independent-device availability, reciprocal contribution or a complete
+Image/Cloud background service.
 
 ### Hosted Weather preparation
 
