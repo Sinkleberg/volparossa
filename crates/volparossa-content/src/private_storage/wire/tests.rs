@@ -1,5 +1,7 @@
 //! Real framed duplex streams and `SQLite` custody, not a network/privacy acceptance proof.
 
+mod diagnostic;
+
 use ed25519_dalek::Signer as _;
 use std::{
     pin::Pin,

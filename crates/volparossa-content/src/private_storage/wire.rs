@@ -8,6 +8,8 @@
 #[cfg(test)]
 mod tests;
 
+pub mod diagnostic;
+
 use std::{
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -152,17 +154,37 @@ impl StorageService {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        timeout(IO_TIMEOUT, self.serve_inner(stream))
+        self.serve_observed(stream, &mut diagnostic::Observation::default())
             .await
-            .map_err(|_| WireError::Timeout)?
     }
 
-    async fn serve_inner<S>(&self, stream: &mut S) -> Result<(), WireError>
+    pub(crate) async fn serve_observed<S>(
+        &self,
+        stream: &mut S,
+        observation: &mut diagnostic::Observation,
+    ) -> Result<(), WireError>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        observation.begin();
+        let result = timeout(IO_TIMEOUT, self.serve_inner(stream, observation))
+            .await
+            .unwrap_or(Err(WireError::Timeout));
+        observation.finish(&result);
+        result
+    }
+
+    async fn serve_inner<S>(
+        &self,
+        stream: &mut S,
+        observation: &mut diagnostic::Observation,
+    ) -> Result<(), WireError>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let grant = SignedStorageGrant::decode(&read_frame(stream, MAX_GRANT_BYTES).await?)?
             .verify(&self.signer.verifying_key(), unix_now()?)?;
+        observation.phase = diagnostic::Phase::Challenge;
         let created = unix_now()?;
         let challenge = StorageChallenge::issue(
             &self.signer,
@@ -175,12 +197,14 @@ impl StorageService {
             },
         )?;
         write_frame(stream, &challenge.encode()).await?;
+        observation.phase = diagnostic::Phase::Request;
         let request = SignedStorageRequest::decode_and_verify(
             &read_frame(stream, MAX_REQUEST_BYTES).await?,
             &grant,
             &challenge,
             unix_now()?,
         )?;
+        observation.verified(request.operation());
         // There is no loop back to this challenge: after this point the connection can
         // authorize exactly this operation once. A fresh connection receives a new nonce.
         let payload = if matches!(request.operation(), StorageOperation::Append { .. }) {
@@ -190,20 +214,33 @@ impl StorageService {
         };
         validate_append(&request, &payload)?;
         request.current(unix_now()?)?;
+        observation.phase = diagnostic::Phase::DiskAdmission;
         let permit = Arc::clone(&self.disk_slot)
             .try_acquire_owned()
             .map_err(|_| WireError::Busy)?;
         let provider = Arc::clone(&self.provider);
         let owned_request = request.clone();
+        observation.phase = diagnostic::Phase::Backend;
         let result = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            let mut provider = provider.lock().map_err(|_| WireError::Store)?;
+            let mut provider = provider
+                .lock()
+                .map_err(|_| (WireError::Store, diagnostic::Category::Store))?;
+            let now = unix_now().map_err(|error| {
+                let category = diagnostic::Category::wire(&error);
+                (error, category)
+            })?;
             provider
-                .apply(&owned_request, &payload, unix_now()?)
-                .map_err(|_| WireError::Store)
+                .apply(&owned_request, &payload, now)
+                .map_err(|error| (WireError::Store, diagnostic::Category::backend(&error)))
         })
         .await
-        .map_err(|_| WireError::Store)??;
+        .map_err(|_| WireError::Store)?;
+        let result = result.map_err(|(error, category)| {
+            observation.backend_category = Some(category);
+            error
+        })?;
+        observation.phase = diagnostic::Phase::Receipt;
         let created = unix_now()?;
         request.current(created)?;
         let receipt = SignedStorageReceipt::sign(
@@ -218,6 +255,7 @@ impl StorageService {
         validate_range(&request, &receipt, &result.payload)?;
         write_frame(stream, &receipt.encode()).await?;
         if !result.payload.is_empty() {
+            observation.phase = diagnostic::Phase::ResponsePayload;
             write_frame(stream, &result.payload).await?;
         }
         Ok(())

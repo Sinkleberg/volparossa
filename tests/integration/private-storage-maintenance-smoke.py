@@ -174,12 +174,36 @@ PROVIDER_EVENT_CODES = (
 PROVIDER_EVENT_PHASES = ('private-storage-fragments-upload', 'private-storage-maintenance-lifecycle',
     'private-storage-fragments-restore', 'private-storage-fragments-finish',
     'storage-consumer-publish', 'storage-consumer-exercise', 'storage-consumer-finish', 'unknown')
+STORAGE_FAILURE_PREFIX = 'CONTENT_PROVIDER_STORAGE_V1_'
+STORAGE_FAILURE_OPERATIONS = ('UNKNOWN', 'RESERVE', 'APPEND', 'PROGRESS', 'FINALIZE',
+    'READ_RANGE', 'RENEW', 'DELETE')
+STORAGE_FAILURE_PHASES = ('GRANT', 'CHALLENGE', 'REQUEST', 'PAYLOAD', 'DISK_ADMISSION',
+    'BACKEND', 'RECEIPT', 'RESPONSE_PAYLOAD')
+STORAGE_FAILURE_CATEGORIES = ('IO', 'AUTH', 'INVALID', 'BUSY', 'STORE', 'TIMEOUT',
+    'DATABASE', 'INTEGRITY', 'EXPIRED', 'OWNERSHIP', 'CONFLICT', 'DELETED', 'QUOTA',
+    'NOT_FOUND', 'NOT_COMMITTED', 'ENTROPY')
+MAX_STORAGE_FAILURE_TUPLES = 32
+
+
+def storage_failure_code(code):
+    # One closed event preserves its tuple. Separate counts of operation, phase
+    # and category would invent correlations between unrelated exchanges.
+    if type(code) is not str or len(code) > 96 or not code.startswith(STORAGE_FAILURE_PREFIX):
+        return False
+    parts = code[len(STORAGE_FAILURE_PREFIX):].split('__')
+    if len(parts) != 3:
+        return False
+    operation, phase, category = parts
+    return (operation in STORAGE_FAILURE_OPERATIONS and phase in STORAGE_FAILURE_PHASES
+        and category in STORAGE_FAILURE_CATEGORIES
+        and (operation == 'UNKNOWN') == (phase in ('GRANT', 'CHALLENGE', 'REQUEST'))
+        and (phase != 'RESPONSE_PAYLOAD' or operation == 'READ_RANGE'))
 
 
 def validate_provider_events(value):
     require(type(value) is dict and set(value) == {'version', 'kind', 'scope', 'acceptance_evidence',
         'causal_attribution', 'event_absence_proven', 'phase', 'baseline_state', 'roles'}
-        and type(value['version']) is int and value['version'] == 1
+        and type(value['version']) is int and value['version'] in (1, 2)
         and value['kind'] == 'private-storage-maintenance-provider-events'
         and value['scope'] == 'pre_agent_stop_snapshot_may_include_owner_cleanup'
         and all(value[key] is False for key in ('acceptance_evidence', 'causal_attribution', 'event_absence_proven'))
@@ -187,6 +211,8 @@ def validate_provider_events(value):
         and type(value['roles']) is dict and set(value['roles']) == set(PROVIDER_EVENT_ROLES), 'provider event shape')
     counters = ('records', 'fresh_records', 'stale_records', 'unrecognized_event_records')
     observations = (*counters, 'counts', 'window_covers_baseline', 'ring_at_capacity')
+    if value['version'] == 2:
+        observations += ('storage_failures', 'omitted_storage_failure_records')
     for row in value['roles'].values():
         require(type(row) is dict and set(row) == {'state', 'query_exit_status', *observations}
             and row['state'] in ('observed', 'unqueried', 'capture_invalid', 'query_failed',
@@ -213,6 +239,16 @@ def validate_provider_events(value):
             and row['window_covers_baseline'] == (row['stale_records'] > 0)
             and type(row['ring_at_capacity']) is bool
             and row['ring_at_capacity'] == (row['records'] == 400), 'provider event bounds')
+        if value['version'] == 2:
+            storage = row['storage_failures']
+            omitted = row['omitted_storage_failure_records']
+            require(type(storage) is dict and len(storage) <= MAX_STORAGE_FAILURE_TUPLES
+                and all(storage_failure_code(code) and type(n) is int and 1 <= n <= 400
+                    for code, n in storage.items())
+                and type(omitted) is int and 0 <= omitted <= 400
+                and (omitted == 0 or len(storage) == MAX_STORAGE_FAILURE_TUPLES)
+                and sum(row['counts'].values()) + row['unrecognized_event_records']
+                    + sum(storage.values()) + omitted <= row['fresh_records'], 'provider storage event bounds')
     return value
 
 
@@ -226,7 +262,8 @@ def provider_events(work, phase, raw_baseline):
     for role, node in PROVIDER_EVENT_ROLES.items():
         row = dict(state='unqueried', query_exit_status=None, records=None, fresh_records=None,
             stale_records=None, unrecognized_event_records=None, counts=None,
-            window_covers_baseline=None, ring_at_capacity=None)
+            window_covers_baseline=None, ring_at_capacity=None,
+            storage_failures=None, omitted_storage_failure_records=None)
         roles[role] = row
         try:
             raw = closed_diagnostic_text(work / f'logs-{node}-cleanup-status.private', 4)
@@ -248,6 +285,7 @@ def provider_events(work, phase, raw_baseline):
             lines = closed_diagnostic_text(work / f'logs-{node}.txt', 131072).splitlines()
             require(len(lines) <= 400, 'provider event ring bound')
             counts = dict.fromkeys(PROVIDER_EVENT_CODES, 0)
+            storage, omitted = {}, 0
             stale, unknown, previous = 0, 0, 0
             for line in lines:
                 match = re.fullmatch(r'([0-9]{1,20})\tlevel=([0-9])\tevent=([A-Z0-9_]{1,96})'
@@ -262,17 +300,24 @@ def provider_events(work, phase, raw_baseline):
                     stale += 1
                 elif match[3] in counts:
                     counts[match[3]] += 1
+                elif storage_failure_code(match[3]):
+                    code = match[3]
+                    if code in storage or len(storage) < MAX_STORAGE_FAILURE_TUPLES:
+                        storage[code] = storage.get(code, 0) + 1
+                    else:
+                        omitted += 1
                 elif match[3].startswith(('CONTENT_PROVIDER_', 'CONTENT_DISCOVERY_', 'CONTENT_EXACT_', 'CONTENT_LOOKUP_')):
                     unknown += 1
             else:
                 row.update(state='observed', records=len(lines), fresh_records=len(lines) - stale,
                     stale_records=stale, unrecognized_event_records=unknown, counts=counts,
-                    window_covers_baseline=stale > 0, ring_at_capacity=len(lines) == 400)
+                    window_covers_baseline=stale > 0, ring_at_capacity=len(lines) == 400,
+                    storage_failures=storage, omitted_storage_failure_records=omitted)
         except FileNotFoundError:
             row['state'] = 'absent'
         except (OSError, ValueError, UnicodeError):
             row['state'] = 'invalid'
-    return validate_provider_events(dict(version=1, kind='private-storage-maintenance-provider-events',
+    return validate_provider_events(dict(version=2, kind='private-storage-maintenance-provider-events',
         scope='pre_agent_stop_snapshot_may_include_owner_cleanup', acceptance_evidence=False,
         causal_attribution=False, event_absence_proven=False,
         phase=phase if phase in PROVIDER_EVENT_PHASES else 'unknown', baseline_state=baseline_state, roles=roles))

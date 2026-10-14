@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import copy
 import json
 import os
+import re
 import runpy
 import stat
 import subprocess
@@ -190,6 +191,131 @@ class ProviderEventDiagnostic(unittest.TestCase):
                 with patch('builtins.print') as output:
                     CHECK['main'](['export-names', str(root)])
                 self.assertNotIn(CHECK['PROVIDER_EVENTS_NAME'], output.call_args.args[0].splitlines())
+
+    @staticmethod
+    def storage_codes():
+        return [f'{CHECK["STORAGE_FAILURE_PREFIX"]}{operation}__{phase}__{category}'
+            for operation in CHECK['STORAGE_FAILURE_OPERATIONS']
+            for phase in CHECK['STORAGE_FAILURE_PHASES']
+            for category in CHECK['STORAGE_FAILURE_CATEGORIES']
+            if CHECK['storage_failure_code'](
+                f'{CHECK["STORAGE_FAILURE_PREFIX"]}{operation}__{phase}__{category}')]
+
+    def test_storage_events_require_closed_verified_operation_and_phase_labels(self):
+        valid = ('UNKNOWN__GRANT__AUTH', 'UNKNOWN__REQUEST__TIMEOUT',
+            'FINALIZE__BACKEND__INTEGRITY', 'FINALIZE__RECEIPT__IO',
+            'APPEND__DISK_ADMISSION__BUSY', 'READ_RANGE__RESPONSE_PAYLOAD__IO')
+        invalid = ('UNKNOWN__BACKEND__STORE', 'FINALIZE__REQUEST__AUTH',
+            'UNKNOWN__RECEIPT__IO', 'FINALIZE__RESPONSE_PAYLOAD__IO',
+            'DELETE__PRIVATE_PHASE__IO', 'FINALIZE__BACKEND__PRIVATE_CATEGORY',
+            'PRIVATE_OPERATION__BACKEND__IO', 'FINALIZE_BACKEND_IO',
+            'FINALIZE__BACKEND__IO__PRIVATE', 'finalize__BACKEND__IO')
+        for suffix in valid:
+            self.assertTrue(CHECK['storage_failure_code'](CHECK['STORAGE_FAILURE_PREFIX'] + suffix))
+        for suffix in invalid:
+            self.assertFalse(CHECK['storage_failure_code'](CHECK['STORAGE_FAILURE_PREFIX'] + suffix))
+        for value in (None, True, 1, [], {}, 'x' * 97):
+            self.assertFalse(CHECK['storage_failure_code'](value))
+
+    def test_storage_allowlist_matches_the_producer_static_label_contract(self):
+        source = (HERE.parents[1] /
+            'crates/volparossa-content/src/private_storage/wire/diagnostic.rs').read_text()
+        self.assertEqual(set(re.findall(r'phase_code!\(\s*"([A-Z_]+)"', source)),
+            set(CHECK['STORAGE_FAILURE_OPERATIONS']))
+        self.assertEqual(set(re.findall(r'category_code!\(\s*\$op,\s*"([A-Z_]+)"', source)),
+            set(CHECK['STORAGE_FAILURE_PHASES']))
+        self.assertEqual(set(re.findall(r'"__([A-Z_]+)"', source)),
+            set(CHECK['STORAGE_FAILURE_CATEGORIES']))
+        self.assertIn('"' + CHECK['STORAGE_FAILURE_PREFIX'] + '"', source)
+        self.assertNotIn('format!(', source)
+        self.assertLessEqual(max(map(len, self.storage_codes())), 96)
+
+    def test_sparse_storage_tuples_preserve_pairs_without_private_identifiers(self):
+        first = CHECK['STORAGE_FAILURE_PREFIX'] + 'FINALIZE__BACKEND__INTEGRITY'
+        second = CHECK['STORAGE_FAILURE_PREFIX'] + 'APPEND__RECEIPT__IO'
+        unknown = CHECK['STORAGE_FAILURE_PREFIX'] + 'PRIVATE__BACKEND__IO'
+        with tempfile.TemporaryDirectory() as temporary:
+            value = self.observed(Path(temporary), raw=self.event(99, first)
+                + self.event(101, first) + self.event(102, second) + self.event(103, first)
+                + self.event(104, unknown) + self.event(105))
+            row = value['roles']['client']
+            self.assertEqual(value['version'], 2)
+            self.assertEqual(row['storage_failures'], {first: 2, second: 1})
+            self.assertEqual(row['omitted_storage_failure_records'], 0)
+            self.assertEqual(row['counts'][self.CODE], 1)
+            self.assertEqual(row['unrecognized_event_records'], 1)
+            self.assertEqual((row['records'], row['stale_records'], row['fresh_records']), (6, 1, 5))
+            self.assertNotIn(CHECK['STORAGE_FAILURE_PREFIX'] + 'FINALIZE__RECEIPT__IO',
+                row['storage_failures'])
+            for private in ('deadbeef', unknown, 'session=', 'path=', temporary):
+                self.assertNotIn(private, json.dumps(value))
+            self.assertFalse(value['acceptance_evidence'])
+            self.assertFalse(value['causal_attribution'])
+            self.assertFalse(value['event_absence_proven'])
+
+    def test_storage_tuple_bound_counts_omissions_and_keeps_existing_keys(self):
+        codes = self.storage_codes()[:33]
+        self.assertEqual(len(set(codes)), 33)
+        with tempfile.TemporaryDirectory() as temporary:
+            value = self.observed(Path(temporary), raw=''.join(self.event(101, code) for code in codes)
+                + self.event(102, codes[-1]) + self.event(103, codes[0]))
+            row = value['roles']['client']
+            self.assertEqual(set(row['storage_failures']), set(codes[:32]))
+            self.assertEqual(row['storage_failures'][codes[0]], 2)
+            self.assertEqual(row['omitted_storage_failure_records'], 2)
+            self.assertEqual(row['fresh_records'], 35)
+            self.assertEqual(row['unrecognized_event_records'], 0)
+
+    def test_historical_v1_event_receipts_stay_exact_and_reject_new_fields(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            value = self.observed(Path(temporary))
+        value['version'] = 1
+        for row in value['roles'].values():
+            del row['storage_failures'], row['omitted_storage_failure_records']
+        self.assertEqual(CHECK['validate_provider_events'](copy.deepcopy(value)), value)
+        changed = copy.deepcopy(value)
+        changed['roles']['client']['storage_failures'] = {}
+        with self.assertRaises(ValueError): CHECK['validate_provider_events'](changed)
+        changed = copy.deepcopy(value); changed['version'] = 2
+        with self.assertRaises(ValueError): CHECK['validate_provider_events'](changed)
+
+    def test_storage_validator_rejects_unknown_zero_boolean_and_invented_counts(self):
+        code = CHECK['STORAGE_FAILURE_PREFIX'] + 'FINALIZE__RECEIPT__IO'
+        with tempfile.TemporaryDirectory() as temporary:
+            value = self.observed(Path(temporary), raw=self.event(101, code))
+        changes = ({'storage_failures': None}, {'storage_failures': {code: True}},
+            {'storage_failures': {code: 0}}, {'storage_failures': {code: -1}},
+            {'storage_failures': {code: 2}}, {'storage_failures': {code: 1.0}},
+            {'storage_failures': {'PRIVATE': 1}}, {'omitted_storage_failure_records': True},
+            {'omitted_storage_failure_records': 1}, {'omitted_storage_failure_records': -1},
+            {'omitted_storage_failure_records': 1.0},
+            {'storage_failures': dict.fromkeys(self.storage_codes()[:33], 1)})
+        for change in changes:
+            invalid = copy.deepcopy(value); invalid['roles']['client'].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                CHECK['validate_provider_events'](invalid)
+        for name in ('storage_failures', 'omitted_storage_failure_records'):
+            invalid = copy.deepcopy(value)
+            invalid['roles']['provider_relay3'][name] = {} if name == 'storage_failures' else 0
+            with self.assertRaises(ValueError): CHECK['validate_provider_events'](invalid)
+
+    def test_maximum_storage_snapshot_stays_inside_existing_export_bound(self):
+        codes = sorted(self.storage_codes(), key=len, reverse=True)[:32]
+        raw = ''.join(self.event(101, codes[i % 32]) for i in range(400))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for node in CHECK['PROVIDER_EVENT_ROLES'].values():
+                self.save(root / f'logs-{node}-cleanup-status.private', '0\n')
+                self.save(root / f'logs-{node}.txt', raw)
+            CHECK['export_provider_events'](root, 'storage-consumer-publish', '100')
+            target = root / CHECK['PROVIDER_EVENTS_NAME']
+            self.assertLessEqual(target.stat().st_size, 65536)
+            value = CHECK['provider_events_file'](target)
+            for row in value['roles'].values():
+                self.assertEqual(len(row['storage_failures']), 32)
+                self.assertEqual(sum(row['storage_failures'].values()), 400)
+                self.assertTrue(row['ring_at_capacity'])
+                self.assertFalse(row['window_covers_baseline'])
 
 
 class SupervisorDiagnostic(unittest.TestCase):

@@ -45,12 +45,16 @@ use tokio::{
     time::{interval, timeout},
 };
 use volparossa_content::provider::{
-    ProviderEndpoint, ProviderError, PublicationRegistry, SignedProviderOffer, serve_publication,
+    ProviderEndpoint, ProviderError, PublicationRegistry, SignedProviderOffer,
+    serve_publication_observed,
 };
 use volparossa_content::transfer::{TransferError, TransferLimits};
 use volparossa_content::{CacheLimits, ChunkStore, SignedManifest, Validity, VerifiedManifest};
 #[cfg(test)]
-use volparossa_content::{provider::pull_publication_with_progress, transfer::TransferProgress};
+use volparossa_content::{
+    provider::{pull_publication_with_progress, serve_publication},
+    transfer::TransferProgress,
+};
 use volparossa_core::CONTRIBUTION_SOCKET_PRIORITY;
 use volparossa_identity::Identity;
 use volparossa_local_control::{
@@ -527,9 +531,10 @@ impl ContentRuntime {
                             provider_event(events.as_ref(), "CONTENT_PROVIDER_REGISTRY_TIMEOUT").await;
                             return;
                         };
-                        match serve_publication(&mut stream, &registry, TransferLimits::default()).await {
+                        let mut storage_failure = None;
+                        match serve_publication_observed(&mut stream, &registry, TransferLimits::default(), &mut storage_failure).await {
                             Ok(_) => { let _ = tls::finish(&mut stream).await; }
-                            Err(error) => provider_event(events.as_ref(), provider_error_code(&error)).await,
+                            Err(error) => provider_failure_event(events.as_ref(), &error, storage_failure).await,
                         }
                     });
                 }
@@ -889,6 +894,30 @@ async fn provider_event(state: Option<&Arc<RwLock<AgentState>>>, code: &'static 
             code,
             unix_millis(),
         );
+    }
+}
+
+async fn provider_failure_event(
+    state: Option<&Arc<RwLock<AgentState>>>,
+    error: &ProviderError,
+    storage_failure: Option<volparossa_content::private_storage::wire::diagnostic::Failure>,
+) {
+    if let Some(state) = state {
+        let mut state = state.write().await;
+        // Preserve the historical category, adding at most one closed tuple to the same
+        // bounded ring and under the same lock. No new await, sink or identifier is added.
+        state.log(
+            volparossa_local_control::LogLevel::Info,
+            provider_error_code(error),
+            unix_millis(),
+        );
+        if let Some(failure) = storage_failure {
+            state.log(
+                volparossa_local_control::LogLevel::Info,
+                failure.event_code(),
+                unix_millis(),
+            );
+        }
     }
 }
 
