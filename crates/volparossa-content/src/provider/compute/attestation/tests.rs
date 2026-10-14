@@ -50,7 +50,13 @@ fn stamp(at: Instant, seconds: u64) -> Stamp {
 }
 
 fn owner(at: Instant, attempts: u16, pending: u8) -> SessionOwner {
-    SessionOwner::new_at([1; 32], [2; 48], 1, limits(attempts, pending), stamp(at, 0)).unwrap()
+    SessionOwner::new_at(
+        [1; 32],
+        test_policy([2; 48], 1),
+        limits(attempts, pending),
+        stamp(at, 0),
+    )
+    .unwrap()
 }
 
 // Test-only construction exercises binding without claiming a new signed report.
@@ -63,6 +69,8 @@ fn synthetic_binding_facts(pending: &PendingSession<'_>, key: &[u8; 32]) -> Sign
         report_data: session_report_data(pending.challenge_bytes(), key).unwrap(),
         guest_svn: 1,
         guest_policy: 1 << 17,
+        tcb: [fixture_tcb(); 4],
+        platform_smt_enabled: false,
         validity: [(NOW - 10, NOW + 1000); 3],
     }
 }
@@ -410,8 +418,7 @@ fn certificate_profile_preserves_signature_and_session_gates() {
     let at = Instant::now();
     let owner = SessionOwner::new_at(
         [1; 32],
-        *facts.measurement(),
-        facts.guest_svn(),
+        test_policy(*facts.measurement(), facts.guest_svn()),
         limits(1, 1),
         stamp(at, 0),
     )
@@ -766,8 +773,7 @@ fn actual_public_report_cannot_bind_to_fresh_owner_even_with_matching_measuremen
     let at = Instant::now();
     let owner = SessionOwner::new_at(
         [1; 32],
-        *facts.measurement(),
-        facts.guest_svn(),
+        test_policy(*facts.measurement(), facts.guest_svn()),
         limits(1, 1),
         stamp(at, 0),
     )
@@ -831,7 +837,8 @@ fn fresh_nonce_owner_policy_and_proposed_key_are_all_bound() {
     );
     let first = owner.begin_at(stamp(at, 2)).unwrap();
     let facts = synthetic_binding_facts(&first, &[5; 32]);
-    let other = SessionOwner::new_at([9; 32], [2; 48], 1, limits(1, 1), stamp(at, 0)).unwrap();
+    let other =
+        SessionOwner::new_at([9; 32], test_policy([2; 48], 1), limits(1, 1), stamp(at, 0)).unwrap();
     let second = other.begin_at(stamp(at, 2)).unwrap();
     assert_eq!(
         second
@@ -858,7 +865,7 @@ fn measurement_svn_debug_migration_and_each_certificate_time_are_checked() {
             pending
                 .bind_at(facts, synthetic_collateral(), [5; 32], stamp(at, 1))
                 .err(),
-            Some(EvidenceError::Binding)
+            Some(EvidenceError::Policy)
         );
     }
     for index in 0..3 {
@@ -976,7 +983,7 @@ fn owner_bounds_expire_without_rebasing_challenge_or_attempt_budget() {
         limits(1, 9),
     ] {
         assert_eq!(
-            SessionOwner::new_at([1; 32], [2; 48], 1, bad, stamp(at, 0)).err(),
+            SessionOwner::new_at([1; 32], test_policy([2; 48], 1), bad, stamp(at, 0)).err(),
             Some(EvidenceError::Configuration)
         );
     }
@@ -989,11 +996,11 @@ fn public_binding_codec_rejects_unknown_duplicate_noncanonical_and_oversize() {
     let pending = owner.begin_at(stamp(at, 0)).unwrap();
     let original = pending.challenge_bytes();
     let mut unknown = original.to_vec();
-    unknown.extend([0x40, 1]);
+    unknown.extend([0x48, 1]);
     let mut duplicate = original.to_vec();
     duplicate.extend([8, 1]);
     let mut bad_version = original.to_vec();
-    bad_version[1] = 2;
+    bad_version[1] = 1;
     for bytes in [Vec::new(), vec![0; 257], unknown, duplicate, bad_version] {
         assert_eq!(
             session_report_data(&bytes, &[5; 32]).err(),
@@ -1015,8 +1022,7 @@ fn public_signature_binding_entrypoint_consumes_its_attempt_without_release() {
         .as_secs();
     let owner = SessionOwner::new(
         [1; 32],
-        *facts.measurement(),
-        facts.guest_svn(),
+        test_policy(*facts.measurement(), facts.guest_svn()),
         SessionLimits {
             expires_at: now + 60,
             maximum_pending: 1,
@@ -1042,3 +1048,6 @@ fn public_signature_binding_entrypoint_consumes_its_attempt_without_release() {
     ));
     assert_eq!(owner.begin().err(), Some(EvidenceError::Budget));
 }
+
+// Separate file, same historical test namespace for exact hosted receipts.
+include!("policy_tests.rs");

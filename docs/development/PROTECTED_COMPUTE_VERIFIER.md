@@ -238,6 +238,73 @@ for the fixture's exact digest, issuer and validity window. This change adds no
 collateral downloader, protected worker, admission permit or private-input
 release. The hardware trial below remains required.
 
+## Explicit owner local policy candidate
+
+The next candidate adds immutable `LocalPolicy` expectations to `SessionOwner`:
+an exact public measurement, minimum guest SVN, four independently selected TCB
+minima and an explicit SMT choice. It has no production defaults. Each minimum
+contains bootloader, TEE, SNP and microcode security-version components; every
+component must meet its own floor. A larger earlier component cannot compensate
+for a smaller later one. Debug and migration-agent permission remain forbidden.
+Rust compilation and the 52-test hosted profile remain pending for this candidate.
+
+The supported Milan report fields are distinct:
+
+| Signed field | Offset | Local comparison |
+| --- | --- | --- |
+| `CURRENT_TCB` | `0x38` | Explicit running-firmware floor |
+| `REPORTED_TCB` | `0x180` | Explicit reported floor; existing VCEK binding still applies |
+| `COMMITTED_TCB` | `0x1e0` | Explicit committed-firmware floor |
+| `LAUNCH_TCB` | `0x1f0` | Explicit launch/import floor |
+| `POLICY.SMT` | Policy bit 16 | Whether the guest permits SMT |
+| `PLATFORM_INFO.SMT_EN` | Platform bit 0 | Whether SMT is actually enabled |
+
+The legacy TCB layout uses bytes 0, 1, 6 and 7 for those four components;
+bytes 2–5 are reserved. Provisional current firmware, committed firmware and
+the reported version used for VCEK derivation need not be equal. See
+[AMD ABI 56860 revision 1.59, §§2.3, 3.3–3.4, 4.3 and 7.3](https://docs.amd.com/api/khub/documents/NJQrpYY7KZGtlxDEdBGtzA/content).
+Bootloader, TEE and SNP values are limited to 0–127; microcode uses 0–255,
+following [AMD KDS 57230 revision 1.05, §4.1 table 13](https://docs.amd.com/api/khub/documents/U5H~LHvkigTowyppBkpyrA/content).
+`RequireDisabled` rejects either SMT permission or actual SMT enablement;
+`Allow` is an explicit local choice, not a mitigation claim.
+
+Challenge version 2 uses binding domain
+`VOLPAROSSA/SNP-MILAN-V2/SESSION-EVIDENCE/2\0`. Canonical protobuf fields bind
+measurement and minimum guest SVN. A required 18-byte field binds restriction
+encoding version 1, the four TCB floors in current/reported/committed/launch
+order, and the closed SMT discriminant. The unchanged public policy identifier
+is only an identifier: changing any local expectation changes `REPORT_DATA`.
+Version-one, missing, unknown, out-of-range and noncanonical policy encodings
+reject rather than inherit defaults. No challenge, attempt or collateral expiry
+is extended, and policy rejection consumes its attempt.
+
+The unchanged public signed report has TCB components `(3, 0, 8, 115)` at all
+four stages and permits/enables SMT. Its positive comparison uses an explicitly
+fixture-only policy. Sixteen raised-floor cases compare that same authentic
+report against each stage/component separately. Other named cases are synthetic
+policy/session mutations, not new hardware evidence. The schema-six runner
+requires all 52 exact test names, the unchanged committed lock and targeted
+Clippy; historical schemas one through five remain separately replayable.
+
+Numeric floors cannot establish current platform security.
+[AMD-SB-3015](https://www.amd.com/en/resources/product-security/bulletin/amd-sb-3015.html)
+uses `ALIAS_CHECK_COMPLETE` at platform bit 5 to report its mitigation; the
+unchanged closed v2 profile does not admit that bit.
+[AMD-SB-3016](https://www.amd.com/en/resources/product-security/bulletin/amd-sb-3016.html)
+also requires OS changes and guest reinitialization, which these legacy report
+comparisons do not establish. Separately, the authors of
+[Insecure Despite Proven Updated](https://arxiv.org/abs/2605.12990) report
+software-only extraction of a Milan root VCEK seed and forged reports. That
+research reinforces the architectural limit: accepting larger signed numbers
+is not independent evidence of trustworthy report-key provenance.
+
+All four bound-evidence obligations remain: production root authorization,
+individual VCEK status and collateral freshness, current vendor security/TCB
+appraisal beyond these local comparisons, and authorized workload/key origin.
+This candidate adds no report-version fallback, root authority, network call,
+worker permit or private-input release. A current vendor mitigation appraisal
+and the real protected-worker trial remain separate requirements.
+
 ## What is still needed before private tasks can run remotely
 
 Certificate and report signatures are necessary but insufficient. A complete
