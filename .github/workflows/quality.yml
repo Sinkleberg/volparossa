@@ -156,6 +156,11 @@ jobs:
           cargo test --locked --offline -p volparossa-agent --lib
           content::private_storage::outcome::tests:: -- --test-threads=1
 
+      - name: Check storage wire tests without unrelated workspace feature unification
+        run: >-
+          cargo test --locked --offline -p volparossa-content --lib
+          private_storage::wire -- --test-threads=1
+
       - name: Report namespace-backed proof outcomes
         run: |
           cargo test --locked --offline -p volparossa-linux-uapi --lib \
