@@ -45,9 +45,8 @@ impl Outcomes {
         let key = (uid, id.try_into().map_err(|_| ContentError::Invalid)?);
         let mut entries = self.0.lock().map_err(|_| ContentError::Unavailable)?;
         let now = Instant::now();
-        entries.retain(
-            |_, entry| !matches!(entry, Entry::Failed { expires, .. } if *expires <= now),
-        );
+        entries
+            .retain(|_, entry| !matches!(entry, Entry::Failed { expires, .. } if *expires <= now));
         if entries.contains_key(&key) {
             return Err(ContentError::Busy);
         }

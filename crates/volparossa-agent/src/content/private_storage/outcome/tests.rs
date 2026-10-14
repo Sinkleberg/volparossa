@@ -54,7 +54,10 @@ async fn capacity_omission_never_gates_storage_or_evicts_live_results_and_expiry
     assert_eq!(owner.take(1, &[254; 16]).unwrap(), status(Status::Missing));
     assert_eq!(owner.0.lock().unwrap().len(), CAPACITY);
     // Free one slot, then reuse the untracked operation's ID in a tracked operation.
-    assert_eq!(owner.take(1, &[0; 16]).unwrap().status, Status::Observed as i32);
+    assert_eq!(
+        owner.take(1, &[0; 16]).unwrap().status,
+        Status::Observed as i32
+    );
     let admitted = owner.begin(1, &[254; 16]).unwrap();
     assert!(admitted.tracked);
     drop(omitted);
@@ -95,7 +98,11 @@ fn success_and_pre_ready_failure_leave_no_outcome_but_post_ready_cancel_is_expli
 async fn actual_outer_timeouts_retain_entered_phase_and_exact_budget() {
     use crate::content::private_storage::observation::Observation;
     for (id, scope, expected) in [
-        (1, PrivateStorageDeadlineScope::Operation, Deadline::Operation),
+        (
+            1,
+            PrivateStorageDeadlineScope::Operation,
+            Deadline::Operation,
+        ),
         (2, PrivateStorageDeadlineScope::Exchange, Deadline::Exchange),
     ] {
         let owner = Arc::new(Outcomes::default());
@@ -144,7 +151,11 @@ fn wire_deadlines_and_explicit_turn_cancellation_are_not_counterfeit_outer_timeo
     let owner = Arc::new(Outcomes::default());
     for (id, scope, expected) in [
         (1, bridge_observation::Deadline::Bridge, Deadline::Bridge),
-        (2, bridge_observation::Deadline::RemoteWire, Deadline::RemoteWire),
+        (
+            2,
+            bridge_observation::Deadline::RemoteWire,
+            Deadline::RemoteWire,
+        ),
     ] {
         let guard = owner.begin(1, &[id; 16]).unwrap();
         guard.enter(Phase::RemoteReceiptRead);

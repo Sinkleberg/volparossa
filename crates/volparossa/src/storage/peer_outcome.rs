@@ -51,19 +51,22 @@ impl AgentOutcome {
 
     fn from_wire(outcome: PrivateStorageOutcome) -> Option<Self> {
         outcome.validate().ok()?;
-        Some(match PrivateStorageOutcomeStatus::try_from(outcome.status).ok()? {
-            PrivateStorageOutcomeStatus::Missing => Self::status(Status::Missing),
-            PrivateStorageOutcomeStatus::Pending => Self::status(Status::Pending),
-            PrivateStorageOutcomeStatus::Expired => Self::status(Status::Expired),
-            PrivateStorageOutcomeStatus::Observed => Self {
-                status: Status::Observed,
-                detail: Some(Detail {
-                    phase: PrivateStorageOutcomePhase::try_from(outcome.phase).ok()?,
-                    category: PrivateStorageOutcomeCategory::try_from(outcome.category).ok()?,
-                    deadline_scope: PrivateStorageOutcomeDeadline::try_from(outcome.deadline).ok()?,
-                }),
+        Some(
+            match PrivateStorageOutcomeStatus::try_from(outcome.status).ok()? {
+                PrivateStorageOutcomeStatus::Missing => Self::status(Status::Missing),
+                PrivateStorageOutcomeStatus::Pending => Self::status(Status::Pending),
+                PrivateStorageOutcomeStatus::Expired => Self::status(Status::Expired),
+                PrivateStorageOutcomeStatus::Observed => Self {
+                    status: Status::Observed,
+                    detail: Some(Detail {
+                        phase: PrivateStorageOutcomePhase::try_from(outcome.phase).ok()?,
+                        category: PrivateStorageOutcomeCategory::try_from(outcome.category).ok()?,
+                        deadline_scope: PrivateStorageOutcomeDeadline::try_from(outcome.deadline)
+                            .ok()?,
+                    }),
+                },
             },
-        })
+        )
     }
 
     pub(super) fn valid(self) -> bool {

@@ -150,8 +150,15 @@ async fn original_remote_wire_deadline_keeps_pending_receipt_phase_without_custo
     );
     let (_provider, mut remote) = tokio::io::duplex(4096);
     let trace = Trace::default();
-    let result =
-        finish_observed(&mut remote, &fixture.grant, &challenge, &signed, &[], &trace).await;
+    let result = finish_observed(
+        &mut remote,
+        &fixture.grant,
+        &challenge,
+        &signed,
+        &[],
+        &trace,
+    )
+    .await;
     assert!(matches!(result, Err(WireError::Timeout)));
     let trace = trace.0.lock().unwrap();
     assert_eq!(trace.0.last(), Some(&Phase::RemoteReceiptRead));

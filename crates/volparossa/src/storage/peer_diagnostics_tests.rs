@@ -513,12 +513,25 @@ fn diagnostic_v4_outcome_is_closed_and_requires_a_real_post_ready_boundary() {
         report["failures"][0]["agent_outcome"]["detail"][field] = invalid.into();
         assert!(serde_json::from_value::<Diagnostics>(report).is_err());
     }
-    for stage in ["agent_ready", "authorization", "signed_request", "accounting", "unknown"] {
+    for stage in [
+        "agent_ready",
+        "authorization",
+        "signed_request",
+        "accounting",
+        "unknown",
+    ] {
         let mut report = baseline.clone();
         report["failures"][0]["stage"] = stage.into();
         assert!(serde_json::from_value::<Diagnostics>(report).is_err());
     }
-    for status in ["observed", "missing", "pending", "expired", "query_failed", "query_timeout"] {
+    for status in [
+        "observed",
+        "missing",
+        "pending",
+        "expired",
+        "query_failed",
+        "query_timeout",
+    ] {
         let mut report = baseline.clone();
         report["failures"][0]["agent_outcome"]["status"] = status.into();
         assert_eq!(
@@ -548,7 +561,10 @@ fn diagnostic_v4_keeps_original_error_and_bounded_fragment_outcomes_without_iden
     let outcome: AgentOutcome =
         serde_json::from_value(outcome_report()["failures"][0]["agent_outcome"].clone()).unwrap();
     let error = Error::new(WireError::Io(io::Error::other("/private/id-and-keys")))
-        .context(Boundary::new(StorageOperation::Finalize, Stage::WireReceipt))
+        .context(Boundary::new(
+            StorageOperation::Finalize,
+            Stage::WireReceipt,
+        ))
         .context(outcome);
     assert!(error.downcast_ref::<WireError>().is_some());
     assert!(error.downcast_ref::<Boundary>().is_some());
@@ -559,7 +575,10 @@ fn diagnostic_v4_keeps_original_error_and_bounded_fragment_outcomes_without_iden
     let mut fragments = Diagnostics::default();
     for fragment in 0..10 {
         fragments
-            .append_fragment(fragment, &serde_json::json!({"deposit_diagnostics": report}))
+            .append_fragment(
+                fragment,
+                &serde_json::json!({"deposit_diagnostics": report}),
+            )
             .unwrap();
     }
     let joined = serde_json::to_value(fragments).unwrap();
@@ -571,7 +590,14 @@ fn diagnostic_v4_keeps_original_error_and_bounded_fragment_outcomes_without_iden
         assert_eq!(failure["agent_outcome"]["detail"]["category"], "timeout");
     }
     assert!(joined.to_string().len() < 4096);
-    for canary in ["private", "id-and-keys", "request_id", "provider", "archive", "raw_error"] {
+    for canary in [
+        "private",
+        "id-and-keys",
+        "request_id",
+        "provider",
+        "archive",
+        "raw_error",
+    ] {
         assert!(!joined.to_string().contains(canary));
     }
 }

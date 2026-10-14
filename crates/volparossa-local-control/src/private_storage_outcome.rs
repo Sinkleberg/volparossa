@@ -252,10 +252,7 @@ mod tests {
                 status: 99,
                 ..valid
             },
-            PrivateStorageOutcome {
-                phase: 99,
-                ..valid
-            },
+            PrivateStorageOutcome { phase: 99, ..valid },
             PrivateStorageOutcome {
                 category: 99,
                 ..valid

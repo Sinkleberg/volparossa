@@ -19,14 +19,25 @@ async fn outcome_query_uses_actual_unix_peer_uid_and_consumes_only_its_request()
         original_request_id: vec![id; 16],
     };
     use volparossa_local_control::PrivateStorageOutcomeStatus as Status;
-    for (id, expected) in [(4, Status::Missing), (3, Status::Observed), (3, Status::Missing)] {
+    for (id, expected) in [
+        (4, Status::Missing),
+        (3, Status::Observed),
+        (3, Status::Missing),
+    ] {
         assert_eq!(
-            runtime.private_storage_outcome(&query(id), &socket).unwrap().status,
+            runtime
+                .private_storage_outcome(&query(id), &socket)
+                .unwrap()
+                .status,
             expected as i32
         );
     }
     assert_eq!(
-        runtime.storage_outcomes.take(sibling_uid, &[4; 16]).unwrap().status,
+        runtime
+            .storage_outcomes
+            .take(sibling_uid, &[4; 16])
+            .unwrap()
+            .status,
         Status::Observed as i32
     );
 }

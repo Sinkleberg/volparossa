@@ -350,8 +350,7 @@ where
         observer.phase(Phase::RemoteReceiptRead);
         let encoded = read_frame(stream, MAX_RECEIPT_BYTES).await?;
         observer.phase(Phase::RemoteReceiptVerify);
-        let receipt =
-            SignedStorageReceipt::decode_and_verify(&encoded, &request, unix_now()?)?;
+        let receipt = SignedStorageReceipt::decode_and_verify(&encoded, &request, unix_now()?)?;
         let ciphertext = if let StorageOperation::ReadRange { length, .. } = request.operation() {
             observer.phase(Phase::RemotePayloadRead);
             let maximum = usize::try_from(length).map_err(|_| WireError::Invalid)?;
@@ -453,12 +452,8 @@ where
         observer.phase(Phase::LocalRequestRead);
         let encoded = read_frame(local, MAX_REQUEST_BYTES).await?;
         observer.phase(Phase::LocalRequestVerify);
-        let request = SignedStorageRequest::decode_and_verify(
-            &encoded,
-            grant,
-            challenge,
-            unix_now()?,
-        )?;
+        let request =
+            SignedStorageRequest::decode_and_verify(&encoded, grant, challenge, unix_now()?)?;
         let payload = if matches!(request.operation(), StorageOperation::Append { .. }) {
             observer.phase(Phase::LocalPayloadRead);
             read_frame(local, CHUNK_BYTES).await?
@@ -479,9 +474,15 @@ where
         if !admit(charged).await {
             return Err(WireError::Busy);
         }
-        let transfer =
-            finish_observed(remote, grant, challenge, request.signed(), &payload, observer)
-                .await?;
+        let transfer = finish_observed(
+            remote,
+            grant,
+            challenge,
+            request.signed(),
+            &payload,
+            observer,
+        )
+        .await?;
         let ciphertext_bytes =
             u64::try_from(transfer.ciphertext.len()).map_err(|_| WireError::Invalid)?;
         observer.phase(Phase::LocalReceiptWrite);

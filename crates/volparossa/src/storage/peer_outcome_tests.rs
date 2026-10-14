@@ -22,11 +22,7 @@ fn wire_status(status: PrivateStorageOutcomeStatus) -> PrivateStorageOutcome {
     }
 }
 
-async fn answer(
-    listener: UnixListener,
-    original: [u8; 16],
-    replies: Vec<PrivateStorageOutcome>,
-) {
+async fn answer(listener: UnixListener, original: [u8; 16], replies: Vec<PrivateStorageOutcome>) {
     let mut query_ids = Vec::new();
     for outcome in replies {
         let (mut stream, _) = listener.accept().await.unwrap();
@@ -62,7 +58,10 @@ async fn query_correlates_original_id_and_polls_only_pending() {
     let server = tokio::spawn(answer(
         listener,
         [17; 16],
-        vec![wire_status(PrivateStorageOutcomeStatus::Pending), observed()],
+        vec![
+            wire_status(PrivateStorageOutcomeStatus::Pending),
+            observed(),
+        ],
     ));
     let outcome = query(&socket, &[17; 16]).await;
     server.await.unwrap();
@@ -83,7 +82,11 @@ async fn unavailable_observations_are_distinct_and_pending_is_bounded() {
     for (status, expected, count) in [
         (PrivateStorageOutcomeStatus::Missing, Status::Missing, 1),
         (PrivateStorageOutcomeStatus::Expired, Status::Expired, 1),
-        (PrivateStorageOutcomeStatus::Pending, Status::Pending, MAX_QUERIES),
+        (
+            PrivateStorageOutcomeStatus::Pending,
+            Status::Pending,
+            MAX_QUERIES,
+        ),
     ] {
         let directory = tempfile::tempdir().unwrap();
         let socket = directory.path().join("query.sock");
@@ -127,8 +130,7 @@ async fn old_agent_wrong_correlation_and_wrong_payload_never_replace_original_er
         let outcome = query(&socket, &[23; 16]).await;
         server.await.unwrap();
         assert_eq!(outcome.status, Status::QueryFailed);
-        let error = anyhow::Error::new(std::io::Error::other("/private/canary"))
-            .context(outcome);
+        let error = anyhow::Error::new(std::io::Error::other("/private/canary")).context(outcome);
         assert!(error.downcast_ref::<std::io::Error>().is_some());
         assert!(error.downcast_ref::<AgentOutcome>().is_some());
         let encoded = serde_json::to_string(&outcome).unwrap();
@@ -146,7 +148,10 @@ async fn stalled_query_has_one_total_deadline_and_no_storage_retry() {
     let server = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
         let request = read_request(&mut stream).await.unwrap();
-        assert!(matches!(request.operation, Some(Operation::PrivateStorageOutcome(_))));
+        assert!(matches!(
+            request.operation,
+            Some(Operation::PrivateStorageOutcome(_))
+        ));
         std::future::pending::<()>().await;
         drop(stream);
     });

@@ -30,7 +30,10 @@ async fn wire_failure_drops_original_stream_and_queries_exact_id_without_retryin
         let (mut local, _) = listener.accept().await.unwrap();
         let uid = local.peer_cred().unwrap().uid();
         let original = read_request(&mut local).await.unwrap();
-        assert!(matches!(original.operation, Some(Operation::PrivateStorageRemote(_))));
+        assert!(matches!(
+            original.operation,
+            Some(Operation::PrivateStorageRemote(_))
+        ));
         let now = crate::storage::now().unwrap();
         let challenge = StorageChallenge::issue(
             &provider,
@@ -110,8 +113,14 @@ async fn wire_failure_drops_original_stream_and_queries_exact_id_without_retryin
         .err()
         .unwrap();
     server.await.unwrap();
-    assert!(matches!(error.downcast_ref::<wire::WireError>(), Some(wire::WireError::Io(_))));
-    assert!(matches!(error.downcast_ref::<Boundary>().unwrap().stage, Stage::WireReceipt));
+    assert!(matches!(
+        error.downcast_ref::<wire::WireError>(),
+        Some(wire::WireError::Io(_))
+    ));
+    assert!(matches!(
+        error.downcast_ref::<Boundary>().unwrap().stage,
+        Stage::WireReceipt
+    ));
     let mut diagnostics = Diagnostics::default();
     diagnostics.push(0, &error, Boundary::new(operation, Stage::Unknown));
     let report = serde_json::to_value(diagnostics).unwrap();
@@ -119,8 +128,17 @@ async fn wire_failure_drops_original_stream_and_queries_exact_id_without_retryin
     assert_eq!(report["failures"][0]["operation"], "finalize");
     assert_eq!(report["failures"][0]["category"], "io");
     assert_eq!(report["failures"][0]["agent_outcome"]["status"], "observed");
-    assert_eq!(report["failures"][0]["agent_outcome"]["detail"]["phase"], "remote_receipt_read");
-    for private in ["request_id", "provider_key", "archive_id", "lease_id", "sha256"] {
+    assert_eq!(
+        report["failures"][0]["agent_outcome"]["detail"]["phase"],
+        "remote_receipt_read"
+    );
+    for private in [
+        "request_id",
+        "provider_key",
+        "archive_id",
+        "lease_id",
+        "sha256",
+    ] {
         assert!(!report.to_string().contains(private));
     }
 }

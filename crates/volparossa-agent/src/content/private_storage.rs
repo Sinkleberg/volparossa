@@ -29,9 +29,8 @@ use volparossa_local_control::{
     PrivateStorageDeadlineScope as Deadline, PrivateStorageGrant, PrivateStorageGrantRequest,
     PrivateStorageOutcome, PrivateStorageOutcomePhase as OutcomePhase,
     PrivateStorageOutcomeRequest, PrivateStorageReady, PrivateStorageRemoteDetail,
-    PrivateStorageRemoteRequest,
-    PrivateStorageRemoteStage as Stage, PrivateStorageServeRequest, control_response::Payload,
-    write_response,
+    PrivateStorageRemoteRequest, PrivateStorageRemoteStage as Stage, PrivateStorageServeRequest,
+    control_response::Payload, write_response,
 };
 use volparossa_policy::VerifiedManifest as VerifiedPolicy;
 
@@ -63,7 +62,8 @@ impl ContentRuntime {
         local: &UnixStream,
     ) -> Result<PrivateStorageOutcome, ContentError> {
         let uid = local.peer_cred().map_err(|_| ContentError::Invalid)?.uid();
-        self.storage_outcomes.take(uid, &request.original_request_id)
+        self.storage_outcomes
+            .take(uid, &request.original_request_id)
     }
 
     /// Administrative local operation on the exact attached store, never a peer request.
