@@ -184,7 +184,10 @@ fn diagnostic_v6_challenge_rejects_absent_unknown_and_private_values() {
     assert!(joined.to_string().len() < 4096);
     for (fragment, failure) in joined["failures"].as_array().unwrap().iter().enumerate() {
         assert_eq!(failure["fragment_index"], fragment);
-        assert_eq!(failure["agent_detail"], report["failures"][0]["agent_detail"]);
+        assert_eq!(
+            failure["agent_detail"],
+            report["failures"][0]["agent_detail"]
+        );
     }
     for canary in [
         "PRIVATE",

@@ -170,7 +170,8 @@ impl ChallengeDetail {
     fn from_wire(detail: PrivateStorageChallengeDetail) -> Option<Self> {
         Some(Self {
             phase: PrivateStorageChallengePhase::try_from(detail.phase).ok()?,
-            before_challenge: PrivateStorageElapsedBucket::try_from(detail.before_challenge).ok()?,
+            before_challenge: PrivateStorageElapsedBucket::try_from(detail.before_challenge)
+                .ok()?,
             in_challenge: PrivateStorageElapsedBucket::try_from(detail.in_challenge).ok()?,
         })
     }

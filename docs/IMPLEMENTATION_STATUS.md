@@ -64,6 +64,14 @@ they still require hosted compilation and execution. The diagnostics do not
 change I/O, authorization, retries, time limits, custody or cleanup. They are
 not yet evidence of a transport fix or successful consumer restoration.
 
+The first hosted Quality run, [`38652893003`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38652893003),
+stops at three Rust formatting differences before compilation or Rust tests.
+The three whitespace-only corrections are applied; fresh hosted validation is
+required. Its checkout `67dc79cb` combines main `7b728846` with candidate
+`f6a83924`; all three affected source files match the candidate exactly.
+Original log ZIP SHA-256:
+`3c4a132aca7bded0a6cd8b950de877c39f2b844e26e377e9a05ca03c8dfd1eaa`.
+
 ### Earlier protected storage stream diagnostics
 
 The preceding PR232 candidate adds a request-local, finite failure classification for
