@@ -698,7 +698,7 @@ fn diagnostic_v4_outcome_is_closed_and_requires_a_real_post_ready_boundary() {
 }
 
 #[test]
-fn diagnostic_v4_keeps_original_error_and_bounded_fragment_outcomes_without_identifiers() {
+fn diagnostic_v5_keeps_original_error_and_bounded_fragment_outcomes_without_identifiers() {
     let outcome: AgentOutcome =
         serde_json::from_value(outcome_report()["failures"][0]["agent_outcome"].clone()).unwrap();
     let error = Error::new(WireError::Io(io::Error::other("/private/id-and-keys")))
@@ -710,7 +710,9 @@ fn diagnostic_v4_keeps_original_error_and_bounded_fragment_outcomes_without_iden
     assert!(error.downcast_ref::<WireError>().is_some());
     assert!(error.downcast_ref::<Boundary>().is_some());
     let report = value(&error);
-    assert_eq!(report, outcome_report());
+    let mut expected = outcome_report();
+    expected["version"] = 5.into();
+    assert_eq!(report, expected);
     let hidden = value(&Error::new(io::Error::other("private")).context(outcome));
     assert!(hidden["failures"][0]["agent_outcome"].is_null());
     let mut fragments = Diagnostics::default();
