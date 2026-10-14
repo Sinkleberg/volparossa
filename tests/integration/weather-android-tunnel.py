@@ -12,6 +12,7 @@ import ctypes
 import json
 import os
 from pathlib import Path
+import runpy
 import selectors
 import select
 import signal
@@ -194,9 +195,14 @@ def same_socket(path, identity):
             and (current.st_dev, current.st_ino) == identity)
 
 
-def serve(path, command, lifetime=480, *, notify=None, hold_open=False):
+def serve(path, command, lifetime=480, *, notify=None, hold_open=False, observe_responses=False):
     require(type(lifetime) is int and 1 <= lifetime <= 480)
     require(type(hold_open) is bool)
+    require(type(observe_responses) is bool)
+    # Only the host observes response hashes. The installed, fixed-name guest
+    # helper stays standalone and needs no extra root-staged Python modules.
+    observe = runpy.run_path(str(Path(__file__).with_name("weather-android-evidence.py")))["response_observation"] \
+        if observe_responses else None
     path = Path(path)
     parent_info = owned(path.parent, stat.S_ISDIR, 0o700)
     require(path.is_absolute() and path.name == "core-api.sock" and len(os.fsencode(path)) < 104)
@@ -207,6 +213,8 @@ def serve(path, command, lifetime=480, *, notify=None, hold_open=False):
     identity = None
     result = dict(schema=1, kind="weather-android-api-tunnel", completed=0, requests=counts,
                   original_response_bytes=True, joined_core_acceptance=False, cleanup_confirmed=False)
+    if observe_responses:
+        result.update(schema=6, responses=[])
     previous_umask = os.umask(0o077)
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
@@ -231,11 +239,14 @@ def serve(path, command, lifetime=480, *, notify=None, hold_open=False):
                 counts[route] += 1
                 response = exchange(command, request, min(deadline, time.monotonic() + EXCHANGE_SECONDS),
                                     client=connection)
+                observation = observe(route, counts[route], response) if observe is not None else None
                 connection.settimeout(max(0.001, min(5, deadline - time.monotonic())))
                 connection.sendall(response)
                 if time.monotonic() >= deadline:
                     raise TimeoutError("weather_android_tunnel_deadline")
                 result["completed"] += 1
+                if observe_responses:
+                    result["responses"].append(observation)
         require(set(counts.values()) == {3})
         if hold_open:
             # Keep the same inode available for the Android runner's final
@@ -377,7 +388,7 @@ def main():
             and os.environ.get("GITHUB_WORKFLOW") == "Weather Android protected core delivery")
     # Android sees only the socket parent; neither credentials nor other files.
     require(args.socket.parent.resolve() not in (args.ssh_key.parent.resolve(), args.known_hosts.parent.resolve()))
-    result = serve(args.socket, ssh_command(args.ssh_key, args.known_hosts), hold_open=True)
+    result = serve(args.socket, ssh_command(args.ssh_key, args.known_hosts), hold_open=True, observe_responses=True)
     print(json.dumps(result, sort_keys=True))
 
 

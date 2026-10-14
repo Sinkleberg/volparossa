@@ -94,6 +94,12 @@ jobs:
           python3 -B tests/integration/test-weather-android-bundle.py
           python3 -B tests/integration/test-weather-android-tunnel.py
           python3 -B tests/integration/test-weather-android-delivery.py
+          python3 -B tests/integration/test-weather-android-api.py
+          python3 -B tests/integration/test-weather-android-control.py
+          python3 -B tests/integration/test-weather-android-evidence.py
+          python3 -B tests/integration/test-weather-android-delivery-shell.py
+          sh -n tests/integration/weather-android-delivery.sh
+          shellcheck --severity=warning tests/integration/weather-android-delivery.sh
 
       - name: Check formatting and shell sources
         run: |

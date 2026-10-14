@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import runpy
 import selectors
 import signal
 import socket
@@ -61,7 +62,7 @@ class TunnelTests(unittest.TestCase):
     def exchange(self, supplied, seconds=2):
         return T.exchange(supplied, T.canonical_request(T.ROUTES[0]), time.monotonic() + seconds)
 
-    def run_server(self, *, notify=None, supplied=None):
+    def run_server(self, *, notify=None, supplied=None, observe_responses=False):
         ready = threading.Event()
         outcome = {}
 
@@ -72,7 +73,8 @@ class TunnelTests(unittest.TestCase):
 
         def run():
             try:
-                outcome["result"] = T.serve(self.path, supplied or responder(), lifetime=5, notify=started)
+                outcome["result"] = T.serve(self.path, supplied or responder(), lifetime=5, notify=started,
+                                            observe_responses=observe_responses)
             except BaseException as error:
                 outcome["error"] = error
                 ready.set()
@@ -103,6 +105,15 @@ class TunnelTests(unittest.TestCase):
             extra = raw[:-2] + b"Accept: application/json\r\nX-Ignored: discarded\r\nContent-Length: 0\r\n\r\n"
             self.assertEqual(T.request_path(extra), route)
             self.assertEqual(T.canonical_request(T.request_path(extra)), raw)
+
+    def test_standalone_guest_module_has_no_host_evidence_dependency(self):
+        # Loading a copied helper is inert: no root guest/host CLI or networking.
+        # The production guest installs this exact name without sibling modules.
+        installed = self.root / Path(T.GUEST_HELPER).name
+        installed.write_bytes((HERE / "weather-android-tunnel.py").read_bytes())
+        self.assertFalse((installed.parent / "weather-android-evidence.py").exists())
+        module = runpy.run_path(str(installed))
+        self.assertEqual(module["canonical_request"](T.ROUTES[0]), T.canonical_request(T.ROUTES[0]))
 
     def test_parser_rejects_other_methods_urls_bodies_credentials_and_duplicate_headers(self):
         good = T.canonical_request(T.ROUTES[0])
@@ -151,6 +162,32 @@ class TunnelTests(unittest.TestCase):
 
     def test_exchange_preserves_original_utf8_header_and_body_bytes(self):
         self.assertEqual(self.exchange(responder()), RESPONSE)
+
+    def test_explicit_response_observer_binds_all_six_original_bodies_without_changing_bytes(self):
+        proof = __import__("runpy").run_path(str(HERE / "test-weather-android-evidence.py"))
+        weather, air = proof["http"]("weather", 1), proof["http"]("air_quality", 1)
+        child = command("import sys;raw=sys.stdin.buffer.read();sys.stdout.buffer.write("
+            + repr(air) + " if b'/air-quality ' in raw else " + repr(weather) + ")")
+        thread, outcome = self.run_server(supplied=child, observe_responses=True)
+        for ordinal in (1, 2, 3):
+            for route, expected in zip(T.ROUTES, (weather, air)):
+                self.assertEqual(self.fetch(route), expected)
+        thread.join(3)
+        self.assertNotIn("error", outcome)
+        result = outcome["result"]
+        self.assertEqual(result["schema"], 6); self.assertEqual(len(result["responses"]), 6)
+        for index, item in enumerate(result["responses"]):
+            self.assertEqual(item["ordinal"], index // 2 + 1)
+            self.assertFalse(item["joined_core_acceptance"])
+        self.assertTrue(result["cleanup_confirmed"])
+        self.assertNotIn('"forecast":', json.dumps(result))
+
+    def test_explicit_response_observer_rejects_unbound_json_without_forwarding(self):
+        thread, outcome = self.run_server(observe_responses=True)
+        self.assertEqual(self.fetch(T.ROUTES[0]), b"")
+        thread.join(3)
+        self.assertIsInstance(outcome.get("error"), (ValueError, KeyError))
+        self.assertFalse(self.path.exists())
 
     def test_exchange_rejects_nonzero_exit_incomplete_header_and_oversized_stdout(self):
         for child in [command("import sys;sys.stdin.buffer.read();sys.stdout.buffer.write(" + repr(RESPONSE) + ");sys.exit(7)"),

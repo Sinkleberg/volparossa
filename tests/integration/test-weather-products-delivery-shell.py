@@ -196,7 +196,7 @@ if weather_client_delivery_copy_artifacts; then exit 90; fi
         helper_root.mkdir(parents=True)
         (helper_root / "weather-products-delivery.sh").write_text(
             'weather_products_delivery_run() { printf "v%s\\n" "$weather_profile_version"; }\n')
-        for version in (1, 2, 3, 4, 5, 6, "2", "3", "4", "5", True):
+        for version in (1, 2, 3, 4, 5, 6, 7, "2", "3", "4", "5", "6", True):
             with self.subTest(version=version, value_type=type(version)):
                 import json
                 value = json.dumps({"bundle_version": version})
@@ -209,7 +209,7 @@ python3() { printf '%s\n' 'JSON'; }
 fail() { exit 77; }
 run_selected
 '''.replace("JSON", value), source=source + "\nrun_selected() {\n" + head + '\nprintf "v1\\n"\n}\n')
-                self.assertEqual(result.returncode, 0 if type(version) is int and version in (1, 2, 3, 4, 5) else 77)
+                self.assertEqual(result.returncode, 0 if type(version) is int and version in (1, 2, 3, 4, 5, 6) else 77)
                 if result.returncode == 0: self.assertEqual(result.stdout, f"v{version}\n")
         self.assertLess(head.index("weather_client_runtime_profile"), head.index(".bundle_version"))
         self.assertLess(head.index(".bundle_version"), head.index('            . "$source_directory'))
@@ -287,11 +287,16 @@ run_selected
         source = SOURCE.read_text()
         head = source.split("weather_products_delivery_run() {", 1)[1].split(
             "    PHASE=weather-products-delivery-prepare", 1)[0]
-        for version in ("2", "3", "4", "5", "1", "6", "", "../../../arbitrary"):
+        helper_root = self.root / "tests/integration"
+        helper_root.mkdir(parents=True)
+        (helper_root / "weather-android-delivery.sh").write_text(
+            'weather_android_delivery_run() { printf "android-only\\n"; }\n')
+        for version in ("2", "3", "4", "5", "6", "1", "7", "", "../../../arbitrary"):
             with self.subTest(version=version):
                 result = self.call('''
 weather_client_bundle=inert
 weather_client_manifest_sha256=inert
+source_directory=$WORK
 weather_profile_version='VERSION'
 fail() { exit 77; }
 run_selected
@@ -301,6 +306,9 @@ run_selected
                     self.ok(result)
                     consumer = "overmorrow" if version in ("3", "5") else "drizzli"
                     self.assertEqual(result.stdout.strip(), f"integrations/{consumer}/smoke_core_browser.py")
+                elif version == "6":
+                    self.ok(result)
+                    self.assertEqual(result.stdout, "\n")  # No browser/cold driver selected.
                 else: self.assertEqual(result.returncode, 77)
         self.assertIn('"$WORK/state-client/air-quality-cache" "$weather_profile_version"', source)
         self.assertIn('python3 -B "$weather_client_directory/volparossa-weather/$weather_products_driver"', source)

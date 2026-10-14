@@ -6237,6 +6237,8 @@ start_privacy_observers() {
             [ "$scenario" = content-https ] || return 1 ;;
         weather-products-delivery-weather-privacy|weather-products-delivery-air-quality-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;
+        weather-android-delivery-privacy)
+            [ "$scenario" = content-provider ] && [ "${weather_profile_version:-}" = 6 ] || return 1 ;;
         content-provider-late-recovery-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;
         content-provider-pressure-privacy)

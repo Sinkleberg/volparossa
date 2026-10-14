@@ -32,7 +32,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | PR19 proves the installed lifecycle with synthetic products. PR21 adds explicit cache creation/reuse; PR22 is merged as `93770b59` with a private API-only Unix listener, separate native preparation/live entrypoints and optional private original CLI receipt retention. Component and CodeQL checks pass on exact source `f6ee8299`. The core's v6 guest-input/tunnel candidate still requires joined orchestration and packet, custody and cleanup evidence. Live product expiry, physical devices and iOS remain open; the historical synthetic expiry and real web proofs are unchanged. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38508516347` fails Image FINALIZE before READY at TLS setup. Candidate `a7e574fe` passes Quality `38517584520` and CodeQL `38517580456`, but actual `38519187504` fails Cloud FINALIZE after READY with `wire_receipt/io`. Its base maintenance includes two verified restores and zero final base-provider usage; consumer repair, restore and remote cleanup are not proved. Next: preserve the exact failed local request's closed termination reason, then address the demonstrated cause without hiding it through retries. Cloud PR234 waits for this shared integration. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38519187504` fails Cloud FINALIZE after READY with `wire_receipt/io`; its separate base-maintenance restores and cleanup pass. Candidate `8ea8a059` adds bounded diagnostics for the exact failed local request and passes Quality `38592307081` and CodeQL `38592303405`. Actual trial `38595365736` is dispatched on that exact source with profile 5 and unchanged acceptance criteria. Consumer repair, restore and remote cleanup remain unproved pending its result. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 and PR247 are merged; main `17afa3f0` contains the finite operator grants, guest module, protected exchange and CLI verifier. Corrected source `09b0d3cc` passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`. Software evidence does not establish production-route execution, production authority, current vendor appraisal, an approved measured workload or actual private execution. Suitable confidential-computing hardware is unavailable; storage and Android integration continue in parallel. |
 
@@ -64,11 +64,23 @@ historical cold-transfer and browser evidence cannot be relabeled as Android
 evidence. Independent review checks all 39 admitted inputs against the exact
 Weather source and previously admitted decoder artifacts.
 
+Core candidate `449677d5` passes the complete hosted Quality run
+[`38588733490`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38588733490).
+The next candidate adds the owned worker-service lifecycle, fixed guest control
+handshake and guest dispatch after publisher cleanup. Its receipt verifier
+preserves the six original CLI operations and joins HTTP body hashes to the
+installed app's observations. Both products share a capture window; this is not
+the older proof's pair of independent captures. Local synthetic contract tests
+do not establish Android-to-core delivery.
+
 The required next joined proof must bind an Android-initiated first GET to its
 original cold core receipt, actual protected paths and the same response bytes
 shown by the app. Native build preparation must precede publication. Fresh
-background/resume behavior is not live-expiry proof. No local native build or
-host-network change was performed for these components.
+background/resume follows two tap refreshes without an extra fetch; it is not
+live-expiry proof. Host orchestration, the combined resource/deadline budget and
+final evidence export still need to be connected before admitting profile 6 at
+runtime. No local native build or host-network change was performed for these
+components.
 
 ### Latest storage trial
 
@@ -81,14 +93,21 @@ The client event ring has wrapped; an uncorrelated provider request-read error
 does not establish the cause. A per-request, short-lived local outcome is the
 next diagnostic step; increasing timeouts or repeating the run is not a fix.
 
-Candidate `bcf7b8bf` now joins this outcome to the failed local request and Unix
+Candidate `8ea8a059` now joins this outcome to the failed local request and Unix
 user. The closed diagnostic is bounded, short-lived and consumed once; it does
 not retry a storage operation or establish whether a provider committed it.
 Profile 5 pins Image `ec6b9dca` and Cloud `4409c086` to the same version-4 error
-contract while retaining the historical profile contracts. Component tests pass;
-hosted Rust acceptance and a new actual consumer trial are still required.
+contract while retaining the historical profile contracts. Hosted
+[Quality `38592307081`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38592307081)
+and [CodeQL `38592303405`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38592303405)
+pass, including the outcome registry, actual Unix-UID query, CLI diagnostics and
+stream-close-before-query tests. Quality tests the PR merge candidate; the actual
+[consumer trial `38595365736`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38595365736)
+is dispatched directly on `8ea8a059bc66ac38dbc920d156a018ee2038e767`. Its result is
+still required; neither the new diagnostics nor passing component tests establish
+consumer restoration.
 
-The same run completes the separate base-maintenance lifecycle, two whole-archive
+The failed run `38519187504` completes the separate base-maintenance lifecycle, two whole-archive
 verified restores, deletion of all eleven base copies and the foreground copy,
 and zero final usage at all three base providers. Local consumer processes and
 the disposable topology are cleaned up, with unchanged guest-root networking.
