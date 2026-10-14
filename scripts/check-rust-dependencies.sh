@@ -264,7 +264,7 @@ check_sha256 \
     c41ab6922715e7a2e9772b9b70c64024f6629dcdc6280b763eaefc3eb52c809f \
     third_party/rust/backport-regressions/src/resolver.rs
 check_sha256 \
-    f5cb8b7c0aaed551c70d2182da7ac984944991f8de5bd42d8e9b1cadb2a5bc76 \
+    965c606acf0c93d9a9d6b8415b3ae503185e8b3ec7eecf3d6251c9047cd14659 \
     third_party/rust/backport-regressions/Cargo.lock
 pass 'isolated dependency-security regression harness and Rust-1.85-targeted lock match reviewed hashes'
 

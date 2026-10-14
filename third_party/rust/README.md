@@ -147,7 +147,7 @@ The standalone fuzz graph does not depend on the UDP resolver and still
 forbids both DNSSEC backends and the regression adapter.
 
 The isolated harness has its own Rust-1.85-targeted `Cargo.lock` with SHA-256
-`f5cb8b7c0aaed551c70d2182da7ac984944991f8de5bd42d8e9b1cadb2a5bc76`.
+`965c606acf0c93d9a9d6b8415b3ae503185e8b3ec7eecf3d6251c9047cd14659`.
 It tests compression, NSEC3, RFC 2822 parsing, resolver validation and CNAME
 scope, plus two bounded Yamux cases, without network access:
 

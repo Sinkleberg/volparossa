@@ -85,6 +85,19 @@ and original harness locks stay unchanged, and the original locked-fetch exit
 still fails Quality. A generated lock is evidence to review, not an automatic
 correction or a passed regression suite.
 
+[Run `38622766542`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38622766542)
+on `33ff90c3` preserves the original locked-fetch failure and successfully
+reconciles the isolated lock with Cargo 1.85 offline. The exact generated diff
+adds only `uuid 1.24.0` edges to the already-present `js-sys` and `wasm-bindgen`
+nodes. No registry version or checksum changes; all three original locks remain
+unchanged in that run. Artifact `11923890129` ZIP SHA-256 is
+`a252d588381aa94d8cd7ad773843406af0248f173278883f6345330b3be645b4`.
+The two-line correction is now applied byte-for-byte; the standalone lock hash
+and its three provenance references are updated to
+`965c606acf0c93d9a9d6b8415b3ae503185e8b3ec7eecf3d6251c9047cd14659`.
+This identifies and corrects the lock discrepancy, not a successful resolver
+test execution; fresh locked-fetch and Rust results are still required.
+
 ### Authorized quote exchange candidate
 
 The new quote-only path connects guest-owned evidence collection to the existing

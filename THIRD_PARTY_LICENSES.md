@@ -759,7 +759,7 @@ local RustSec checkout. It prints that checkout's exact commit.
 
 The GPL-3.0-only harness under `third_party/rust/backport-regressions` has a
 Rust-1.85-targeted lockfile (SHA-256
-`f5cb8b7c0aaed551c70d2182da7ac984944991f8de5bd42d8e9b1cadb2a5bc76`)
+`965c606acf0c93d9a9d6b8415b3ae503185e8b3ec7eecf3d6251c9047cd14659`)
 and executes the dependency-security regressions offline. Its Hickory feature calls the same
 private NSEC3 validator through a doc-hidden adapter; that feature is absent
 from and forbidden in the production dependency graph. Its bounded Yamux raw
