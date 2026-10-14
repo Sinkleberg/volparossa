@@ -36,9 +36,54 @@ The immediate milestones build on the retained candidates and evidence below:
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 is merged as `e282a3ce`; its guest module has passing software evidence. PR247 connects that module to finite operator grants, protected transport and CLI verification. Original run `38511031734` on `85a01382` passes 52 appraisal, 16 guest and twelve new quote tests plus targeted Clippy. Quality `38511036689` stops at one CLI naming lint; the private-type rename is reviewed, but corrected workspace acceptance and execution of eight new agent/control/CLI tests remain required. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
 
-### Hickory resolver security candidate
+### Latest integration evidence — 14 October
 
-An isolated dependency candidate backports the upstream DNSSEC-bogus answer
+The older checkpoints in the workstream table are superseded by these original
+results; they are retained below as history, not as currently running trials.
+
+- **Android core delivery remains open.** On `ca292e41`, actual run
+  [`38624043886`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38624043886)
+  fails before starting the owner driver, tunnel or native Android process.
+  The pre-QEMU KVM probe succeeds; about 40.6 seconds later the owner probe
+  reports no read/write access and `EACCES` on the same fixed device path.
+  The receipt's identity/device comparisons are against its newly captured
+  owner baseline, not against the earlier preflight. They do not establish
+  continuity across that interval. Owner/VM cleanup and exact ACL restoration
+  pass; the cause of the access change is not yet established. Artifact
+  `11923868858` ZIP SHA-256 is
+  `48c74caa8c3402c440989a7c3cbad354602e6ee34e4af7612349adee0e6aeb98`.
+  Quality `38624052635` and CodeQL `38624048007` pass on that source. Software
+  checks do not turn this failed actual delivery trial into acceptance.
+- **Storage consumer maintenance remains open.** Actual run
+  [`38611919770`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38611919770)
+  on `cdfa671a` fails Cloud publication at fragment 0, copy 0, `reserve`, before
+  local READY: `CONTENT_UNAVAILABLE`, `stream_open`, enclosing deadline `none`.
+  This does not identify the inner transport failure or rule out its own
+  deadlines. The separate base restart/repair/two-restore/delete scenario
+  passes; consumer repair, restore and remote cleanup do not. The cleanup
+  receipt explicitly leaves remote cleanup and provider usage unproven.
+  Artifact `11921330521` ZIP SHA-256 is
+  `65fff550493741c7f9aec53cf3675535c262d28a64848ace376a97fc1f39e950`.
+  Quality `38611450851` passes. Closed stream-open classification is the next
+  diagnostic step, not an already demonstrated fix.
+- **Cloud upload proof still depends on storage.** Quality
+  [`38617137672`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38617137672)
+  passes on `c550e5e8`, including the corrected static workflow assertion.
+  This run does not execute the Cloud-specific 78-case Python suite or the
+  actual upload-to-maintenance trial. PR234 remains separate from successful
+  local SDK/component evidence and awaits the shared consumer proof.
+- **The quote-only software slice is integrated.** PR247 is merged as
+  `17afa3f0`. On `09b0d3cc`, targeted run `38512217556` passes 52 appraisal,
+  16 guest and 12 quote tests; Quality `38512223814` also passes the eight new
+  agent/control/CLI cases, and CodeQL `38512218075` passes. These remain
+  software/synthetic checks, not real confidential hardware, a production
+  quote route, full appraisal, worker admission or private-input release.
+  [PR247](https://github.com/VOLPAROSSA/volparossa/pull/247) retains the original
+  artifact hashes and failed attempts alongside current-source acceptance.
+
+### Integrated Hickory resolver security backport
+
+PR250, merged as `4658ad3f`, backports the upstream DNSSEC-bogus answer
 check to the Rust-1.85-compatible `hickory-resolver 0.25.2`. It rejects bogus
 answers before cache insertion or alias following when resolver validation is
 enabled. The root and fuzz graphs retain the existing API/version and use the
@@ -53,8 +98,22 @@ Archive, patch, reconstructed tree and unchanged license checks bind the exact
 candidate; package notice collection includes the new path. Neither advisory
 is dismissed or hidden by a new scanner exception.
 
-Rust compilation, the expanded offline backport regressions and the full locked
-dependency/packaging checks still require hosted execution. Local source-only
+Hosted Quality
+[`38624534062`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38624534062)
+passes on exact candidate `6e2ec216`. Its actual merge checkout `8a2f58c8` has
+the same tree, `6bdf0ba1b93c95020fbac743b46485596c8895e5`. All **15 isolated Rust
+regressions**, including the ten resolver cases, execute and pass. Locked
+fetching, graph/feature guards, dependency/license and packaging checks, strict
+Clippy, workspace tests and inert integration checks pass. CodeQL `38624530237`
+passes all four analyses on the same head. Original Quality logs ZIP SHA-256 is
+`4812656b0be7cb11330adb7946ac97b151692d235a53a61b59834b04c4ac41ad`.
+
+Three namespace checks skip under the runner's user-namespace policy; no new
+live datapath claim follows. Injected resolver verdicts are not a cryptographic
+end-to-end DNS test. The existing `RUSTSEC-2024-0436` unmaintained warning remains
+visible. Independent final source and original-log review found no merge blocker.
+
+Before hosted execution, local source-only
 verification reconstructs all four vendor trees exactly and verifies all license
 and harness hashes. Shell syntax, ShellCheck, the four existing inert SEV license
 fixtures and focused resolver notice collection pass. Independent source review
@@ -64,6 +123,8 @@ storage and Android actual trials keep their original source revisions and
 remain independent of this candidate. See the
 [reviewed dependency sources](../third_party/rust/README.md#resolver-validation-and-cname-scope)
 for upstream fixes and the precise reachability assessment.
+
+#### Retained failed attempts and lock correction
 
 The first [hosted Quality run `38619532866`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38619532866)
 on `a61465b1` stops at the isolated harness's locked dependency fetch. Root and
@@ -95,8 +156,8 @@ unchanged in that run. Artifact `11923890129` ZIP SHA-256 is
 The two-line correction is now applied byte-for-byte; the standalone lock hash
 and its three provenance references are updated to
 `965c606acf0c93d9a9d6b8415b3ae503185e8b3ec7eecf3d6251c9047cd14659`.
-This identifies and corrects the lock discrepancy, not a successful resolver
-test execution; fresh locked-fetch and Rust results are still required.
+That correction alone did not prove resolver execution. The subsequent hosted
+acceptance above supplies the previously missing locked-fetch and Rust results.
 
 ### Authorized quote exchange candidate
 
