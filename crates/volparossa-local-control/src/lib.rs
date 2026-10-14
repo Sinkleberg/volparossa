@@ -20,7 +20,6 @@ mod custody;
 mod mailbox;
 mod private_storage;
 mod quote;
-pub use quote::{QuoteAttachRequest, QuoteReady, QuoteRemoteRequest};
 pub use content::{
     ContentCacheLimits, ContentExportRequest, ContentFetchNameRequest, ContentFetchRequest,
     ContentImportRequest, ContentLocalFetchNameRequest, ContentPolicyApplyRequest,
@@ -38,6 +37,7 @@ pub use private_storage::{
     PrivateStorageGrantRequest, PrivateStorageReady, PrivateStorageRemoteRequest,
     PrivateStorageServeRequest,
 };
+pub use quote::{QuoteAttachRequest, QuoteReady, QuoteRemoteRequest};
 
 use prost::Message;
 use thiserror::Error;
@@ -295,7 +295,8 @@ pub mod control_response {
         ContentCustodyDiscovered, ContentCustodyReady, ContentPolicyReceipt, ContentReceipt,
         ContentTransferReady, Empty, HttpsContentTransferReady, LogList, MailboxReady,
         NamedContentTransferReady, PathList, PeerList, PolicySnapshot, PrivateStorageAdmission,
-        PrivateStorageGrant, PrivateStorageReady, QuoteReady, RoleSnapshot, SessionList, StatusSnapshot,
+        PrivateStorageGrant, PrivateStorageReady, QuoteReady, RoleSnapshot, SessionList,
+        StatusSnapshot,
     };
 
     /// Exactly one response body.

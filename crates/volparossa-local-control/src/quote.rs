@@ -96,30 +96,72 @@ mod tests {
         for operation in [
             Operation::QuoteAttach(attach.clone()),
             Operation::QuoteDetach(Empty {}),
-            Operation::QuoteRemote(QuoteRemoteRequest { provider_key: vec![2; 32] }),
+            Operation::QuoteRemote(QuoteRemoteRequest {
+                provider_key: vec![2; 32],
+            }),
         ] {
             let request = ControlRequest {
                 protocol_version: CONTROL_PROTOCOL_VERSION,
                 request_id: vec![3; 16],
                 operation: Some(operation),
             };
-            assert_eq!(crate::decode_request(&crate::encode_request(&request).unwrap()).unwrap(), request);
+            assert_eq!(
+                crate::decode_request(&crate::encode_request(&request).unwrap()).unwrap(),
+                request
+            );
         }
         for attempts in [0, 65, u32::MAX] {
-            assert!(QuoteAttachRequest { maximum_attempts: attempts, ..attach.clone() }.validate().is_err());
+            assert!(
+                QuoteAttachRequest {
+                    maximum_attempts: attempts,
+                    ..attach.clone()
+                }
+                .validate()
+                .is_err()
+            );
         }
         for bytes in [vec![], vec![0; 32], vec![1; 31], vec![1; 33]] {
-            assert!(QuoteRemoteRequest { provider_key: bytes.clone() }.validate().is_err());
-            assert!(QuoteAttachRequest { requester_key: bytes, ..attach.clone() }.validate().is_err());
+            assert!(
+                QuoteRemoteRequest {
+                    provider_key: bytes.clone()
+                }
+                .validate()
+                .is_err()
+            );
+            assert!(
+                QuoteAttachRequest {
+                    requester_key: bytes,
+                    ..attach.clone()
+                }
+                .validate()
+                .is_err()
+            );
         }
-        assert!(QuoteAttachRequest { expires_at: 0, ..attach }.validate().is_err());
+        assert!(
+            QuoteAttachRequest {
+                expires_at: 0,
+                ..attach
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     #[test]
     fn quote_ready_has_only_two_public_identity_fields() {
-        let ready = QuoteReady { provider_key: vec![1; 32], requester_key: vec![2; 32] };
+        let ready = QuoteReady {
+            provider_key: vec![1; 32],
+            requester_key: vec![2; 32],
+        };
         assert!(ready.validate().is_ok());
         assert_eq!(ready.encoded_len(), 68);
-        assert!(QuoteReady { requester_key: vec![0; 32], ..ready }.validate().is_err());
+        assert!(
+            QuoteReady {
+                requester_key: vec![0; 32],
+                ..ready
+            }
+            .validate()
+            .is_err()
+        );
     }
 }

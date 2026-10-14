@@ -57,13 +57,35 @@ stopped. One process-wide permit remains with the actual worker until it returns
 including across detach and reattach. This prevents cancelled requests from
 creating an unbounded series of firmware workers.
 
-Independent source review and inert harness checks cover the candidate; Rust
-compilation, strict Clippy, formatting and execution remain hosted gates. Its
-separate software receipt requires the original 52 appraisal tests and 16 guest
-tests before accepting the twelve new quote tests. Synthetic reports cannot
-establish a working production route or confidential hardware. See the
+Independent source review and inert harness checks cover the candidate. Its
+first hosted build compiles the content test binary and passes all 52 appraisal
+tests, but stops at strict Clippy before the guest and quote tests. The separate
+software receipt requires those 52 appraisal tests and 16 guest tests before
+accepting the twelve new quote tests. Synthetic reports cannot establish a
+working production route or confidential hardware. See the
 [quote exchange guide](development/PROTECTED_COMPUTE_VERIFIER.md#authorized-quote-exchange-candidate)
 for commands and the remaining authority boundaries.
+
+Original run
+[`38510015317`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38510015317)
+on `944da52cb9b5bbfed29f2f3e93b337f83b4b56f8` fails three Clippy rules:
+`similar_names`, `map_unwrap_or` and `ignored_unit_patterns`. Its 52 exact
+appraisal tests pass with zero failures or ignored tests. The guest and quote
+steps are skipped; their artifacts contain only failed receipts, not executed
+tests. Independent reconstruction and root replay confirm the exact source,
+unchanged committed lock, original artifacts and this limited result. The core
+artifact ZIP is
+`6411652b4098e504bf50d8891be281401a4f2f24518944b76883705c9a5ac944`;
+the original log ZIP is
+`10bf16d005a56ef7de6b1b39a918506c896da85b3b93b39c2c92cde352deec3c`.
+
+Separate Quality run `38510082539` fails formatting before strict workspace
+Clippy or workspace tests. Its original log ZIP is
+`dc81f3443896e67a3883fcc8ec4b0bb5b5e5b4839d1fb017e17081c9caf4808a`.
+The exact hosted formatter output has been applied and its eleven resulting
+files checked by hash. The three Clippy corrections preserve the same lazy
+deadline fallback, unit-output polling and test behavior; no lint gate is relaxed.
+The corrected revision still needs hosted acceptance. No local Rust tool was run.
 
 ### Guest-owned protected-compute session candidate
 

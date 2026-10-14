@@ -1,7 +1,10 @@
 //! Explicit quote-only attachment and fresh reference-evidence verification.
 //! No private task, raw quote export, workload approval, or worker permit.
 
-use std::{path::{Path, PathBuf}, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context as _, Result, ensure};
 use clap::{Args, Subcommand};
@@ -9,13 +12,16 @@ use ed25519_dalek::VerifyingKey;
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
 use volparossa_content::provider::compute::{
-    attestation::{LocalPolicy, MAX_CRL_BYTES, MAX_VCEK_BYTES, MilanTcb, OutstandingAppraisal,
-        SessionLimits, SessionOwner, SmtPolicy, TcbMinimums},
+    attestation::{
+        LocalPolicy, MAX_CRL_BYTES, MAX_VCEK_BYTES, MilanTcb, OutstandingAppraisal, SessionLimits,
+        SessionOwner, SmtPolicy, TcbMinimums,
+    },
     guest::QuoteRequest,
     quote as wire,
 };
 use volparossa_local_control::{
-    Empty, QuoteAttachRequest, QuoteRemoteRequest, control_request::Operation, control_response::Payload,
+    Empty, QuoteAttachRequest, QuoteRemoteRequest, control_request::Operation,
+    control_response::Payload,
 };
 
 #[derive(Debug, Subcommand)]
@@ -80,62 +86,116 @@ struct Minimums {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Tcb { bootloader: u8, tee: u8, snp: u8, microcode: u8 }
+struct Tcb {
+    bootloader: u8,
+    tee: u8,
+    snp: u8,
+    microcode: u8,
+}
 
 impl Tcb {
     const fn components(self) -> MilanTcb {
-        MilanTcb { bootloader: self.bootloader, tee: self.tee, snp: self.snp, microcode: self.microcode }
+        MilanTcb {
+            bootloader: self.bootloader,
+            tee: self.tee,
+            snp: self.snp,
+            microcode: self.microcode,
+        }
     }
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Smt { Allow, RequireDisabled }
+enum Smt {
+    Allow,
+    RequireDisabled,
+}
 
 impl PublicPolicy {
     fn decode(bytes: &[u8]) -> Result<([u8; 32], LocalPolicy)> {
-        ensure!(!bytes.is_empty() && bytes.len() <= 4096, "quote_public_policy_bound");
+        ensure!(
+            !bytes.is_empty() && bytes.len() <= 4096,
+            "quote_public_policy_bound"
+        );
         let policy: Self = serde_json::from_slice(bytes).context("quote_public_policy_encoding")?;
         ensure!(policy.version == 1, "quote_public_policy_version");
         let id = public_hex(&policy.public_policy_id)?;
         let measurement = public_hex(&policy.expected_measurement)?;
         let minima = policy.minimum_tcb;
-        Ok((id, LocalPolicy::new(measurement, policy.minimum_guest_svn, TcbMinimums {
-            current: minima.current.components(), reported: minima.reported.components(),
-            committed: minima.committed.components(), launch: minima.launch.components(),
-        }, match policy.smt { Smt::Allow => SmtPolicy::Allow, Smt::RequireDisabled => SmtPolicy::RequireDisabled })?))
+        Ok((
+            id,
+            LocalPolicy::new(
+                measurement,
+                policy.minimum_guest_svn,
+                TcbMinimums {
+                    current: minima.current.components(),
+                    reported: minima.reported.components(),
+                    committed: minima.committed.components(),
+                    launch: minima.launch.components(),
+                },
+                match policy.smt {
+                    Smt::Allow => SmtPolicy::Allow,
+                    Smt::RequireDisabled => SmtPolicy::RequireDisabled,
+                },
+            )?,
+        ))
     }
 }
 
 fn public_hex<const N: usize>(text: &str) -> Result<[u8; N]> {
-    ensure!(text.len() == N * 2 && text.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)), "quote_public_hex");
-    let bytes: [u8; N] = hex::decode(text)?.try_into().map_err(|_| anyhow::anyhow!("quote_public_hex"))?;
+    ensure!(
+        text.len() == N * 2
+            && text
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+        "quote_public_hex"
+    );
+    let bytes: [u8; N] = hex::decode(text)?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("quote_public_hex"))?;
     ensure!(bytes != [0; N], "quote_public_hex_zero");
     Ok(bytes)
 }
 
 fn parse_key(text: &str) -> Result<VerifyingKey, String> {
-    let bytes = public_hex(text).map_err(|_| "quote identity must be a nonzero lowercase Ed25519 key".to_owned())?;
+    let bytes = public_hex(text)
+        .map_err(|_| "quote identity must be a nonzero lowercase Ed25519 key".to_owned())?;
     VerifyingKey::from_bytes(&bytes).map_err(|_| "invalid Ed25519 quote identity".to_owned())
 }
 
-fn now() -> Result<u64> { Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()) }
+fn now() -> Result<u64> {
+    Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
+}
 
 pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
     match command {
         Command::Attach(args) => {
-            let expires_at = now()?.checked_add(u64::from(args.max_seconds)).context("quote_expiry_overflow")?;
-            crate::print_response(crate::control::request(socket, Operation::QuoteAttach(QuoteAttachRequest {
-                bind_address: args.bind.to_string(), advertised_hostname: args.advertised_hostname,
-                requester_key: args.requester_key.to_bytes().to_vec(), expires_at,
-                maximum_attempts: u32::from(args.max_attempts),
-            })).await?)
+            let expires_at = now()?
+                .checked_add(u64::from(args.max_seconds))
+                .context("quote_expiry_overflow")?;
+            crate::print_response(
+                crate::control::request(
+                    socket,
+                    Operation::QuoteAttach(QuoteAttachRequest {
+                        bind_address: args.bind.to_string(),
+                        advertised_hostname: args.advertised_hostname,
+                        requester_key: args.requester_key.to_bytes().to_vec(),
+                        expires_at,
+                        maximum_attempts: u32::from(args.max_attempts),
+                    }),
+                )
+                .await?,
+            )
         }
-        Command::Detach => crate::print_response(crate::control::request(socket, Operation::QuoteDetach(Empty {})).await?),
+        Command::Detach => crate::print_response(
+            crate::control::request(socket, Operation::QuoteDetach(Empty {})).await?,
+        ),
         Command::Verify(args) => {
             // Register signal listeners before preparation; cancellation closes this exact socket.
-            let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
-            let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            let mut interrupt =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+            let mut terminate =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
             let report = tokio::select! {
                 result = timeout(Duration::from_secs(150), verify(&args, socket)) => result.context("quote_exchange_deadline")??,
                 _ = interrupt.recv() => return Err(anyhow::anyhow!("quote_exchange_cancelled")),
@@ -148,7 +208,10 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
 }
 
 #[derive(Serialize)]
-#[allow(clippy::struct_excessive_bools, reason = "Independent closed evidence and authority claims are never inferred from one success flag")]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Independent closed evidence and authority claims are never inferred from one success flag"
+)]
 struct Report {
     version: u32,
     quote_exchange: bool,
@@ -163,45 +226,85 @@ async fn verify(args: &Verify, socket: &Path) -> Result<Report> {
     let (policy_id, policy) = PublicPolicy::decode(&super::read_file(&args.public_policy, 4096)?)?;
     let vcek = super::read_file(&args.vcek, MAX_VCEK_BYTES as u64)?;
     let crl = super::read_file(&args.vendor_crl, MAX_CRL_BYTES as u64)?;
-    ensure!(!vcek.is_empty() && !crl.is_empty(), "quote_collateral_empty");
-    let (mut stream, id, response) = crate::control::begin_request(socket, Operation::QuoteRemote(QuoteRemoteRequest {
-        provider_key: args.provider_key.to_bytes().to_vec(),
-    })).await?;
-    ensure!(response.diagnostic_code == "QUOTE_READY", "quote_ready_code");
-    let Some(Payload::QuoteReady(ready)) = response.payload else { anyhow::bail!("quote_ready_missing"); };
-    ensure!(ready.provider_key == args.provider_key.as_bytes(), "quote_ready_provider");
+    ensure!(
+        !vcek.is_empty() && !crl.is_empty(),
+        "quote_collateral_empty"
+    );
+    let (mut stream, id, response) = crate::control::begin_request(
+        socket,
+        Operation::QuoteRemote(QuoteRemoteRequest {
+            provider_key: args.provider_key.to_bytes().to_vec(),
+        }),
+    )
+    .await?;
+    ensure!(
+        response.diagnostic_code == "QUOTE_READY",
+        "quote_ready_code"
+    );
+    let Some(Payload::QuoteReady(ready)) = response.payload else {
+        anyhow::bail!("quote_ready_missing");
+    };
+    ensure!(
+        ready.provider_key == args.provider_key.as_bytes(),
+        "quote_ready_provider"
+    );
     // Route/TLS and provider authentication are ready. No long setup consumes this challenge.
-    let owner = SessionOwner::new(policy_id, policy, SessionLimits {
-        expires_at: now()?.checked_add(30).context("quote_expiry_overflow")?,
-        maximum_pending: 1, maximum_attempts: 1,
-    })?;
+    let owner = SessionOwner::new(
+        policy_id,
+        policy,
+        SessionLimits {
+            expires_at: now()?.checked_add(30).context("quote_expiry_overflow")?,
+            maximum_pending: 1,
+            maximum_attempts: 1,
+        },
+    )?;
     let pending = owner.begin()?;
     let request = QuoteRequest::from_challenge(pending.challenge_bytes())?;
     wire::write_request(&mut stream, &request).await?;
     let response = wire::read_response(&mut stream, &request).await?;
     let finished = crate::control::finish_request(&mut stream, &id).await?;
-    ensure!(finished.diagnostic_code == "QUOTE_EXCHANGE_OK" && matches!(finished.payload, Some(Payload::Ack(_))), "quote_final_handoff");
+    ensure!(
+        finished.diagnostic_code == "QUOTE_EXCHANGE_OK"
+            && matches!(finished.payload, Some(Payload::Ack(_))),
+        "quote_final_handoff"
+    );
     drop(stream);
     // One foreground CLI verification, never on the async reactor. Its borrowed one-use
     // pending owner remains in scope; real pre/post crypto checks enforce the same deadline.
-    let bound = tokio::task::block_in_place(|| pending.verify_and_bind(
-        response.report(), &vcek, &crl, *response.public_key(),
-    )).context("quote_reference_evidence_rejected")?;
+    let bound = tokio::task::block_in_place(|| {
+        pending.verify_and_bind(response.report(), &vcek, &crl, *response.public_key())
+    })
+    .context("quote_reference_evidence_rejected")?;
     Ok(Report {
-        version: 1, quote_exchange: true, bound_reference_evidence: true,
-        complete_appraisal: false, worker_admission: false, private_input_released: false,
-        outstanding_appraisal: bound.outstanding_appraisal().iter().copied().map(obligation).collect(),
+        version: 1,
+        quote_exchange: true,
+        bound_reference_evidence: true,
+        complete_appraisal: false,
+        worker_admission: false,
+        private_input_released: false,
+        outstanding_appraisal: bound
+            .outstanding_appraisal()
+            .iter()
+            .copied()
+            .map(obligation)
+            .collect(),
     })
 }
 
 fn obligation(value: OutstandingAppraisal) -> &'static str {
     match value {
         OutstandingAppraisal::ProductionRootAuthorization => "production_root_authorization",
-        OutstandingAppraisal::EndorsementProfileAndChipBinding => "endorsement_profile_and_chip_binding",
+        OutstandingAppraisal::EndorsementProfileAndChipBinding => {
+            "endorsement_profile_and_chip_binding"
+        }
         OutstandingAppraisal::CurrentVendorRevocation => "current_vendor_revocation",
-        OutstandingAppraisal::VcekRevocationAndCollateralFreshness => "vcek_revocation_and_collateral_freshness",
+        OutstandingAppraisal::VcekRevocationAndCollateralFreshness => {
+            "vcek_revocation_and_collateral_freshness"
+        }
         OutstandingAppraisal::VendorTcbAndLocalPolicy => "vendor_tcb_and_local_policy",
-        OutstandingAppraisal::AuthorizedWorkloadAndKeyOrigin => "authorized_workload_and_key_origin",
+        OutstandingAppraisal::AuthorizedWorkloadAndKeyOrigin => {
+            "authorized_workload_and_key_origin"
+        }
     }
 }
 
@@ -239,18 +342,36 @@ mod tests {
     #[test]
     fn quote_cli_output_preserves_obligations_without_hardware_identifiers() {
         let report = Report {
-            version: 1, quote_exchange: true, bound_reference_evidence: true,
-            complete_appraisal: false, worker_admission: false, private_input_released: false,
-            outstanding_appraisal: [OutstandingAppraisal::ProductionRootAuthorization,
+            version: 1,
+            quote_exchange: true,
+            bound_reference_evidence: true,
+            complete_appraisal: false,
+            worker_admission: false,
+            private_input_released: false,
+            outstanding_appraisal: [
+                OutstandingAppraisal::ProductionRootAuthorization,
                 OutstandingAppraisal::VcekRevocationAndCollateralFreshness,
                 OutstandingAppraisal::VendorTcbAndLocalPolicy,
-                OutstandingAppraisal::AuthorizedWorkloadAndKeyOrigin].into_iter().map(obligation).collect(),
+                OutstandingAppraisal::AuthorizedWorkloadAndKeyOrigin,
+            ]
+            .into_iter()
+            .map(obligation)
+            .collect(),
         };
         let encoded = serde_json::to_value(report).unwrap();
         assert_eq!(encoded.as_object().unwrap().len(), 7);
-        assert_eq!(encoded["outstanding_appraisal"].as_array().unwrap().len(), 4);
+        assert_eq!(
+            encoded["outstanding_appraisal"].as_array().unwrap().len(),
+            4
+        );
         assert_eq!(encoded["private_input_released"], false);
-        for field in ["report", "public_key", "chip_id", "measurement", "transcript"] {
+        for field in [
+            "report",
+            "public_key",
+            "chip_id",
+            "measurement",
+            "transcript",
+        ] {
             assert!(encoded.get(field).is_none());
         }
     }

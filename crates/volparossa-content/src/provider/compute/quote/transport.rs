@@ -65,8 +65,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     timeout(Duration::from_secs(EXCHANGE_SECONDS), async {
-        let record =
-            Record::request(requester, &challenge.0, request.encode(), protocol::now()?)?;
+        let record = Record::request(requester, &challenge.0, request.encode(), protocol::now()?)?;
         let bytes = record.encode();
         let hash: [u8; 32] = Sha256::digest(&bytes).into();
         protocol::write(stream, &bytes, MAX_QUOTE_REQUEST_BYTES + FRAME_OVERHEAD).await?;
@@ -89,7 +88,9 @@ where
 ///
 /// # Errors
 /// Rejects oversize lengths before allocation and noncanonical payloads.
-pub async fn read_request<S: AsyncRead + Unpin>(stream: &mut S) -> Result<QuoteRequest, QuoteError> {
+pub async fn read_request<S: AsyncRead + Unpin>(
+    stream: &mut S,
+) -> Result<QuoteRequest, QuoteError> {
     Ok(QuoteRequest::decode(
         &protocol::read(stream, MAX_QUOTE_REQUEST_BYTES).await?,
     )?)

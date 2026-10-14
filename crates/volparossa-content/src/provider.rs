@@ -373,7 +373,9 @@ impl PublicationRegistry {
 
     /// Only a supervised, finite quote owner keeps automatic provider discovery live.
     pub fn has_quote(&self) -> bool {
-        self.quote.as_ref().is_some_and(|service| service.is_active())
+        self.quote
+            .as_ref()
+            .is_some_and(|service| service.is_active())
     }
 
     /// Register the original independently verified envelope without opting into replication.

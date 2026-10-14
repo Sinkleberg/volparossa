@@ -371,9 +371,11 @@ and the [Linux SEV guest interface](https://www.kernel.org/doc/html/latest/virt/
 
 The `feature/protected-compute-quote-exchange` candidate adds an explicit
 quote-only service and CLI. It does not admit a worker or send a private task.
-Its new Rust tests still require hosted compilation and execution; the passing
-guest and appraisal runs above describe their original revisions, not this
-candidate. No suitable confidential-computing hardware is currently available.
+The first hosted candidate compiles the content test binary and passes all 52
+appraisal tests, but fails Clippy before the guest and quote tests execute.
+Corrections still need hosted acceptance; the earlier passing guest runs above
+describe their original revisions. No suitable confidential-computing hardware
+is currently available.
 
 ### Operator authority and cancellation
 

@@ -348,7 +348,11 @@ impl ContentRuntime {
             .set_priority(CONTRIBUTION_SOCKET_PRIORITY)
             .map_err(|_| ContentError::Unavailable)?;
         // The listener and a verified registration exist before announcing service availability.
-        if !options.automatic || registry.has_live_publications(now()) || registry.has_compute() || registry.has_quote() {
+        if !options.automatic
+            || registry.has_live_publications(now())
+            || registry.has_compute()
+            || registry.has_quote()
+        {
             context
                 .discovery
                 .register_content_offer(self.offer(endpoint.clone())?)

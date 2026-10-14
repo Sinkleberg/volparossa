@@ -268,10 +268,10 @@ impl QuoteService {
                 }) {
                     drop(retained.take());
                 }
-                retained
-                    .as_ref()
-                    .map(|lease| Instant::from_std(lease.quote.deadline()))
-                    .unwrap_or_else(|| Instant::from_std(self.owner.deadline()))
+                retained.as_ref().map_or_else(
+                    || Instant::from_std(self.owner.deadline()),
+                    |lease| Instant::from_std(lease.quote.deadline()),
+                )
             };
             let checking = Instant::now() >= policy_due;
             // Policy-lock contention must not delay original expiry or shutdown.
@@ -290,7 +290,7 @@ impl QuoteService {
                         worker = Some(tokio::task::spawn_blocking(move || work.collect()));
                     }
                 }
-                _ = async { if let Some(task) = worker.as_mut() { let _ = task.await; } }, if worker.is_some() => {
+                () = async { if let Some(task) = worker.as_mut() { let _ = task.await; } }, if worker.is_some() => {
                     worker = None;
                 }
             }
