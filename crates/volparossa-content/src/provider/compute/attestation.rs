@@ -7,12 +7,15 @@
 //! here opens a connection, grants a worker budget, or releases private input.
 //!
 //! Before attestation the session challenge contains only random freshness, a
-//! public policy identifier, a public workload measurement and finite times. A
+//! public policy identifier, explicit public local expectations and finite times. A
 //! proposed ephemeral key is bound into `REPORT_DATA` using SHA-512 over a
 //! domain-separated canonical protobuf. This proves a signed byte binding, not
 //! that the key was generated or retained inside a particular guest program.
 //! Never use a private prompt/code/content hash as the public policy identifier.
 //!
+//! Session binding compares all four TCB stages componentwise and distinguishes
+//! guest SMT permission from platform SMT enablement. Explicit local minima are
+//! not proof of current vendor mitigations or an authorized workload.
 //! Session binding includes the fixed legacy Milan path and a supplied, signed,
 //! time-valid ARK CRL covering the ASK, not general VCEK revocation or proof of
 //! latest collateral. A later release layer must still appraise independently
@@ -31,10 +34,12 @@ mod cert_path;
 mod cert_profile;
 mod collateral;
 mod endorsement;
+mod policy;
 mod session;
 mod snp;
 
 pub use collateral::VendorCrlFacts;
+pub use policy::{LocalPolicy, MilanTcb, SmtPolicy, TcbMinimums};
 pub use session::{
     BoundSessionEvidence, PendingSession, SessionLimits, SessionOwner, session_report_data,
 };
@@ -68,6 +73,9 @@ pub enum EvidenceError {
     /// The caller supplied invalid finite owner limits or public expectations.
     #[error("invalid attestation session configuration")]
     Configuration,
+    /// Authenticated claims do not meet the explicit owner's local expectations.
+    #[error("attestation local policy comparison failed")]
+    Policy,
     /// Owner or challenge expired, or wall time moved before its creation.
     #[error("attestation session expired or clock invalid")]
     Expired,
@@ -99,7 +107,8 @@ pub enum OutstandingAppraisal {
     CurrentVendorRevocation,
     /// ASK-scope ARK CRL does not prove VCEK status or that collateral is newest.
     VcekRevocationAndCollateralFreshness,
-    /// Reported TCB versus current vendor advisories and owner minima is unchecked.
+    /// Local minima alone do not establish current vendor mitigations or TCB trust.
+    /// Signature-only facts have not yet been compared to an owner's policy.
     VendorTcbAndLocalPolicy,
     /// Measurement/key bytes do not prove the approved workload's key provenance.
     AuthorizedWorkloadAndKeyOrigin,
@@ -131,6 +140,8 @@ pub struct SignatureFacts {
     report_data: [u8; 64],
     guest_svn: u32,
     guest_policy: u64,
+    tcb: [MilanTcb; 4],
+    platform_smt_enabled: bool,
     validity: [(u64, u64); 3],
 }
 

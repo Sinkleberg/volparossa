@@ -10,8 +10,8 @@ use sha2::{Digest as _, Sha256, Sha512};
 use subtle::ConstantTimeEq as _;
 
 use super::{
-    BOUND_OUTSTANDING, EvidenceError, OutstandingAppraisal, SignatureFacts, VendorCrlFacts,
-    collateral,
+    BOUND_OUTSTANDING, EvidenceError, LocalPolicy, OutstandingAppraisal, SignatureFacts,
+    VendorCrlFacts, collateral,
 };
 
 const MAX_OWNER_SECONDS: u64 = 600;
@@ -19,7 +19,7 @@ const CHALLENGE_SECONDS: u64 = 30;
 const MAX_PENDING: u8 = 8;
 const MAX_ATTEMPTS: u16 = 64;
 const MAX_CHALLENGE_BYTES: usize = 256;
-const BINDING_DOMAIN: &[u8] = b"VOLPAROSSA/SNP-MILAN-V2/SESSION-EVIDENCE/1\0";
+const BINDING_DOMAIN: &[u8] = b"VOLPAROSSA/SNP-MILAN-V2/SESSION-EVIDENCE/2\0";
 
 /// Owner limits, not worker resources or permission to run a private task.
 /// All are fixed at construction and cannot be refreshed by a peer response.
@@ -49,6 +49,8 @@ struct Challenge {
     created_at: u64,
     #[prost(uint64, tag = "7")]
     expires_at: u64,
+    #[prost(bytes = "vec", tag = "8")]
+    local_policy: Vec<u8>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -64,7 +66,10 @@ struct Binding {
 /// key origin, or signatures. The key is not used to encrypt anything here.
 ///
 /// SHA-512 is domain separated and covers the entire protobuf, including times,
-/// public expectations and random nonce. There is no private-content hash field.
+/// all explicit local policy fields and random nonce. Challenge version two and
+/// the `/2` domain do not accept or reinterpret version-one challenges. There is
+/// no private-content hash field. The public policy ID is only an identifier;
+/// it cannot replace the complete bound expectations.
 ///
 /// # Errors
 /// Rejects noncanonical, oversize, unsupported, malformed or empty-key input.
@@ -80,13 +85,14 @@ pub fn session_report_data(
     }
     let parsed = Challenge::decode(challenge).map_err(|_| EvidenceError::Encoding)?;
     if parsed.encode_to_vec() != challenge
-        || parsed.version != 1
+        || parsed.version != 2
         || parsed.nonce.len() != 32
         || parsed.nonce.iter().all(|byte| *byte == 0)
         || parsed.public_policy_id.len() != 32
         || parsed.public_policy_id.iter().all(|byte| *byte == 0)
         || parsed.expected_measurement.len() != 48
         || parsed.expected_measurement.iter().all(|byte| *byte == 0)
+        || !LocalPolicy::valid_restriction_bytes(&parsed.local_policy)
         || parsed.expires_at <= parsed.created_at
         || parsed.expires_at - parsed.created_at > CHALLENGE_SECONDS
     {
@@ -125,8 +131,7 @@ impl Stamp {
 /// Supplying expectations does not authorize their roots or workload for release.
 pub struct SessionOwner {
     public_policy_id: [u8; 32],
-    expected_measurement: [u8; 48],
-    minimum_guest_svn: u32,
+    policy: LocalPolicy,
     limits: SessionLimits,
     created: Stamp,
     deadline: Instant,
@@ -144,23 +149,15 @@ impl SessionOwner {
     /// more than ten minutes, more than eight pending or more than 64 attempts.
     pub fn new(
         public_policy_id: [u8; 32],
-        expected_measurement: [u8; 48],
-        minimum_guest_svn: u32,
+        policy: LocalPolicy,
         limits: SessionLimits,
     ) -> Result<Self, EvidenceError> {
-        Self::new_at(
-            public_policy_id,
-            expected_measurement,
-            minimum_guest_svn,
-            limits,
-            Stamp::now()?,
-        )
+        Self::new_at(public_policy_id, policy, limits, Stamp::now()?)
     }
 
     pub(super) fn new_at(
         public_policy_id: [u8; 32],
-        expected_measurement: [u8; 48],
-        minimum_guest_svn: u32,
+        policy: LocalPolicy,
         limits: SessionLimits,
         now: Stamp,
     ) -> Result<Self, EvidenceError> {
@@ -169,7 +166,6 @@ impl SessionOwner {
             .checked_sub(now.unix)
             .ok_or(EvidenceError::Configuration)?;
         if public_policy_id == [0; 32]
-            || expected_measurement == [0; 48]
             || !(1..=MAX_OWNER_SECONDS).contains(&seconds)
             || !(1..=MAX_PENDING).contains(&limits.maximum_pending)
             || !(1..=MAX_ATTEMPTS).contains(&limits.maximum_attempts)
@@ -182,8 +178,7 @@ impl SessionOwner {
             .ok_or(EvidenceError::Configuration)?;
         Ok(Self {
             public_policy_id,
-            expected_measurement,
-            minimum_guest_svn,
+            policy,
             limits,
             created: now,
             deadline,
@@ -237,13 +232,14 @@ impl SessionOwner {
             .ok_or(EvidenceError::Expired)?
             .min(self.deadline);
         let challenge = Challenge {
-            version: 1,
+            version: 2,
             nonce: nonce.to_vec(),
             public_policy_id: self.public_policy_id.to_vec(),
-            expected_measurement: self.expected_measurement.to_vec(),
-            minimum_guest_svn: self.minimum_guest_svn,
+            expected_measurement: self.policy.expected_measurement.to_vec(),
+            minimum_guest_svn: self.policy.minimum_guest_svn,
             created_at: now.unix,
             expires_at,
+            local_policy: self.policy.restriction_bytes().to_vec(),
         }
         .encode_to_vec();
         Ok(PendingSession {
@@ -299,8 +295,9 @@ impl PendingSession<'_> {
 
     /// Verify reference signatures, the supported Milan path and the supplied
     /// complete ARK CRL for that ASK. Check certificate/CRL validity at the owner's current
-    /// clock, expected measurement/SVN, no debug/migration, and exact fresh key
-    /// binding. A bound result still cannot admit a worker or release any input.
+    /// clock, explicit local TCB/SMT/measurement/SVN policy, no debug/migration,
+    /// and exact fresh key binding. A bound result still cannot admit a worker
+    /// or release any input.
     ///
     /// # Errors
     /// Consumes the challenge even on malformed data, mismatch, cancellation,
@@ -349,11 +346,8 @@ impl PendingSession<'_> {
             return Err(EvidenceError::CertificateTime);
         }
         let expected = session_report_data(&self.challenge, &proposed_session_key)?;
-        if facts.measurement != self.slot.0.expected_measurement
-            || facts.guest_svn < self.slot.0.minimum_guest_svn
-            || facts.guest_policy & ((1 << 18) | (1 << 19)) != 0
-            || !bool::from(facts.report_data.ct_eq(&expected))
-        {
+        facts.check_local_policy(&self.slot.0.policy)?;
+        if !bool::from(facts.report_data.ct_eq(&expected)) {
             return Err(EvidenceError::Binding);
         }
         Ok(BoundSessionEvidence {

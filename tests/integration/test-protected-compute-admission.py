@@ -58,8 +58,8 @@ def tool_outcome(code=0, error=None):
         cleanup_scope='owned-process-group-not-a-setsid-proof-sandbox', elapsed_ms=1)
 
 
-def test_log(*, endorsement=False, certificate_profile=False, collateral=False):
-    names = P.COLLATERAL_TESTS if collateral else P.CERTIFICATE_PROFILE_TESTS if certificate_profile else P.ENDORSEMENT_TESTS if endorsement else P.TESTS
+def test_log(*, endorsement=False, certificate_profile=False, collateral=False, local_policy=False):
+    names = P.LOCAL_POLICY_TESTS if local_policy else P.COLLATERAL_TESTS if collateral else P.CERTIFICATE_PROFILE_TESTS if certificate_profile else P.ENDORSEMENT_TESTS if endorsement else P.TESTS
     return (f'running {len(names)} tests\n' + ''.join('test ' + name + ' ... ok\n' for name in names)
         + f'\ntest result: ok. {len(names)} passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.1s\n').encode()
 
@@ -92,7 +92,7 @@ def git(root, *args):
 
 
 @contextmanager
-def source_fixture(*, committed=False, collateral=False):
+def source_fixture(*, committed=False, collateral=False, local_policy=False):
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / 'source'
         root.mkdir()
@@ -101,7 +101,7 @@ def source_fixture(*, committed=False, collateral=False):
             (root / name).write_bytes((P.ROOT / name).read_bytes())
             (root / name).chmod(0o600)
         old, new = verifier_packages()
-        if collateral:
+        if collateral or local_policy:
             new[0]['dependencies'].append('rsa')
             next(item for item in new if item['name'] == 'rsa')['checksum'] = 'b8573f03f5883dcaebdfcf4725caa1ecb9c15b2ef50c43a07b816e06799bb12d'
         (root / 'Cargo.lock').write_bytes(lock(new if committed else old))
@@ -116,7 +116,7 @@ def source_fixture(*, committed=False, collateral=False):
             yield root, Path(tmp) / 'work', old, new
 
 
-def public_trial_fixture(root, work, new, *, historical=True, endorsement=False, certificate_profile=False, collateral=False):
+def public_trial_fixture(root, work, new, *, historical=True, endorsement=False, certificate_profile=False, collateral=False, local_policy=False):
     """Execute orchestration with synthetic public Cargo outputs, never Cargo."""
     def fake_run(argv, output, _deadline, *, stdout=None):
         if argv[2] == '--version':
@@ -131,16 +131,16 @@ def public_trial_fixture(root, work, new, *, historical=True, endorsement=False,
             P.write(output, b'')
         elif argv[2] == 'test':
             assert argv == ['cargo', '+1.85.0', 'test', '--locked', '--offline', '-p',
-                'volparossa-content', '--lib', 'provider::compute::attestation::' if collateral else P.PREFIX,
+                'volparossa-content', '--lib', 'provider::compute::attestation::' if collateral or local_policy else P.PREFIX,
                 '--', '--test-threads=1']
-            P.write(output, test_log(endorsement=endorsement, certificate_profile=certificate_profile, collateral=collateral))
+            P.write(output, test_log(endorsement=endorsement, certificate_profile=certificate_profile, collateral=collateral, local_policy=local_policy))
         elif argv[2] == 'clippy':
             P.write(output, b'Finished synthetic inert Clippy\n')
         else:
             raise AssertionError(argv)
         return tool_outcome()
     with patch.object(P, 'run', side_effect=fake_run):
-        P.prepare(work, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile, collateral=collateral)
+        P.prepare(work, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile, collateral=collateral, local_policy=local_policy)
         if historical:
             # Reconstruct schema 1 from inert original bytes, not an executable
             # resolver fallback. Actual historical artifacts stay unchanged.
@@ -160,10 +160,10 @@ def public_trial_fixture(root, work, new, *, historical=True, endorsement=False,
                 log=P.digest(P.read(evidence / 'resolve.log', P.MAX_LOG)), tests_executed=False,
                 delta=P.lock_delta(original, effective), passed=True))
         else:
-            P.fetch(work, endorsement=endorsement, certificate_profile=certificate_profile, collateral=collateral)
-        P.metadata(work, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile, collateral=collateral)
-        P.execute(work, 'test', historical=historical, endorsement=endorsement, certificate_profile=certificate_profile, collateral=collateral)
-        P.execute(work, 'clippy', historical=historical, endorsement=endorsement, certificate_profile=certificate_profile, collateral=collateral)
+            P.fetch(work, endorsement=endorsement, certificate_profile=certificate_profile, collateral=collateral, local_policy=local_policy)
+        P.metadata(work, historical=historical, endorsement=endorsement, certificate_profile=certificate_profile, collateral=collateral, local_policy=local_policy)
+        P.execute(work, 'test', historical=historical, endorsement=endorsement, certificate_profile=certificate_profile, collateral=collateral, local_policy=local_policy)
+        P.execute(work, 'clippy', historical=historical, endorsement=endorsement, certificate_profile=certificate_profile, collateral=collateral, local_policy=local_policy)
 
 
 def prepare_fixture(work):
@@ -882,9 +882,122 @@ class ProbeContracts(unittest.TestCase):
                 public_trial_fixture(root, work, new, historical=False, collateral=True)
                 native.assert_not_called()
             source = Path(P.__file__).read_text()
-            self.assertIn("'provider::compute::attestation::' if collateral else PREFIX", source)
+            self.assertIn("'provider::compute::attestation::' if collateral or local_policy else PREFIX", source)
 
-    def test_hosted_cli_always_selects_schema_five_and_cannot_request_replay(self):
+    def test_schema_six_binds_fifty_two_tests_complete_source_and_unchanged_scope(self):
+        with source_fixture(committed=True, local_policy=True) as (root, work, _, new):
+            public_trial_fixture(root, work, new, historical=False, local_policy=True)
+            P.receipt(work, local_policy=True)
+            evidence = work / 'evidence'
+            report = json.loads(P.read(evidence / 'report.json', P.MAX_LOCK))
+            self.assertTrue(report['passed']); self.assertEqual(report['schema_version'], 6)
+            self.assertEqual(report['lock_policy'], P.LOCK_POLICY)
+            self.assertEqual(report['source']['commit'], git(root, 'rev-parse', 'HEAD'))
+            self.assertEqual(report['source']['tree'], git(root, 'rev-parse', 'HEAD^{tree}'))
+            self.assertEqual(set(report['files']), set(P.EXPORTS) - {'report.json'})
+            self.assertEqual({key for key, value in report['scope'].items() if value}, {'public_inputs_only'})
+            for name in ('source', 'resolution', 'resolved-metadata', 'tests', 'clippy'):
+                value = json.loads(P.read(evidence / (name + '.json'), P.MAX_LOCK))
+                self.assertEqual(value['schema_version'], 6)
+                self.assertEqual(value['source'], report['source'])
+                self.assertEqual(value['scope'], P.SCOPE)
+            tests = json.loads(P.read(evidence / 'tests.json', P.MAX_LOCK))['tests']
+            self.assertEqual(tests, P.verify_tests(test_log(local_policy=True), local_policy=True))
+            self.assertEqual(tests['passed'], 52); self.assertEqual(tests['names'], list(P.LOCAL_POLICY_TESTS))
+            self.assertEqual(P.LOCAL_POLICY_TESTS[:40], P.COLLATERAL_TESTS)
+            self.assertEqual(len(set(P.LOCAL_POLICY_TESTS)), 52)
+            for name in ('original-Cargo.lock', 'effective-Cargo.lock'):
+                self.assertEqual(P.read(evidence / name, P.MAX_LOCK), lock(new))
+            self.assertEqual(P.read(evidence / 'Cargo.lock.diff', P.MAX_LOCK), b'')
+            self.assertEqual(git(root, 'status', '--porcelain'), '')
+
+    def test_schema_six_exact_tests_reject_older_missing_extra_ignored_and_bad_summary(self):
+        raw = test_log(local_policy=True)
+        first = ('test ' + P.LOCAL_POLICY_TESTS[-1] + ' ... ok\n').encode()
+        for bad in (test_log(), test_log(endorsement=True), test_log(certificate_profile=True),
+                test_log(collateral=True), raw.replace(first, b''), raw + first,
+                raw.replace(first, first.replace(b'ok', b'ignored')),
+                raw.replace(first, first.replace(b'ok', b'FAILED')),
+                raw.replace(first, first.replace(b'local_policy_', b'unrelated_')),
+                raw.replace(b'52 passed', b'40 passed'), raw.replace(b'0 ignored', b'1 ignored'),
+                raw.replace(b'running 52', b'running 40'), b'build passed\n'):
+            with self.subTest(bad=bad[-100:]), self.assertRaises(ValueError):
+                P.verify_tests(bad, local_policy=True)
+        for options in ({}, dict(endorsement=True), dict(certificate_profile=True), dict(collateral=True)):
+            with self.assertRaises(ValueError): P.verify_tests(raw, **options)
+
+    def test_schema_six_rejects_cross_schema_receipts_and_relabelled_forty_test_logs(self):
+        for name in ('source', 'resolution', 'resolved-metadata', 'tests', 'clippy', 'old_tests'):
+            with source_fixture(committed=True, local_policy=True) as (root, work, _, new), self.subTest(name=name):
+                public_trial_fixture(root, work, new, historical=False, local_policy=True)
+                evidence = work / 'evidence'
+                path = evidence / ('tests.json' if name == 'old_tests' else name + '.json')
+                value = json.loads(P.read(path, P.MAX_LOCK))
+                if name == 'old_tests':
+                    (evidence / 'tests.log').write_bytes(test_log(collateral=True))
+                    value['tests'] = P.verify_tests(test_log(collateral=True), collateral=True)
+                    value['log'] = P.digest(test_log(collateral=True))
+                else: value['schema_version'] = 5
+                path.write_text(json.dumps(value))
+                if name == 'old_tests':
+                    with patch.object(P, 'run') as native, self.assertRaises(ValueError):
+                        P.execute(work, 'clippy', local_policy=True)
+                    native.assert_not_called()
+                with self.assertRaisesRegex(ValueError, 'incomplete'): P.receipt(work, local_policy=True)
+                failed = json.loads(P.read(evidence / 'report.json', P.MAX_LOCK))
+                self.assertFalse(failed['passed']); self.assertEqual(failed['schema_version'], 6)
+
+    def test_schemas_one_through_five_replay_without_implicit_local_policy_upgrade(self):
+        for options in (dict(historical=True), {}, dict(endorsement=True), dict(certificate_profile=True), dict(collateral=True)):
+            with source_fixture(committed=not options.get('historical', False), collateral=options.get('collateral', False)) as (root, work, _, new), self.subTest(options=options):
+                public_trial_fixture(root, work, new, historical=options.get('historical', False),
+                    endorsement=options.get('endorsement', False), certificate_profile=options.get('certificate_profile', False),
+                    collateral=options.get('collateral', False))
+                evidence = work / 'evidence'
+                original = {name: (evidence / name).read_bytes() for name in P.EXPORTS if name != 'report.json'}
+                with patch.object(P, 'run') as native:
+                    for action in (P.fetch, P.metadata, lambda work, **kw: P.execute(work, 'test', **kw)):
+                        with self.assertRaises(ValueError): action(work, local_policy=True)
+                    native.assert_not_called()
+                with self.assertRaisesRegex(ValueError, 'incomplete'): P.receipt(work, local_policy=True)
+                self.assertEqual(original, {name: (evidence / name).read_bytes() for name in original})
+                records = {name: json.loads(data) for name, data in original.items() if name.endswith('.json')}
+                P.verify_evidence(work, records, {name: P.digest(data) for name, data in original.items()}, **options)
+
+    def test_local_policy_profile_requires_explicit_exclusive_boolean_and_no_downgrade(self):
+        for options in (dict(local_policy=1), dict(local_policy=None), dict(local_policy='true'),
+                *(dict(local_policy=True, **{key: True}) for key in ('historical', 'endorsement', 'certificate_profile', 'collateral'))):
+            with self.subTest(options=options), self.assertRaisesRegex(ValueError, 'evidence_profile'):
+                P.envelope('inert', **options)
+        self.assertEqual(P.evidence_schema(local_policy=True), 6)
+        with source_fixture(committed=True, local_policy=True) as (root, work, _, new):
+            public_trial_fixture(root, work, new, historical=False, local_policy=True)
+            evidence = work / 'evidence'
+            original = {name: (evidence / name).read_bytes() for name in P.EXPORTS if name != 'report.json'}
+            records = {name: json.loads(data) for name, data in original.items() if name.endswith('.json')}
+            files = {name: P.digest(data) for name, data in original.items()}
+            for options in ({}, dict(historical=True), dict(endorsement=True), dict(certificate_profile=True), dict(collateral=True)):
+                with self.subTest(options=options), self.assertRaises(ValueError):
+                    P.verify_evidence(work, records, files, **options)
+            P.verify_evidence(work, records, files, local_policy=True)
+
+    def test_local_policy_keeps_actual_public_crl_metadata_and_source_gates(self):
+        with source_fixture(committed=True, local_policy=True) as (_root, _work, _, new):
+            original = metadata_fixture(new)
+            good = P.metadata_projection(json.dumps(original).encode(), lock(new), local_policy=True)
+            self.assertEqual(good, P.metadata_projection(json.dumps(original).encode(), lock(new), collateral=True))
+            for change in ('missing', 'features'):
+                value = copy.deepcopy(original)
+                content = value['resolve']['nodes'][0]
+                direct = next(edge for edge in content['deps'] if edge['name'] == 'rsa')
+                if change == 'missing': content['deps'].remove(direct)
+                else: next(node for node in value['resolve']['nodes'] if node['id'] == direct['pkg'])['features'].append('hazmat')
+                with self.assertRaises(ValueError):
+                    P.metadata_projection(json.dumps(value).encode(), lock(new), local_policy=True)
+            self.assertNotIn('/private/', json.dumps(good))
+            self.assertNotIn('fixture-id-', json.dumps(good))
+
+    def test_hosted_cli_always_selects_schema_six_and_cannot_request_replay(self):
         for phase in ('prepare', 'fetch', 'metadata', 'test', 'clippy', 'receipt'):
             entry = 'execute' if phase in ('test', 'clippy') else phase
             with self.subTest(phase=phase), patch.object(P, 'hosted'), patch.object(P, 'install_signals'), \
@@ -892,19 +1005,19 @@ class ProbeContracts(unittest.TestCase):
                     patch.object(P, entry) as action:
                 P.main([phase])
                 args = (Path('/inert/work'), phase) if entry == 'execute' else (Path('/inert/work'),)
-                action.assert_called_once_with(*args, collateral=True)
+                action.assert_called_once_with(*args, local_policy=True)
         for historical, endorsement in ((True, True), (1, False), (False, 'true')):
             with self.assertRaisesRegex(ValueError, 'evidence_profile'):
                 P.envelope('inert', historical=historical, endorsement=endorsement)
 
-    def test_hosted_branch_gate_keeps_exact_four_branches_only(self):
+    def test_hosted_branch_gate_keeps_exact_five_branches_only(self):
         env = dict(GITHUB_ACTIONS='true', RUNNER_ENVIRONMENT='github-hosted',
             GITHUB_REPOSITORY='VOLPAROSSA/volparossa', GITHUB_WORKFLOW='Protected compute core evidence')
         for branch in ('feature/protected-compute-admission', 'feature/protected-compute-endorsement',
-                'feature/protected-compute-cert-profile', 'feature/protected-compute-collateral', 'main', 'feature/protected-compute-collateral-other', 'feature/protected-compute-cert-profile-other', 'feature/protected-compute-endorsement-other'):
+                'feature/protected-compute-cert-profile', 'feature/protected-compute-collateral', 'feature/protected-compute-local-policy', 'main', 'feature/protected-compute-local-policy-other', 'feature/protected-compute-collateral-other', 'feature/protected-compute-cert-profile-other', 'feature/protected-compute-endorsement-other'):
             with patch.dict(os.environ, dict(env, GITHUB_REF='refs/heads/' + branch)), patch.object(P.os, 'getuid', return_value=1000):
                 if branch in ('feature/protected-compute-admission', 'feature/protected-compute-endorsement',
-                        'feature/protected-compute-cert-profile', 'feature/protected-compute-collateral'):
+                        'feature/protected-compute-cert-profile', 'feature/protected-compute-collateral', 'feature/protected-compute-local-policy'):
                     P.hosted()
                 else:
                     with self.assertRaisesRegex(ValueError, 'disposable_branch_only'): P.hosted()
@@ -1134,9 +1247,9 @@ class ProbeContracts(unittest.TestCase):
 
     def test_workflow_has_exact_branch_source_and_export_closure(self):
         raw = WORKFLOW.read_text()
-        self.assertIn('branches: [feature/protected-compute-admission, feature/protected-compute-endorsement, feature/protected-compute-cert-profile, feature/protected-compute-collateral]', raw)
+        self.assertIn('branches: [feature/protected-compute-admission, feature/protected-compute-endorsement, feature/protected-compute-cert-profile, feature/protected-compute-collateral, feature/protected-compute-local-policy]', raw)
         self.assertIn("if: github.ref == 'refs/heads/feature/protected-compute-admission' || github.ref == 'refs/heads/feature/protected-compute-endorsement' || github.ref == 'refs/heads/feature/protected-compute-cert-profile'", raw)
-        self.assertIn('Execute exactly forty core evidence tests offline', raw)
+        self.assertIn('Execute exactly fifty-two core evidence tests offline', raw)
         self.assertIn('cancel-in-progress: false', raw)
         self.assertIn('timeout-minutes: 45', raw)
         self.assertIn('persist-credentials: false', raw)
@@ -1158,6 +1271,12 @@ class ProbeContracts(unittest.TestCase):
         self.assertEqual(set(P.COLLATERAL_TESTS), {P.PREFIX + name for name in names}
             | {P.COLLATERAL_PREFIX + name for name in new_names})
         self.assertEqual(len(new_names), 12)
+        policy_source = (P.ROOT / 'crates/volparossa-content/src/provider/compute/attestation/policy_tests.rs').read_text()
+        policy_names = re.findall(r'#\[test\]\s+fn (\w+)\(', policy_source)
+        self.assertEqual(len(policy_names), 12)
+        self.assertIn('include!("policy_tests.rs");', source)
+        self.assertEqual(set(P.LOCAL_POLICY_TESTS), set(P.COLLATERAL_TESTS)
+            | {P.PREFIX + name for name in policy_names})
 
 
 if __name__ == '__main__':

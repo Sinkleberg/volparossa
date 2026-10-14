@@ -30,9 +30,27 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Exercise the installed Android app and verify its actual refresh and expiry behavior. | Trial `38482209254` on `471d24f` passes the exact initial four weather and five air-quality rows, then fails refresh with one request per product instead of two. Cleanup passes. Candidate `5fbc9e11` tests idle/stable-target refresh handling; actual trial `38486131965` is running. Native refresh, background expiry and iOS remain open; Flutter/web success is separate. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | PR232's actual trial `38477713017` on `20e957b4` passes the base lifecycle but fails Cloud publication: an APPEND I/O boundary followed by seven provider-lookup rejections. Candidate `2827d1a3` adds bounded existing-event diagnostics; actual trial `38486236267` is running. Current Quality awaits resolution of PR232's main-branch conflict; the earlier software checks apply to `20e957b4`. Consumer repair, restore, deletion and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
-| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | PR238, PR240 and PR242 are merged. PR242's fixed Milan path and authenticated ASK-scope revocation checks pass all 40 named tests, targeted and workspace Clippy, Quality and CodeQL on the merged tree. These are public verification and synthetic session checks, not worker admission. Full appraisal and protected execution remain open. No suitable confidential-computing server is available; software preparation continues alongside Android and storage. Local service and public peer tasks are not substitutes. |
+| Native Overmorrow — `volparossa-weather` | Exercise the installed Android app and verify its actual refresh and expiry behavior. | Trial `38487100122` on `a96c5445` passes the exact initial four weather and five air-quality rows, then still fails refresh with one request per product instead of two. Idle/stable-target handling does not resolve the failure; the post-tap snapshot retains the old successful products. Cleanup passes. A footer/system-bar layout correction is being prepared; overlap is a hypothesis, not the established cause. Native refresh, background expiry and iOS remain open; Flutter/web success is separate. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Actual trial `38486236267` on `2827d1a3` passes the base lifecycle but still fails Cloud publication, with six TLS, stream-open and provider-lookup rejections. The new bounded event projection has incomplete observation windows and does not establish the cause. Merge `49c09bed` incorporates main and resolves the conflict; its CodeQL passes and Quality is running. Consumer repair, restore, deletion and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
+| Protected remote compute — `volparossa`, then Code/Browser | Execute a private task on another node with verifiable protection from the worker administrator. | PR238, PR240 and PR242 are merged. PR242's fixed Milan path and authenticated ASK-scope revocation checks pass all 40 named tests, targeted and workspace Clippy, Quality and CodeQL on the merged tree. The next candidate adds explicit local TCB/SMT policy and binds it into challenge version 2; hosted compilation and 52 named tests are pending. Full vendor appraisal and protected execution remain open. No suitable confidential-computing server is available; software preparation continues alongside Android and storage. Local service and public peer tasks are not substitutes. |
+
+### Explicit local policy for protected compute
+
+The next candidate adds an immutable owner-local policy for all four Milan TCB
+stages, each compared component by component, and distinguishes guest permission
+for SMT from actual platform enablement. It also binds every local expectation
+into version-two session challenges; old challenges are rejected rather than
+silently reinterpreted. Debug/migration restrictions, finite attempts and owner,
+challenge and collateral expiries remain unchanged.
+
+The candidate passes 64 inert harness checks, 11 public-RSA scope checks and
+formatting. The reviewed RSA call path and dependency graph remain public-only;
+the source guard changes only for the new post-signature typed field extraction.
+Hosted Rust compilation, the 52 named evidence tests and targeted Clippy are
+still pending. Public fixture compatibility is not a current vendor-security
+decision, worker admission or private task execution. All four remaining
+appraisal obligations stay explicit. See the
+[local-policy profile and limitations](development/PROTECTED_COMPUTE_VERIFIER.md#explicit-owner-local-policy-candidate).
 
 ### Storage maintenance verification
 
@@ -109,8 +127,35 @@ stop. It adds no RPC, retry, deadline or production authority.
 Capture failures, incomplete rings and snapshot scope
 remain explicit; zero counts cannot prove event absence or causation, and
 projection failure cannot replace the primary failure or route diagnostic.
-Its 96 inert checks pass. The [new actual trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38486236267)
-is running; the diagnostic addition is not a proven remedy.
+Its 96 inert checks pass. The [actual trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38486236267)
+still fails at Cloud publication. Six retained failures have no omissions:
+one FINALIZE is rejected at `tls_handshake`, followed by one RESERVE at
+`stream_open` and four at `provider_lookup`, all with `deadline_scope=none`.
+These boundaries do not establish an inner cause or prove custody for copies
+without a failure entry. The original 72-member artifact matches SHA-256
+`8c08f9d759bef81bd0be8b47ec80047cdde1d0db4df071103d9044686fbc8d54`.
+
+The client event projection retains four `RESPONSE_TARGETS_UNAVAILABLE` events
+and 26 completed discovery responses with offers. Each storage-provider role
+has a registration event, but all seven rings are at capacity and the client's
+window does not cover the baseline. No per-copy event times are exported, so
+zero failure counts cannot establish continuous availability or explain the
+six rejected operations. The projection does not replace the original failure.
+
+Independent reconstruction with the exact candidate's validators passes the
+base upload, restart/repair, two byte-verified restores and all eleven copy
+deletions, with zero final usage in all three base stores. The disposable
+topology and local owner cleanup pass, with unchanged surrounding guest network
+state. Consumer remote cleanup and zero custody remain explicitly unconfirmed;
+consumer repair, restore and finish are not reached.
+
+Merge `49c09bed` incorporates main without changing the `2827d1a3` storage
+production code or actual-trial scripts. CodeQL `38488448702` passes all four
+analyses and the separate aggregate check on that exact merge. Its original
+52-member log archive matches SHA-256
+`e389a964a8796f6ec356a1ad3180d7491aa92c6f4b2da2672cf3f271b7757f6f`.
+Quality `38488452267` is running. The original actual trial remains bound to
+`2827d1a3`; software checks on the merge do not supply consumer runtime proof.
 
 The intervening [trial on `599a4595`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38453132258)
 passes the 29 selected Rust tests and builds the production binaries, then fails
@@ -151,8 +196,28 @@ matches SHA-256
 Candidate `5fbc9e11` corrects the fixture's idle/stable-target refresh handling.
 Its 73 Node checks, 15 Python checks and three acceptance guards pass. Component
 run `38486138553` also passes on the same tree; neither proves installed-app
-acceptance. The [new Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38486131965)
-is running with the existing exact refresh and expiry criteria unchanged.
+acceptance. Its [Android trial](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38486131965)
+fails during dependency setup at the 300-second package-install bound, before
+the app is built or exercised. Candidate `a96c5445` changes only that setup
+bound to 600 seconds and its guards, not the app's refresh or expiry criteria.
+
+The [trial on `a96c5445`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38487100122)
+passes the installed app's exact initial rows and metadata, then fails at
+`actual-refresh/product_count_wait`: both request counts remain one instead of
+two. Six target searches satisfy the idle/stable-target gate and the tap command
+completes, but neither proves that Flutter received the pointer or callback.
+The post-tap snapshot still shows the old successful products, one attempt each,
+and `loading=false`; no new request is observed. All recorded app, process,
+namespace and KVM cleanup checks pass. The original 46-member artifact matches
+SHA-256 `5fb4764a26d800cd5362cd44a80d329ca53d228e6946d219bcd9b861d3b72daa`.
+Component run `38487105093` passes on the same tree; this native workflow does
+not run the Dart widget tests. Full native refresh, resume and expiry remain open.
+
+Source review finds that the edge-to-edge app's last scrollable footer has no
+system-inset protection, while the observer checks only the full view bounds.
+A dynamic safe-area layout and safe-target observation are being prepared.
+System-bar interception is plausible but unproven: this artifact contains no
+actual inset, delivered-pointer or post-tap lifecycle observation.
 
 The [trial on `84d06151`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38477028643)
 receives successful HTTP responses, completes both bodies and decodes both JSON
