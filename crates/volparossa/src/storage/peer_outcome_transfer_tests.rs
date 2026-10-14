@@ -124,7 +124,7 @@ async fn wire_failure_drops_original_stream_and_queries_exact_id_without_retryin
     let mut diagnostics = Diagnostics::default();
     diagnostics.push(0, &error, Boundary::new(operation, Stage::Unknown));
     let report = serde_json::to_value(diagnostics).unwrap();
-    assert_eq!(report["version"], 4);
+    assert_eq!(report["version"], 5);
     assert_eq!(report["failures"][0]["operation"], "finalize");
     assert_eq!(report["failures"][0]["category"], "io");
     assert_eq!(report["failures"][0]["agent_outcome"]["status"], "observed");

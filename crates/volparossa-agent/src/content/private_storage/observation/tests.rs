@@ -36,6 +36,7 @@ async fn every_observed_boundary_keeps_original_error_and_success_resets_detail(
                 stage: stage as i32,
                 deadline_scope: Deadline::None as i32,
                 tls_failure: None,
+                stream_failure: None,
             })
         );
         observation.boundary(stage, async { Ok(()) }).await.unwrap();
@@ -132,6 +133,7 @@ async fn only_actual_elapsed_budget_sets_its_exact_operation_or_exchange_scope()
             stage: Stage::Unobserved as i32,
             deadline_scope: Deadline::Operation as i32,
             tls_failure: None,
+            stream_failure: None,
         })
     );
     observation.reset();
@@ -153,6 +155,7 @@ async fn only_actual_elapsed_budget_sets_its_exact_operation_or_exchange_scope()
             stage: Stage::Challenge as i32,
             deadline_scope: Deadline::Exchange as i32,
             tls_failure: None,
+            stream_failure: None,
         })
     );
     observation.reset();
@@ -174,6 +177,7 @@ async fn only_actual_elapsed_budget_sets_its_exact_operation_or_exchange_scope()
             stage: Stage::TlsHandshake as i32,
             deadline_scope: Deadline::Operation as i32,
             tls_failure: None,
+            stream_failure: None,
         })
     );
     observation.reset();
@@ -214,6 +218,98 @@ async fn uninstrumented_inner_policy_deadline_and_explicit_cancel_have_no_detail
     assert!(observation.detail().is_none());
 }
 
+#[test]
+fn stream_failure_mapping_is_closed_and_exhaustive() {
+    for (cause, expected) in [
+        (ContentStreamOpenCause::Policy, 1),
+        (ContentStreamOpenCause::RouteState, 2),
+        (ContentStreamOpenCause::RouteMaterial, 3),
+        (ContentStreamOpenCause::FlowAcquire, 4),
+        (ContentStreamOpenCause::TransportCertificate, 5),
+        (ContentStreamOpenCause::TransportTls, 6),
+        (ContentStreamOpenCause::InitialPaths, 7),
+        (ContentStreamOpenCause::OpenTcpWrite, 8),
+        (ContentStreamOpenCause::SubflowReadiness, 9),
+        (ContentStreamOpenCause::StreamAttachment, 10),
+    ] {
+        assert_eq!(stream_failure(cause) as i32, expected);
+    }
+}
+
+#[tokio::test]
+async fn stream_failure_is_request_local_and_success_or_other_boundary_clears_it() {
+    let first = Observation::default();
+    let second = Observation::default();
+    for value in 1..=10 {
+        let failure = PrivateStorageStreamFailure::try_from(value).unwrap();
+        let _ = first
+            .boundary(Stage::StreamOpen, async {
+                first.record_stream_failure(failure);
+                tokio::task::yield_now().await;
+                assert!(second.detail().is_none());
+                Err::<(), _>(ContentError::Unavailable)
+            })
+            .await;
+        let detail = first.detail().unwrap();
+        assert_eq!(detail.stream_failure, Some(value));
+        assert_eq!(detail.tls_failure, None);
+        assert_eq!(detail.stage, Stage::StreamOpen as i32);
+        first
+            .boundary(Stage::StreamOpen, async { Ok(()) })
+            .await
+            .unwrap();
+        assert!(first.detail().is_none());
+        let _ = first
+            .boundary(Stage::TlsHandshake, async {
+                first.record_stream_failure(failure);
+                Err::<(), _>(ContentError::Unavailable)
+            })
+            .await;
+        assert!(first.detail().unwrap().stream_failure.is_none());
+    }
+    first.reset();
+    first.record_stream_failure(PrivateStorageStreamFailure::FlowAcquire);
+    assert!(first.detail().is_none());
+}
+
+#[tokio::test]
+async fn enclosing_deadlines_and_requester_cancellation_clear_stream_failure() {
+    let observation = Observation::default();
+    for scope in [Deadline::Operation, Deadline::Exchange] {
+        let _ = observation
+            .budget(
+                scope,
+                Duration::ZERO,
+                observation.boundary(Stage::StreamOpen, async {
+                    observation.record_stream_failure(PrivateStorageStreamFailure::TransportTls);
+                    pending::<Result<(), ContentError>>().await
+                }),
+            )
+            .await;
+        let detail = observation.detail().unwrap();
+        assert_eq!(detail.deadline_scope, scope as i32);
+        assert!(detail.stream_failure.is_none());
+        assert!(detail.tls_failure.is_none());
+    }
+    let (client, mut server) = UnixStream::pair().unwrap();
+    let (started, running) = oneshot::channel();
+    let task = tokio::spawn(async move {
+        let observation = Observation::default();
+        let result = observation
+            .requester_boundary(Stage::StreamOpen, &mut server, async {
+                observation.record_stream_failure(PrivateStorageStreamFailure::InitialPaths);
+                started.send(()).unwrap();
+                pending::<Result<(), ContentError>>().await
+            })
+            .await;
+        assert!(result.is_err());
+        assert!(observation.detail().is_none());
+    });
+    running.await.unwrap();
+    drop(client);
+    task.await.unwrap();
+}
+
 #[tokio::test]
 async fn tls_failure_is_request_local_and_reset_by_success_or_another_boundary() {
     let observation = Observation::default();
@@ -238,6 +334,7 @@ async fn tls_failure_is_request_local_and_reset_by_success_or_another_boundary()
                 stage: Stage::TlsHandshake as i32,
                 deadline_scope: Deadline::None as i32,
                 tls_failure: Some(failure as i32),
+                stream_failure: None,
             })
         );
         observation
@@ -284,6 +381,7 @@ async fn enclosing_deadlines_clear_tls_failure_and_keep_their_original_scope() {
                 stage: Stage::TlsHandshake as i32,
                 deadline_scope: scope as i32,
                 tls_failure: None,
+                stream_failure: None,
             })
         );
     }

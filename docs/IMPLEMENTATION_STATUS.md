@@ -32,33 +32,34 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Join core-delivered products to the now-proven installed Android refresh/background-expiry lifecycle. | PR19 is merged as `ad10d7d9`, with the exact tested tree of `576550f3`. Original Android `38497919547` and component `38497925414` pass; the Android proof includes real tap refresh, background/resume, hidden expired tables, unchanged three requests per product and full cleanup. Products are synthetic in this trial. Actual core delivery into Android, physical devices and iOS remain open; separate web evidence is unchanged. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Candidate `d22f7892` passes Quality, including seven isolated agent outcome tests. Trial `38607252325` passes thirteen owner and seven agent maintenance tests, then stops before topology execution because the standalone content tests also lack Tokio's test utilities. A content-only development dependency and isolated wire-test CI step now address that second build gap; hosted verification is pending. The earlier Cloud FINALIZE `wire_receipt/io` failure, consumer repair, restoration and remote cleanup still require actual proof. Cloud PR234 waits for this shared integration. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Exact `cdfa671a` passes Quality and the actual base maintenance lifecycle, including two restores and deletion of eleven copies. Combined trial `38611919770` fails later in Cloud publication: its first reserve cannot open the protected content stream before READY. The current error collapses multiple route/transport causes; the next step is a bounded per-request classification, not a deadline increase or blind retry. Consumer repair, restoration and remote cleanup remain unproved. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR247 is merged as `17afa3f0`, with the exact tested tree of `09b0d3cc`. Targeted run `38512217556` passes 52 appraisal, 16 guest and twelve quote tests; Quality `38512223814` also executes all eight new agent/control/CLI cases and passes. CodeQL `38512218075` passes. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
 
-### Cloud upload contract preparation
+### Cloud upload producer integration
 
-PR234 now prepares the continuation for the new shared storage diagnostic
-contract. Upload source profile 2 pins Image `949f208d` and Cloud `7d10c494`,
+PR234 joins the complete PR232 core candidate `b996160c`, including the Rust
+stream classification and wire-to-CLI projection, to its upload continuation.
+Upload source profile 2 pins Image `949f208d` and Cloud `7d10c494`,
 including the version-5 diagnostic adapter. Its new evidence schema 4 requires
 the exact version-6 consumer/provision report, original version-5 combined
 maintenance report and original upload receipt. Terminal report version 2 is
 accepted only by the explicit version-4 Cloud selectors. Historical pins and
 schema-2/3 evidence retain their original encoding and acceptance rules.
 
-All 129 targeted inert checks pass: 88 Cloud provision, orchestration, evidence,
+The earlier contract preparation passes 129 targeted inert checks: 88 Cloud provision, orchestration, evidence,
 shell, VM-wiring and Node checks, plus 41 shared-storage wiring cases. The 24 new
 upload source blobs match their exact Git commits. These tests exercise contracts
 and synthetic receipts, not protected transfers, peer custody or recovery. Export
 limits remain 2 MiB only for the named Cloud evidence schemas 3/4, 1 MiB for other
 JSON files and 8 MiB for the existing emergency aggregate.
 
-**This branch is not yet ready for an actual Cloud trial.** Only the shared
-profile-6 harness contracts have been joined; its core Rust still emits the older
-diagnostics. First integrate the complete, verified PR232 core through the normal
-branch stack, then require the shared consumer maintenance proof before running
-the longer Cloud upload/repair/restore continuation. Do not treat copied
-validators as integration of their producer.
+**The actual Cloud trial still waits for the shared storage proof.** Its source
+now includes both producer and consumer contracts, not only copied validators.
+The joined core candidate still needs hosted compilation and test evidence;
+require the actual shared consumer maintenance result before starting the longer
+Cloud upload/repair/restore continuation. Joining source does not resolve the
+observed storage failure or establish remote custody.
 
 Earlier Quality `38617137672` passes on `c550e5e8`, not on this new preparation.
 The later shared-storage trial `38611919770` on `cdfa671a` fails during Cloud's
@@ -66,7 +67,96 @@ first reserve before READY. Its separate base maintenance success does not prove
 consumer repair, restoration or remote cleanup. The new preparation changes no
 production resources, authority, retries, deadlines or storage accounting.
 
-### Earlier storage checkpoint
+### Protected storage stream diagnostic candidate
+
+The next PR232 candidate adds a request-local, finite failure classification for
+the protected stream before the provider TLS handshake. It distinguishes policy,
+route state/material, flow acquisition, transport certificate/TLS, initial paths,
+OPEN_TCP writing, subflow readiness and stream attachment. This is diagnostic
+evidence, not a transport fix or a remote acceptance receipt. It does not change
+the existing eight acquisition attempts, deadlines, routing, authorization,
+storage accounting or cleanup.
+
+The additive local-control field is projected only for a matching pre-READY
+`CONTENT_UNAVAILABLE` rejection. Success, cancellation and enclosing timeouts
+clear the observation. CLI diagnostics use version 5; versions 1–4 retain their
+original closed JSON shapes. Image `949f208d` and Cloud `7d10c494` accept the same
+bounded contract. Consumer profile 6 pins those exact Git objects, with a version-6
+consumer report and an explicitly selected version-5 combined report. Historical
+reports are not upgraded into new evidence.
+
+Targeted inert checks pass: 217 core harness/validator cases, 55 Image adapter cases
+and eleven Cloud cases. Independent source review and 26,656 in-memory historical
+adapter comparisons find no changed version-1–4 acceptance or output. The new
+Rust source and wire-to-CLI regression tests still require hosted compilation and
+execution; the actual combined storage trial has not yet run on this candidate.
+No private payloads, paths, identities or raw errors are added to exported evidence.
+
+The first hosted [Quality check `38635879441`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38635879441)
+on `9eb00b2b` stops at Rust formatting, before compilation or Rust test execution.
+The nine indicated formatting changes in five source files are applied without
+behavior changes; fresh hosted validation remains required. The original log ZIP
+is retained with SHA-256
+`5b13d2fe1f380b88d242d01a961563d65b7d0e1c89ec1977445a0f4632afc208`.
+
+Follow-up Quality `38636353400` on `ae592cfb` passes formatting, dependency
+checks and standalone fuzz lint, then stops at one `doc_markdown` lint: the
+`OPEN_TCP` identifier in a source comment needs backticks. The comment is corrected
+without executable changes. Workspace and targeted Rust tests have not yet run
+for this candidate. Original log ZIP SHA-256:
+`e4077a60a4fcbeef61d7cb22c267edec2c20d9ae26e45a17c6f8b3436de4d99a`.
+
+Quality [`38638283974`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38638283974)
+on `473a0da6` passes formatting, dependency checks and standalone fuzz lint, then
+stops at four strict Clippy findings. Two require appropriate value/reference
+passing; the other two are function-length limits. The correction borrows the
+activation failure, copies the two-byte diagnostic value and moves the unchanged
+JSON scope checks into a helper. A documented, function-local length allowance
+keeps the ordered stream handshake, transfer and cleanup in one ownership scope.
+No deadline, acceptance rule or error mapping changes. Workspace and targeted
+Rust tests were skipped, so compilation and execution still require fresh hosted
+validation before an actual storage trial. Original log ZIP SHA-256:
+`afc0d769391add76f4492cab4218165dd5bff5ed1d181e86ed76e055bbc7452e`.
+
+### Latest storage trial
+
+[Run `38611919770`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38611919770),
+job `116017175277`, checks exact source
+`cdfa671aee09479e16958239848e2bbd0639bb6f`. All thirteen owner, seven isolated
+agent and 25 isolated content-wire prerequisite tests pass. The real topology
+then completes the base archive's renewal, core restart, SIGTERM/resume,
+provider-withdrawal repair and two non-consuming, hash-verified restores. The
+base finish deletes eleven retained copies and independently reports zero usage
+at all three stores.
+
+The combined application continuation fails at `storage-consumer-publish`.
+Cloud's first reserve, fragment 0/copy 0, returns `CONTENT_UNAVAILABLE` at
+`agent_ready`, with `stream_open`, no recorded deadline expiry and no TLS failure
+classification. Provider lookup/cardinality and offer-validity checks have
+already passed; the provider's TLS handshake and storage request have not
+started. That revision's `open_content_stream` collapses policy, transport acquisition
+and MPTCP/TLS activation failures into that same result, so the underlying cause
+is not yet established. This differs from the earlier FINALIZE `wire_receipt/io`
+failure and does not prove that earlier defect fixed.
+
+The original schema-4 report remains failed. Consumer repair, cold restoration
+and provider-zero cleanup have no completed combined receipt. Local private
+fixtures and owned namespaces are removed, and guest-root host snapshots match
+at `2cc2418089a5866d37b45112dc98fd6e9dc7434d70733a275ec53e1f440a182c`.
+Base zero usage must not be reused as proof of subsequent consumer cleanup.
+The bounded client event ring does not cover the whole publication interval;
+missing event categories cannot prove absence or attribute the failed request.
+
+Artifact `11921330521` retains 76 files. Its original ZIP SHA-256 is
+`65fff550493741c7f9aec53cf3675535c262d28a64848ace376a97fc1f39e950`;
+the original log ZIP is
+`bbd152e4a335dd4331081ccf82c7fbcef3f0ca4f1ec593369d33c2a4e5137013`.
+Independent readback verifies the exact source, failure and limited evidence.
+Separate Quality `38611450851` succeeds on merge `dd45c334`; only README differs
+from the candidate, so tested code/workflow bytes match. Its namespace skips
+do not substitute for the actual failed consumer result.
+
+### Earlier isolated-test build gap
 
 [Run `38607252325`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38607252325),
 job `116001235165`, binds exact source
@@ -77,8 +167,9 @@ owner-maintenance tests and seven agent-maintenance tests, then exits 101 in
 in `private_storage/wire/tests/bridge_observation.rs`: its own test dependencies
 do not enable Tokio's `test-util` feature. The content crate now declares that
 feature only under development dependencies, and Quality runs its storage wire
-tests without unrelated workspace feature unification. Hosted verification of
-this correction is pending; production dependencies and deadlines are unchanged.
+tests without unrelated workspace feature unification. The later Quality and
+actual prerequisite results above verify this correction; production dependencies
+and deadlines are unchanged.
 
 The earlier agent build gap in
 [run `38595365736`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38595365736)
