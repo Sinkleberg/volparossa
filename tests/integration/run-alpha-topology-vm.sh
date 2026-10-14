@@ -1126,10 +1126,16 @@ MAINTENANCE_LARGE_NAMES = {
     "private-storage-maintenance-smoke.json", "private-storage-maintenance-evidence.json",
     "storage-consumer-evidence.json",
 }
+CONSUMER_CONTROL_NAMES = {"storage-consumer-control-underlay.json"} | {
+    f"storage-consumer-{phase}-control-{suffix}.json"
+    for phase in ("publish", "exercise", "finish")
+    for suffix in ("before", "after", "relay0", "relay1", "relay2")
+}
+MAINTENANCE_NAMES |= CONSUMER_CONTROL_NAMES
 MAINTENANCE_PRIORITY_NAMES = {
-    name for name in MAINTENANCE_NAMES if name.startswith("storage-consumer-")
-    or name.startswith("private-storage-maintenance-") or name.endswith("_usage.json")
-    or name.endswith("private_cleanup.json")
+    name for name in MAINTENANCE_NAMES if name not in CONSUMER_CONTROL_NAMES and (
+    name.startswith("storage-consumer-") or name.startswith("private-storage-maintenance-")
+    or name.endswith("_usage.json") or name.endswith("private_cleanup.json"))
 } | {"host-state-before.json", "host-state-after.json", "guest-exit-status", "current-phase"}
 
 SIGNAL_FRAGMENT_NAMES = {"a01-expected-peers.json", "signal-backup-provision.json",

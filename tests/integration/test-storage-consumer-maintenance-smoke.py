@@ -601,6 +601,54 @@ class ConsumerOrchestration(unittest.TestCase):
             self.assertEqual(run.stdout, f'{minimum}\n'.encode())
             self.assertEqual(run.stderr, b'')
 
+    def test_network_two_actual_sampler_and_original_node_failure_keep_separate_boundaries(self):
+        # Real new sampler; only its core RPC replies and the Node phase are
+        # synthetic. No runtime, socket or provider is used by this component test.
+        fixtures = runpy.run_path(str(HERE / 'test-storage-consumer-route-sampler.py'))
+        root = Path('/opt/va.' + 'a' * 32 + '.abcdef/u/m')
+        work, writes = root.parents[1], []
+        context = 'a' * 32
+        initial = fixtures['snapshot'](context, 0, fixtures['OLD']['event'](9))
+        final = fixtures['snapshot'](context, 0, fixtures['OLD']['event'](9) + b''.join(
+            fixtures['OLD']['event'](11 + i, context=context) for i in range(16)))
+        env = dict(STORAGE_PROOF_BASELINE_MS='10', STORAGE_PROOF_ROUTE_POLICY=json.dumps(fixtures['POLICY']),
+            STORAGE_PROOF_UNDERLAY_SHA256='d' * 64)
+        from types import SimpleNamespace
+        replies = [SimpleNamespace(stdout=raw) for raw in initial + final]
+        with patch.dict(os.environ, env), patch.dict(G, NETWORK_VERSION=2,
+                private_json=lambda *_: dict(coreBinary='/fixed/core', controlSocket='/fixed/client'),
+                validate_locations=lambda *_: (Path('/fixed/core'), Path('/fixed/client')),
+                private_directory=lambda *_: None, node_phase=lambda *_: (report('exercise'), 'b' * 64),
+                write_json=lambda path, value: writes.append((path, value))), \
+                patch.object(subprocess, 'run', side_effect=replies) as query:
+            result = M['phase'](root, 'exercise', work / 'runtime-exit/control/agent.sock',
+                work / 'client-fixtures/private-storage-user', PROVISION, time.monotonic() + 1)
+        self.assertEqual(query.call_count, 8)
+        self.assertEqual((result['version'], result['network_version'], result['control_underlay_sha256']), (2, 2, 'd' * 64))
+        self.assertEqual(writes[0][1]['exit_log_sampling_version'], 3)
+        self.assertTrue(writes[0][1]['exit_log_sampler_joined'])
+        original = M['NodePhaseFailure'](diagnostic_failure(3), 'b' * 64, PROVISION)
+        for owner_failure in (False, True):
+            writes.clear()
+            error = subprocess.CalledProcessError(1, ['PRIVATE'])
+            replies = [SimpleNamespace(stdout=raw) for raw in initial] + [error] if owner_failure else [error]
+            def node(*_): raise original
+            with patch.dict(os.environ, env), patch.dict(G, NETWORK_VERSION=2,
+                    private_json=lambda *_: dict(coreBinary='/fixed/core', controlSocket='/fixed/client'),
+                    validate_locations=lambda *_: (Path('/fixed/core'), Path('/fixed/client')),
+                    private_directory=lambda *_: None, node_phase=node,
+                    write_json=lambda *args: writes.append(args)), \
+                    patch.object(subprocess, 'run', side_effect=replies):
+                expected = M['NodePhaseFailure'] if owner_failure else M['NetworkPhaseFailure']
+                with self.assertRaises(expected) as caught:
+                    M['phase'](root, 'exercise', work / 'runtime-exit/control/agent.sock',
+                        work / 'client-fixtures/private-storage-user', PROVISION, time.monotonic() + 1)
+            if owner_failure: self.assertIs(caught.exception, original)
+            else:
+                self.assertEqual(caught.exception.report['sampler']['operation'], 'paths_before')
+                self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+            self.assertEqual(writes, [])
+
 
 if __name__ == '__main__':
     unittest.main()

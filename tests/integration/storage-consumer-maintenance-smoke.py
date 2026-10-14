@@ -49,6 +49,7 @@ FAILURE_CODES = {'phase_deadline', 'authority_expired', 'authority_changed', 're
     'application_failed'}
 CANCELLED = False
 PROFILE_VERSION = 1
+NETWORK_VERSION = 1
 
 
 class NodePhaseFailure(ValueError):
@@ -58,6 +59,16 @@ class NodePhaseFailure(ValueError):
         self.report = dict(version=1, kind='storage-consumer-maintenance-orchestration',
             phase=value['phase'], passed=False, code='node_phase_failed', cleanup_confirmed=False,
             node=value, node_report_sha256=report_hash, provision_sha256=provision, node_joined=True)
+
+
+class NetworkPhaseFailure(ValueError):
+    def __init__(self, phase, diagnostic):
+        sampler = runpy.run_path(str(HERE / 'storage-consumer-route-sampler.py'))
+        sampler['validate_diagnostic'](diagnostic)
+        super().__init__('network_observation_failed')
+        self.report = dict(version=2, kind='storage-consumer-maintenance-orchestration', phase=phase,
+            passed=False, code='network_observation_failed', cleanup_confirmed=False,
+            network_version=2, sampler=dict(diagnostic))
 
 
 def require(value, code='consumer_contract'):
@@ -493,23 +504,36 @@ def phase(root, selected, exit_socket, flow_root, provision, deadline):
     require(Path(exit_socket) == root.parents[1] / 'runtime-exit/control/agent.sock'
         and Path(flow_root) == root.parents[1] / 'client-fixtures/private-storage-user', 'flow_locations')
     private_directory(Path(flow_root))
-    baseline_text, scope_text = os.environ['STORAGE_PROOF_BASELINE_MS'], os.environ['STORAGE_PROOF_ROUTE_SCOPE']
+    baseline_text = os.environ['STORAGE_PROOF_BASELINE_MS']
+    scope_text = os.environ['STORAGE_PROOF_ROUTE_POLICY' if NETWORK_VERSION == 2 else 'STORAGE_PROOF_ROUTE_SCOPE']
     require(re.fullmatch('[0-9]{1,20}', baseline_text) and len(scope_text) <= 4096, 'flow_scope')
     baseline, scope = int(baseline_text), json.loads(scope_text)
-    SAMPLER['validate_route_scope'](scope)
+    sampler = SAMPLER if NETWORK_VERSION == 1 else runpy.run_path(str(HERE / 'storage-consumer-route-sampler.py'))
+    sampler['validate_route_scope' if NETWORK_VERSION == 1 else 'validate_policy'](scope)
+    extra = {}
+    if NETWORK_VERSION == 2:
+        underlay_sha = os.environ['STORAGE_PROOF_UNDERLAY_SHA256']
+        require(re.fullmatch('[0-9a-f]{64}', underlay_sha) is not None, 'flow_underlay')
+        extra = dict(network_version=2, control_underlay_sha256=underlay_sha)
     require(0 < baseline <= int(time.time() * 1000), 'flow_baseline')
     minimum, diagnostic = FLOW_MINIMUM[selected], {}
-    with SAMPLER['capture'](binary, Path(exit_socket), baseline, minimum, client=client, scope=scope,
-            diagnostic=diagnostic) as coverage:
-        value, report_hash = node_phase(root, selected, provision, deadline)
+    sampler_failure = sampler['SamplerFailure'] if NETWORK_VERSION == 1 else sampler['OLD']['SamplerFailure']
+    try:
+        with sampler['capture'](binary, Path(exit_socket), baseline, minimum, client=client,
+                **{('scope' if NETWORK_VERSION == 1 else 'policy'): scope}, diagnostic=diagnostic) as coverage:
+            value, report_hash = node_phase(root, selected, provision, deadline)
+    except sampler_failure:
+        if NETWORK_VERSION == 2: raise NetworkPhaseFailure(selected, diagnostic) from None
+        raise
     summary = coverage.report(joined=coverage.joined)
-    SAMPLER['validate_summary'](summary, baseline, minimum)
-    require(summary['exit_log_sampling_version'] == 2 and not CANCELLED and time.monotonic() < deadline + 30, 'phase_deadline')
+    sampler['validate_summary'](summary, baseline, minimum)
+    require(summary['exit_log_sampling_version'] == (3 if NETWORK_VERSION == 2 else 2)
+        and not CANCELLED and time.monotonic() < deadline + 30, 'phase_deadline')
     write_json(Path(flow_root) / f'flow-consumer-{selected}.json', summary)
-    return dict(version=1, kind='storage-consumer-maintenance-orchestration', phase=selected, passed=True,
+    return dict(version=NETWORK_VERSION, kind='storage-consumer-maintenance-orchestration', phase=selected, passed=True,
         node=value, node_report_sha256=report_hash, provision_sha256=provision, node_joined=True,
         protected_flow_proven=True, minimum_protected_completions=minimum, sampler_joined=True,
-        remote_cleanup_independently_proven=False)
+        remote_cleanup_independently_proven=False, **extra)
 
 
 def proc_bytes(path, maximum):
@@ -591,8 +615,12 @@ def cleanup(root):
 
 
 def main(arguments):
-    global PROFILE_VERSION
+    global PROFILE_VERSION, NETWORK_VERSION
     PROFILE_VERSION = 1
+    NETWORK_VERSION = 1
+    if len(arguments) >= 2 and arguments[-2:] == ['--network-version', '2']:
+        NETWORK_VERSION = 2
+        arguments = arguments[:-2]
     if len(arguments) >= 2 and arguments[-2] == '--profile-version' and arguments[-1] in ('2', '3'):
         PROFILE_VERSION = int(arguments[-1])
         arguments = arguments[:-2]
@@ -638,5 +666,5 @@ if __name__ == '__main__':
     except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
         # The original node phase report remains private and independently
         # allowlisted; never replace it with a fabricated successful wrapper.
-        print(json.dumps(error.report if isinstance(error, NodePhaseFailure) else failure_report(sys.argv[1:]), sort_keys=True))
+        print(json.dumps(error.report if isinstance(error, (NodePhaseFailure, NetworkPhaseFailure)) else failure_report(sys.argv[1:]), sort_keys=True))
         sys.exit(1)

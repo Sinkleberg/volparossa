@@ -117,6 +117,8 @@ class Wiring(unittest.TestCase):
             'storage-consumer-maintenance-smoke.sh', 'storage-consumer-maintenance-smoke.py',
             'storage-consumer-maintenance.mjs', 'storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json',
             'storage-consumer-maintenance-pins-v3.json',
+            'storage-consumer-control-underlay.sh', 'storage-consumer-control-underlay.py',
+            'storage-consumer-network.sh', 'storage-consumer-network.py', 'storage-consumer-route-sampler.py',
             'storage-consumer-maintenance-evidence.py', 'storage-consumer-maintenance-provision.py',
             'image-snapshot-provision.py', 'agent-private-task-code.py', 'agent-private-task-code-pins.json')
         with tempfile.TemporaryDirectory() as temporary:
@@ -302,6 +304,8 @@ private_storage_fragments_run() {
 
     def test_emergency_keeps_terminal_receipts_first_without_raising_bounds(self):
         diagnostics = DIAGNOSTICS()
+        self.assertEqual(len(diagnostics['CONSUMER_CONTROL_NAMES']), 16)
+        self.assertFalse(diagnostics['CONSUMER_CONTROL_NAMES'] & diagnostics['MAINTENANCE_PRIORITY_NAMES'])
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             home, opt = base / 'home', base / 'opt'

@@ -68,12 +68,12 @@ private_storage_replicas_serve relay4 "$3"
         phase = TEXT.split('private_storage_consumer_phase() {', 1)[1].split('\n}', 1)[0]
         self.assertIn('case $1 in publish|exercise|finish)', phase)
         self.assertIn('flow-minimum "$consumer_phase"', phase)
-        self.assertIn('private_storage_fragments_phase_start "consumer-$consumer_phase"', phase)
+        self.assertIn('storage_consumer_phase_start || fail CONSUMER_NETWORK_START_FAILED', phase)
         self.assertIn('"$WORK/runtime-exit/control/agent.sock" "$storage_user"', phase)
-        self.assertLess(phase.index('private_storage_fragments_phase_start'),
+        self.assertLess(phase.index('storage_consumer_phase_start'),
             phase.index('private_storage_consumer_private "$consumer_phase"'))
         self.assertLess(phase.index('private_storage_consumer_private "$consumer_phase"'),
-            phase.index('private_storage_fragments_phase_finish "$consumer_minimum"'))
+            phase.index('storage_consumer_phase_finish "$consumer_minimum"'))
 
     def test_same_provider_stores_are_withdrawn_before_read_and_reopened_before_delete(self):
         run = TEXT.split('private_storage_consumer_run() {', 1)[1]

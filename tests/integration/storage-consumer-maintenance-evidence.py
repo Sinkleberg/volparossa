@@ -45,6 +45,9 @@ EXPORT_NAMES = (
         f'private-storage-fragments-consumer-{phase}-gates.json',
         f'content-provider-adaptive-private-storage-fragments-consumer-{phase}-control.json',
         *(f'private-storage-fragments-consumer-{phase}-privacy-{role}.json' for role in ROLES))))
+LEGACY_EXPORT_NAMES = EXPORT_NAMES
+EXPORT_NAMES += ('storage-consumer-control-underlay.json', *(f'storage-consumer-{phase}-control-{suffix}.json'
+    for phase in PHASES for suffix in ('before', 'after', 'relay0', 'relay1', 'relay2')))
 
 
 def require(condition, code):
@@ -288,12 +291,14 @@ def validate_provision(value):
             and count(tool['bytes'], 1, 16 * 1024**2) and sha(tool['sha256']), 'consumer_tool_provenance')
 
 
-def validate_orchestration(value, phase, provision_sha, prepared):
+def validate_orchestration(value, phase, provision_sha, prepared, *, network_layout=None):
+    dynamic = network_layout is not None and phase != 'prepare'
     extra = ('authority',) if phase == 'prepare' else (
         'minimum_protected_completions', 'sampler_joined', 'remote_cleanup_independently_proven')
     keys(value, ('version', 'kind', 'phase', 'passed', 'node', 'node_report_sha256',
-        'provision_sha256', 'node_joined', 'protected_flow_proven', *extra))
-    require(type(value['version']) is int and value['version'] == 1
+        'provision_sha256', 'node_joined', 'protected_flow_proven', *extra,
+        *(('network_version', 'control_underlay_sha256') if dynamic else ())))
+    require(type(value['version']) is int and value['version'] == (2 if dynamic else 1)
         and value['kind'] == 'storage-consumer-maintenance-orchestration'
         and value['phase'] == phase and value['passed'] is True and value['node_joined'] is True
         and value['provision_sha256'] == provision_sha and sha(value['node_report_sha256'])
@@ -312,6 +317,10 @@ def validate_orchestration(value, phase, provision_sha, prepared):
             # JSON equality alone accepts bool as int; authority types are fixed.
             require(encoded(value['authority'][app]) == encoded(expected), 'consumer_authority')
     else:
+        if dynamic:
+            require(type(value['network_version']) is int and value['network_version'] == 2
+                and value['control_underlay_sha256'] == network_layout['control_underlay_sha256'],
+                'consumer_orchestration_network')
         require(value['protected_flow_proven'] is True and value['sampler_joined'] is True
             and type(value['minimum_protected_completions']) is int
             and value['minimum_protected_completions'] == PHASES[phase]
@@ -417,20 +426,27 @@ def provider_counters(capture):
 
 
 def validate_evidence(value, *, previous=False):
+    dynamic = not previous and type(value.get('schema_version')) is int and value['schema_version'] == 3
     keys(value, ('schema_version', 'kind', 'success', 'scope', 'provision', 'provision_sha256',
         'prepare', *PHASES, 'withdrawal', 'private_cleanup', 'initial_usage', 'uploaded_usage',
         'restored_usage', 'deleted_usage', 'expected_peers', 'layout', 'isolation', 'consumer_isolation', 'network',
-        *(() if previous else ('control_transition',))))
-    require(type(value['schema_version']) is int and value['schema_version'] == (1 if previous else 2)
+        *(() if previous else ('control_transition',)), *(('control_underlay',) if dynamic else ())))
+    require(type(value['schema_version']) is int and value['schema_version'] == (1 if previous else 3 if dynamic else 2)
         and value['kind'] == 'storage-consumer-maintenance-evidence' and value['success'] is True,
         'consumer_evidence_identity')
     require(encoded(value['scope']) == encoded(SCOPE), 'consumer_evidence_scope')
     validate_provision(value['provision'])
     provision_sha = hashlib.sha256(encoded(value['provision'])).hexdigest()
     require(value['provision_sha256'] == provision_sha, 'consumer_provision_hash')
+    network, network_layout = None, None
+    if dynamic:
+        network = runpy.run_path(str(HERE / 'storage-consumer-network.py'))
+        network['U']['validate'](value['control_underlay'], value['expected_peers'], value['layout'], value['control_transition'])
+        network_layout = network['layout'](value['control_underlay'], value['expected_peers'])
+        require(value['provision']['version'] == 3, 'consumer_network_source_profile')
     prepared = value['prepare']['node']
     for phase in ('prepare', *PHASES):
-        validate_orchestration(value[phase], phase, provision_sha, prepared)
+        validate_orchestration(value[phase], phase, provision_sha, prepared, network_layout=network_layout)
     total, initial_bytes, repair_reads = geometry(prepared)
     usage(value['initial_usage'], [0] * 3, [0] * 3)
     usage(value['uploaded_usage'], initial_bytes, [6, 6, 4])
@@ -479,17 +495,21 @@ def validate_evidence(value, *, previous=False):
         'consumer_new_owner_isolation')
     keys(value['network'], PHASES)
     for name, phase in value['network'].items():
-        validate_network(phase, peers, layout, name, total, repair_reads, transition_sha=transition_sha)
+        if dynamic:
+            network['validate_network'](phase, peers, value['layout'], name, total, repair_reads, value['control_underlay'])
+        else:
+            validate_network(phase, peers, layout, name, total, repair_reads, transition_sha=transition_sha)
     return value
 
 
-def build_evidence(work):
+def build_evidence(work, *, network_version=1):
+    require(network_version in (1, 2), 'consumer_network_version')
     work = Path(work)
     def get(name):
         return read(work / name)[0]
     provision, raw = read(work / 'storage-consumer-provision.json')
     require(raw == encoded(provision), 'consumer_provision_encoding')
-    value = dict(schema_version=2, kind='storage-consumer-maintenance-evidence', success=True,
+    value = dict(schema_version=3 if network_version == 2 else 2, kind='storage-consumer-maintenance-evidence', success=True,
         scope=dict(SCOPE), provision=provision, provision_sha256=hashlib.sha256(raw).hexdigest(),
         **{name: get(f'storage-consumer-{name}.json') for name in ('prepare', *PHASES, 'withdrawal')},
         private_cleanup=get('storage-consumer-private-cleanup.json'),
@@ -502,9 +522,18 @@ def build_evidence(work):
     value['network'] = {name: dict(layout=get(f'private-storage-fragments-consumer-{name}-layout.json'),
         selected_route=get(f'private-storage-fragments-consumer-{name}-live-selection.json'),
         gates=get(f'private-storage-fragments-consumer-{name}-gates.json'),
-        control_privacy=get(f'content-provider-adaptive-private-storage-fragments-consumer-{name}-control.json'),
+        control_privacy=({} if network_version == 2 else
+            get(f'content-provider-adaptive-private-storage-fragments-consumer-{name}-control.json')),
         privacy={role: get(f'private-storage-fragments-consumer-{name}-privacy-{role}.json') for role in ROLES})
         for name in PHASES}
+    if network_version == 2:
+        network = runpy.run_path(str(HERE / 'storage-consumer-network.py'))
+        value['control_underlay'] = network['U']['read_check'](work, work / network['U']['NAME'], 'complete')
+        for name, phase in value['network'].items():
+            phase.update(control_privacy={broker: get(f'storage-consumer-{name}-control-{broker}.json')
+                for broker in network['BROKERS']},
+                control_before=get(f'storage-consumer-{name}-control-before.json'),
+                control_after=get(f'storage-consumer-{name}-control-after.json'))
     return validate_evidence(value)
 
 
@@ -513,8 +542,12 @@ def main(arguments):
         print('\n'.join(EXPORT_NAMES))
     elif len(arguments) == 2 and arguments[0] == 'check':
         validate_evidence(read(Path(arguments[1]))[0])
-    elif len(arguments) == 3 and arguments[0] == 'evidence':
-        raw = encoded(build_evidence(Path(arguments[1])))
+    elif len(arguments) == 3 and arguments[0] in ('evidence', 'evidence-v3'):
+        current = arguments[0] == 'evidence-v3'
+        value = build_evidence(Path(arguments[1]), network_version=2 if current else 1)
+        # Keep the existing 1MiB bound; do not multiply indentation for repeated
+        # actual kernel snapshots. Historical serialization stays unchanged.
+        raw = canonical(value) if current else encoded(value)
         require(len(raw) <= MAX_JSON, 'consumer_evidence_bound')
         F['create'](Path(arguments[2]), raw)
     else:

@@ -1173,6 +1173,8 @@ if [ "$private_storage_maintenance" = yes ]; then
         storage-consumer-maintenance-smoke.sh storage-consumer-maintenance-smoke.py \
         storage-consumer-maintenance.mjs storage-consumer-maintenance-pins.json storage-consumer-maintenance-pins-v2.json \
         storage-consumer-maintenance-pins-v3.json \
+        storage-consumer-control-underlay.sh storage-consumer-control-underlay.py \
+        storage-consumer-network.sh storage-consumer-network.py storage-consumer-route-sampler.py \
         storage-consumer-maintenance-evidence.py storage-consumer-maintenance-provision.py \
         image-snapshot-provision.py agent-private-task-code.py agent-private-task-code-pins.json; do
         [ -f "$source_directory/tests/integration/$maintenance_fixture" ] \
@@ -1587,6 +1589,9 @@ CLIENT_OBSERVER_PID=
 EXIT_OBSERVER_PID=
 PRIVACY_CLIENT_PID=
 PROVIDER_CONTROL_PID=
+CONSUMER_CONTROL_0_PID=
+CONSUMER_CONTROL_1_PID=
+CONSUMER_CONTROL_2_PID=
 PRIVACY_RELAY0_PID=
 PRIVACY_RELAY1_PID=
 PRIVACY_RELAY2_PID=
@@ -2228,7 +2233,8 @@ cleanup() {
         content_repair_stop_captures || original_status=1
     fi
     for observer_pid in "$PRIVACY_CLIENT_PID" "$PRIVACY_RELAY0_PID" "$PRIVACY_RELAY1_PID" \
-        "$PRIVACY_RELAY2_PID" "$PRIVACY_EXIT_PID" "$PROVIDER_CONTROL_PID"; do
+        "$PRIVACY_RELAY2_PID" "$PRIVACY_EXIT_PID" "$PROVIDER_CONTROL_PID" \
+        "$CONSUMER_CONTROL_0_PID" "$CONSUMER_CONTROL_1_PID" "$CONSUMER_CONTROL_2_PID"; do
         [ -z "$observer_pid" ] || kill -TERM "$observer_pid" 2>/dev/null || true
     done
     if [ -n "$HTTP3_SERVER_PID" ]; then
@@ -2249,7 +2255,8 @@ cleanup() {
         [ -z "$observer_pid" ] || wait "$observer_pid" 2>/dev/null || true
     done
     for observer_pid in "$PRIVACY_CLIENT_PID" "$PRIVACY_RELAY0_PID" "$PRIVACY_RELAY1_PID" \
-        "$PRIVACY_RELAY2_PID" "$PRIVACY_EXIT_PID" "$PROVIDER_CONTROL_PID"; do
+        "$PRIVACY_RELAY2_PID" "$PRIVACY_EXIT_PID" "$PROVIDER_CONTROL_PID" \
+        "$CONSUMER_CONTROL_0_PID" "$CONSUMER_CONTROL_1_PID" "$CONSUMER_CONTROL_2_PID"; do
         [ -z "$observer_pid" ] || wait "$observer_pid" 2>/dev/null || true
     done
     if [ -n "$DESTINATION_PID" ]; then
@@ -2797,6 +2804,10 @@ if [ "$private_storage_maintenance" = yes ]; then
     . "$source_directory/tests/integration/private-storage-maintenance-smoke.sh"
     # shellcheck source=tests/integration/storage-consumer-maintenance-smoke.sh
     . "$source_directory/tests/integration/storage-consumer-maintenance-smoke.sh"
+    # shellcheck source=tests/integration/storage-consumer-control-underlay.sh
+    . "$source_directory/tests/integration/storage-consumer-control-underlay.sh"
+    # shellcheck source=tests/integration/storage-consumer-network.sh
+    . "$source_directory/tests/integration/storage-consumer-network.sh"
 fi
 if [ "$signal_backup_fragments" = yes ]; then
     # shellcheck source=tests/integration/signal-backup-fragments-smoke.sh
@@ -3046,6 +3057,7 @@ if [ "$private_storage_maintenance" = yes ]; then
     for maintenance_script in private-storage-maintenance-smoke.py private-storage-log-sampler.py content-provider-readiness.py \
         storage-consumer-maintenance-smoke.py storage-consumer-maintenance.mjs \
         storage-consumer-maintenance-evidence.py storage-consumer-maintenance-provision.py \
+        storage-consumer-control-underlay.py storage-consumer-network.py storage-consumer-route-sampler.py \
         image-snapshot-provision.py agent-private-task-code.py; do
         install -o root -g root -m 0555 "$source_directory/tests/integration/$maintenance_script" "$WORK/bin/$maintenance_script"
     done
@@ -4751,10 +4763,22 @@ content_provider_mode = interfaces[:1] == ["--content-providers"]
 if content_provider_mode:
     interfaces.pop(0)
 content_control_pairs = {}
+consumer_control_role = None
 if role == "content-control" and content_provider_mode:
+    if interfaces and interfaces[0].startswith("--consumer-control="):
+        consumer_control_role = interfaces.pop(0).removeprefix("--consumer-control=")
+        if consumer_control_role not in ("relay0", "relay1", "relay2"):
+            raise SystemExit("invalid consumer control capture")
     control_argument = interfaces.pop(0) if interfaces else ""
     control_addresses = control_argument.removeprefix("--content-control=").split(",")
     allowed_interfaces = (["cp0", "cp1"], ["ac0", "ac1", "ac2"], ["lc0", "lc1"])
+    if consumer_control_role is not None:
+        number = ("relay0", "relay1", "relay2").index(consumer_control_role)
+        allowed_interfaces = ([f"cc{number}{p}" for p in range(3)],)
+        expected_addresses = [dict(relay0="42.158.0.1", relay1="44.160.1.1", relay2="45.161.2.1")[consumer_control_role],
+            "48.164.4.1", "49.165.5.1", "50.166.6.1"]
+        if control_addresses != expected_addresses:
+            raise SystemExit("invalid consumer control addresses")
     if not control_argument.startswith("--content-control=") or interfaces not in allowed_interfaces \
             or len(control_addresses) != len(interfaces) + 1 \
             or len(set(control_addresses)) != len(control_addresses):
@@ -5282,6 +5306,7 @@ with open(output_path, "x", encoding="ascii") as output:
             "provider_payload_timing": provider_payload_timing,
             "unexpected_provider_application_packets": unexpected_provider_application_packets,
             "content_control_pairs": content_control_pairs,
+            **({"consumer_control_role": consumer_control_role} if consumer_control_role is not None else {}),
             "content_control_packets": content_control_packets,
             "unexpected_provider_control_packets": unexpected_provider_control_packets,
             "packet_socket_drops": packet_socket_drops,

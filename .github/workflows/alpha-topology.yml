@@ -167,6 +167,11 @@ jobs:
           python3 -B tests/integration/test-private-storage-log-sampler.py
           python3 -B tests/integration/test-private-storage-maintenance-wiring.py
           sh -n tests/integration/storage-consumer-maintenance-smoke.sh
+          sh -n tests/integration/storage-consumer-control-underlay.sh
+          sh -n tests/integration/storage-consumer-network.sh
+          python3 -B tests/integration/test-storage-consumer-control-underlay.py
+          python3 -B tests/integration/test-storage-consumer-route-sampler.py
+          python3 -B tests/integration/test-storage-consumer-network.py
           python3 -B tests/integration/test-storage-consumer-maintenance-shell.py
           python3 -B tests/integration/test-storage-consumer-maintenance-provision.py
           python3 -B tests/integration/test-storage-consumer-maintenance-smoke.py

@@ -410,7 +410,7 @@ class ConsumerEvidence(unittest.TestCase):
             root = Path(temporary)
             write_evidence(root, value)
             self.assertEqual(M['build_evidence'](root), value)
-            self.assertEqual(set(M['EXPORT_NAMES']) - {'storage-consumer-evidence.json'}, {p.name for p in root.iterdir()})
+            self.assertEqual(set(M['LEGACY_EXPORT_NAMES']) - {'storage-consumer-evidence.json'}, {p.name for p in root.iterdir()})
             self.assertEqual(len(M['EXPORT_NAMES']), len(set(M['EXPORT_NAMES'])))
             output = root / 'storage-consumer-evidence.json'
             for args in (['evidence', str(root), str(output)], ['check', str(output)]):
