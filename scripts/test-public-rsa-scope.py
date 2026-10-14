@@ -45,7 +45,7 @@ class PublicRsaScope(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         # Use the current exact reviewed files, not a fake Rust implementation.
-        for relative in (M.SNP, M.COLLATERAL, M.SNP.parent.with_suffix(".rs"), M.CONTENT,
+        for relative in (M.SNP, M.COLLATERAL, M.GUEST, M.SNP.parent.with_suffix(".rs"), M.CONTENT,
                 Path("Cargo.toml"), Path("Cargo.lock"), Path("fuzz/Cargo.toml"),
                 Path("fuzz/Cargo.lock"), Path("deny.toml")):
             path = self.root / relative
@@ -173,6 +173,38 @@ class PublicRsaScope(unittest.TestCase):
             else: node["deps"].append(copy.deepcopy(direct))
             with self.subTest(change=change), self.assertRaises(ValueError):
                 M.verify_metadata(self.root, value, self.fuzz)
+
+    def test_guest_firmware_only_source_is_exact_and_does_not_exempt_neighbors(self):
+        path = self.root / M.GUEST
+        original = path.read_text()
+        call = '.get_report(Some(1), Some(data), Some(0))'
+        self.assertIn('sev::firmware::guest::Firmware::open()', original)
+        self.assertEqual(original.count(call), 1)
+        variants = (
+            original + '\nuse rsa::RsaPrivateKey;\n',
+            original + '\nuse sev::certs::snp::Chain;\n',
+            original.replace(call, '.get_ext_report(Some(1), Some(data), Some(0))'),
+            original.replace(call, '.get_report(Some(1), Some(data), Some(1))'),
+            original.replace('#[cfg(target_os = "linux")]', ''),
+        )
+        for changed in variants:
+            path.write_text(changed)
+            try:
+                with self.subTest(change=changed[-80:]), self.assertRaises(ValueError):
+                    M.verify_repository(self.root)
+            finally:
+                path.write_text(original)
+        # The exact-file exception must not allow another SEV/RSA user beside it.
+        neighbor = self.root / M.GUEST.with_suffix('') / 'wire.rs'
+        neighbor.parent.mkdir(parents=True)
+        for name in ('rsa', 'sev'):
+            neighbor.write_text(f'use {name}::Unreviewed;\n')
+            try:
+                with self.subTest(neighbor=name), self.assertRaises(ValueError):
+                    M.verify_repository(self.root)
+            finally:
+                neighbor.unlink()
+        M.verify_repository(self.root)
 
     def test_lock_manifest_source_and_test_boundary_mutations(self):
         cases = [("Cargo.lock", M.RSA_CHECKSUM, "0" * 64),

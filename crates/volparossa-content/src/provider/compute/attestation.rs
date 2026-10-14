@@ -43,6 +43,7 @@ pub use policy::{LocalPolicy, MilanTcb, SmtPolicy, TcbMinimums};
 pub use session::{
     BoundSessionEvidence, PendingSession, SessionLimits, SessionOwner, session_report_data,
 };
+pub(super) use session::challenge_window;
 pub use snp::verify_milan_v2_signature_facts;
 
 /// Exact supported firmware report size, including signature and reserved bytes.

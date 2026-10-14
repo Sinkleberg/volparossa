@@ -5,8 +5,12 @@
 RUSTSEC-2023-0071 is NOT patched. The pinned SEV cert_nossl verifier uses
 RsaPublicKey -> PSS/SHA-384 VerifyingKey -> verify_digest -> rsa_encrypt(e, n).
 The exact hashed collateral module uses that same public-only path for ARK CRLs;
-neither path performs RSA private-key operations. Changes require source review, not a
-broader exception. This is a source/graph guard, not a general Rust call analyzer.
+neither path performs RSA private-key operations. The separately hashed guest
+module only opens the fixed device and calls get_report: at the same SEV pin,
+src/firmware/guest/mod.rs open/get_report and linux/guest/{types,ioctl}.rs use
+SNP_GET_REPORT with a fixed report buffer, not RSA or certificate operations.
+Changes require source review, not a broader exception. This is a source/graph
+guard, not a general Rust call analyzer.
 """
 import copy
 import hashlib
@@ -27,6 +31,8 @@ SNP = Path("crates/volparossa-content/src/provider/compute/attestation/snp.rs")
 SNP_CHECKSUM = "fa9d0aa97897c4bce02f8b7e4afd06901b5bc04880d5b51b0542c753fb79981c"
 COLLATERAL = SNP.with_name("collateral.rs")
 COLLATERAL_CHECKSUM = "c718d3fb5f1d58795ede17ad3e7e34871d3cb95331e39994e1744fc924b78b24"
+GUEST = SNP.parent.parent / "guest.rs"
+GUEST_CHECKSUM = "40b302640725610c287fa2227b0f0e3a32a16104625f5bf8753cc5ebdae7b1de"
 CONTENT = Path("crates/volparossa-content/Cargo.toml")
 MARKER = "  # Root-only public RSA exception: scripts/check-public-rsa-scope.py must pass."
 SEV_MANIFEST = dict(version="=8.0.0", git=GIT, rev=REVISION, **{"default-features": False},
@@ -53,12 +59,14 @@ def one(packages, name):
 def verify_repository(root):
     require(hashlib.sha256((root / SNP).read_bytes()).hexdigest() == SNP_CHECKSUM)
     require(hashlib.sha256((root / COLLATERAL).read_bytes()).hexdigest() == COLLATERAL_CHECKSUM)
+    # Only this exact reviewed firmware wrapper, never its directory or future APIs.
+    require(hashlib.sha256((root / GUEST).read_bytes()).hexdigest() == GUEST_CHECKSUM)
     # This sole existing fixture import is test-only, not another production user.
     parent = root / SNP.parent.with_suffix(".rs")
     require(re.search(r"#\[cfg\(test\)\]\s*mod tests;", parent.read_text()) is not None)
     fixture = SNP.parent / "tests.rs"
     for path in (root / "crates").rglob("*.rs"):
-        if path.relative_to(root) not in (SNP, COLLATERAL, fixture):
+        if path.relative_to(root) not in (SNP, COLLATERAL, GUEST, fixture):
             require(re.search(r"\b(?:sev|rsa)\b", path.read_text()) is None)
 
     def dependencies(value, location):
