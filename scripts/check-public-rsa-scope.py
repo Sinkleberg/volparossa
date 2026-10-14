@@ -24,7 +24,7 @@ SOURCE = f"git+{GIT}?rev={REVISION}#{REVISION}"
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 RSA_CHECKSUM = "b8573f03f5883dcaebdfcf4725caa1ecb9c15b2ef50c43a07b816e06799bb12d"
 SNP = Path("crates/volparossa-content/src/provider/compute/attestation/snp.rs")
-SNP_CHECKSUM = "f28d155494fea478f77d524b700d111bf64d3d268d07f4bd49b8be5b0f33f90e"
+SNP_CHECKSUM = "fa9d0aa97897c4bce02f8b7e4afd06901b5bc04880d5b51b0542c753fb79981c"
 COLLATERAL = SNP.with_name("collateral.rs")
 COLLATERAL_CHECKSUM = "c718d3fb5f1d58795ede17ad3e7e34871d3cb95331e39994e1744fc924b78b24"
 CONTENT = Path("crates/volparossa-content/Cargo.toml")

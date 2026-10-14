@@ -4,6 +4,7 @@
 use super::super::{
     BOUND_OUTSTANDING, SessionLimits, SessionOwner,
     session::{Stamp, session_report_data},
+    tests::test_policy,
 };
 use super::*;
 use std::time::{Duration, Instant};
@@ -51,8 +52,7 @@ fn stamp(at: Instant, seconds: u64) -> Stamp {
 fn owner(at: Instant) -> SessionOwner {
     SessionOwner::new_at(
         [1; 32],
-        [2; 48],
-        1,
+        test_policy([2; 48], 1),
         SessionLimits {
             expires_at: NOW + 120,
             maximum_pending: 1,
@@ -408,8 +408,7 @@ fn authentic_collateral_cannot_make_historical_report_fresh() {
     let at = Instant::now();
     let owner = SessionOwner::new_at(
         [1; 32],
-        *facts.measurement(),
-        facts.guest_svn(),
+        test_policy(*facts.measurement(), facts.guest_svn()),
         SessionLimits {
             expires_at: NOW + 120,
             maximum_pending: 1,

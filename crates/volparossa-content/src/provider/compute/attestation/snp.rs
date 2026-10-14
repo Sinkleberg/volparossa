@@ -8,7 +8,8 @@ use sev::{
 use sha2::{Digest as _, Sha256};
 
 use super::{
-    EvidenceError, MAX_VCEK_BYTES, REPORT_BYTES, SignatureFacts, cert_profile, endorsement,
+    EvidenceError, MAX_VCEK_BYTES, MilanTcb, REPORT_BYTES, SignatureFacts, cert_profile,
+    endorsement,
 };
 
 /// Verify exact raw SNP v2 report and certificate signatures against the pinned
@@ -71,6 +72,15 @@ pub fn verify_milan_v2_signature_facts(
                 .try_into()
                 .map_err(|_| EvidenceError::Encoding)?,
         ),
+        // AMD 56860 legacy Milan layout: current/reported/committed/launch,
+        // not a packed integer ordering and not an assumption of stage equality.
+        tcb: [
+            MilanTcb::from_report(&received[0x38..0x40])?,
+            MilanTcb::from_report(&received[0x180..0x188])?,
+            MilanTcb::from_report(&received[0x1e0..0x1e8])?,
+            MilanTcb::from_report(&received[0x1f0..0x1f8])?,
+        ],
+        platform_smt_enabled: received[0x40] & 1 != 0,
         validity: [
             validity(chain.ca.ark),
             validity(chain.ca.ask),
