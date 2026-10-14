@@ -9,7 +9,10 @@ use prost::Message;
 use sha2::{Digest as _, Sha256, Sha512};
 use subtle::ConstantTimeEq as _;
 
-use super::{EvidenceError, OutstandingAppraisal, SignatureFacts, verify_milan_v2_signature_facts};
+use super::{
+    BOUND_OUTSTANDING, EvidenceError, OutstandingAppraisal, SignatureFacts, VendorCrlFacts,
+    collateral,
+};
 
 const MAX_OWNER_SECONDS: u64 = 600;
 const CHALLENGE_SECONDS: u64 = 30;
@@ -294,7 +297,8 @@ impl PendingSession<'_> {
     /// Discard this challenge; its total attempt remains consumed.
     pub fn cancel(self) {}
 
-    /// Verify reference signatures, certificate validity at the owner's current
+    /// Verify reference signatures, the supported Milan path and the supplied
+    /// complete ARK CRL for that ASK. Check certificate/CRL validity at the owner's current
     /// clock, expected measurement/SVN, no debug/migration, and exact fresh key
     /// binding. A bound result still cannot admit a worker or release any input.
     ///
@@ -305,11 +309,14 @@ impl PendingSession<'_> {
         self,
         report: &[u8],
         vcek_der: &[u8],
+        vendor_crl_der: &[u8],
         proposed_session_key: [u8; 32],
     ) -> Result<BoundSessionEvidence, EvidenceError> {
-        self.check_time(&Stamp::now()?)?;
-        let facts = verify_milan_v2_signature_facts(report, vcek_der)?;
-        self.bind_at(facts, proposed_session_key, Stamp::now()?)
+        let started = Stamp::now()?;
+        self.check_time(&started)?;
+        let (facts, collateral) =
+            collateral::verify(report, vcek_der, vendor_crl_der, started.unix)?;
+        self.bind_at(facts, collateral, proposed_session_key, Stamp::now()?)
     }
 
     fn check_time(&self, now: &Stamp) -> Result<(), EvidenceError> {
@@ -327,11 +334,20 @@ impl PendingSession<'_> {
     pub(super) fn bind_at(
         self,
         facts: SignatureFacts,
+        collateral: VendorCrlFacts,
         proposed_session_key: [u8; 32],
         now: Stamp,
     ) -> Result<BoundSessionEvidence, EvidenceError> {
         self.check_time(&now)?;
         facts.check_time(now.unix)?;
+        collateral.check_time(now.unix)?;
+        let expires_at = facts.validity.iter().fold(
+            self.expires_at.min(collateral.next_update()),
+            |end, &(_, certificate_end)| end.min(certificate_end),
+        );
+        if expires_at <= now.unix {
+            return Err(EvidenceError::CertificateTime);
+        }
         let expected = session_report_data(&self.challenge, &proposed_session_key)?;
         if facts.measurement != self.slot.0.expected_measurement
             || facts.guest_svn < self.slot.0.minimum_guest_svn
@@ -342,9 +358,10 @@ impl PendingSession<'_> {
         }
         Ok(BoundSessionEvidence {
             facts,
+            collateral,
             challenge_sha256: Sha256::digest(&self.challenge).into(),
             proposed_session_key,
-            expires_at: self.expires_at,
+            expires_at,
             observed_at: now.unix,
         })
     }
@@ -356,6 +373,7 @@ impl PendingSession<'_> {
 /// A subsequent owner cancellation does not turn this observation into authority.
 pub struct BoundSessionEvidence {
     facts: SignatureFacts,
+    collateral: VendorCrlFacts,
     challenge_sha256: [u8; 32],
     proposed_session_key: [u8; 32],
     expires_at: u64,
@@ -368,6 +386,11 @@ impl BoundSessionEvidence {
         &self.facts
     }
 
+    /// Authenticated complete ARK CRL for the fixed ASK, not individual VCEKs.
+    pub const fn vendor_crl(&self) -> &VendorCrlFacts {
+        &self.collateral
+    }
+
     /// Public-only challenge digest, not a task/content digest.
     pub const fn challenge_sha256(&self) -> &[u8; 32] {
         &self.challenge_sha256
@@ -378,7 +401,7 @@ impl BoundSessionEvidence {
         &self.proposed_session_key
     }
 
-    /// Original challenge deadline; reading evidence never extends it.
+    /// Challenge deadline capped by certificate/CRL validity; never extended.
     pub const fn expires_at(&self) -> u64 {
         self.expires_at
     }
@@ -390,6 +413,6 @@ impl BoundSessionEvidence {
 
     /// Outstanding requirements cannot be cleared by constructing a boolean.
     pub const fn outstanding_appraisal(&self) -> &'static [OutstandingAppraisal] {
-        self.facts.outstanding_appraisal()
+        &BOUND_OUTSTANDING
     }
 }

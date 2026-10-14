@@ -29,6 +29,8 @@ def metadata(root):
     for parent, child in ((nodes[1], packages[0]), (nodes[2], packages[1])):
         parent["dependencies"] = [child["id"]]
         parent["deps"] = [dict(name=child["name"], pkg=child["id"], dep_kinds=[dict(kind=None, target=None)])]
+    nodes[2]["dependencies"].append("rsa")
+    nodes[2]["deps"].append(dict(name="rsa", pkg="rsa", dep_kinds=[dict(kind=None, target=None)]))
     for child in packages[3:]:
         nodes[1]["dependencies"].append(child["id"])
         nodes[1]["deps"].append(dict(name=child["name"].replace("-", "_"), pkg=child["id"],
@@ -43,7 +45,7 @@ class PublicRsaScope(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         # Use the current exact reviewed files, not a fake Rust implementation.
-        for relative in (M.SNP, M.SNP.parent.with_suffix(".rs"), M.CONTENT,
+        for relative in (M.SNP, M.COLLATERAL, M.SNP.parent.with_suffix(".rs"), M.CONTENT,
                 Path("Cargo.toml"), Path("Cargo.lock"), Path("fuzz/Cargo.toml"),
                 Path("fuzz/Cargo.lock"), Path("deny.toml")):
             path = self.root / relative
@@ -143,6 +145,34 @@ class PublicRsaScope(unittest.TestCase):
                     M.verify_repository(self.root)
             finally:
                 path.write_text(original)
+
+    def test_collateral_public_only_source_and_direct_edge_are_exact(self):
+        for relative, old, new in ((M.COLLATERAL, "RsaPublicKey", "RsaPrivateKey"),
+                (Path("Cargo.toml"), 'version = "=0.9.10"', 'version = "0.9.10"'),
+                (M.CONTENT, 'rsa.workspace = true', 'rsa = "0.9.10"'),
+                (M.CONTENT, 'rsa.workspace = true', '')):
+            path = self.root / relative
+            original = path.read_text()
+            self.assertIn(old, original)
+            path.write_text(original.replace(old, new))
+            try:
+                with self.subTest(relative=relative), self.assertRaises(ValueError):
+                    M.verify_repository(self.root)
+            finally:
+                path.write_text(original)
+        for change in ("missing", "alias", "dev", "target", "extra"):
+            value = copy.deepcopy(self.meta)
+            node = value["resolve"]["nodes"][2]
+            direct = next(d for d in node["deps"] if d["name"] == "rsa")
+            if change == "missing":
+                node["deps"].remove(direct)
+                node["dependencies"].remove("rsa")
+            elif change == "alias": direct["name"] = "renamed"
+            elif change == "dev": direct["dep_kinds"][0]["kind"] = "dev"
+            elif change == "target": direct["dep_kinds"][0]["target"] = "cfg(unix)"
+            else: node["deps"].append(copy.deepcopy(direct))
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                M.verify_metadata(self.root, value, self.fuzz)
 
     def test_lock_manifest_source_and_test_boundary_mutations(self):
         cases = [("Cargo.lock", M.RSA_CHECKSUM, "0" * 64),

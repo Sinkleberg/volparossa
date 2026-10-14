@@ -129,7 +129,7 @@ private-input release nor worker admission.
 
 ## Checking certificate algorithm declarations
 
-The next candidate checks the fixed Milan chain's algorithm declarations after
+The integrated verifier checks the fixed Milan chain's algorithm declarations after
 actual cryptographic verification and before returning signature facts. Both
 signature identifiers must agree and name the supported PSS profile: SHA-384,
 MGF1/SHA-384, a 48-byte salt and trailer 1. The VCEK must declare a P-384 EC key
@@ -155,11 +155,88 @@ on `bb8d49c0` compiles and passes all 28 actual Rust tests with zero failed or
 ignored, but fails targeted Clippy on three similar-name warnings, duplicate
 match arms and a missing statement semicolon. Its schema-four report correctly
 remains failed. The correction changes names and equivalent statement style,
-not profile checks or test cases; hosted verification of that correction remains
-pending. The original 15-file artifact matches SHA-256
+not profile checks or test cases. The original 15-file artifact matches SHA-256
 `4a8d1b218b1a2dc0fdd5b04d4c138d40a40994b155a3cf0c473fb0aa15b8c350`.
+
+[Trial 38467309647](https://github.com/VOLPAROSSA/volparossa/actions/runs/38467309647)
+on corrected candidate `530d3c81` passes all 28 named Rust tests and targeted
+Clippy. Its original 15-file artifact matches SHA-256
+`971fd9f8a12979fa42ac02df48e8391189e1b22fc0c5eab6d0398749fc9431e0`;
+the committed, original and effective lockfiles are byte-identical. CodeQL
+`38467310454` passes all four analyses and its separate aggregate check. Quality
+`38467316376` passes strict workspace Clippy and 3,595 workspace tests, with zero
+failures and seven ignored tests, plus six successful child invocations. The
+tested merge tree is identical to the candidate; all 28 attestation tests pass.
+PR240 is merged. The internally skipped namespace probes do not prove live
+datapaths.
 No dependencies, features, lockfile, appraisal obligations or execution
 permissions change. This is not complete certificate-path validation.
+
+## Supplied certificate path and revocation checks
+
+Merged PR242 makes the supplied Milan ARK revocation list a mandatory
+input to `PendingSession::verify_and_bind`. It checks the fixed legacy
+ARK–ASK–VCEK path: issuer names, CA constraints, signing usage, supported
+extensions, key identifiers and certificate validity. It is a closed Milan
+profile, not a general-purpose X.509 validator.
+
+The pinned ASK's signed KeyUsage bytes are `03020104`: certificate signing
+with an extra zero named bit. Re-encoding the decoded flags produces
+`03020204`, so byte equality after re-encoding would reject this vendor
+certificate. The closed legacy profile requires the original ASK bytes (and
+ARK `03020106`) plus their exact decoded rights. It does not admit arbitrary
+padding, additional rights or normalized replacement certificates. Other
+extensions retain canonical decoding; actual chain signatures remain required.
+
+The bounded, canonical DER revocation list must have a valid ARK signature and
+cover the path's ASK. Unsupported scope, delta lists, malformed entries,
+revocation and invalid time windows reject the attempt. Its actual
+PSS/SHA-384 signature is checked with the already pinned `rsa =0.9.10`, now
+also a direct dependency; no package version changes. The public-key-only
+advisory guard covers this second verification path.
+
+Session binding rechecks time and cancellation after cryptographic work. The
+result expires at the earliest challenge deadline, certificate expiry or CRL
+`nextUpdate`; supplying collateral never renews an owner's authority. A bound
+result still leaves four explicit obligations: authorized production roots,
+individual VCEK status and collateral freshness, vendor TCB/local policy, and
+authorized workload/key origin. A valid ASK-scope list is not proof that a VCEK
+is unrevoked or that no newer vendor information exists.
+
+The public AMD CRL fixture's real signature verifies independently with
+OpenSSL. Twelve new Rust tests cover that signature, tampering, path and scope
+rejection, revocation entries and finite session binding. Synthetic negative
+certificates and session facts do not authenticate a worker. Schema-five
+receipts require all forty named tests, unchanged committed dependencies and
+targeted Clippy; historical schemas one through four remain replayable.
+The 58 inert receipt/harness checks and eleven RSA-scope checks pass locally.
+The [first hosted trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38480770163)
+on `1fd84495` compiles but fails seven of forty tests at `Endorsement`; 33 pass,
+none are ignored, and Clippy is not reached. Its original 13-member artifact
+has SHA-256 `323c16d00c1d09197e32d8b813bc23de2963ca9892768de5b64b6dce57ad55e6`.
+Source inspection and the pinned DER encoder identify the ASK KeyUsage
+re-encoding mismatch above. The correction adds an explicit positive pinned
+path before synthetic mutations, a normalization regression and rejection of
+other encodings, rights and CA roles. That failed run remains failed.
+
+The corrected [trial 38483434858](https://github.com/VOLPAROSSA/volparossa/actions/runs/38483434858)
+on `3e6eff6f` passes all forty named Rust tests with zero failures or ignored
+tests, plus targeted Clippy. Its original 15-member artifact matches API SHA-256
+`1f568bfa29db59c1d7054a2d899b9a578944849063b2e6b511bf95a055428a7f`.
+Source and lockfile bindings remain unchanged. [Quality `38483440876`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38483440876) passes
+strict workspace Clippy and the same forty tests. It reports 3,607 unfiltered workspace
+passes, zero failures and seven ignored tests, plus six successful child
+invocations. Its internally skipped namespace probes are not live datapath
+proof. [CodeQL `38483436114`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38483436114)
+also passes. PR242 is merged as `05b21e1c`, whose tree
+`c4030377567d9f179e64c5fa3331d9608c2ca022` matches the targeted source and
+Quality's synthetic merge checkout. These results verify the stated public
+collateral and synthetic session cases, not a protected worker.
+
+See [the collateral provenance](../../THIRD_PARTY_LICENSES.md#supplied-milan-revocation-list)
+for the fixture's exact digest, issuer and validity window. This change adds no
+collateral downloader, protected worker, admission permit or private-input
+release. The hardware trial below remains required.
 
 ## What is still needed before private tasks can run remotely
 
@@ -178,9 +255,10 @@ worker-admission path still needs:
   including failed attestation and refusal to release private input.
 
 The fixture's supplied self-signed root is not independently granted production
-authority. Its signature checks alone do not establish certificate validity,
-current revocation status, an approved workload or freshness. Those checks must
-not be replaced by a peer signature, encrypted transport or agent approval.
+authority. The supported path and ASK-scope CRL checks do not establish current
+individual VCEK status, an approved workload or newest-collateral freshness.
+These remaining checks must not be replaced by a peer signature, encrypted
+transport or agent approval.
 
 Source references: [upstream fixture tests](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/tests/certs.rs),
 [chain verification](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/src/certs/snp/chain.rs)

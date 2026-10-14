@@ -20,6 +20,16 @@ const REPORT_HEX: &[u8] = include_bytes!("../../../../tests/fixtures/snp/report_
 const VCEK: &[u8] = include_bytes!("../../../../tests/fixtures/snp/vcek_milan.der");
 const NOW: u64 = 1_800_000_000;
 
+// Synthetic state-only collateral. This is not an AMD signature or revocation proof.
+fn synthetic_collateral() -> VendorCrlFacts {
+    VendorCrlFacts {
+        sha256: [7; 32],
+        number: 0,
+        this_update: NOW - 1,
+        next_update: NOW + 600,
+    }
+}
+
 fn report() -> Vec<u8> {
     hex::decode(REPORT_HEX).unwrap()
 }
@@ -408,7 +418,9 @@ fn certificate_profile_preserves_signature_and_session_gates() {
     .unwrap();
     let pending = owner.begin_at(stamp(at, 0)).unwrap();
     assert_eq!(
-        pending.bind_at(facts, [5; 32], stamp(at, 1)).err(),
+        pending
+            .bind_at(facts, synthetic_collateral(), [5; 32], stamp(at, 1))
+            .err(),
         Some(EvidenceError::Binding)
     );
     assert_eq!(
@@ -762,7 +774,9 @@ fn actual_public_report_cannot_bind_to_fresh_owner_even_with_matching_measuremen
     .unwrap();
     let pending = owner.begin_at(stamp(at, 0)).unwrap();
     assert_eq!(
-        pending.bind_at(facts, [5; 32], stamp(at, 1)).err(),
+        pending
+            .bind_at(facts, synthetic_collateral(), [5; 32], stamp(at, 1))
+            .err(),
         Some(EvidenceError::Binding)
     );
     assert_eq!(
@@ -778,12 +792,14 @@ fn synthetic_binding_positive_is_explicitly_not_full_appraisal_or_release() {
     let pending = owner.begin_at(stamp(at, 0)).unwrap();
     let expected_hash: [u8; 32] = Sha256::digest(pending.challenge_bytes()).into();
     let facts = synthetic_binding_facts(&pending, &[5; 32]);
-    let evidence = pending.bind_at(facts, [5; 32], stamp(at, 1)).unwrap();
+    let evidence = pending
+        .bind_at(facts, synthetic_collateral(), [5; 32], stamp(at, 1))
+        .unwrap();
     assert_eq!(evidence.challenge_sha256(), &expected_hash);
     assert_eq!(evidence.proposed_session_key(), &[5; 32]);
     assert_eq!(evidence.expires_at(), NOW + 30);
     assert_eq!(evidence.observed_at(), NOW + 1);
-    assert_eq!(evidence.outstanding_appraisal(), &OUTSTANDING);
+    assert_eq!(evidence.outstanding_appraisal(), &BOUND_OUTSTANDING);
     assert_eq!(evidence.signature_facts().report_sha256(), &[3; 32]);
     let next = owner.begin_at(stamp(at, 2)).unwrap();
     assert_ne!(
@@ -801,12 +817,16 @@ fn fresh_nonce_owner_policy_and_proposed_key_are_all_bound() {
     let facts = synthetic_binding_facts(&first, &[5; 32]);
     assert_ne!(first.challenge_bytes(), second.challenge_bytes());
     assert_eq!(
-        second.bind_at(facts, [5; 32], stamp(at, 1)).err(),
+        second
+            .bind_at(facts, synthetic_collateral(), [5; 32], stamp(at, 1))
+            .err(),
         Some(EvidenceError::Binding)
     );
     let facts = synthetic_binding_facts(&first, &[5; 32]);
     assert_eq!(
-        first.bind_at(facts, [6; 32], stamp(at, 1)).err(),
+        first
+            .bind_at(facts, synthetic_collateral(), [6; 32], stamp(at, 1))
+            .err(),
         Some(EvidenceError::Binding)
     );
     let first = owner.begin_at(stamp(at, 2)).unwrap();
@@ -814,7 +834,9 @@ fn fresh_nonce_owner_policy_and_proposed_key_are_all_bound() {
     let other = SessionOwner::new_at([9; 32], [2; 48], 1, limits(1, 1), stamp(at, 0)).unwrap();
     let second = other.begin_at(stamp(at, 2)).unwrap();
     assert_eq!(
-        second.bind_at(facts, [5; 32], stamp(at, 3)).err(),
+        second
+            .bind_at(facts, synthetic_collateral(), [5; 32], stamp(at, 3))
+            .err(),
         Some(EvidenceError::Binding)
     );
 }
@@ -833,7 +855,9 @@ fn measurement_svn_debug_migration_and_each_certificate_time_are_checked() {
             _ => facts.guest_policy |= 1 << 19,
         }
         assert_eq!(
-            pending.bind_at(facts, [5; 32], stamp(at, 1)).err(),
+            pending
+                .bind_at(facts, synthetic_collateral(), [5; 32], stamp(at, 1))
+                .err(),
             Some(EvidenceError::Binding)
         );
     }
@@ -843,7 +867,9 @@ fn measurement_svn_debug_migration_and_each_certificate_time_are_checked() {
             let mut facts = synthetic_binding_facts(&pending, &[5; 32]);
             facts.validity[index] = validity;
             assert_eq!(
-                pending.bind_at(facts, [5; 32], stamp(at, 1)).err(),
+                pending
+                    .bind_at(facts, synthetic_collateral(), [5; 32], stamp(at, 1))
+                    .err(),
                 Some(EvidenceError::CertificateTime)
             );
         }
@@ -869,7 +895,9 @@ fn delayed_expired_rollback_and_cancelled_bindings_cannot_succeed() {
         let pending = owner.begin_at(stamp(at, 0)).unwrap();
         let facts = synthetic_binding_facts(&pending, &[5; 32]);
         assert_eq!(
-            pending.bind_at(facts, [5; 32], now).err(),
+            pending
+                .bind_at(facts, synthetic_collateral(), [5; 32], now)
+                .err(),
             Some(EvidenceError::Expired)
         );
     }
@@ -877,7 +905,9 @@ fn delayed_expired_rollback_and_cancelled_bindings_cannot_succeed() {
     let facts = synthetic_binding_facts(&pending, &[5; 32]);
     owner.cancel();
     assert_eq!(
-        pending.bind_at(facts, [5; 32], stamp(at, 1)).err(),
+        pending
+            .bind_at(facts, synthetic_collateral(), [5; 32], stamp(at, 1))
+            .err(),
         Some(EvidenceError::Cancelled)
     );
     assert_eq!(
@@ -900,7 +930,9 @@ fn pending_slots_release_but_attempts_never_refund_on_drop_cancel_or_failure() {
     let final_attempt = owner.begin_at(stamp(at, 2)).unwrap();
     let facts = synthetic_binding_facts(&final_attempt, &[5; 32]);
     assert_eq!(
-        final_attempt.bind_at(facts, [6; 32], stamp(at, 3)).err(),
+        final_attempt
+            .bind_at(facts, synthetic_collateral(), [6; 32], stamp(at, 3))
+            .err(),
         Some(EvidenceError::Binding)
     );
     assert_eq!(
@@ -916,7 +948,9 @@ fn owner_bounds_expire_without_rebasing_challenge_or_attempt_budget() {
     let pending = owner.begin_at(stamp(at, 119)).unwrap();
     let facts = synthetic_binding_facts(&pending, &[5; 32]);
     assert_eq!(
-        pending.bind_at(facts, [5; 32], stamp(at, 120)).err(),
+        pending
+            .bind_at(facts, synthetic_collateral(), [5; 32], stamp(at, 120))
+            .err(),
         Some(EvidenceError::Expired)
     );
     assert_eq!(
@@ -994,12 +1028,17 @@ fn public_signature_binding_entrypoint_consumes_its_attempt_without_release() {
     let failure = owner
         .begin()
         .unwrap()
-        .verify_and_bind(&report(), VCEK, [5; 32])
+        .verify_and_bind(
+            &report(),
+            VCEK,
+            include_bytes!("../../../../tests/fixtures/snp/ark_milan_20260922.crl"),
+            [5; 32],
+        )
         .err()
         .unwrap();
     assert!(matches!(
         failure,
-        EvidenceError::Binding | EvidenceError::CertificateTime
+        EvidenceError::Binding | EvidenceError::CertificateTime | EvidenceError::Revocation
     ));
     assert_eq!(owner.begin().err(), Some(EvidenceError::Budget));
 }
