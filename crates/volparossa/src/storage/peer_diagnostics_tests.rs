@@ -29,7 +29,8 @@ fn closed_diagnostic_preserves_typed_boundary_without_private_error_text() {
         report["failures"][0],
         serde_json::json!({
             "fragment_index": null, "copy_index": 1, "operation": "finalize",
-            "stage": "journal_save", "category": "io", "agent_code": null, "agent_detail": null
+            "stage": "journal_save", "category": "io", "agent_code": null,
+            "agent_detail": null, "agent_outcome": null
         })
     );
     let encoded = report.to_string();
@@ -189,10 +190,11 @@ fn diagnostic_v1_replay_is_exact_and_v2_requires_its_new_nullable_field() {
     changed["version"] = 1.into();
     assert!(serde_json::from_value::<Diagnostics>(changed).is_err());
     let current = value(&anyhow::anyhow!("private-canary"));
-    assert_eq!(current["version"], 3);
-    assert_eq!(current["failures"][0].as_object().unwrap().len(), 7);
+    assert_eq!(current["version"], 4);
+    assert_eq!(current["failures"][0].as_object().unwrap().len(), 8);
     assert!(current["failures"][0]["agent_detail"].is_null());
-    for version in [0, 4] {
+    assert!(current["failures"][0]["agent_outcome"].is_null());
+    for version in [0, 5] {
         let mut changed = historical.clone();
         changed["version"] = version.into();
         assert!(serde_json::from_value::<Diagnostics>(changed).is_err());
@@ -286,7 +288,7 @@ async fn correlated_agent_detail_reaches_only_the_bounded_ready_failure_projecti
         );
     }
     let report = serde_json::to_value(diagnostics).unwrap();
-    assert_eq!(report["version"], 3);
+    assert_eq!(report["version"], 4);
     assert_eq!(report["omitted_failures"], 1);
     assert_eq!(report["failures"].as_array().unwrap().len(), 8);
     for (copy, failure) in report["failures"].as_array().unwrap().iter().enumerate() {
@@ -295,7 +297,8 @@ async fn correlated_agent_detail_reaches_only_the_bounded_ready_failure_projecti
             failure["agent_detail"],
             serde_json::json!({"stage":"tls_handshake","deadline_scope":"none","tls_failure":"io"})
         );
-        assert_eq!(failure.as_object().unwrap().len(), 7);
+        assert!(failure["agent_outcome"].is_null());
+        assert_eq!(failure.as_object().unwrap().len(), 8);
     }
     assert!(report.to_string().len() < 4096);
     assert!(!report.to_string().contains("private-canary"));
@@ -461,4 +464,114 @@ fn diagnostic_v3_rejects_unknown_tls_values_fields_and_wrong_failure_boundaries(
     let mut report = baseline;
     report["failures"][0]["agent_detail"]["raw"] = "private-error-canary".into();
     assert!(serde_json::from_value::<Diagnostics>(report).is_err());
+}
+
+#[test]
+fn diagnostic_v4_preserves_exact_v3_and_requires_nullable_outcome() {
+    let historical = serde_json::json!({"version": 3, "omitted_failures": 0, "failures": [{
+        "fragment_index": null, "copy_index": 1, "operation": "finalize",
+        "stage": "wire_receipt", "category": "io", "agent_code": null, "agent_detail": null
+    }]});
+    let decoded: Diagnostics = serde_json::from_value(historical.clone()).unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), historical);
+    let mut current = historical.clone();
+    current["version"] = 4.into();
+    assert!(serde_json::from_value::<Diagnostics>(current.clone()).is_err());
+    current["failures"][0]["agent_outcome"] = serde_json::Value::Null;
+    let decoded: Diagnostics = serde_json::from_value(current.clone()).unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), current);
+    current["version"] = 3.into();
+    assert!(serde_json::from_value::<Diagnostics>(current).is_err());
+}
+
+fn outcome_report() -> serde_json::Value {
+    serde_json::json!({"version": 4, "omitted_failures": 0, "failures": [{
+        "fragment_index": null, "copy_index": 1, "operation": "finalize",
+        "stage": "wire_receipt", "category": "io", "agent_code": null, "agent_detail": null,
+        "agent_outcome": {"status": "observed", "detail": {
+            "phase": "remote_receipt_read", "category": "timeout", "deadline_scope": "remote_wire"
+        }}
+    }]})
+}
+
+#[test]
+fn diagnostic_v4_outcome_is_closed_and_requires_a_real_post_ready_boundary() {
+    let baseline = outcome_report();
+    let decoded: Diagnostics = serde_json::from_value(baseline.clone()).unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), baseline);
+    for (field, invalid) in [
+        ("phase", "private-canary"),
+        ("phase", "unobserved"),
+        ("phase", "local_request_read"), // Not within the remote-wire budget.
+        ("category", "private-canary"),
+        ("category", "cancelled"), // Cancellation does not invent a deadline.
+        ("deadline_scope", "none"), // A timeout must name an observed budget.
+        ("deadline_scope", "private-canary"),
+        ("raw", "private-canary"),
+    ] {
+        let mut report = baseline.clone();
+        report["failures"][0]["agent_outcome"]["detail"][field] = invalid.into();
+        assert!(serde_json::from_value::<Diagnostics>(report).is_err());
+    }
+    for stage in ["agent_ready", "authorization", "signed_request", "accounting", "unknown"] {
+        let mut report = baseline.clone();
+        report["failures"][0]["stage"] = stage.into();
+        assert!(serde_json::from_value::<Diagnostics>(report).is_err());
+    }
+    for status in ["observed", "missing", "pending", "expired", "query_failed", "query_timeout"] {
+        let mut report = baseline.clone();
+        report["failures"][0]["agent_outcome"]["status"] = status.into();
+        assert_eq!(
+            serde_json::from_value::<Diagnostics>(report.clone()).is_ok(),
+            status == "observed"
+        );
+        report["failures"][0]["agent_outcome"]["detail"] = serde_json::Value::Null;
+        assert_eq!(
+            serde_json::from_value::<Diagnostics>(report.clone()).is_ok(),
+            status != "observed"
+        );
+        report["failures"][0]["agent_outcome"]
+            .as_object_mut()
+            .unwrap()
+            .remove("detail");
+        assert!(serde_json::from_value::<Diagnostics>(report).is_err());
+    }
+    for field in ["status", "original_request_id", "provider", "raw_error"] {
+        let mut report = baseline.clone();
+        report["failures"][0]["agent_outcome"][field] = "private-canary".into();
+        assert!(serde_json::from_value::<Diagnostics>(report).is_err());
+    }
+}
+
+#[test]
+fn diagnostic_v4_keeps_original_error_and_bounded_fragment_outcomes_without_identifiers() {
+    let outcome: AgentOutcome =
+        serde_json::from_value(outcome_report()["failures"][0]["agent_outcome"].clone()).unwrap();
+    let error = Error::new(WireError::Io(io::Error::other("/private/id-and-keys")))
+        .context(Boundary::new(StorageOperation::Finalize, Stage::WireReceipt))
+        .context(outcome);
+    assert!(error.downcast_ref::<WireError>().is_some());
+    assert!(error.downcast_ref::<Boundary>().is_some());
+    let report = value(&error);
+    assert_eq!(report, outcome_report());
+    let hidden = value(&Error::new(io::Error::other("private")).context(outcome));
+    assert!(hidden["failures"][0]["agent_outcome"].is_null());
+    let mut fragments = Diagnostics::default();
+    for fragment in 0..10 {
+        fragments
+            .append_fragment(fragment, &serde_json::json!({"deposit_diagnostics": report}))
+            .unwrap();
+    }
+    let joined = serde_json::to_value(fragments).unwrap();
+    assert_eq!(joined["omitted_failures"], 2);
+    assert_eq!(joined["failures"].as_array().unwrap().len(), 8);
+    for (index, failure) in joined["failures"].as_array().unwrap().iter().enumerate() {
+        assert_eq!(failure["fragment_index"], index);
+        assert_eq!(failure["category"], "io");
+        assert_eq!(failure["agent_outcome"]["detail"]["category"], "timeout");
+    }
+    assert!(joined.to_string().len() < 4096);
+    for canary in ["private", "id-and-keys", "request_id", "provider", "archive", "raw_error"] {
+        assert!(!joined.to_string().contains(canary));
+    }
 }

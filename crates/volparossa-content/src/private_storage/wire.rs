@@ -8,6 +8,7 @@
 #[cfg(test)]
 mod tests;
 
+pub mod bridge_observation;
 pub mod diagnostic;
 
 use std::{
@@ -313,24 +314,52 @@ pub async fn finish<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    finish_observed(
+        stream,
+        grant,
+        challenge,
+        signed,
+        append_payload,
+        &bridge_observation::Unobserved,
+    )
+    .await
+}
+
+async fn finish_observed<S>(
+    stream: &mut S,
+    grant: &VerifiedStorageGrant,
+    challenge: &StorageChallenge,
+    signed: &SignedStorageRequest,
+    append_payload: &[u8],
+    observer: &impl bridge_observation::Observer,
+) -> Result<StorageTransfer, WireError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    use bridge_observation::Phase;
     timeout(IO_TIMEOUT, async {
+        observer.phase(Phase::RemoteRequestVerify);
         let request = signed.verify(grant, challenge, unix_now()?)?;
         validate_append(&request, append_payload)?;
+        observer.phase(Phase::RemoteRequestWrite);
         write_frame(stream, &signed.encode()).await?;
         if !append_payload.is_empty() {
+            observer.phase(Phase::RemotePayloadWrite);
             write_frame(stream, append_payload).await?;
         }
-        let receipt = SignedStorageReceipt::decode_and_verify(
-            &read_frame(stream, MAX_RECEIPT_BYTES).await?,
-            &request,
-            unix_now()?,
-        )?;
+        observer.phase(Phase::RemoteReceiptRead);
+        let encoded = read_frame(stream, MAX_RECEIPT_BYTES).await?;
+        observer.phase(Phase::RemoteReceiptVerify);
+        let receipt =
+            SignedStorageReceipt::decode_and_verify(&encoded, &request, unix_now()?)?;
         let ciphertext = if let StorageOperation::ReadRange { length, .. } = request.operation() {
+            observer.phase(Phase::RemotePayloadRead);
             let maximum = usize::try_from(length).map_err(|_| WireError::Invalid)?;
             read_frame(stream, maximum).await?
         } else {
             Vec::new()
         };
+        observer.phase(Phase::RemotePayloadVerify);
         validate_range(&request, &receipt, &ciphertext)?;
         request.current(unix_now()?)?;
         Ok(StorageTransfer {
@@ -339,7 +368,10 @@ where
         })
     })
     .await
-    .map_err(|_| WireError::Timeout)?
+    .map_err(|_| {
+        observer.deadline(bridge_observation::Deadline::RemoteWire);
+        WireError::Timeout
+    })?
 }
 
 /// Forward one owner-authorized operation on the two original, already protected streams.
@@ -387,18 +419,53 @@ where
     A: FnOnce(u64) -> F,
     F: Future<Output = bool>,
 {
+    bridge_admitted_observed(
+        local,
+        remote,
+        grant,
+        challenge,
+        admit,
+        &bridge_observation::Unobserved,
+    )
+    .await
+}
+
+/// The identical bridge with closed, synchronous local boundary observations.
+///
+/// # Errors
+/// Returns exactly the original bridge errors; observation never retries or extends a budget.
+pub async fn bridge_admitted_observed<L, R, A, F>(
+    local: &mut L,
+    remote: &mut R,
+    grant: &VerifiedStorageGrant,
+    challenge: &StorageChallenge,
+    admit: A,
+    observer: &impl bridge_observation::Observer,
+) -> Result<StorageBridgeReceipt, WireError>
+where
+    L: AsyncRead + AsyncWrite + Unpin,
+    R: AsyncRead + AsyncWrite + Unpin,
+    A: FnOnce(u64) -> F,
+    F: Future<Output = bool>,
+{
+    use bridge_observation::Phase;
     timeout(IO_TIMEOUT, async {
+        observer.phase(Phase::LocalRequestRead);
+        let encoded = read_frame(local, MAX_REQUEST_BYTES).await?;
+        observer.phase(Phase::LocalRequestVerify);
         let request = SignedStorageRequest::decode_and_verify(
-            &read_frame(local, MAX_REQUEST_BYTES).await?,
+            &encoded,
             grant,
             challenge,
             unix_now()?,
         )?;
         let payload = if matches!(request.operation(), StorageOperation::Append { .. }) {
+            observer.phase(Phase::LocalPayloadRead);
             read_frame(local, CHUNK_BYTES).await?
         } else {
             Vec::new()
         };
+        observer.phase(Phase::LocalPayloadVerify);
         validate_append(&request, &payload)?;
         let incoming = match request.operation() {
             StorageOperation::ReadRange { length, .. } => length,
@@ -408,14 +475,19 @@ where
         let charged = incoming
             .saturating_add(payload.len() as u64)
             .saturating_add(8192);
+        observer.phase(Phase::Admission);
         if !admit(charged).await {
             return Err(WireError::Busy);
         }
-        let transfer = finish(remote, grant, challenge, request.signed(), &payload).await?;
+        let transfer =
+            finish_observed(remote, grant, challenge, request.signed(), &payload, observer)
+                .await?;
         let ciphertext_bytes =
             u64::try_from(transfer.ciphertext.len()).map_err(|_| WireError::Invalid)?;
+        observer.phase(Phase::LocalReceiptWrite);
         write_frame(local, &transfer.receipt.encode()).await?;
         if !transfer.ciphertext.is_empty() {
+            observer.phase(Phase::LocalPayloadWrite);
             write_frame(local, &transfer.ciphertext).await?;
         }
         Ok(StorageBridgeReceipt {
@@ -424,7 +496,10 @@ where
         })
     })
     .await
-    .map_err(|_| WireError::Timeout)?
+    .map_err(|_| {
+        observer.deadline(bridge_observation::Deadline::Bridge);
+        WireError::Timeout
+    })?
 }
 
 fn validate_append(request: &VerifiedStorageRequest, payload: &[u8]) -> Result<(), WireError> {

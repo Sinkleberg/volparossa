@@ -132,6 +132,9 @@ async fn coordinator(
                         .await
                         .unwrap();
                 }
+                // This fixture does not retain outcome observations. Query rejection
+                // is diagnostic only, and is not another admitted maintenance turn.
+                Operation::PrivateStorageOutcome(_) => {}
                 _ => panic!("unexpected maintenance authority"),
             }
         });

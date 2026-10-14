@@ -757,6 +757,7 @@ fn print_response(response: ControlResponse) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&receipt)?);
         }
         Payload::PrivateStorageReady(_)
+        | Payload::PrivateStorageOutcome(_)
         | Payload::PrivateStorageMaintenanceReady(_)
         | Payload::PrivateStorageGrant(_)
         | Payload::PrivateStorageAdmission(_) => {

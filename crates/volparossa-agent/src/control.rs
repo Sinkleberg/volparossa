@@ -174,6 +174,23 @@ async fn process_connection(
         .await
         .map_err(|_| ControlServerError::Timeout)?
         .map_err(|_| ControlServerError::InvalidFrame)?;
+    if let Some(control_request::Operation::PrivateStorageOutcome(query)) =
+        request.operation.as_ref()
+    {
+        let reply = match context.content.private_storage_outcome(query, &stream) {
+            Ok(outcome) => response(
+                request.request_id,
+                ControlResult::Ok,
+                "PRIVATE_STORAGE_OUTCOME",
+                control_response::Payload::PrivateStorageOutcome(outcome),
+            ),
+            Err(error) => content_response(request.request_id, Err(error)),
+        };
+        return timeout(CONTROL_TIMEOUT, write_response(&mut stream, &reply))
+            .await
+            .map_err(|_| ControlServerError::Timeout)?
+            .map_err(|_| ControlServerError::InvalidFrame);
+    }
     if let Some(control_request::Operation::ContentCustodyDiscover(discover)) =
         request.operation.as_ref()
     {
@@ -387,6 +404,7 @@ async fn handle_request(request: ControlRequest, context: &ControlContext) -> Co
         | control_request::Operation::ContentLocalFetchName(_)
         | control_request::Operation::MailboxRemote(_)
         | control_request::Operation::PrivateStorageRemote(_)
+        | control_request::Operation::PrivateStorageOutcome(_)
         | control_request::Operation::PrivateStorageMaintenance(_)
         | control_request::Operation::ContentCustody(_)
         | control_request::Operation::ContentCustodyDiscover(_)

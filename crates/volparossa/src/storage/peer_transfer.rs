@@ -417,6 +417,7 @@ pub(super) async fn remote(
     payload: &[u8],
 ) -> Result<StorageTransfer> {
     let mut stage = Stage::Authorization;
+    let mut outcome_request_id = None;
     let result: Result<Result<StorageTransfer>> =
         tokio::time::timeout(Duration::from_secs(600), async {
             grant.current(super::super::now()?)?;
@@ -473,6 +474,7 @@ pub(super) async fn remote(
                 },
             )?;
             stage = Stage::WireReceipt;
+            outcome_request_id = Some(request_id.clone());
             let result = wire::finish(&mut stream, grant, &challenge, &request, payload).await?;
             stage = Stage::AgentTerminal;
             let response = crate::control::finish_request(&mut stream, &request_id).await?;
@@ -489,10 +491,21 @@ pub(super) async fn remote(
         })
         .await
         .context("private storage operation exceeded its deadline; journal retained for retry");
-    match result {
-        Ok(result) => result.context(Boundary::new(operation, stage)),
-        Err(error) => Err(error.context(Boundary::new(operation, Stage::Deadline))),
-    }
+    let (result, failure_stage) = match result {
+        Ok(result) => (result, stage),
+        Err(error) => (Err(error), Stage::Deadline),
+    };
+    // The original future and stream are already dropped. Keep its typed failure;
+    // an independent, short local query may explain the handoff, never its custody.
+    let result = match (result, outcome_request_id) {
+        (Err(error), Some(request_id))
+            if matches!(stage, Stage::WireReceipt | Stage::AgentTerminal) =>
+        {
+            Err(error.context(super::outcome::query(socket, &request_id).await))
+        }
+        (result, _) => result,
+    };
+    result.context(Boundary::new(operation, failure_stage))
 }
 
 fn accounting(receipt: &ContentReceipt, grant: &VerifiedStorageGrant, bytes: u64) -> Result<()> {

@@ -24,6 +24,10 @@ pub(super) struct Observation {
 }
 
 impl Observation {
+    pub(super) fn deadline(&self) -> Deadline {
+        Deadline::try_from(self.deadline.load(Ordering::Relaxed)).unwrap_or(Deadline::None)
+    }
+
     pub(super) fn reset(&self) {
         self.stage
             .store(Stage::Unobserved as i32, Ordering::Relaxed);

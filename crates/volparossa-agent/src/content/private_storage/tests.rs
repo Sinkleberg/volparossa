@@ -1,6 +1,37 @@
 use super::*;
 
 #[tokio::test]
+async fn outcome_query_uses_actual_unix_peer_uid_and_consumes_only_its_request() {
+    let runtime = ContentRuntime::new(&volparossa_identity::Identity::generate()).unwrap();
+    let (_caller, socket) = UnixStream::pair().unwrap();
+    let uid = socket.peer_cred().unwrap().uid();
+    let own = runtime.storage_outcomes.begin(uid, &[3; 16]).unwrap();
+    own.enter(OutcomePhase::LocalRequestRead);
+    drop(own);
+    let sibling_uid = uid.wrapping_add(1);
+    let sibling = runtime
+        .storage_outcomes
+        .begin(sibling_uid, &[4; 16])
+        .unwrap();
+    sibling.enter(OutcomePhase::LocalRequestRead);
+    drop(sibling);
+    let query = |id| PrivateStorageOutcomeRequest {
+        original_request_id: vec![id; 16],
+    };
+    use volparossa_local_control::PrivateStorageOutcomeStatus as Status;
+    for (id, expected) in [(4, Status::Missing), (3, Status::Observed), (3, Status::Missing)] {
+        assert_eq!(
+            runtime.private_storage_outcome(&query(id), &socket).unwrap().status,
+            expected as i32
+        );
+    }
+    assert_eq!(
+        runtime.storage_outcomes.take(sibling_uid, &[4; 16]).unwrap().status,
+        Status::Observed as i32
+    );
+}
+
+#[tokio::test]
 async fn partial_private_storage_ready_write_is_already_committed_to_stream_framing() {
     use std::{
         io,

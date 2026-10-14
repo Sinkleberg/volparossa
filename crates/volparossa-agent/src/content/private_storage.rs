@@ -3,6 +3,8 @@
 //! existing operator/admin authority and is not a new least-authority application boundary.
 
 mod observation;
+mod outcome;
+pub(crate) use outcome::Outcomes;
 
 use std::{net::SocketAddr, path::Path, sync::Arc, time::Duration};
 
@@ -25,7 +27,9 @@ use volparossa_local_control::{
     CONTROL_PROTOCOL_VERSION, ContentReceipt, ControlResponse, ControlResult,
     PrivateStorageAdmission, PrivateStorageAdmissionRequest,
     PrivateStorageDeadlineScope as Deadline, PrivateStorageGrant, PrivateStorageGrantRequest,
-    PrivateStorageReady, PrivateStorageRemoteDetail, PrivateStorageRemoteRequest,
+    PrivateStorageOutcome, PrivateStorageOutcomePhase as OutcomePhase,
+    PrivateStorageOutcomeRequest, PrivateStorageReady, PrivateStorageRemoteDetail,
+    PrivateStorageRemoteRequest,
     PrivateStorageRemoteStage as Stage, PrivateStorageServeRequest, control_response::Payload,
     write_response,
 };
@@ -53,6 +57,15 @@ struct SelectedProvider {
 }
 
 impl ContentRuntime {
+    pub(crate) fn private_storage_outcome(
+        &self,
+        request: &PrivateStorageOutcomeRequest,
+        local: &UnixStream,
+    ) -> Result<PrivateStorageOutcome, ContentError> {
+        let uid = local.peer_cred().map_err(|_| ContentError::Invalid)?.uid();
+        self.storage_outcomes.take(uid, &request.original_request_id)
+    }
+
     /// Administrative local operation on the exact attached store, never a peer request.
     /// No key, caller-selected path, policy bypass or automatic lease eviction is introduced.
     pub(crate) async fn private_storage_admission(
@@ -205,10 +218,11 @@ impl ContentRuntime {
     ) -> Result<(), ContentError> {
         *detail = None;
         let observation = observation::Observation::default();
+        let uid = local.peer_cred().map_err(|_| ContentError::Invalid)?.uid();
+        let outcome = self.storage_outcomes.begin(uid, request_id)?;
         let turn = request.maintenance_turn.clone();
         let mut request = validate_remote(&request)?;
         if !turn.is_empty() {
-            let uid = local.peer_cred().map_err(|_| ContentError::Invalid)?.uid();
             request.maintenance =
                 Some(self.maintenance_turn(&turn, uid, request.grant.owner_key().as_bytes())?);
         }
@@ -236,6 +250,7 @@ impl ContentRuntime {
                 request_id,
                 ready_sent,
                 &observation,
+                &outcome,
             ))
             .await
         });
@@ -245,6 +260,7 @@ impl ContentRuntime {
                 biased;
                 () = turn.cancelled() => {
                     observation.reset();
+                    outcome.cancelled();
                     Err(ContentError::Busy)
                 },
                 result = operation => result,
@@ -255,6 +271,7 @@ impl ContentRuntime {
         if !*ready_sent {
             *detail = observation.detail();
         }
+        outcome.finish(&result, observation.deadline());
         result
     }
 }
@@ -380,6 +397,7 @@ async fn remote(
     id: &[u8],
     ready_sent: &mut bool,
     observation: &observation::Observation,
+    outcome: &outcome::Guard,
 ) -> Result<(), ContentError> {
     let policy = checked_policy(context, None).await?;
     observation
@@ -454,11 +472,16 @@ async fn remote(
             id,
             ready_sent,
             observation,
+            outcome,
         ),
     ))
     .await
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Two request-local observers preserve existing stream and deadline ownership"
+)]
 async fn exchange(
     request: &RemoteRequest,
     selected: SelectedProvider,
@@ -467,6 +490,7 @@ async fn exchange(
     id: &[u8],
     ready_sent: &mut bool,
     observation: &observation::Observation,
+    outcome: &outcome::Guard,
 ) -> Result<(), ContentError> {
     let SelectedProvider {
         provider,
@@ -509,6 +533,7 @@ async fn exchange(
         .await?;
     route_current(context, &policy, control, request.peer).await?;
     grant_current(&request.grant)?;
+    outcome.enter(OutcomePhase::ReadyWrite);
     send_ready(
         local,
         id,
@@ -519,7 +544,7 @@ async fn exchange(
         },
     )
     .await?;
-    let transfer = wire::bridge_admitted(
+    let transfer = wire::bridge_admitted_observed(
         local,
         &mut remote,
         &request.grant,
@@ -531,24 +556,34 @@ async fn exchange(
                 true
             }
         },
+        outcome,
     )
     .await
-    .map_err(|_| ContentError::Unavailable)?;
+    .map_err(|error| {
+        outcome.wire_error(&error);
+        ContentError::Unavailable
+    })?;
+    outcome.enter(OutcomePhase::ProviderTlsClose);
     tls::finish(&mut remote)
         .await
         .map_err(|_| ContentError::Unavailable)?;
     drop(remote);
+    outcome.enter(OutcomePhase::TransportTlsClose);
     tls::finish(flow.stream_mut())
         .await
         .map_err(|_| ContentError::Unavailable)?;
     flow.shutdown();
+    outcome.enter(OutcomePhase::FinalRouteCheck);
     route_current(context, &policy, control, request.peer).await?;
+    outcome.enter(OutcomePhase::FinalGrantCheck);
     grant_current(&request.grant)?;
+    outcome.enter(OutcomePhase::FinalLifetimeCheck);
     if provider.offer.validity().expires <= now() || challenge.validity().expires <= now() {
         return Err(ContentError::Unavailable);
     }
     // This terminal proves route/policy/TLS closure, not custody by itself. Exact lease,
     // stored prefix and expiry are in the owner-verified signed receipt sent beforehand.
+    outcome.enter(OutcomePhase::TerminalWrite);
     send(
         local,
         id,

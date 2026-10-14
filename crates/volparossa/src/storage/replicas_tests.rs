@@ -270,6 +270,11 @@ async fn local_exchange(mut local: tokio::net::UnixStream, peers: &[FixturePeer]
         control_request::Operation, control_response::Payload, read_request, write_response,
     };
     let request = read_request(&mut local).await.unwrap();
+    // This fixture models an older agent without an outcome registry. A failed
+    // optional query must not turn a lost terminal into a successful operation.
+    if matches!(request.operation, Some(Operation::PrivateStorageOutcome(_))) {
+        return;
+    }
     let Some(Operation::PrivateStorageRemote(requested)) = request.operation else {
         panic!("wrong IPC operation")
     };
@@ -368,9 +373,10 @@ async fn replica_two_real_stores_resume_failover_and_delete_without_consuming_su
     assert_eq!(
         partial["deposit_diagnostics"],
         serde_json::json!({
-            "version": 3, "omitted_failures": 0, "failures": [{
+            "version": 4, "omitted_failures": 0, "failures": [{
                 "fragment_index": null, "copy_index": 0, "operation": "reserve",
-                "stage": "agent_terminal", "category": "io", "agent_code": null, "agent_detail": null
+                "stage": "agent_terminal", "category": "io", "agent_code": null,
+                "agent_detail": null, "agent_outcome": {"status": "query_failed", "detail": null}
             }]
         })
     );
@@ -394,7 +400,7 @@ async fn replica_two_real_stores_resume_failover_and_delete_without_consuming_su
     assert_eq!(
         completed["deposit_diagnostics"],
         serde_json::json!({
-            "version": 3, "omitted_failures": 0, "failures": []
+            "version": 4, "omitted_failures": 0, "failures": []
         })
     );
     for (index, original) in identities.iter().enumerate() {

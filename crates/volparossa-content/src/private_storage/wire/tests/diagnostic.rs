@@ -123,10 +123,23 @@ async fn lost_receipt_after_committed_finalize_keeps_wire_error_and_custody() {
     let signed = fixture.request(&challenge, owned, StorageOperation::Finalize);
     // The real challenge has arrived. Only the later server receipt write now fails.
     fail.store(true, Ordering::SeqCst);
+    let bridge_trace = super::bridge_observation::Trace::default();
     assert!(matches!(
-        finish(&mut client, &fixture.grant, &challenge, &signed, &[]).await,
+        finish_observed(
+            &mut client,
+            &fixture.grant,
+            &challenge,
+            &signed,
+            &[],
+            &bridge_trace,
+        )
+        .await,
         Err(WireError::Io(_))
     ));
+    assert_eq!(
+        bridge_trace.0.lock().unwrap().0.last(),
+        Some(&crate::private_storage::wire::bridge_observation::Phase::RemoteReceiptRead)
+    );
     drop(client);
     let (result, diagnostic) = timeout(Duration::from_secs(5), task)
         .await

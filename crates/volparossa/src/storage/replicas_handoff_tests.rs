@@ -151,6 +151,10 @@ async fn exchange(
     trace: &Mutex<Vec<Event>>,
 ) {
     let request = read_request(&mut local).await.unwrap();
+    if matches!(request.operation, Some(Operation::PrivateStorageOutcome(_))) {
+        // Older-agent compatibility: no outcome support and no custody retry.
+        return;
+    }
     let Some(Operation::PrivateStorageRemote(requested)) = request.operation else {
         panic!("expected protected private-storage IPC handoff")
     };
