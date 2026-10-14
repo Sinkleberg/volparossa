@@ -32,11 +32,49 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Join core-delivered products to the now-proven installed Android refresh/background-expiry lifecycle. | PR19 is merged as `ad10d7d9`, with the exact tested tree of `576550f3`. Original Android `38497919547` and component `38497925414` pass; the Android proof includes real tap refresh, background/resume, hidden expired tables, unchanged three requests per product and full cleanup. Products are synthetic in this trial. Actual core delivery into Android, physical devices and iOS remain open; separate web evidence is unchanged. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Candidate `d22f7892` passes Quality, including seven isolated agent outcome tests. Trial `38607252325` passes thirteen owner and seven agent maintenance tests, then stops before topology execution because the standalone content tests also lack Tokio's test utilities. A content-only development dependency and isolated wire-test CI step now address that second build gap; hosted verification is pending. The earlier Cloud FINALIZE `wire_receipt/io` failure, consumer repair, restoration and remote cleanup still require actual proof. Cloud PR234 waits for this shared integration. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Exact `cdfa671a` passes Quality and the actual base maintenance lifecycle, including two restores and deletion of eleven copies. Combined trial `38611919770` fails later in Cloud publication: its first reserve cannot open the protected content stream before READY. The current error collapses multiple route/transport causes; the next step is a bounded per-request classification, not a deadline increase or blind retry. Consumer repair, restoration and remote cleanup remain unproved. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR247 is merged as `17afa3f0`, with the exact tested tree of `09b0d3cc`. Targeted run `38512217556` passes 52 appraisal, 16 guest and twelve quote tests; Quality `38512223814` also executes all eight new agent/control/CLI cases and passes. CodeQL `38512218075` passes. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
 
 ### Latest storage trial
+
+[Run `38611919770`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38611919770),
+job `116017175277`, checks exact source
+`cdfa671aee09479e16958239848e2bbd0639bb6f`. All thirteen owner, seven isolated
+agent and 25 isolated content-wire prerequisite tests pass. The real topology
+then completes the base archive's renewal, core restart, SIGTERM/resume,
+provider-withdrawal repair and two non-consuming, hash-verified restores. The
+base finish deletes eleven retained copies and independently reports zero usage
+at all three stores.
+
+The combined application continuation fails at `storage-consumer-publish`.
+Cloud's first reserve, fragment 0/copy 0, returns `CONTENT_UNAVAILABLE` at
+`agent_ready`, with `stream_open`, no recorded deadline expiry and no TLS failure
+classification. Provider lookup/cardinality and offer-validity checks have
+already passed; the provider's TLS handshake and storage request have not
+started. `open_content_stream` currently collapses policy, transport acquisition
+and MPTCP/TLS activation failures into that same result, so the underlying cause
+is not yet established. This differs from the earlier FINALIZE `wire_receipt/io`
+failure and does not prove that earlier defect fixed.
+
+The original schema-4 report remains failed. Consumer repair, cold restoration
+and provider-zero cleanup have no completed combined receipt. Local private
+fixtures and owned namespaces are removed, and guest-root host snapshots match
+at `2cc2418089a5866d37b45112dc98fd6e9dc7434d70733a275ec53e1f440a182c`.
+Base zero usage must not be reused as proof of subsequent consumer cleanup.
+The bounded client event ring does not cover the whole publication interval;
+missing event categories cannot prove absence or attribute the failed request.
+
+Artifact `11921330521` retains 76 files. Its original ZIP SHA-256 is
+`65fff550493741c7f9aec53cf3675535c262d28a64848ace376a97fc1f39e950`;
+the original log ZIP is
+`bbd152e4a335dd4331081ccf82c7fbcef3f0ca4f1ec593369d33c2a4e5137013`.
+Independent readback verifies the exact source, failure and limited evidence.
+Separate Quality `38611450851` succeeds on merge `dd45c334`; only README differs
+from the candidate, so tested code/workflow bytes match. Its namespace skips
+do not substitute for the actual failed consumer result.
+
+### Earlier isolated-test build gap
 
 [Run `38607252325`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38607252325),
 job `116001235165`, binds exact source
@@ -47,8 +85,9 @@ owner-maintenance tests and seven agent-maintenance tests, then exits 101 in
 in `private_storage/wire/tests/bridge_observation.rs`: its own test dependencies
 do not enable Tokio's `test-util` feature. The content crate now declares that
 feature only under development dependencies, and Quality runs its storage wire
-tests without unrelated workspace feature unification. Hosted verification of
-this correction is pending; production dependencies and deadlines are unchanged.
+tests without unrelated workspace feature unification. The later Quality and
+actual prerequisite results above verify this correction; production dependencies
+and deadlines are unchanged.
 
 The earlier agent build gap in
 [run `38595365736`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38595365736)
