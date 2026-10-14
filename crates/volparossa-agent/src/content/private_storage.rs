@@ -503,14 +503,17 @@ async fn exchange(
         observation.requester_boundary(Stage::StreamOpen, local, async {
             context
                 .routes
-                .open_content_stream(
+                .open_content_stream_diagnosed(
                     &current,
                     endpoint.hostname(),
                     endpoint.port(),
                     unix_millis(),
                 )
                 .await
-                .map_err(|_| ContentError::Unavailable)
+                .map_err(|failure| {
+                    observation.record_stream_failure(observation::stream_failure(failure.cause()));
+                    ContentError::Unavailable
+                })
         }),
     )
     .await?;

@@ -1174,19 +1174,46 @@ class MaintenanceEvidence(unittest.TestCase):
         original = fixture()
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'report.json'
-            for profile in (1, 3, 4, 5):
+            for profile in (1, 3, 4, 5, 6):
                 consumers = (CONSUMER_FIXTURE['fixture']() if profile == 1 else network['fixture'](profile))
-                combined = dict(report(original), schema_version=4, consumers=consumers)
-                for command in ('report', 'report-consumer-v4', 'report-consumer-v5'):
+                combined = dict(report(original), schema_version=5 if profile == 6 else 4, consumers=consumers)
+                for command in ('report', 'report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6'):
                     with self.subTest(profile=profile, command=command):
                         path.write_text(json.dumps(combined))
                         path.chmod(0o600)
                         result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
                             command, str(path), '1' * 40], capture_output=True, timeout=10)
-                        self.assertEqual(result.returncode == 0, command == 'report'
+                        self.assertEqual(result.returncode == 0, (command == 'report' and profile != 6)
                             or (command == 'report-consumer-v4' and profile == 4)
-                            or (command == 'report-consumer-v5' and profile == 5),
+                            or (command == 'report-consumer-v5' and profile == 5)
+                            or (command == 'report-consumer-v6' and profile == 6),
                             result.stdout + result.stderr)
+
+    def test_consumer_v6_requires_new_outer_schema_and_retains_cleanup_and_network_gates(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        original = dict(report(fixture()), schema_version=5, consumers=network['fixture'](6))
+        CHECK['validate_report'](original, '1' * 40, stream_profile=True)
+        with self.assertRaises(ValueError): CHECK['validate_report'](original, '1' * 40)
+        for schema in (4, 5.0, True):
+            invalid = copy.deepcopy(original); invalid['schema_version'] = schema
+            with self.assertRaises(ValueError): CHECK['validate_report'](invalid, '1' * 40, stream_profile=True)
+        invalid = copy.deepcopy(original); invalid['schema_version'] = 4
+        with self.assertRaises(ValueError): CHECK['validate_report'](invalid, '1' * 40)
+        mutations = (
+            lambda v: v.update(source_revision='2' * 40), lambda v: v['cleanup'].update(complete=False),
+            lambda v: v['consumers'].update(schema_version=6.0), lambda v: v['consumers']['provision'].update(version=True),
+            lambda v: v['consumers']['provision'].update(pins=CHECK['CONSUMERS']['PROVISIONER']['load_pins'](5)),
+            lambda v: v['consumers']['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+            lambda v: v['consumers']['deleted_usage'][0].update(leases=1),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'report.json'
+            for mutate in mutations:
+                value = copy.deepcopy(original); mutate(value)
+                path.write_text(json.dumps(value)); path.chmod(0o600)
+                result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                    'report-consumer-v6', str(path), '1' * 40], capture_output=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_current_consumer_v5_cli_keeps_original_network_custody_and_cleanup_gates(self):
         network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))

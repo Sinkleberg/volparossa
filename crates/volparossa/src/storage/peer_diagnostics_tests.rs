@@ -190,11 +190,11 @@ fn diagnostic_v1_replay_is_exact_and_v2_requires_its_new_nullable_field() {
     changed["version"] = 1.into();
     assert!(serde_json::from_value::<Diagnostics>(changed).is_err());
     let current = value(&anyhow::anyhow!("private-canary"));
-    assert_eq!(current["version"], 4);
+    assert_eq!(current["version"], 5);
     assert_eq!(current["failures"][0].as_object().unwrap().len(), 8);
     assert!(current["failures"][0]["agent_detail"].is_null());
     assert!(current["failures"][0]["agent_outcome"].is_null());
-    for version in [0, 5] {
+    for version in [0, 6] {
         let mut changed = historical.clone();
         changed["version"] = version.into();
         assert!(serde_json::from_value::<Diagnostics>(changed).is_err());
@@ -231,6 +231,32 @@ fn diagnostic_v2_detail_is_closed_and_bound_to_agent_ready_rejection() {
 
 #[tokio::test]
 async fn correlated_agent_detail_reaches_only_the_bounded_ready_failure_projection() {
+    correlated_projection_case(
+        PrivateStorageRemoteDetail {
+            stage: PrivateStorageRemoteStage::TlsHandshake as i32,
+            deadline_scope: PrivateStorageDeadlineScope::None as i32,
+            tls_failure: Some(PrivateStorageTlsFailure::Io as i32),
+            stream_failure: None,
+        },
+        serde_json::json!({"stage":"tls_handshake","deadline_scope":"none","tls_failure":"io","stream_failure":null}),
+    )
+    .await;
+    for code in 1..=10 {
+        let failure = PrivateStorageStreamFailure::try_from(code).unwrap();
+        correlated_projection_case(
+            PrivateStorageRemoteDetail {
+                stage: PrivateStorageRemoteStage::StreamOpen as i32,
+                deadline_scope: PrivateStorageDeadlineScope::None as i32,
+                tls_failure: None,
+                stream_failure: Some(code),
+            },
+            serde_json::json!({"stage":"stream_open","deadline_scope":"none","tls_failure":null,"stream_failure":failure}),
+        )
+        .await;
+    }
+}
+
+async fn correlated_projection_case(detail: PrivateStorageRemoteDetail, expected: serde_json::Value) {
     use volparossa_local_control::{
         CONTROL_PROTOCOL_VERSION, ControlResponse, Empty, PrivateStorageRemoteRequest,
         control_request, control_response::Payload, read_request, write_response,
@@ -248,11 +274,7 @@ async fn correlated_agent_detail_reaches_only_the_bounded_ready_failure_projecti
                 request_id: request.request_id,
                 result: ControlResult::Unavailable as i32,
                 diagnostic_code: "CONTENT_UNAVAILABLE".into(),
-                private_storage_remote_detail: Some(PrivateStorageRemoteDetail {
-                    stage: PrivateStorageRemoteStage::TlsHandshake as i32,
-                    deadline_scope: PrivateStorageDeadlineScope::None as i32,
-                    tls_failure: Some(PrivateStorageTlsFailure::Io as i32),
-                }),
+                private_storage_remote_detail: Some(detail),
                 payload: Some(Payload::Ack(Empty {})),
             },
         )
@@ -288,15 +310,12 @@ async fn correlated_agent_detail_reaches_only_the_bounded_ready_failure_projecti
         );
     }
     let report = serde_json::to_value(diagnostics).unwrap();
-    assert_eq!(report["version"], 4);
+    assert_eq!(report["version"], 5);
     assert_eq!(report["omitted_failures"], 1);
     assert_eq!(report["failures"].as_array().unwrap().len(), 8);
     for (copy, failure) in report["failures"].as_array().unwrap().iter().enumerate() {
         assert_eq!(failure["copy_index"], copy);
-        assert_eq!(
-            failure["agent_detail"],
-            serde_json::json!({"stage":"tls_handshake","deadline_scope":"none","tls_failure":"io"})
-        );
+        assert_eq!(failure["agent_detail"], expected);
         assert!(failure["agent_outcome"].is_null());
         assert_eq!(failure.as_object().unwrap().len(), 8);
     }
@@ -317,7 +336,7 @@ async fn correlated_agent_detail_reaches_only_the_bounded_ready_failure_projecti
     assert_eq!(joined["failures"].as_array().unwrap().len(), 8);
     for failure in joined["failures"].as_array().unwrap() {
         assert_eq!(failure["fragment_index"], 0);
-        assert_eq!(failure["agent_detail"]["tls_failure"], "io");
+        assert_eq!(failure["agent_detail"], expected);
     }
 }
 
@@ -482,6 +501,120 @@ fn diagnostic_v4_preserves_exact_v3_and_requires_nullable_outcome() {
     assert_eq!(serde_json::to_value(decoded).unwrap(), current);
     current["version"] = 3.into();
     assert!(serde_json::from_value::<Diagnostics>(current).is_err());
+}
+
+#[test]
+fn diagnostic_v5_retains_exact_v3_v4_details_and_requires_its_new_field() {
+    for version in [3, 4] {
+        let mut historical = serde_json::json!({"version": version, "omitted_failures": 0, "failures": [{
+            "fragment_index": null, "copy_index": 1, "operation": "reserve",
+            "stage": "agent_ready", "category": "agent_rejected", "agent_code": "CONTENT_UNAVAILABLE",
+            "agent_detail": {"stage": "stream_open", "deadline_scope": "none", "tls_failure": null}
+        }]});
+        if version == 4 {
+            historical["failures"][0]["agent_outcome"] = serde_json::Value::Null;
+        }
+        let decoded: Diagnostics = serde_json::from_value(historical.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), historical);
+        let mut expanded = historical.clone();
+        expanded["failures"][0]["agent_detail"]["stream_failure"] = serde_json::Value::Null;
+        assert!(serde_json::from_value::<Diagnostics>(expanded.clone()).is_err());
+        expanded["version"] = 5.into();
+        expanded["failures"][0]["agent_outcome"] = serde_json::Value::Null;
+        let decoded: Diagnostics = serde_json::from_value(expanded.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), expanded);
+        expanded["failures"][0]["agent_detail"]
+            .as_object_mut()
+            .unwrap()
+            .remove("stream_failure");
+        assert!(serde_json::from_value::<Diagnostics>(expanded).is_err());
+    }
+}
+
+fn stream_report() -> serde_json::Value {
+    serde_json::json!({"version": 5, "omitted_failures": 0, "failures": [{
+        "fragment_index": null, "copy_index": 1, "operation": "reserve",
+        "stage": "agent_ready", "category": "agent_rejected", "agent_code": "CONTENT_UNAVAILABLE",
+        "agent_detail": {"stage": "stream_open", "deadline_scope": "none", "tls_failure": null,
+            "stream_failure": "transport_tls"}, "agent_outcome": null
+    }]})
+}
+
+#[test]
+fn diagnostic_v5_stream_failures_require_the_same_closed_wire_matrix() {
+    for failure in [
+        "policy",
+        "route_state",
+        "route_material",
+        "flow_acquire",
+        "transport_certificate",
+        "transport_tls",
+        "initial_paths",
+        "open_tcp_write",
+        "subflow_readiness",
+        "stream_attachment",
+    ] {
+        for stage in ["stream_open", "tls_handshake", "challenge", "unobserved"] {
+            for deadline in ["none", "operation", "exchange"] {
+                for code in [
+                    "CONTENT_UNAVAILABLE",
+                    "CONTENT_INVALID",
+                    "CONTENT_POLICY",
+                    "CONTENT_BUSY",
+                ] {
+                    let mut report = stream_report();
+                    report["failures"][0]["agent_code"] = code.into();
+                    report["failures"][0]["agent_detail"] = serde_json::json!({
+                        "stage": stage, "deadline_scope": deadline, "tls_failure": null,
+                        "stream_failure": failure
+                    });
+                    assert_eq!(
+                        serde_json::from_value::<Diagnostics>(report).is_ok(),
+                        stage == "stream_open" && deadline == "none" && code == "CONTENT_UNAVAILABLE"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn diagnostic_v5_stream_failures_reject_unknown_values_and_unrelated_scopes() {
+    for invalid in [
+        serde_json::json!("unobserved"),
+        serde_json::json!("private-error-canary"),
+        serde_json::json!(0),
+        serde_json::json!(6),
+        serde_json::json!(true),
+        serde_json::json!({}),
+    ] {
+        let mut report = stream_report();
+        report["failures"][0]["agent_detail"]["stream_failure"] = invalid;
+        assert!(serde_json::from_value::<Diagnostics>(report).is_err());
+    }
+    for (field, invalid) in [("stage", "agent_terminal"), ("category", "io")] {
+        let mut report = stream_report();
+        report["failures"][0][field] = invalid.into();
+        assert!(serde_json::from_value::<Diagnostics>(report).is_err());
+    }
+    for (field, invalid) in [("tls_failure", "io"), ("raw", "private-error-canary")] {
+        let mut report = stream_report();
+        report["failures"][0]["agent_detail"][field] = invalid.into();
+        assert!(serde_json::from_value::<Diagnostics>(report).is_err());
+    }
+    let mut joined = Diagnostics::default();
+    joined
+        .append_fragment(2, &serde_json::json!({"deposit_diagnostics": stream_report()}))
+        .unwrap();
+    let report = serde_json::to_value(joined).unwrap();
+    assert_eq!(report["version"], 5);
+    assert_eq!(report["failures"][0]["fragment_index"], 2);
+    assert_eq!(
+        report["failures"][0]["agent_detail"]["stream_failure"],
+        "transport_tls"
+    );
+    assert!(report.to_string().len() < 4096);
+    assert!(!report.to_string().contains("private-error-canary"));
 }
 
 fn outcome_report() -> serde_json::Value {

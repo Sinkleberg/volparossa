@@ -9,10 +9,28 @@ use std::{
 use tokio::{net::UnixStream, time::timeout};
 use volparossa_local_control::{
     PrivateStorageDeadlineScope as Deadline, PrivateStorageRemoteDetail,
-    PrivateStorageRemoteStage as Stage, PrivateStorageTlsFailure,
+    PrivateStorageRemoteStage as Stage, PrivateStorageStreamFailure, PrivateStorageTlsFailure,
 };
 
 use super::{ContentError, until_requester_closed};
+use crate::route_setup::ContentStreamOpenCause;
+
+pub(super) const fn stream_failure(cause: ContentStreamOpenCause) -> PrivateStorageStreamFailure {
+    match cause {
+        ContentStreamOpenCause::Policy => PrivateStorageStreamFailure::Policy,
+        ContentStreamOpenCause::RouteState => PrivateStorageStreamFailure::RouteState,
+        ContentStreamOpenCause::RouteMaterial => PrivateStorageStreamFailure::RouteMaterial,
+        ContentStreamOpenCause::FlowAcquire => PrivateStorageStreamFailure::FlowAcquire,
+        ContentStreamOpenCause::TransportCertificate => {
+            PrivateStorageStreamFailure::TransportCertificate
+        }
+        ContentStreamOpenCause::TransportTls => PrivateStorageStreamFailure::TransportTls,
+        ContentStreamOpenCause::InitialPaths => PrivateStorageStreamFailure::InitialPaths,
+        ContentStreamOpenCause::OpenTcpWrite => PrivateStorageStreamFailure::OpenTcpWrite,
+        ContentStreamOpenCause::SubflowReadiness => PrivateStorageStreamFailure::SubflowReadiness,
+        ContentStreamOpenCause::StreamAttachment => PrivateStorageStreamFailure::StreamAttachment,
+    }
+}
 
 #[derive(Default)]
 pub(super) struct Observation {
@@ -21,6 +39,7 @@ pub(super) struct Observation {
     stage: AtomicI32,
     deadline: AtomicI32,
     tls_failure: AtomicI32,
+    stream_failure: AtomicI32,
 }
 
 impl Observation {
@@ -37,6 +56,10 @@ impl Observation {
             PrivateStorageTlsFailure::Unobserved as i32,
             Ordering::Relaxed,
         );
+        self.stream_failure.store(
+            PrivateStorageStreamFailure::Unobserved as i32,
+            Ordering::Relaxed,
+        );
     }
 
     pub(super) fn record_tls_failure(&self, failure: PrivateStorageTlsFailure) {
@@ -48,15 +71,27 @@ impl Observation {
         }
     }
 
+    pub(super) fn record_stream_failure(&self, failure: PrivateStorageStreamFailure) {
+        if self.stage.load(Ordering::Relaxed) == Stage::StreamOpen as i32
+            && self.deadline.load(Ordering::Relaxed) == Deadline::None as i32
+            && failure != PrivateStorageStreamFailure::Unobserved
+        {
+            self.stream_failure.store(failure as i32, Ordering::Relaxed);
+        }
+    }
+
     pub(super) fn detail(&self) -> Option<PrivateStorageRemoteDetail> {
         let stage = self.stage.load(Ordering::Relaxed);
         let deadline_scope = self.deadline.load(Ordering::Relaxed);
         let failure = self.tls_failure.load(Ordering::Relaxed);
+        let stream_failure = self.stream_failure.load(Ordering::Relaxed);
         let detail = PrivateStorageRemoteDetail {
             stage,
             deadline_scope,
             tls_failure: (failure != PrivateStorageTlsFailure::Unobserved as i32)
                 .then_some(failure),
+            stream_failure: (stream_failure != PrivateStorageStreamFailure::Unobserved as i32)
+                .then_some(stream_failure),
         };
         // No observation for policy/resource/cancel, or an inner deadline while
         // awaiting an uninstrumented policy recheck. Never invent that boundary.
@@ -114,6 +149,10 @@ impl Observation {
             } else {
                 self.tls_failure.store(
                     PrivateStorageTlsFailure::Unobserved as i32,
+                    Ordering::Relaxed,
+                );
+                self.stream_failure.store(
+                    PrivateStorageStreamFailure::Unobserved as i32,
                     Ordering::Relaxed,
                 );
                 self.deadline.store(scope as i32, Ordering::Relaxed);

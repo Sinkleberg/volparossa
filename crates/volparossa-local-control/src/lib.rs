@@ -41,7 +41,7 @@ pub use private_storage::{
 };
 pub use private_storage_detail::{
     PrivateStorageDeadlineScope, PrivateStorageRemoteDetail, PrivateStorageRemoteStage,
-    PrivateStorageTlsFailure,
+    PrivateStorageStreamFailure, PrivateStorageTlsFailure,
 };
 pub use private_storage_outcome::{
     PrivateStorageOutcome, PrivateStorageOutcomeCategory, PrivateStorageOutcomeDeadline,

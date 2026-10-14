@@ -64,6 +64,35 @@ pub enum PrivateStorageTlsFailure {
     Io = 6,
 }
 
+/// Returned protected-stream opening boundary, without a raw transport error.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, prost::Enumeration, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[repr(i32)]
+pub enum PrivateStorageStreamFailure {
+    /// Reserved; absence is encoded with no optional field.
+    Unobserved = 0,
+    /// The current route policy does not permit this stream.
+    Policy = 1,
+    /// The route is not in a usable established state.
+    RouteState = 2,
+    /// Required route transport material is unavailable.
+    RouteMaterial = 3,
+    /// Existing bounded flow acquisition or descriptor adoption failed.
+    FlowAcquire = 4,
+    /// Transport certificate construction failed.
+    TransportCertificate = 5,
+    /// The outer transport TLS handshake failed, including its own deadline.
+    TransportTls = 6,
+    /// Initial transport path setup failed.
+    InitialPaths = 7,
+    /// Writing or flushing the original OPEN_TCP frame failed; not a remote ACK.
+    OpenTcpWrite = 8,
+    /// Required kernel subflows did not become ready.
+    SubflowReadiness = 9,
+    /// Attaching the stream to its existing observation owner failed.
+    StreamAttachment = 10,
+}
+
 /// Optional bounded detail on a failed initial private-storage control response.
 /// Old peers ignore this additive field and still receive the same result/code/Ack.
 #[derive(Clone, Copy, PartialEq, Eq, Message)]
@@ -77,6 +106,9 @@ pub struct PrivateStorageRemoteDetail {
     /// Optional returned TLS failure; no payload, identity, address or error text.
     #[prost(enumeration = "PrivateStorageTlsFailure", optional, tag = "3")]
     pub tls_failure: Option<i32>,
+    /// Optional protected-stream failure; distinct from the later provider TLS.
+    #[prost(enumeration = "PrivateStorageStreamFailure", optional, tag = "4")]
+    pub stream_failure: Option<i32>,
 }
 
 impl PrivateStorageRemoteDetail {
@@ -116,6 +148,19 @@ impl PrivateStorageRemoteDetail {
                 ));
             }
         }
+        if let Some(failure) = self.stream_failure {
+            let failure = PrivateStorageStreamFailure::try_from(failure)
+                .map_err(|_| ControlProtocolError::Invalid("private storage stream failure"))?;
+            if failure == PrivateStorageStreamFailure::Unobserved
+                || stage != PrivateStorageRemoteStage::StreamOpen
+                || deadline != PrivateStorageDeadlineScope::None
+                || self.tls_failure.is_some()
+            {
+                return Err(ControlProtocolError::Invalid(
+                    "private storage stream combination",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -138,7 +183,8 @@ impl PrivateStorageRemoteDetail {
         };
         if result != expected
             || ((self.deadline_scope != PrivateStorageDeadlineScope::None as i32
-                || self.tls_failure.is_some())
+                || self.tls_failure.is_some()
+                || self.stream_failure.is_some())
                 && result != ControlResult::Unavailable)
         {
             return Err(ControlProtocolError::Invalid(

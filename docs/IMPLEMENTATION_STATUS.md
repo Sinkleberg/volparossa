@@ -36,6 +36,31 @@ The immediate milestones build on the retained candidates and evidence below:
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR247 is merged as `17afa3f0`, with the exact tested tree of `09b0d3cc`. Targeted run `38512217556` passes 52 appraisal, 16 guest and twelve quote tests; Quality `38512223814` also executes all eight new agent/control/CLI cases and passes. CodeQL `38512218075` passes. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
 
+### Protected storage stream diagnostic candidate
+
+The next PR232 candidate adds a request-local, finite failure classification for
+the protected stream before the provider TLS handshake. It distinguishes policy,
+route state/material, flow acquisition, transport certificate/TLS, initial paths,
+OPEN_TCP writing, subflow readiness and stream attachment. This is diagnostic
+evidence, not a transport fix or a remote acceptance receipt. It does not change
+the existing eight acquisition attempts, deadlines, routing, authorization,
+storage accounting or cleanup.
+
+The additive local-control field is projected only for a matching pre-READY
+`CONTENT_UNAVAILABLE` rejection. Success, cancellation and enclosing timeouts
+clear the observation. CLI diagnostics use version 5; versions 1–4 retain their
+original closed JSON shapes. Image `949f208d` and Cloud `7d10c494` accept the same
+bounded contract. Consumer profile 6 pins those exact Git objects, with a version-6
+consumer report and an explicitly selected version-5 combined report. Historical
+reports are not upgraded into new evidence.
+
+Targeted inert checks pass: 217 core harness/validator cases, 55 Image adapter cases
+and eleven Cloud cases. Independent source review and 26,656 in-memory historical
+adapter comparisons find no changed version-1–4 acceptance or output. The new
+Rust source and wire-to-CLI regression tests still require hosted compilation and
+execution; the actual combined storage trial has not yet run on this candidate.
+No private payloads, paths, identities or raw errors are added to exported evidence.
+
 ### Latest storage trial
 
 [Run `38611919770`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38611919770),
@@ -52,7 +77,7 @@ Cloud's first reserve, fragment 0/copy 0, returns `CONTENT_UNAVAILABLE` at
 `agent_ready`, with `stream_open`, no recorded deadline expiry and no TLS failure
 classification. Provider lookup/cardinality and offer-validity checks have
 already passed; the provider's TLS handshake and storage request have not
-started. `open_content_stream` currently collapses policy, transport acquisition
+started. That revision's `open_content_stream` collapses policy, transport acquisition
 and MPTCP/TLS activation failures into that same result, so the underlying cause
 is not yet established. This differs from the earlier FINALIZE `wire_receipt/io`
 failure and does not prove that earlier defect fixed.

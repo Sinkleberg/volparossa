@@ -21,6 +21,7 @@ PINS_V2 = HERE / 'storage-consumer-maintenance-pins-v2.json'
 PINS_V3 = HERE / 'storage-consumer-maintenance-pins-v3.json'
 PINS_V4 = HERE / 'storage-consumer-maintenance-pins-v4.json'
 PINS_V5 = HERE / 'storage-consumer-maintenance-pins-v5.json'
+PINS_V6 = HERE / 'storage-consumer-maintenance-pins-v6.json'
 BASE = runpy.run_path(str(HERE / 'image-snapshot-provision.py'))
 require, digest, verify_files = (BASE[key] for key in ('require', 'digest', 'verify_files'))
 SOURCES = {name: Path('/opt') / ('volparossa-' + name) for name in ('image', 'cloud')}
@@ -36,6 +37,8 @@ TLS_REVISIONS = dict(image='3b5830476dabd548debfdfade4fdf72acb4fa992',
     cloud='ea24b6cd53a14b204a7b8fbfda5c76ec9ca297e7')
 OUTCOME_REVISIONS = dict(image='ec6b9dca5789a60447c643652c93643b9a6c4af6',
     cloud='4409c08680eebb3d679a036546691cb541675f97')
+STREAM_REVISIONS = dict(image='949f208dbb48fcb734d4dfd33eb1933b69830a01',
+    cloud='7d10c4943062c5a0ae46fc57e293dc3e33db3ed2')
 FILES = {
     'image': frozenset(('scripts/immich_snapshot.py', 'scripts/snapshot-storage.mjs',
         'src/core-storage.mjs', 'LICENSE')),
@@ -54,13 +57,14 @@ VENDORED = {'scripts/immich_snapshot.py': 'vendor/volparossa-image/immich_snapsh
 
 
 def pins_path(profile_version=1):
-    require(type(profile_version) is int and profile_version in (1, 2, 3, 4, 5))
-    return {1: PINS, 2: PINS_V2, 3: PINS_V3, 4: PINS_V4, 5: PINS_V5}[profile_version]
+    require(type(profile_version) is int and profile_version in (1, 2, 3, 4, 5, 6))
+    return {1: PINS, 2: PINS_V2, 3: PINS_V3, 4: PINS_V4, 5: PINS_V5, 6: PINS_V6}[profile_version]
 
 
 def source_revisions(profile_version=1):
     pins_path(profile_version)  # Reject bools and unknown profile selectors first.
-    return {1: REVISIONS, 2: DIAGNOSTIC_REVISIONS, 3: DETAIL_REVISIONS, 4: TLS_REVISIONS, 5: OUTCOME_REVISIONS}[profile_version]
+    return {1: REVISIONS, 2: DIAGNOSTIC_REVISIONS, 3: DETAIL_REVISIONS, 4: TLS_REVISIONS,
+        5: OUTCOME_REVISIONS, 6: STREAM_REVISIONS}[profile_version]
 
 
 def load_pins(profile_version=1):
@@ -149,7 +153,7 @@ def main():
     parser.add_argument('action', choices=('provision',))
     parser.add_argument('--download', action='store_true', required=True,
         help='explicit guest-only pinned Image/Cloud sources and Node runtime download')
-    parser.add_argument('--profile-version', type=int, choices=(1, 2, 3, 4, 5), default=1)
+    parser.add_argument('--profile-version', type=int, choices=(1, 2, 3, 4, 5, 6), default=1)
     args = parser.parse_args()
     revisions = source_revisions(args.profile_version)
     print(json.dumps(dict(plan='guest-only-pinned-storage-consumers', revisions=revisions,

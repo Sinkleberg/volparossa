@@ -11,6 +11,7 @@ fn rejected() -> ControlResponse {
             stage: PrivateStorageRemoteStage::ProviderLookup as i32,
             deadline_scope: PrivateStorageDeadlineScope::None as i32,
             tls_failure: None,
+            stream_failure: None,
         }),
         payload: Some(Payload::Ack(Empty {})),
     }
@@ -101,6 +102,7 @@ fn private_storage_detail_has_only_closed_bounded_stage_and_deadline_values() {
                 stage,
                 deadline_scope,
                 tls_failure: None,
+                stream_failure: None,
             });
             let allowed = match deadline_scope {
                 0 => stage != 0,
@@ -160,6 +162,7 @@ fn tls_rejected(failure: i32) -> ControlResponse {
         stage: PrivateStorageRemoteStage::TlsHandshake as i32,
         deadline_scope: PrivateStorageDeadlineScope::None as i32,
         tls_failure: Some(failure),
+        stream_failure: None,
     });
     response
 }
@@ -194,6 +197,7 @@ fn tls_failure_requires_handshake_boundary_without_an_enclosing_deadline() {
                     stage,
                     deadline_scope,
                     tls_failure: Some(failure),
+                    stream_failure: None,
                 });
                 let allowed = stage == PrivateStorageRemoteStage::TlsHandshake as i32
                     && deadline_scope == PrivateStorageDeadlineScope::None as i32;
@@ -228,5 +232,95 @@ fn tls_failure_rejects_success_other_failure_codes_and_non_ack_payloads() {
             response.payload = payload;
             assert_response_validity(&response, false);
         }
+    }
+}
+
+fn stream_rejected(failure: i32) -> ControlResponse {
+    let mut response = rejected();
+    response.private_storage_remote_detail = Some(PrivateStorageRemoteDetail {
+        stage: PrivateStorageRemoteStage::StreamOpen as i32,
+        deadline_scope: PrivateStorageDeadlineScope::None as i32,
+        tls_failure: None,
+        stream_failure: Some(failure),
+    });
+    response
+}
+
+#[test]
+fn stream_failure_is_additive_and_old_detail_reader_keeps_original_fields() {
+    #[derive(Clone, PartialEq, Message)]
+    struct TlsDetail {
+        #[prost(enumeration = "PrivateStorageRemoteStage", tag = "1")]
+        stage: i32,
+        #[prost(enumeration = "PrivateStorageDeadlineScope", tag = "2")]
+        deadline_scope: i32,
+        #[prost(enumeration = "PrivateStorageTlsFailure", optional, tag = "3")]
+        tls_failure: Option<i32>,
+    }
+    let old = TlsDetail {
+        stage: PrivateStorageRemoteStage::StreamOpen as i32,
+        deadline_scope: PrivateStorageDeadlineScope::None as i32,
+        tls_failure: None,
+    };
+    let old_wire = old.encode_to_vec();
+    let current = PrivateStorageRemoteDetail::decode(old_wire.as_slice()).unwrap();
+    assert_eq!(current.stream_failure, None);
+    assert_eq!(current.encode_to_vec(), old_wire);
+    for failure in 1..=10 {
+        let response = stream_rejected(failure);
+        assert_response_validity(&response, true);
+        let wire = response
+            .private_storage_remote_detail
+            .unwrap()
+            .encode_to_vec();
+        assert_eq!(TlsDetail::decode(wire.as_slice()).unwrap(), old);
+    }
+}
+
+#[test]
+fn stream_failure_requires_exact_boundary_code_and_no_enclosing_deadline() {
+    for failure in 1..=10 {
+        for stage in 0..=8 {
+            for deadline in 0..=2 {
+                let mut response = stream_rejected(failure);
+                let detail = response.private_storage_remote_detail.as_mut().unwrap();
+                detail.stage = stage;
+                detail.deadline_scope = deadline;
+                assert_response_validity(
+                    &response,
+                    stage == PrivateStorageRemoteStage::StreamOpen as i32 && deadline == 0,
+                );
+            }
+        }
+        for (result, code) in [
+            (ControlResult::Ok, "CONTENT_OK"),
+            (ControlResult::Policy, "CONTENT_POLICY"),
+            (ControlResult::InvalidRequest, "CONTENT_INVALID"),
+            (ControlResult::InvalidState, "CONTENT_BUSY"),
+        ] {
+            let mut response = stream_rejected(failure);
+            response.result = result as i32;
+            response.diagnostic_code = code.into();
+            assert_response_validity(&response, false);
+        }
+    }
+}
+
+#[test]
+fn stream_failure_rejects_unknown_values_tls_combination_and_non_ack() {
+    for failure in [i32::MIN, -1, 0, 11, 99, i32::MAX] {
+        assert_response_validity(&stream_rejected(failure), false);
+    }
+    let mut response = stream_rejected(PrivateStorageStreamFailure::TransportTls as i32);
+    response
+        .private_storage_remote_detail
+        .as_mut()
+        .unwrap()
+        .tls_failure = Some(PrivateStorageTlsFailure::Io as i32);
+    assert_response_validity(&response, false);
+    for payload in [None, Some(Payload::Status(crate::StatusSnapshot::default()))] {
+        let mut response = stream_rejected(PrivateStorageStreamFailure::FlowAcquire as i32);
+        response.payload = payload;
+        assert_response_validity(&response, false);
     }
 }
