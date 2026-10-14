@@ -371,11 +371,15 @@ and the [Linux SEV guest interface](https://www.kernel.org/doc/html/latest/virt/
 
 The `feature/protected-compute-quote-exchange` candidate adds an explicit
 quote-only service and CLI. It does not admit a worker or send a private task.
-The first hosted candidate compiles the content test binary and passes all 52
-appraisal tests, but fails Clippy before the guest and quote tests execute.
-Corrections still need hosted acceptance; the earlier passing guest runs above
-describe their original revisions. No suitable confidential-computing hardware
-is currently available.
+Original hosted run `38511031734` on `85a01382` passes all 52 appraisal tests,
+16 guest tests and twelve quote tests, plus targeted content Clippy. Independent
+reconstruction and root replay bind those executed results to the original
+artifacts, source and unchanged lockfile. Workspace Quality stops at one CLI
+naming lint; the private-type rename is reviewed but still needs hosted
+acceptance. The eight agent/control/CLI tests have not yet executed, and CodeQL
+remains pending. The earlier failed attempts and passing guest runs retain their
+own revision-specific evidence in the implementation ledger. No suitable
+confidential-computing hardware is currently available.
 
 ### Operator authority and cancellation
 
@@ -425,9 +429,10 @@ processes the report in memory; this exchange is not anonymous quote disclosure.
 
 Twelve content regressions cover message separation, exact authorization,
 bounded framing, retained-key expiry, delivery failure, cancellation during
-firmware work, late results, policy loss and finite attempts. Eight more tests
-cover the agent, local control messages and CLI policy/output. Synthetic firmware
-is test-only and cannot be selected by production configuration.
+firmware work, late results, policy loss and finite attempts. These twelve tests
+pass in the hosted run above. Eight more tests cover the agent, local control
+messages and CLI policy/output; their workspace execution is still pending.
+Synthetic firmware is test-only and cannot be selected by production configuration.
 
 The separate quote software receipt requires the original source and lock binding,
 52 appraisal tests, targeted Clippy and 16 guest tests before accepting the exact

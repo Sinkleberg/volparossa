@@ -66,7 +66,7 @@ pub(crate) struct Verify {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PublicPolicy {
+struct PublicExpectations {
     version: u32,
     public_policy_id: String,
     expected_measurement: String,
@@ -111,7 +111,7 @@ enum Smt {
     RequireDisabled,
 }
 
-impl PublicPolicy {
+impl PublicExpectations {
     fn decode(bytes: &[u8]) -> Result<([u8; 32], LocalPolicy)> {
         ensure!(
             !bytes.is_empty() && bytes.len() <= 4096,
@@ -223,7 +223,8 @@ struct Report {
 }
 
 async fn verify(args: &Verify, socket: &Path) -> Result<Report> {
-    let (policy_id, policy) = PublicPolicy::decode(&super::read_file(&args.public_policy, 4096)?)?;
+    let (policy_id, policy) =
+        PublicExpectations::decode(&super::read_file(&args.public_policy, 4096)?)?;
     let vcek = super::read_file(&args.vcek, MAX_VCEK_BYTES as u64)?;
     let crl = super::read_file(&args.vendor_crl, MAX_CRL_BYTES as u64)?;
     ensure!(
@@ -322,21 +323,21 @@ mod tests {
 
     #[test]
     fn quote_cli_public_policy_has_no_defaults_and_checks_every_floor() {
-        assert!(PublicPolicy::decode(&serde_json::to_vec(&policy()).unwrap()).is_ok());
+        assert!(PublicExpectations::decode(&serde_json::to_vec(&policy()).unwrap()).is_ok());
         for name in ["current", "reported", "committed", "launch"] {
             let mut value = policy();
             value["minimum_tcb"][name]["bootloader"] = serde_json::json!(128);
-            assert!(PublicPolicy::decode(&serde_json::to_vec(&value).unwrap()).is_err());
+            assert!(PublicExpectations::decode(&serde_json::to_vec(&value).unwrap()).is_err());
         }
         for field in ["minimum_guest_svn", "smt", "public_policy_id"] {
             let mut value = policy();
             value.as_object_mut().unwrap().remove(field);
-            assert!(PublicPolicy::decode(&serde_json::to_vec(&value).unwrap()).is_err());
+            assert!(PublicExpectations::decode(&serde_json::to_vec(&value).unwrap()).is_err());
         }
         let mut value = policy();
         value["production_root_authorized"] = serde_json::json!(true);
-        assert!(PublicPolicy::decode(&serde_json::to_vec(&value).unwrap()).is_err());
-        assert!(PublicPolicy::decode(&vec![b' '; 4097]).is_err());
+        assert!(PublicExpectations::decode(&serde_json::to_vec(&value).unwrap()).is_err());
+        assert!(PublicExpectations::decode(&vec![b' '; 4097]).is_err());
     }
 
     #[test]

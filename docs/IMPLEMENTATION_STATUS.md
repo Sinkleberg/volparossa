@@ -34,7 +34,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Native Overmorrow — `volparossa-weather` | Join core-delivered products to the now-proven installed Android refresh/background-expiry lifecycle. | PR19 is merged as `ad10d7d9`, with the exact tested tree of `576550f3`. Original Android `38497919547` and component `38497925414` pass; the Android proof includes real tap refresh, background/resume, hidden expired tables, unchanged three requests per product and full cleanup. Products are synthetic in this trial. Actual core delivery into Android, physical devices and iOS remain open; separate web evidence is unchanged. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Original actual trial `38497089463` on `0057262e` fails Cloud publication with a FINALIZE `wire_receipt/io` result. Diagnostic candidate `b9a8905e` passes Quality `38505948590`, including eleven new Rust cases, and CodeQL `38505945732`. Actual trial `38508516347` is pending on that exact source. These diagnostics do not establish a fix; consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 is merged as `e282a3ce`; its guest module has passing software evidence. The `feature/protected-compute-quote-exchange` candidate connects that module to finite operator grants, protected transport and CLI verification. Twelve new content tests and eight agent/control/CLI tests are written; hosted Rust execution is still required. Production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
+| Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 is merged as `e282a3ce`; its guest module has passing software evidence. PR247 connects that module to finite operator grants, protected transport and CLI verification. Original run `38511031734` on `85a01382` passes 52 appraisal, 16 guest and twelve new quote tests plus targeted Clippy. Quality `38511036689` stops at one CLI naming lint; the private-type rename is reviewed, but corrected workspace acceptance and execution of eight new agent/control/CLI tests remain required. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
 
 ### Authorized quote exchange candidate
 
@@ -57,12 +57,25 @@ stopped. One process-wide permit remains with the actual worker until it returns
 including across detach and reattach. This prevents cancelled requests from
 creating an unbounded series of firmware workers.
 
-Independent source review and inert harness checks cover the candidate. Its
-first hosted build compiles the content test binary and passes all 52 appraisal
-tests, but stops at strict Clippy before the guest and quote tests. The separate
-software receipt requires those 52 appraisal tests and 16 guest tests before
-accepting the twelve new quote tests. Synthetic reports cannot establish a
-working production route or confidential hardware. See the
+Original hosted run
+[`38511031734`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38511031734)
+on `85a013825ce33e2122de344092d8a3889a4af2b5` passes all 52 appraisal tests,
+16 guest tests and twelve quote tests, with zero failures or ignored tests.
+Targeted content Clippy also passes. The separate quote receipt requires the
+appraisal and guest results from that same source; all three stages actually
+execute. Independent reconstruction and root replay confirm the original
+artifacts, exact tree `4a64a68df7a3ba572a572d7b20336dccdc0666f1`, unchanged
+committed lockfile and the digest chain between prerequisite receipts.
+
+The original core, guest and quote artifact ZIPs are respectively
+`e4e66a899b324c57e90c355f20f149c32c4549b249107c3768708ca501b18c04`,
+`d48540551b72e3efb83aabd2653940be4c3c69dcbae3530f62a53a7b3427fcbc`
+and `50bfd73b1cc61d13005145ad802e5c4afd6d8cc8ef65c3daaa81de9772e33eca`;
+the original log ZIP is
+`45d8e1dd32c49ac607e7682e53d4695624035f4ca33a0ef7c3eefbf4706c3001`.
+These synthetic guest and quote reports do not prove firmware success, a working
+production route, confidential hardware, full appraisal, worker admission or
+private-task execution. See the
 [quote exchange guide](development/PROTECTED_COMPUTE_VERIFIER.md#authorized-quote-exchange-candidate)
 for commands and the remaining authority boundaries.
 
@@ -85,7 +98,17 @@ Clippy or workspace tests. Its original log ZIP is
 The exact hosted formatter output has been applied and its eleven resulting
 files checked by hash. The three Clippy corrections preserve the same lazy
 deadline fallback, unit-output polling and test behavior; no lint gate is relaxed.
-The corrected revision still needs hosted acceptance. No local Rust tool was run.
+The corrected revision passes the targeted core/guest/quote run above. Separate
+Quality `38511036689` passes formatting, fuzz lint and dependency/license checks,
+then stops at `struct_field_names` in the CLI's private `PublicPolicy` type.
+Workspace tests, including the eight new agent/control/CLI cases, are skipped.
+Its original log ZIP is
+`73cd058d0f2d9554d0676dd48bb809aaea88c44e63bcaa05edf6b5265ba5bf99`.
+Renaming that private type to `PublicExpectations` leaves the JSON
+`public_policy_id` field, strict schema, policy criteria and CLI options unchanged.
+Independent review confirms the narrow correction. Corrected workspace acceptance
+is still required; CodeQL `38511032900` on `85a01382` is also pending. No local
+Rust tool was run.
 
 ### Guest-owned protected-compute session candidate
 
