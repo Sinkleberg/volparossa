@@ -20,14 +20,41 @@ def tools():
         for name in ('gpg', 'gpg-agent', 'gpgconf', 'tar')}
 
 
-def receipt():
+def receipt(profile_version=1):
     """Synthetic schema fixture, never a live provisioning result."""
-    return dict(version=1, kind='cloud-upload-maintenance-runtime-provision', success=True,
-        pins=M['load_pins'](), pins_sha256=M['digest'](M['PINS']), previous_consumer_provision_sha256='b' * 64,
+    return dict(version=profile_version, kind='cloud-upload-maintenance-runtime-provision', success=True,
+        pins=M['load_pins'](profile_version), pins_sha256=M['digest'](M['pins_path'](profile_version)), previous_consumer_provision_sha256='b' * 64,
         tools=tools(), **dict.fromkeys(M['TRUE_FLAGS'], True), **dict.fromkeys(M['FALSE_FLAGS'], False))
 
 
 class UploadProvision(unittest.TestCase):
+    def test_stream_profile_has_separate_closed_pins_with_same_runtime_and_inventory(self):
+        old, new = M['load_pins'](), M['load_pins'](2)
+        self.assertEqual(new['version'], 2)
+        self.assertEqual(new['runtime'], old['runtime'])
+        self.assertEqual(M['STREAM_REVISIONS'], dict(image='949f208dbb48fcb734d4dfd33eb1933b69830a01',
+            cloud='7d10c4943062c5a0ae46fc57e293dc3e33db3ed2'))
+        for name in ('image', 'cloud'):
+            self.assertEqual(new['sources'][name]['revision'], M['STREAM_REVISIONS'][name])
+            self.assertEqual(set(new['sources'][name]['files']), set(old['sources'][name]['files']))
+        M['validate_provision'](receipt(2))
+        for version in (True, 0, 3, '2'):
+            with self.subTest(version=version), self.assertRaises(ValueError): M['load_pins'](version)
+        for version, other in ((1, 2), (2, 1)):
+            value = receipt(version)
+            for change in ({'version': other}, {'pins': M['load_pins'](other)},
+                    {'pins_sha256': M['digest'](M['pins_path'](other))}):
+                with self.subTest(version=version, change=change), self.assertRaises(ValueError):
+                    M['validate_provision']({**value, **change})
+
+    def test_source_generation_rejects_wrong_prior_before_runtime_access(self):
+        previous = runpy.run_path(str(HERE / 'test-storage-consumer-maintenance-evidence.py'))
+        for profile, prior in ((1, 6), (2, 5)):
+            raw = json.dumps(previous['fixture'](profile_version=prior)['provision']).encode()
+            with patch.dict(M['verify_shared_runtime'].__globals__, public_file=lambda *_: raw,
+                    verify_files=Mock(side_effect=AssertionError('unexpected runtime access'))), self.assertRaises(ValueError):
+                M['verify_shared_runtime'](M['load_pins'](profile), profile)
+
     def test_exact_new_sources_keep_old_pins_paths_and_runtime(self):
         pins = M['load_pins']()
         old = M['PREVIOUS']['PROVISIONER']['load_pins']()

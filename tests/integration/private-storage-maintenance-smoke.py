@@ -1925,11 +1925,13 @@ def evidence(work):
     return value
 
 
-def validate_report(report, revision, *, historical=False, previous=False):
+def validate_report(report, revision, *, historical=False, previous=False, stream_profile=False):
     # Historical v2 reports describe only the original opaque fixture. They
     # remain inspectable, but never satisfy the current combined CLI gate.
-    require(not (historical and previous) and re.fullmatch('[0-9a-f]{40}', revision) and report['source_revision'] == revision
-        and report['schema_version'] == (2 if historical else 3 if previous else 4)
+    require(type(stream_profile) is bool and not (stream_profile and (historical or previous))
+        and not (historical and previous) and re.fullmatch('[0-9a-f]{40}', revision) and report['source_revision'] == revision
+        and type(report['schema_version']) is int
+        and report['schema_version'] == (2 if historical else 3 if previous else 5 if stream_profile else 4)
         and report['report_kind'] == 'volparossa-private-storage-maintenance'
         and report['success'] is True and report['runner_exit_status'] == 0
         and report['phase'] == 'private-storage-maintenance-complete' and report['observed_blocker'] is None
@@ -1938,6 +1940,9 @@ def validate_report(report, revision, *, historical=False, previous=False):
     validate_evidence(report['maintenance'], historical=historical, previous=previous)
     if not historical:
         CONSUMERS['validate_evidence'](report['consumers'], previous=previous)
+        require((report['consumers']['schema_version'] == 6) == stream_profile
+            and (report['consumers']['provision']['version'] == 6) == stream_profile,
+            'consumer_stream_source_profile')
         require(all(report['maintenance'][name] == report['consumers'][name]
             for name in ('expected_peers', 'layout', 'isolation', *(() if previous else ('control_transition',))))
             and report['maintenance']['deleted_usage'] == report['consumers']['initial_usage'],
@@ -1988,14 +1993,14 @@ def main(args):
             work / 'private-storage-maintenance-selection-start.private',
             work / 'private-storage-maintenance-selection-end.private'), sort_keys=True))
         return
-    if len(args) == 3 and args[0] in ('report', 'report-consumer-v4', 'report-consumer-v5'):
+    if len(args) == 3 and args[0] in ('report', 'report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6'):
         report = read(Path(args[1]))
-        validate_report(report, args[2])
-        if args[0] in ('report-consumer-v4', 'report-consumer-v5'):
+        validate_report(report, args[2], stream_profile=args[0] == 'report-consumer-v6')
+        if args[0] in ('report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6'):
             # Current hosted acceptance is generation-specific; keep the
             # original report command available for exact historical replay.
             consumer = report['consumers']
-            version = 5 if args[0] == 'report-consumer-v5' else 4
+            version = {'report-consumer-v4': 4, 'report-consumer-v5': 5, 'report-consumer-v6': 6}[args[0]]
             require(type(consumer['schema_version']) is int and consumer['schema_version'] == version
                 and type(consumer['provision']['version']) is int and consumer['provision']['version'] == version,
                 'consumer_current_source_profile')

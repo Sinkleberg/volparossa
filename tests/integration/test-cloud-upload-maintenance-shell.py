@@ -78,7 +78,7 @@ private_cloud_upload_phase upload
             'private_cloud_upload_phase exercise', 'private_storage_fragments_usage cloud_upload_restored_usage',
             'private_cloud_upload_phase finish', 'private_storage_fragments_usage cloud_upload_deleted_usage',
             'CLOUD_UPLOAD_PROVIDER_CLEANUP_INCOMPLETE', 'private_cloud_upload_cleanup ||',
-            'evidence-v3 "$WORK" "$WORK/cloud-upload-evidence.json"']
+            'evidence-v4 "$WORK" "$WORK/cloud-upload-evidence.json"']
         offsets = [SOURCE.index(token) for token in tokens]
         self.assertEqual(offsets, sorted(offsets))
         self.assertIn('runtime-client/control/agent.sock', SOURCE)
@@ -101,11 +101,11 @@ private_cloud_upload_private upload /inert/u/a
         self.assertEqual(result.stdout, '123|policy|digest|--signal=TERM --kill-after=30s 2400s setpriv '
             '--reuid=2001 --regid=2001 --groups=2002 --inh-caps=-all --ambient-caps=-all '
             '--bounding-set=-all --no-new-privs -- python3 -B /inert/bin/cloud-upload-maintenance-smoke.py '
-            'upload /inert/u/a --network-version 2\n')
+            'upload /inert/u/a --profile-version 2 --network-version 2\n')
         self.assertNotIn('STORAGE_PROOF_ROUTE_SCOPE', SOURCE)
-        self.assertIn("jq -e '.schema_version == 5'", SOURCE)
-        self.assertIn('finalize-report-v3', SOURCE)
-        self.assertIn('check-report-v3', SOURCE)
+        self.assertIn("jq -e '.schema_version == 6'", SOURCE)
+        self.assertIn('finalize-report-v4', SOURCE)
+        self.assertIn('check-report-v4', SOURCE)
 
     def test_network_phase_failure_cannot_proceed_as_application_success(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -193,8 +193,11 @@ private_cloud_upload_readback before
     def test_current_export_keeps_large_joined_proof_only_at_exact_name(self):
         for name, version, size, passed in (
                 ('cloud-upload-evidence.json', 3, 1050000, True),
+                ('cloud-upload-evidence.json', 4, 1050000, True),
+                ('cloud-upload-evidence.json', 5, 1050000, False),
                 ('cloud-upload-evidence.json', 2, 1050000, False),
                 ('cloud-upload-evidence.json', 3, 2097153, False),
+                ('cloud-upload-evidence.json', 4, 2097153, False),
                 ('cloud-upload-prepare.json', 3, 1050000, False)):
             with tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary); output = root / 'export'; output.mkdir()
@@ -206,7 +209,7 @@ WORK=$2; output_directory=$WORK/export; export_name=$3
 OUTPUT_UID=$4; OUTPUT_GID=$5; source_directory=/inert
 expected_commit=inert; RUN_ID=inert; PHASE=inert; CLEANUP_COMPLETE=true
 REMAINING_OWNED_OBJECTS=0; OBSERVED_BLOCKER=NONE
-python3() { if [ "$3" = export-names-v3 ]; then printf '%s\n' "$export_name"; fi; }
+python3() { if [ "$3" = export-names-v4 ]; then printf '%s\n' "$export_name"; fi; }
 private_cloud_upload_finalize_report 0
 '''
                 result = subprocess.run(['sh', '-eu', '-c', script, 'inert', str(SCRIPT), temporary,
@@ -263,7 +266,7 @@ private_cloud_upload_cleanup
         start = guest.index('if [ "$cloud_upload_maintenance" = yes ]; then\n    for upload_fixture')
         block = guest[start:guest.index('\nfi', start) + 3]
         names = ('cloud-upload-maintenance-smoke.sh', 'cloud-upload-maintenance-smoke.py',
-            'cloud-upload-maintenance.mjs', 'cloud-upload-maintenance-pins.json',
+            'cloud-upload-maintenance.mjs', 'cloud-upload-maintenance-pins.json', 'cloud-upload-maintenance-pins-v2.json',
             'cloud-upload-maintenance-evidence.py', 'cloud-upload-maintenance-provision.py')
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

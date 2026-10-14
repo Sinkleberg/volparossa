@@ -369,6 +369,23 @@ class ControlTransition(unittest.TestCase):
 
 
 class ConsumerEvidence(unittest.TestCase):
+    def test_profile_six_requires_stream_pins_without_relabeling_network_or_custody(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        value = network['fixture'](6)
+        self.assertEqual(M['validate_evidence'](value), value)
+        self.assertEqual(value['schema_version'], 6)
+        for mutate in (lambda v: v.update(schema_version=5), lambda v: v['provision'].update(version=5),
+                lambda v: v['provision'].update(pins=M['PROVISIONER']['load_pins'](5)),
+                lambda v: v['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+                lambda v: v['deleted_usage'][0].update(leases=1)):
+            invalid = copy.deepcopy(value); mutate(invalid)
+            with self.assertRaises(ValueError): M['validate_evidence'](invalid)
+        for arguments in (dict(stream_profile=True),
+                dict(network_version=2, tls_profile=True, stream_profile=True),
+                dict(network_version=2, outcome_profile=True, stream_profile=True)):
+            with self.assertRaises(ValueError): M['build_evidence']('/inert/not-read', **arguments)
+        network['ConsumerNetwork']().assert_builder(6)
+
     def test_profile_five_requires_new_pins_and_full_dynamic_network_evidence(self):
         network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
         value = network['fixture'](5)

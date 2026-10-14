@@ -45,13 +45,13 @@ CURRENT_EXPORT_NAMES = ('storage-consumer-control-underlay.json',
 
 def serialize_evidence(value):
     # Current matrix snapshots repeat across phases. Compact encoding preserves
-    # full originals without reformatting historical proof bytes. Only schema3
+    # full originals without reformatting historical proof bytes. Schemas3/4
     # has a separate 2MiB bound; emergency collection retains its 8MiB ceiling.
-    return OLD['canonical'](value) if value['schema_version'] == 3 else encoded(value)
+    return OLD['canonical'](value) if value['schema_version'] in (3, 4) else encoded(value)
 
 
 def evidence_limit(path, version):
-    return CURRENT_MAX_JSON if Path(path).name == EVIDENCE_NAME and type(version) is int and version == 3 else MAX_JSON
+    return CURRENT_MAX_JSON if Path(path).name == EVIDENCE_NAME and type(version) is int and version in (3, 4) else MAX_JSON
 
 
 def read_upload_evidence(path):
@@ -191,13 +191,16 @@ def validate_evidence(value):
     keys(value, ('schema_version', 'kind', 'success', 'scope', 'previous_consumers', 'provision', 'provision_sha256',
         'prepare', *PHASES, 'withdrawal', 'private_cleanup', 'initial_usage', 'uploaded_usage', 'restored_usage',
         'deleted_usage', 'expected_peers', 'layout', 'isolation', 'upload_isolation', 'network'))
-    require(type(value['schema_version']) is int and value['schema_version'] in (2, 3)
+    require(type(value['schema_version']) is int and value['schema_version'] in (2, 3, 4)
         and value['kind'] == 'cloud-upload-maintenance-evidence' and value['success'] is True, 'upload_evidence_identity')
     require(encoded(value['scope']) == encoded(SCOPE), 'upload_evidence_scope')
     OLD['validate_evidence'](value['previous_consumers'])
-    dynamic = value['schema_version'] == 3
-    require(value['previous_consumers']['schema_version'] == (5 if dynamic else 2), 'upload_previous_profile')
+    dynamic = value['schema_version'] in (3, 4)
+    stream_profile = value['schema_version'] == 4
+    require(value['previous_consumers']['schema_version'] == (6 if stream_profile else 5 if dynamic else 2),
+        'upload_previous_profile')
     PROVISIONER['validate_provision'](value['provision'])
+    require(value['provision']['version'] == (2 if stream_profile else 1), 'upload_source_profile')
     provision_sha = hashlib.sha256(encoded(value['provision'])).hexdigest()
     require(value['provision_sha256'] == provision_sha
         and value['provision']['previous_consumer_provision_sha256'] == value['previous_consumers']['provision_sha256'], 'upload_provision_hash')
@@ -255,21 +258,23 @@ def validate_evidence(value):
     return value
 
 
-def build_evidence(work, *, network_version=1):
+def build_evidence(work, *, network_version=1, stream_profile=False):
     require(type(network_version) is int and network_version in (1, 2), 'upload_network_version')
+    require(type(stream_profile) is bool and (not stream_profile or network_version == 2), 'upload_stream_profile')
     work = Path(work)
     def get(name):
         return read(work / name)[0]
     provision, raw = read(work / 'cloud-upload-provision.json')
     require(raw == encoded(provision), 'upload_provision_encoding')
     previous = get('storage-consumer-evidence.json')
-    require(type(previous) is dict and previous.get('schema_version') == (5 if network_version == 2 else 2),
+    require(type(previous) is dict and previous.get('schema_version') == (6 if stream_profile else 5 if network_version == 2 else 2),
         'upload_previous_profile')
     # Reconstruct the original mandatory component independently as well; a
     # standalone invented old report is not enough in the joined raw builder.
-    previous_options = dict(network_version=2, outcome_profile=True) if network_version == 2 else {}
+    previous_options = (dict(network_version=2, stream_profile=True) if stream_profile
+        else dict(network_version=2, outcome_profile=True) if network_version == 2 else {})
     require(encoded(previous) == encoded(OLD['build_evidence'](work, **previous_options)), 'upload_previous_raw_binding')
-    value = dict(schema_version=3 if network_version == 2 else 2,
+    value = dict(schema_version=4 if stream_profile else 3 if network_version == 2 else 2,
         kind='cloud-upload-maintenance-evidence', success=True, scope=dict(SCOPE),
         previous_consumers=previous, provision=provision, provision_sha256=hashlib.sha256(raw).hexdigest(),
         **{name: get(f'cloud-upload-{name}.json') for name in ('prepare', *PHASES, 'withdrawal')},
@@ -293,11 +298,12 @@ def build_evidence(work, *, network_version=1):
     return validate_evidence(value)
 
 
-def validate_report(value, revision, maintenance, maintenance_raw, upload, upload_raw, *, current=False):
+def validate_report(value, revision, maintenance, maintenance_raw, upload, upload_raw, *, current=False, stream_profile=False):
     """Require original complete siblings; compact hashes never replace proofs."""
+    require(type(current) is bool and type(stream_profile) is bool and not (current and stream_profile), 'upload_report_profile')
     keys(value, ('schema_version', 'report_kind', 'source_revision', 'run_id', 'phase', 'runner_exit_status',
         'success', 'observed_blocker', 'cleanup', 'maintenance_report_sha256', 'upload_evidence_sha256', 'scope'))
-    require(type(value['schema_version']) is int and value['schema_version'] == 1
+    require(type(value['schema_version']) is int and value['schema_version'] == (2 if stream_profile else 1)
         and value['report_kind'] == 'volparossa-cloud-upload-maintenance'
         and type(revision) is str and re.fullmatch('[0-9a-f]{40}', revision)
         and value['source_revision'] == revision and type(value['run_id']) is str
@@ -309,26 +315,30 @@ def validate_report(value, revision, maintenance, maintenance_raw, upload, uploa
         and encoded(value['scope']) == encoded(SCOPE), 'upload_source_bound_cleanup')
     require(value['maintenance_report_sha256'] == hashlib.sha256(maintenance_raw).hexdigest()
         and value['upload_evidence_sha256'] == hashlib.sha256(upload_raw).hexdigest(), 'upload_original_report_hash')
-    runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))['validate_report'](maintenance, revision)
+    runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))['validate_report'](
+        maintenance, revision, stream_profile=stream_profile)
     validate_evidence(upload)
-    require(not current or upload['schema_version'] == 3, 'upload_current_profile_required')
+    require(upload['schema_version'] in ((4,) if stream_profile else (3,) if current else (2, 3)),
+        'upload_current_profile_required')
     require(encoded(upload['previous_consumers']) == encoded(maintenance['consumers']), 'upload_original_consumer_report')
     return value
 
 
-def check_report(path, revision, *, current=False):
+def check_report(path, revision, *, current=False, stream_profile=False):
     value, _ = read(path)
     maintenance, maintenance_raw = read(path.parent / 'private-storage-maintenance-smoke.json')
     upload, upload_raw = read_upload_evidence(path.parent / EVIDENCE_NAME)
-    return validate_report(value, revision, maintenance, maintenance_raw, upload, upload_raw, current=current)
+    return validate_report(value, revision, maintenance, maintenance_raw, upload, upload_raw,
+        current=current, stream_profile=stream_profile)
 
 
-def final_report(work, revision, run, phase, status, complete, remaining, blocker, *, current=False):
+def final_report(work, revision, run, phase, status, complete, remaining, blocker, *, current=False, stream_profile=False):
+    require(type(current) is bool and type(stream_profile) is bool and not (current and stream_profile), 'upload_report_profile')
     require(re.fullmatch('[0-9a-f]{40}', revision) and re.fullmatch('[0-9a-f]{32}', run)
         and re.fullmatch('[A-Za-z0-9_.:-]{1,128}', phase) and re.fullmatch('[A-Z0-9_]{1,128}', blocker)
         and type(status) is int and 0 <= status <= 255 and type(complete) is bool
         and count(remaining, 0, 100000), 'upload_final_arguments')
-    result = dict(schema_version=1, report_kind='volparossa-cloud-upload-maintenance', source_revision=revision,
+    result = dict(schema_version=2 if stream_profile else 1, report_kind='volparossa-cloud-upload-maintenance', source_revision=revision,
         run_id=run, phase=phase, runner_exit_status=status, success=False,
         observed_blocker=None if blocker == 'NONE' else blocker,
         cleanup=dict(complete=complete, remaining_owned_objects=remaining),
@@ -344,7 +354,7 @@ def final_report(work, revision, run, phase, status, complete, remaining, blocke
             records.extend((None, b''))
     candidate = dict(result, success=True)
     try:
-        validate_report(candidate, revision, *records, current=current)
+        validate_report(candidate, revision, *records, current=current, stream_profile=stream_profile)
         result['success'] = True
     except (ValueError, KeyError, TypeError, OSError, RecursionError, StopIteration):
         pass  # Preserve the primary terminal outcome; missing proof stays false.
@@ -354,22 +364,24 @@ def final_report(work, revision, run, phase, status, complete, remaining, blocke
 def main(arguments):
     if len(arguments) == 1 and arguments[0] == 'export-names':
         print('\n'.join(EXPORT_NAMES))
-    elif len(arguments) == 1 and arguments[0] == 'export-names-v3':
+    elif len(arguments) == 1 and arguments[0] in ('export-names-v3', 'export-names-v4'):
         print('\n'.join((*EXPORT_NAMES, *CURRENT_EXPORT_NAMES)))
     elif len(arguments) == 2 and arguments[0] == 'check':
         read_upload_evidence(Path(arguments[1]))
-    elif len(arguments) == 3 and arguments[0] in ('evidence', 'evidence-v3'):
-        value = build_evidence(Path(arguments[1]), network_version=2 if arguments[0] == 'evidence-v3' else 1)
+    elif len(arguments) == 3 and arguments[0] in ('evidence', 'evidence-v3', 'evidence-v4'):
+        value = build_evidence(Path(arguments[1]), network_version=1 if arguments[0] == 'evidence' else 2,
+            stream_profile=arguments[0] == 'evidence-v4')
         raw = serialize_evidence(value)
         require(len(raw) <= evidence_limit(arguments[2], value['schema_version']), 'upload_evidence_bound')
         F['create'](Path(arguments[2]), raw)
-    elif len(arguments) == 3 and arguments[0] in ('check-report', 'check-report-v3'):
-        check_report(Path(arguments[1]), arguments[2], current=arguments[0] == 'check-report-v3')
-    elif len(arguments) == 10 and arguments[0] in ('finalize-report', 'finalize-report-v3'):
+    elif len(arguments) == 3 and arguments[0] in ('check-report', 'check-report-v3', 'check-report-v4'):
+        check_report(Path(arguments[1]), arguments[2], current=arguments[0] == 'check-report-v3',
+            stream_profile=arguments[0] == 'check-report-v4')
+    elif len(arguments) == 10 and arguments[0] in ('finalize-report', 'finalize-report-v3', 'finalize-report-v4'):
         require(arguments[6] in ('true', 'false'), 'upload_cleanup_boolean')
         raw = encoded(final_report(Path(arguments[1]), arguments[2], arguments[3], arguments[4],
             int(arguments[5]), arguments[6] == 'true', int(arguments[7]), arguments[8],
-            current=arguments[0] == 'finalize-report-v3'))
+            current=arguments[0] == 'finalize-report-v3', stream_profile=arguments[0] == 'finalize-report-v4'))
         require(len(raw) <= 4096, 'upload_terminal_bound')
         F['create'](Path(arguments[9]), raw)
     else:

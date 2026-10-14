@@ -20,6 +20,7 @@ import subprocess
 
 HERE = Path(__file__).resolve().parent
 PINS = HERE / 'cloud-upload-maintenance-pins.json'
+PINS_V2 = HERE / 'cloud-upload-maintenance-pins-v2.json'
 BASE = runpy.run_path(str(HERE / 'image-snapshot-provision.py'))
 PREVIOUS = runpy.run_path(str(HERE / 'storage-consumer-maintenance-evidence.py'))
 require, digest, verify_files = (BASE[name] for name in ('require', 'digest', 'verify_files'))
@@ -29,6 +30,8 @@ PREVIOUS_RECEIPT = Path('/opt/volparossa-storage-consumers/provision.json')
 RECEIPT = Path('/opt/volparossa-cloud-upload-proof')
 REVISIONS = dict(image='eb9758453d094df5ea3ba045e993bd3d2dd47881',
     cloud='cea181f1f80d57c9d8047093ed543f40ec43138d')
+STREAM_REVISIONS = dict(image='949f208dbb48fcb734d4dfd33eb1933b69830a01',
+    cloud='7d10c4943062c5a0ae46fc57e293dc3e33db3ed2')
 FILES = {
     'image': frozenset(('scripts/immich_snapshot.py', 'src/core-storage.mjs', 'LICENSE')),
     'cloud': frozenset(('scripts/cloud-catalog.mjs', 'scripts/cloud-serve.mjs',
@@ -48,15 +51,26 @@ FALSE_FLAGS = ('storage_enrollment_created', 'peer_storage_proven', 'application
     'sdk_or_browser_provisioned', 'opencloud_account_server_started')
 
 
-def load_pins():
-    pins = json.loads(PINS.read_text())
+def pins_path(profile_version=1):
+    require(type(profile_version) is int and profile_version in (1, 2))
+    return PINS if profile_version == 1 else PINS_V2
+
+
+def source_revisions(profile_version=1):
+    pins_path(profile_version)
+    return REVISIONS if profile_version == 1 else STREAM_REVISIONS
+
+
+def load_pins(profile_version=1):
+    pins = json.loads(pins_path(profile_version).read_text())
+    revisions = source_revisions(profile_version)
     require(set(pins) == {'version', 'sources', 'runtime'} and type(pins['version']) is int
-        and pins['version'] == 1 and set(pins['sources']) == set(SOURCES)
+        and pins['version'] == profile_version and set(pins['sources']) == set(SOURCES)
         and pins['runtime'] == BASE['loader']()['load_pins']()['runtime'])
     for name, source in pins['sources'].items():
         require(set(source) == {'repository', 'revision', 'files'}
             and source['repository'] == 'https://github.com/VOLPAROSSA/volparossa-' + name
-            and source['revision'] == REVISIONS[name] and set(source['files']) == FILES[name])
+            and source['revision'] == revisions[name] and set(source['files']) == FILES[name])
         for record in source['files'].values():
             require(set(record) == {'bytes', 'sha256'} and type(record['bytes']) is int
                 and 0 < record['bytes'] <= 131072
@@ -79,12 +93,14 @@ def public_file(path, maximum):
     return data
 
 
-def verify_shared_runtime(pins):
+def verify_shared_runtime(pins, profile_version=1):
     # Only the old successful provision receipt, not a prior application pass,
     # authorizes reuse. The continuation must separately require zero usage.
     raw = public_file(PREVIOUS_RECEIPT, 65536)
     previous = json.loads(raw)
     PREVIOUS['validate_provision'](previous)
+    pins_path(profile_version)
+    require(previous['version'] == 6 if profile_version == 2 else previous['version'] in (1, 2, 3, 4, 5))
     require(previous['pins']['runtime'] == pins['runtime'])
     for name, record in pins['runtime']['files'].items():
         path = RUNTIME / name
@@ -106,9 +122,9 @@ def guard():
     require(shutil.disk_usage('/opt').free >= 512 * 1024**2)
 
 
-def verify_vendor(pins):
+def verify_vendor(pins, profile_version=1):
     vendor = json.loads((SOURCES['cloud'] / 'third_party/volparossa-image-source.json').read_text())
-    require(vendor['version'] == 1 and vendor['revision'] == REVISIONS['image']
+    require(vendor['version'] == 1 and vendor['revision'] == source_revisions(profile_version)['image']
         and vendor['repository'] == pins['sources']['image']['repository']
         and vendor['license'] == 'GPL-3.0-only' and vendor['local_modifications'] is False
         and set(vendor['files']) == set(VENDORED))
@@ -120,9 +136,9 @@ def verify_vendor(pins):
 def validate_provision(value):
     require(type(value) is dict and set(value) == {'version', 'kind', 'success', 'pins', 'pins_sha256',
         'previous_consumer_provision_sha256', 'tools', *TRUE_FLAGS, *FALSE_FLAGS})
-    require(type(value['version']) is int and value['version'] == 1
+    require(type(value['version']) is int and value['version'] in (1, 2)
         and value['kind'] == 'cloud-upload-maintenance-runtime-provision' and value['success'] is True
-        and value['pins'] == load_pins() and value['pins_sha256'] == digest(PINS)
+        and value['pins'] == load_pins(value['version']) and value['pins_sha256'] == digest(pins_path(value['version']))
         and type(value['previous_consumer_provision_sha256']) is str
         and re.fullmatch('[0-9a-f]{64}', value['previous_consumer_provision_sha256'])
         and all(value[name] is True for name in TRUE_FLAGS) and all(value[name] is False for name in FALSE_FLAGS))
@@ -135,10 +151,10 @@ def validate_provision(value):
             and type(tool['sha256']) is str and re.fullmatch('[0-9a-f]{64}', tool['sha256']))
 
 
-def provision():
-    pins = load_pins()
+def provision(profile_version=1):
+    pins = load_pins(profile_version)
     guard()
-    previous_sha = verify_shared_runtime(pins)
+    previous_sha = verify_shared_runtime(pins, profile_version)
     os.umask(0o077)
     stage, tools = BASE['loader'](), BASE['tool_receipts']()
     for root in (*SOURCES.values(), RECEIPT):
@@ -148,10 +164,10 @@ def provision():
             stage['fetch'](f"https://raw.githubusercontent.com/VOLPAROSSA/volparossa-{name}/{source['revision']}/{relative}",
                 SOURCES[name] / relative, record)
         verify_files(SOURCES[name], source['files'])
-    verify_vendor(pins)
-    require(verify_shared_runtime(pins) == previous_sha)
-    report = dict(version=1, kind='cloud-upload-maintenance-runtime-provision', success=True,
-        pins=pins, pins_sha256=digest(PINS), previous_consumer_provision_sha256=previous_sha, tools=tools,
+    verify_vendor(pins, profile_version)
+    require(verify_shared_runtime(pins, profile_version) == previous_sha)
+    report = dict(version=profile_version, kind='cloud-upload-maintenance-runtime-provision', success=True,
+        pins=pins, pins_sha256=digest(pins_path(profile_version)), previous_consumer_provision_sha256=previous_sha, tools=tools,
         **dict.fromkeys(TRUE_FLAGS, True), **dict.fromkeys(FALSE_FLAGS, False))
     validate_provision(report)
     with (RECEIPT / 'provision.json').open('x') as stream:
@@ -165,10 +181,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('provision',))
     parser.add_argument('--download', action='store_true', required=True)
-    parser.parse_args()
-    print(json.dumps(dict(plan='guest-only-pinned-cloud-upload-continuation', revisions=REVISIONS,
+    parser.add_argument('--profile-version', type=int, choices=(1, 2), default=1)
+    args = parser.parse_args()
+    print(json.dumps(dict(plan='guest-only-pinned-cloud-upload-continuation', revisions=source_revisions(args.profile_version),
         reuse_existing_node=True, storage_enrollment_created=False)), flush=True)
-    provision()
+    provision(args.profile_version)
     print('Pinned upload sources verified; no enrollment, HTTP upload or protected storage operation tested')
 
 

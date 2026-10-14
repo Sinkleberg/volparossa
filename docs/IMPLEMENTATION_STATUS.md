@@ -36,7 +36,37 @@ The immediate milestones build on the retained candidates and evidence below:
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR247 is merged as `17afa3f0`, with the exact tested tree of `09b0d3cc`. Targeted run `38512217556` passes 52 appraisal, 16 guest and twelve quote tests; Quality `38512223814` also executes all eight new agent/control/CLI cases and passes. CodeQL `38512218075` passes. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
 
-### Latest storage trial
+### Cloud upload contract preparation
+
+PR234 now prepares the continuation for the new shared storage diagnostic
+contract. Upload source profile 2 pins Image `949f208d` and Cloud `7d10c494`,
+including the version-5 diagnostic adapter. Its new evidence schema 4 requires
+the exact version-6 consumer/provision report, original version-5 combined
+maintenance report and original upload receipt. Terminal report version 2 is
+accepted only by the explicit version-4 Cloud selectors. Historical pins and
+schema-2/3 evidence retain their original encoding and acceptance rules.
+
+All 129 targeted inert checks pass: 88 Cloud provision, orchestration, evidence,
+shell, VM-wiring and Node checks, plus 41 shared-storage wiring cases. The 24 new
+upload source blobs match their exact Git commits. These tests exercise contracts
+and synthetic receipts, not protected transfers, peer custody or recovery. Export
+limits remain 2 MiB only for the named Cloud evidence schemas 3/4, 1 MiB for other
+JSON files and 8 MiB for the existing emergency aggregate.
+
+**This branch is not yet ready for an actual Cloud trial.** Only the shared
+profile-6 harness contracts have been joined; its core Rust still emits the older
+diagnostics. First integrate the complete, verified PR232 core through the normal
+branch stack, then require the shared consumer maintenance proof before running
+the longer Cloud upload/repair/restore continuation. Do not treat copied
+validators as integration of their producer.
+
+Earlier Quality `38617137672` passes on `c550e5e8`, not on this new preparation.
+The later shared-storage trial `38611919770` on `cdfa671a` fails during Cloud's
+first reserve before READY. Its separate base maintenance success does not prove
+consumer repair, restoration or remote cleanup. The new preparation changes no
+production resources, authority, retries, deadlines or storage accounting.
+
+### Earlier storage checkpoint
 
 [Run `38607252325`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38607252325),
 job `116001235165`, binds exact source

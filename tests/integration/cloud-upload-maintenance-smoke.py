@@ -32,6 +32,7 @@ FRAGMENT = 262144
 PHASES = ('prepare', 'upload', 'exercise', 'finish')
 FLOW_MINIMUM = dict(upload=24, exercise=16, finish=11)
 WORK_SECONDS = OLD['WORK_SECONDS']
+PROFILE_VERSION = 1
 SCOPE = dict(synthetic_inputs=True, protected_routes_independently_proven=False,
     provider_cleanup_independently_proven=False, automatic_grant_refresh=False,
     private_keys_exported=False, opencloud_account_server_proven=False, io_ordering_measured=False)
@@ -206,10 +207,11 @@ def owner_root(raw, missing=False):
 
 
 def tools():
-    pins = PROVISIONER['load_pins']()
+    pins = PROVISIONER['load_pins'](PROFILE_VERSION)
     raw = file_bytes(PROVISION, 65536, public=True)
     value = json.loads(raw)
     PROVISIONER['validate_provision'](value)
+    require(value['version'] == PROFILE_VERSION, 'provision_profile')
     for name, source in pins['sources'].items():
         for relative, record in source['files'].items():
             OLD['digest_public'](PROVISIONER['SOURCES'][name] / relative, record)
@@ -222,7 +224,10 @@ def tools():
 
 
 def node_phase(root, phase, provision, deadline):
-    status, output, _ = run_child([NODE, HERE / 'cloud-upload-maintenance.mjs', phase, root], deadline)
+    arguments = [NODE, HERE / 'cloud-upload-maintenance.mjs', phase, root]
+    if PROFILE_VERSION == 2:
+        arguments += ['--profile-version', '2']
+    status, output, _ = run_child(arguments, deadline)
     value = json.loads(output)
     uploaded = private_json(root / 'cloud-upload-upload.json') if phase in ('exercise', 'finish') else None
     if uploaded is not None:
@@ -392,10 +397,15 @@ def cleanup(root):
 
 
 def main(arguments):
+    global PROFILE_VERSION
+    PROFILE_VERSION = 1
     network_version = 1
     if len(arguments) >= 2 and arguments[-2] == '--network-version':
         require(arguments[-1] == '2', 'network_version')
         network_version, arguments = 2, arguments[:-2]
+    if len(arguments) >= 2 and arguments[-2] == '--profile-version':
+        require(arguments[-1] == '2', 'profile_version')
+        PROFILE_VERSION, arguments = 2, arguments[:-2]
     if len(arguments) == 3 and arguments[0] == 'flow-minimum':
         OLD['guard']()
         root = owner_root(arguments[2])

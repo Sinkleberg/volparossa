@@ -10,7 +10,7 @@ private_cloud_upload_private() {
       timeout --signal=TERM --kill-after=30s 2400s setpriv \
         --reuid="$WORKER_UID" --regid="$WORKER_GID" --groups="$custody_control_gid" \
         --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs \
-        -- python3 -B "$WORK/bin/cloud-upload-maintenance-smoke.py" "$@" --network-version 2
+        -- python3 -B "$WORK/bin/cloud-upload-maintenance-smoke.py" "$@" --profile-version 2 --network-version 2
 }
 
 # The mandatory consumer run has already installed the signed 3x3 control
@@ -116,7 +116,7 @@ private_cloud_upload_run() {
     # evidence builder additionally reconstructs it from all original raw files.
     python3 -B "$source_directory/tests/integration/storage-consumer-maintenance-evidence.py" \
         check "$WORK/storage-consumer-evidence.json" || fail CLOUD_UPLOAD_PRIOR_CONSUMER_INVALID
-    jq -e '.schema_version == 5' "$WORK/storage-consumer-evidence.json" >/dev/null \
+    jq -e '.schema_version == 6' "$WORK/storage-consumer-evidence.json" >/dev/null \
         || fail CLOUD_UPLOAD_PRIOR_CONSUMER_PROFILE_INVALID
     jq -e 'length == 3 and all(.[]; . == {reserved_bytes:0,committed_bytes:0,leases:0})' \
         "$WORK/private-storage-fragments-consumer_deleted_usage.json" >/dev/null \
@@ -181,15 +181,15 @@ private_cloud_upload_run() {
         >"$WORK/cloud-upload-withdrawal.json"
     private_cloud_upload_cleanup || fail CLOUD_UPLOAD_PRIVATE_CLEANUP_FAILED
     python3 -B "$source_directory/tests/integration/cloud-upload-maintenance-evidence.py" \
-        evidence-v3 "$WORK" "$WORK/cloud-upload-evidence.json" || fail CLOUD_UPLOAD_EVIDENCE_INVALID
+        evidence-v4 "$WORK" "$WORK/cloud-upload-evidence.json" || fail CLOUD_UPLOAD_EVIDENCE_INVALID
 }
 
 private_cloud_upload_finalize_report() {
     upload_final_status=$1
-    python3 -B "$source_directory/tests/integration/cloud-upload-maintenance-evidence.py" finalize-report-v3 \
+    python3 -B "$source_directory/tests/integration/cloud-upload-maintenance-evidence.py" finalize-report-v4 \
         "$WORK" "$expected_commit" "$RUN_ID" "$PHASE" "$upload_final_status" "$CLEANUP_COMPLETE" \
         "$REMAINING_OWNED_OBJECTS" "$OBSERVED_BLOCKER" "$WORK/cloud-upload-maintenance-smoke.json" || return 1
-    upload_exports=$(python3 -B "$source_directory/tests/integration/cloud-upload-maintenance-evidence.py" export-names-v3) || return 1
+    upload_exports=$(python3 -B "$source_directory/tests/integration/cloud-upload-maintenance-evidence.py" export-names-v4) || return 1
     for upload_name in $upload_exports; do
         upload_artifact=$WORK/$upload_name
         if [ -f "$upload_artifact" ] && [ ! -L "$upload_artifact" ]; then
@@ -197,13 +197,13 @@ private_cloud_upload_finalize_report() {
             upload_export_size=$(wc -c <"$upload_artifact") || return 1
             if [ "$upload_name" = cloud-upload-evidence.json ] \
                 && [ "$upload_export_size" -le 2097152 ] \
-                && jq -e '.schema_version == 3 and .kind == "cloud-upload-maintenance-evidence"' "$upload_artifact" >/dev/null; then
+                && jq -e '(.schema_version == 3 or .schema_version == 4) and .kind == "cloud-upload-maintenance-evidence"' "$upload_artifact" >/dev/null; then
                 upload_export_limit=2097152
             fi
             [ "$upload_export_size" -le "$upload_export_limit" ] || return 1
             install -o "$OUTPUT_UID" -g "$OUTPUT_GID" -m 0600 "$upload_artifact" "$output_directory/$upload_name"
         fi
     done
-    python3 -B "$source_directory/tests/integration/cloud-upload-maintenance-evidence.py" check-report-v3 \
+    python3 -B "$source_directory/tests/integration/cloud-upload-maintenance-evidence.py" check-report-v4 \
         "$WORK/cloud-upload-maintenance-smoke.json" "$expected_commit"
 }

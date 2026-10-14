@@ -52,6 +52,57 @@ const outcomeDiagnostics = () => ({ version: 4, omitted_failures: 0, failures: [
   agent_outcome: { status: 'observed', detail: { phase: 'remote_receipt_read', category: 'timeout', deadline_scope: 'remote_wire' } },
 }] });
 
+const streamDiagnostics = (stream_failure = 'flow_acquire') => ({ version: 5, omitted_failures: 0,
+  failures: [{ ...detailedFailure('stream_open'), agent_detail: { stage: 'stream_open',
+    deadline_scope: 'none', tls_failure: null, stream_failure }, agent_outcome: null }] });
+
+test('profile6 requires diagnostic5 and failure envelope7 while retaining all historical versions', () => {
+  for (const app of ['image', 'cloud']) {
+    for (const name of [null, 'policy', 'route_state', 'route_material', 'flow_acquire',
+      'transport_certificate', 'transport_tls', 'initial_paths', 'open_tcp_write', 'subflow_readiness', 'stream_attachment']) {
+      const diagnostic = streamDiagnostics(name);
+      assert.deepEqual(depositDiagnostic(diagnostic, 5), diagnostic);
+      const value = { status: 'incomplete', code: 'retained_operation_incomplete',
+        local_process_joined: true, storage: { operation_complete: false, deposit_diagnostics: diagnostic, raw: 'PRIVATE' } };
+      const report = publishFailure(value, app, 'deposit', false, 6);
+      assert.equal(report.version, 7); assert.equal(report.publish_observation.version, 6);
+      assert.deepEqual(report.publish_observation.deposit_diagnostics, diagnostic);
+      assert.doesNotMatch(JSON.stringify(report), /PRIVATE|raw/u);
+      for (const old of [1, 2, 3, 4]) assert.throws(() => depositDiagnostic(diagnostic, old), /deposit_diagnostics/u);
+      for (const old of [2, 3, 4, 5]) assert.equal(publishFailure(value, app, 'deposit', false, old)
+        .publish_observation.deposit_diagnostics_state, 'invalid');
+    }
+    const complete = { status: 'complete', local_process_joined: true,
+      storage: { operation_complete: true, deposit_diagnostics: { version: 5, failures: [], omitted_failures: 0 } } };
+    assert.doesNotThrow(() => requirePublishComplete(complete, app, 'deposit', 6));
+    complete.storage.deposit_diagnostics.version = 4;
+    assert.equal(publishFailure(complete, app, 'deposit', false, 6).publish_observation.deposit_diagnostics_state, 'invalid');
+  }
+});
+
+test('stream failure is finite and bound only to stream-open nondeadline unavailable pre-READY', () => {
+  const changes = [
+    ...['stage', 'deadline_scope', 'tls_failure', 'stream_failure'].map(key => d => { delete d.failures[0].agent_detail[key]; }),
+    ...['PRIVATE', 'unknown', '', 1, false, {}, []].map(value => d => { d.failures[0].agent_detail.stream_failure = value; }),
+    ...['operation', 'exchange'].map(value => d => { d.failures[0].agent_detail.deadline_scope = value; }),
+    ...['route_connect', 'provider_lookup', 'tls_handshake', 'challenge'].map(value => d => { d.failures[0].agent_detail.stage = value; }),
+    ...['CONTENT_INVALID', 'CONTENT_POLICY', 'CONTENT_BUSY', 'unknown'].map(value => d => { d.failures[0].agent_code = value; }),
+    d => { d.failures[0].stage = 'wire_receipt'; }, d => { d.failures[0].category = 'io'; d.failures[0].agent_code = null; },
+    d => { d.failures[0].agent_detail.tls_failure = 'io'; },
+    d => { d.failures[0].agent_detail.raw = 'PRIVATE'; }, d => { delete d.failures[0].agent_outcome; },
+    d => { d.failures[0].agent_outcome = { status: 'missing', detail: null }; },
+  ];
+  for (const mutate of changes) {
+    const diagnostic = streamDiagnostics(); mutate(diagnostic);
+    assert.throws(() => depositDiagnostic(diagnostic, 5), /deposit_diagnostics/u);
+  }
+  for (const version of [2, 3, 4]) {
+    const d = streamDiagnostics(null); d.version = version;
+    if (version < 4) delete d.failures[0].agent_outcome;
+    assert.throws(() => depositDiagnostic(d, version), /deposit_diagnostics/u);
+  }
+});
+
 test('profile5 observes diagnostic4 in failure envelope6 without upgrading historical profiles', () => {
   for (const app of ['image', 'cloud']) {
     const diagnostic = outcomeDiagnostics(), value = { status: 'incomplete', code: 'retained_operation_incomplete',

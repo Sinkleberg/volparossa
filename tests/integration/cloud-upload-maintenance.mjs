@@ -18,6 +18,7 @@ const CLOUD = '/opt/volparossa-cloud-upload', IMAGE = '/opt/volparossa-image-upl
 const PROVISION = '/opt/volparossa-cloud-upload-proof/provision.json';
 const NODE = '/opt/volparossa-node/bin/node';
 const REVISIONS = { cloud: 'cea181f1f80d57c9d8047093ed543f40ec43138d', image: 'eb9758453d094df5ea3ba045e993bd3d2dd47881' };
+const STREAM_REVISIONS = { cloud: '7d10c4943062c5a0ae46fc57e293dc3e33db3ed2', image: '949f208dbb48fcb734d4dfd33eb1933b69830a01' };
 const HASH = /^[0-9a-f]{64}$/u, A_FRAGMENTS = [0, 2, 3];
 const COPY_FIELDS = ['provider_key', 'owner_key', 'grant_hex', 'archive_id', 'ciphertext_bytes', 'sha256'];
 const CODES = new Set(['phase_deadline', 'authority_expired', 'authority_changed', 'private_file', 'private_directory',
@@ -38,6 +39,13 @@ const equal = (a, b) => JSON.stringify(canonical(a)) === JSON.stringify(canonica
 const identity = value => sha(JSON.stringify(canonical(value)));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const fragmentPath = (object, i) => join(object, 'journal', `fragment-${String(i).padStart(4, '0')}`);
+
+export function sourceProfile(version = 1) {
+  check(version === 1 || version === 2, 'arguments');
+  return version === 2
+    ? { pinsFile: './cloud-upload-maintenance-pins-v2.json', revisions: { ...STREAM_REVISIONS }, previousVersion: [6] }
+    : { pinsFile: './cloud-upload-maintenance-pins.json', revisions: { ...REVISIONS }, previousVersion: [1, 2, 3, 4, 5] };
+}
 
 export function fixtureBytes() {
   const result = Buffer.alloc(PLAIN_BYTES);
@@ -112,22 +120,26 @@ async function verifyPublic(path, record) {
       && sameFile(before, await lstat(path, { bigint: true })), 'provision');
   } finally { await fd.close(); }
 }
-async function guard(root) {
+async function guard(root, profileVersion = 1) {
+  const profile = sourceProfile(profileVersion);
   check(process.platform === 'linux' && process.getuid() !== 0 && hostname() === 'volparossa-alpha'
     && process.execPath === NODE && /^\/opt\/va\.[a-f0-9]{32}\.[A-Za-z0-9]{6}\/u\/a$/u.test(root), 'guest_only');
   await directory(root);
   const raw = await boundedFile(PROVISION, 65536, true), p = JSON.parse(raw);
-  const pinRaw = await boundedFile(fileURLToPath(new URL('./cloud-upload-maintenance-pins.json', import.meta.url)), 65536, true);
+  const pinRaw = await boundedFile(fileURLToPath(new URL(profile.pinsFile, import.meta.url)), 65536, true);
   const pins = JSON.parse(pinRaw);
-  check(p.version === 1 && p.kind === 'cloud-upload-maintenance-runtime-provision' && p.success === true
+  check(p.version === profileVersion && pins.version === profileVersion
+    && p.kind === 'cloud-upload-maintenance-runtime-provision' && p.success === true
     && p.guest_only === true && p.source_files_verified === true && p.runtime_files_verified === true
     && p.shared_adapter_verified === true && p.runtime_reused_without_modification === true
     && equal(p.pins, pins) && p.pins_sha256 === sha(pinRaw)
     && equal(Object.keys(pins.sources).sort(), ['cloud', 'image']), 'provision');
-  check(sha(await boundedFile('/opt/volparossa-storage-consumers/provision.json', 65536, true))
-    === p.previous_consumer_provision_sha256, 'provision');
+  const previousRaw = await boundedFile('/opt/volparossa-storage-consumers/provision.json', 65536, true);
+  const previous = JSON.parse(previousRaw);
+  check(sha(previousRaw) === p.previous_consumer_provision_sha256
+    && profile.previousVersion.includes(previous.version), 'provision');
   for (const [name, source] of Object.entries(pins.sources)) {
-    check(source.revision === REVISIONS[name], 'provision');
+    check(source.revision === profile.revisions[name], 'provision');
     for (const [file, record] of Object.entries(source.files)) {
       check(/^[A-Za-z0-9_./-]+$/u.test(file) && !file.startsWith('/') && !file.split('/').includes('..'), 'provision');
       await verifyPublic(join(name === 'cloud' ? CLOUD : IMAGE, file), record);
@@ -515,8 +527,12 @@ async function finish(ctx, m) {
 }
 
 export async function main(argv) {
+  let profileVersion = 1;
+  if (argv.length === 4 && argv[2] === '--profile-version') {
+    check(argv[3] === '2', 'arguments'); profileVersion = 2; argv = argv.slice(0, 2);
+  }
   check(argv.length === 2 && PHASES.includes(argv[0]), 'arguments'); process.umask(0o077);
-  const [phase, root] = argv, provision = await guard(root), cancel = new AbortController();
+  const [phase, root] = argv, provision = await guard(root, profileVersion), cancel = new AbortController();
   const abort = () => cancel.abort(); for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(name, abort);
   const timer = setTimeout(abort, 1800000);
   const ctx = { root, provision, cancel, signal: cancel.signal, deadline: performance.now() + 1800000, stage: 'phase_start' };

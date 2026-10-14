@@ -76,7 +76,7 @@ def diagnostic_failure(profile_version=2):
             deposit_diagnostics_state='observed', deposit_diagnostics=dict(version=1, omitted_failures=0,
                 failures=[dict(fragment_index=2, copy_index=1, operation='reserve', stage='agent_terminal',
                     category='io', agent_code=None)])))
-    if profile_version in (3, 4, 5):
+    if profile_version in (3, 4, 5, 6):
         value['version'] = profile_version + 1
         observed = value['publish_observation']
         observed['version'] = profile_version
@@ -91,10 +91,68 @@ def diagnostic_failure(profile_version=2):
                 operation='finalize', agent_code=None, agent_detail=None,
                 agent_outcome=dict(status='observed', detail=dict(phase='remote_receipt_read',
                     category='timeout', deadline_scope='remote_wire')))
+        if profile_version == 6:
+            observed['deposit_diagnostics']['failures'][0].update(agent_outcome=None,
+                agent_detail=dict(stage='stream_open', deadline_scope='none', tls_failure=None,
+                    stream_failure='flow_acquire'))
     return value
 
 
 class ConsumerReceipts(unittest.TestCase):
+    def test_profile_six_keeps_exact_failed_child_and_rejects_older_profile_binding(self):
+        value = diagnostic_failure(6)
+        self.assertEqual(value['version'], 7)
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=6), value)
+        for old in (1, 2, 3, 4, 5):
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=old)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            calls = []
+            def child(command, _):
+                calls.append(command)
+                return 1, raw, b'PRIVATE-RAW-STDERR'
+            with patch.dict(G, run_child=child, PROFILE_VERSION=6):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(calls[0][-2:], ['--profile-version', '6'])
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertEqual(caught.exception.report['node_report_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+
+    def test_profile_six_stream_matrix_is_closed_and_old_details_are_not_widened(self):
+        original = diagnostic_failure(6)
+        def failure(value):
+            return value['publish_observation']['deposit_diagnostics']['failures'][0]
+        for name in (None, 'policy', 'route_state', 'route_material', 'flow_acquire',
+                'transport_certificate', 'transport_tls', 'initial_paths', 'open_tcp_write',
+                'subflow_readiness', 'stream_attachment'):
+            value = copy.deepcopy(original); failure(value)['agent_detail']['stream_failure'] = name
+            self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=6), value)
+        mutations = [
+            *(lambda f, k=k: f['agent_detail'].pop(k) for k in ('stage', 'deadline_scope', 'tls_failure', 'stream_failure')),
+            *(lambda f, v=v: f['agent_detail'].update(stream_failure=v) for v in ('PRIVATE', 'unknown', '', 1, False, {}, [])),
+            *(lambda f, v=v: f['agent_detail'].update(deadline_scope=v) for v in ('operation', 'exchange')),
+            *(lambda f, v=v: f['agent_detail'].update(stage=v) for v in ('route_connect', 'provider_lookup', 'tls_handshake', 'challenge')),
+            *(lambda f, v=v: f.update(agent_code=v) for v in ('CONTENT_INVALID', 'CONTENT_POLICY', 'CONTENT_BUSY', 'unknown')),
+            lambda f: f.update(stage='wire_receipt'), lambda f: f.update(category='io', agent_code=None),
+            lambda f: f['agent_detail'].update(tls_failure='io'), lambda f: f['agent_detail'].update(raw='PRIVATE'),
+            lambda f: f.pop('agent_outcome'), lambda f: f.update(agent_outcome=dict(status='missing', detail=None)),
+        ]
+        for mutate in mutations:
+            value = copy.deepcopy(original); mutate(failure(value))
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=6)
+        for version in (2, 3, 4):
+            value = copy.deepcopy(original['publish_observation']['deposit_diagnostics'])
+            value['version'] = version
+            value['failures'][0]['agent_detail']['stream_failure'] = None
+            if version < 4: value['failures'][0].pop('agent_outcome')
+            with self.assertRaises(ValueError): M['validate_deposit_diagnostics'](value, version)
+
     def test_profile_five_keeps_exact_failed_child_receipt_and_does_not_upgrade_older_profiles(self):
         value = diagnostic_failure(5)
         self.assertEqual(value['version'], 6)
@@ -611,7 +669,7 @@ class ConsumerOrchestration(unittest.TestCase):
         names = ('storage-consumer-maintenance-smoke.py', 'storage-consumer-maintenance-provision.py',
             'storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json',
             'storage-consumer-maintenance-pins-v3.json', 'storage-consumer-maintenance-pins-v4.json',
-            'storage-consumer-maintenance-pins-v5.json', 'image-snapshot-provision.py',
+            'storage-consumer-maintenance-pins-v5.json', 'storage-consumer-maintenance-pins-v6.json', 'image-snapshot-provision.py',
             'agent-private-task-code.py', 'agent-private-task-code-pins.json',
             'private-storage-fragments-smoke.py', 'private-storage-replicas-smoke.py',
             'private-storage-peer-smoke.py', 'content-provider-https-smoke.py',
@@ -628,6 +686,7 @@ class ConsumerOrchestration(unittest.TestCase):
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](3), M['PROVISIONER']['load_pins'](3))
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](4), M['PROVISIONER']['load_pins'](4))
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](5), M['PROVISIONER']['load_pins'](5))
+                self.assertEqual(loaded['PROVISIONER']['load_pins'](6), M['PROVISIONER']['load_pins'](6))
                 self.assertEqual(loaded['FLOW_MINIMUM'], M['FLOW_MINIMUM'])
                 for absent in ('image-snapshot-provision.py', 'agent-private-task-code.py', 'agent-private-task-code-pins.json'):
                     (root / absent).unlink()
@@ -643,13 +702,13 @@ class ConsumerOrchestration(unittest.TestCase):
         import io
         from contextlib import redirect_stdout
         with redirect_stdout(io.StringIO()):
-            for profile in (2, 3, 4, 5):
+            for profile in (2, 3, 4, 5, 6):
                 M['main'](['flow-minimum', 'publish', '--profile-version', str(profile)])
                 self.assertEqual(G['PROFILE_VERSION'], profile)
             M['main'](['flow-minimum', 'publish'])
             self.assertEqual(G['PROFILE_VERSION'], 1)
         with self.assertRaises(ValueError):
-            M['main'](['flow-minimum', 'publish', '--profile-version', '6'])
+            M['main'](['flow-minimum', 'publish', '--profile-version', '7'])
 
     def test_preparation_creates_only_original_finite_authority_from_exact_cipher_size(self):
         original, calls, owners = prepared(), [], iter(('4' * 64, '5' * 64))
