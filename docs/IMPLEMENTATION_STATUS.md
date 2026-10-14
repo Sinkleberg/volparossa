@@ -61,6 +61,13 @@ Rust source and wire-to-CLI regression tests still require hosted compilation an
 execution; the actual combined storage trial has not yet run on this candidate.
 No private payloads, paths, identities or raw errors are added to exported evidence.
 
+The first hosted [Quality check `38635879441`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38635879441)
+on `9eb00b2b` stops at Rust formatting, before compilation or Rust test execution.
+The nine indicated formatting changes in five source files are applied without
+behavior changes; fresh hosted validation remains required. The original log ZIP
+is retained with SHA-256
+`5b13d2fe1f380b88d242d01a961563d65b7d0e1c89ec1977445a0f4632afc208`.
+
 ### Latest storage trial
 
 [Run `38611919770`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38611919770),

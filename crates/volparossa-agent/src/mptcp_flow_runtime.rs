@@ -676,9 +676,13 @@ pub(crate) async fn activate_production_mptcp_client_flow(
     {
         return Err(ProductionMptcpClientFailure::new(cause));
     }
-    let stream = observations.attach(stream, paths.flow_handle()).map_err(|_| {
-        ProductionMptcpClientFailure::new(ProductionMptcpClientActivationStage::StreamAttachment)
-    })?;
+    let stream = observations
+        .attach(stream, paths.flow_handle())
+        .map_err(|_| {
+            ProductionMptcpClientFailure::new(
+                ProductionMptcpClientActivationStage::StreamAttachment,
+            )
+        })?;
     Ok(ActiveProductionMptcpClientFlow {
         stream,
         retirement: paths.into_retirement(),
@@ -850,16 +854,17 @@ mod tests {
     #[tokio::test]
     async fn content_stream_subflow_failure_does_not_expose_observer_error() {
         let mut written = Vec::new();
-        let failure = prime_open_tcp_and_wait_for_subflows(
-            &mut written,
-            b"signed-open-canary",
-            2,
-            |_| Err(io::Error::other("private-subflow-canary")),
-        )
-        .await
-        .unwrap_err();
+        let failure =
+            prime_open_tcp_and_wait_for_subflows(&mut written, b"signed-open-canary", 2, |_| {
+                Err(io::Error::other("private-subflow-canary"))
+            })
+            .await
+            .unwrap_err();
         assert!(written.ends_with(b"signed-open-canary"));
-        assert_eq!(failure, ProductionMptcpClientActivationStage::SubflowReadiness);
+        assert_eq!(
+            failure,
+            ProductionMptcpClientActivationStage::SubflowReadiness
+        );
         assert_eq!(format!("{failure:?}"), "SubflowReadiness");
     }
 

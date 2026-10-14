@@ -318,7 +318,10 @@ fn stream_failure_rejects_unknown_values_tls_combination_and_non_ack() {
         .unwrap()
         .tls_failure = Some(PrivateStorageTlsFailure::Io as i32);
     assert_response_validity(&response, false);
-    for payload in [None, Some(Payload::Status(crate::StatusSnapshot::default()))] {
+    for payload in [
+        None,
+        Some(Payload::Status(crate::StatusSnapshot::default())),
+    ] {
         let mut response = stream_rejected(PrivateStorageStreamFailure::FlowAcquire as i32);
         response.payload = payload;
         assert_response_validity(&response, false);

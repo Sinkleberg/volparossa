@@ -256,7 +256,10 @@ async fn correlated_agent_detail_reaches_only_the_bounded_ready_failure_projecti
     }
 }
 
-async fn correlated_projection_case(detail: PrivateStorageRemoteDetail, expected: serde_json::Value) {
+async fn correlated_projection_case(
+    detail: PrivateStorageRemoteDetail,
+    expected: serde_json::Value,
+) {
     use volparossa_local_control::{
         CONTROL_PROTOCOL_VERSION, ControlResponse, Empty, PrivateStorageRemoteRequest,
         control_request, control_response::Payload, read_request, write_response,
@@ -570,7 +573,9 @@ fn diagnostic_v5_stream_failures_require_the_same_closed_wire_matrix() {
                     });
                     assert_eq!(
                         serde_json::from_value::<Diagnostics>(report).is_ok(),
-                        stage == "stream_open" && deadline == "none" && code == "CONTENT_UNAVAILABLE"
+                        stage == "stream_open"
+                            && deadline == "none"
+                            && code == "CONTENT_UNAVAILABLE"
                     );
                 }
             }
@@ -604,7 +609,10 @@ fn diagnostic_v5_stream_failures_reject_unknown_values_and_unrelated_scopes() {
     }
     let mut joined = Diagnostics::default();
     joined
-        .append_fragment(2, &serde_json::json!({"deposit_diagnostics": stream_report()}))
+        .append_fragment(
+            2,
+            &serde_json::json!({"deposit_diagnostics": stream_report()}),
+        )
         .unwrap();
     let report = serde_json::to_value(joined).unwrap();
     assert_eq!(report["version"], 5);

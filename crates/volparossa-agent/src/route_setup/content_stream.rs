@@ -1,7 +1,9 @@
 //! Request-local, detail-free classification of a protected content stream opening.
 
 use super::ClientRouteConnectError;
-use crate::mptcp_flow_runtime::{ProductionMptcpClientActivationStage, ProductionMptcpClientFailure};
+use crate::mptcp_flow_runtime::{
+    ProductionMptcpClientActivationStage, ProductionMptcpClientFailure,
+};
 
 /// Stages describe local control flow, not a new protocol or evidence of remote acceptance.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

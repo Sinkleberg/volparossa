@@ -1829,10 +1829,9 @@ impl ClientRouteControl {
                 ClientRouteConnectError::Busy,
             )
         })?;
-        let material = client_open_tcp_material(route, policy, destination, port, now_ms)
-            .map_err(|error| {
-                ContentStreamOpenFailure::new(ContentStreamOpenCause::RouteMaterial, error)
-            })?;
+        let material = client_open_tcp_material(route, policy, destination, port, now_ms).map_err(
+            |error| ContentStreamOpenFailure::new(ContentStreamOpenCause::RouteMaterial, error),
+        )?;
         let ClientTransportState::TcpMptcp(transport) = &mut established.transport else {
             return Err(ContentStreamOpenFailure::new(
                 ContentStreamOpenCause::RouteState,
