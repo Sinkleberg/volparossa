@@ -62,6 +62,7 @@ class AndroidHostedWiring(unittest.TestCase):
         self.assertEqual(len(admission['files']), 39)
         self.assertIn('(.files | length) == 39', SOURCE)
         self.assertIn('python3 -B tests/integration/test-weather-android-vm-wiring.py', SOURCE)
+        self.assertIn('python3 -B tests/integration/test-weather-android-native.py', SOURCE)
 
     def test_nested_checkout_and_vm_output_are_ignored_and_socket_bound_is_checked(self):
         paths = re.findall(r'(?m)^          path: ([.a-zA-Z0-9_/-]+)$', SOURCE)
@@ -283,6 +284,7 @@ class AndroidHostedWiring(unittest.TestCase):
         self.assertEqual([path.strip() for path in paths if path.strip()], [
             '${{ env.WEATHER_OUTPUT }}/weather-android-delivery-evidence.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-owner-join.json',
+            '${{ env.WEATHER_OUTPUT }}/weather-android-owner-failure.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-vm-cleanup.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-hosted-acceptance.json',
             '${{ env.WEATHER_INPUTS }}/kvm-cleanup.json',

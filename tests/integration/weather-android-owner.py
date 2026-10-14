@@ -26,6 +26,7 @@ HERE = Path(__file__).resolve().parent
 CORE = HERE.parents[1]
 E = runpy.run_path(str(HERE / "weather-android-evidence.py"))
 T = runpy.run_path(str(HERE / "weather-android-tunnel.py"))
+N = runpy.run_path(str(HERE / "weather-android-native.py"))
 require, same, exact, digest = E["require"], E["same"], E["exact"], E["digest"]
 CONTROL = "/usr/local/libexec/volparossa-weather-android-control.py"
 PROFILE = "android-protected-core-v6"
@@ -41,6 +42,13 @@ TERM_SECONDS, KILL_SECONDS = 30, 5
 SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 ENV_KEYS = ("GITHUB_ACTIONS", "RUNNER_OS", "RUNNER_ENVIRONMENT", "GITHUB_REPOSITORY", "GITHUB_WORKFLOW",
     "GITHUB_WORKSPACE", "GITHUB_SHA", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "VOLPAROSSA_WEATHER_SOURCE_SHA")
+FAILURE_NAME = "weather-android-owner-failure.json"
+NATIVE_PHASES = frozenset(("baseline", "policy-install", "installed-emulator-trial", "complete"))
+NATIVE_RECORDS = {
+    "result": "build/hosted-android-live-ci/result.json",
+    "failure": "build/hosted-android-live-ci/failure.json",
+    "emulator_cleanup": "build/overmorrow-hosted-android-live-proof/emulator-cleanup.json",
+}
 
 
 class Failure(ValueError): pass
@@ -162,8 +170,9 @@ def command(value, name, action=None):
         return ["/usr/bin/python3", "-B", str(HERE / "weather-android-tunnel.py"), "host", "--socket",
             str(run / "android-api/core-api.sock"), "--ssh-key", str(run / "guest-key"), "--known-hosts", str(run / "known-hosts")]
     same(name, "native")
-    return ["/usr/bin/python3", "-B", str(weather / "scripts/prepare_hosted_android_ci.py"),
-        "--run-protected-core", "--upstream-socket", str(run / "android-api/core-api.sock")]
+    return ["/usr/bin/python3", "-B", str(HERE / "weather-android-native.py"),
+        "--weather-root", str(weather), "--core-commit", value["core_commit"],
+        "--weather-commit", value["weather_commit"], "--upstream-socket", str(run / "android-api/core-api.sock")]
 
 
 @contextmanager
@@ -298,6 +307,95 @@ def native_result(value):
         expiry_proven=False, core_delivery=False, joined_core_acceptance=False, mobile_core=False, production_authority=False))
 
 
+def native_diagnostic(job):
+    """Export only the wrapper's closed final line, never the private streams."""
+    absent = dict(state="absent", record=None)
+    if job is None: return absent
+    try:
+        require(job["process"] is not None and job["process"].returncode is not None and not job["open"])
+        require(all(len(raw) <= job["limit"] for raw in job["data"].values()))
+        raw = bytes(job["data"]["stdout"]); prefix = N["PREFIX"].encode("ascii")
+        if prefix not in raw: return absent
+        require(raw.endswith(b"\n"))
+        line = raw[:-1].rsplit(b"\n", 1)[-1]
+        require(line.startswith(prefix) and len(line) <= 4096 and raw.count(prefix) == 1)
+        value = E["decode"](line[len(prefix):], 4096)
+        N["validate_diagnostic"](value)
+        return dict(state="available", record=value)
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        return dict(state="rejected", record=None)
+
+
+def native_facts(name, value):
+    """Closed original Weather schemas; these facts grant no acceptance."""
+    if name == "result":
+        keys = ("schema", "kind", "phase", "success", "process_drain_confirmed", "policy_cleanup_complete",
+            "host_netns_unchanged", "synthetic", "expiry_proven", "core_delivery", "joined_core_acceptance",
+            "mobile_core", "production_authority")
+        exact(value, keys); same(value["schema"], 1)
+        same(value["kind"], "hosted-android-protected-core-installed-trial")
+        require(type(value["phase"]) is str and value["phase"] in NATIVE_PHASES)
+        for key in ("success", "process_drain_confirmed", "policy_cleanup_complete", "host_netns_unchanged"):
+            require(type(value[key]) is bool)
+        for key in ("synthetic", "expiry_proven", "core_delivery", "joined_core_acceptance", "mobile_core", "production_authority"):
+            same(value[key], False)
+        if value["success"]: native_result(value)
+        return value
+    if name == "failure":
+        exact(value, ("schema", "phase", "category", "code")); same(value["schema"], 1)
+        require(type(value["phase"]) is str and value["phase"] in NATIVE_PHASES)
+        require(type(value["category"]) is str and len(value["category"]) <= 128)
+        require(type(value["code"]) is str and len(value["code"]) <= 4096)
+        categories = {"Interrupted": "interrupted", "KeyboardInterrupt": "interrupted", "ValueError": "value",
+            "KeyError": "key", "TypeError": "type", "TimeoutExpired": "timeout", "CalledProcessError": "process",
+            "OSError": "os", "FileNotFoundError": "os", "PermissionError": "os", "SystemExit": "system_exit"}
+        # Weather's historical receipt can contain exception text. Project it
+        # to the same finite code set, never publish that text or its paths.
+        return dict(phase=value["phase"], category=categories.get(value["category"], "unknown"),
+            code=value["code"] if value["code"] in N["CODES"] else "UNKNOWN")
+    same(name, "emulator_cleanup")
+    exact(value, ("schema", "direct_children_reaped", "private_avd_removed", "private_android_home_removed",
+        "trial_returned", "enclosing_namespace_cleanup_required"))
+    same(value["schema"], 1); same(value["enclosing_namespace_cleanup_required"], True)
+    for key in ("direct_children_reaped", "private_avd_removed", "private_android_home_removed", "trial_returned"):
+        require(type(value[key]) is bool)
+    return value
+
+
+def native_originals(weather, preexisting):
+    records = {}
+    for name, relative in NATIVE_RECORDS.items():
+        path = weather / relative
+        if preexisting[name]: records[name] = dict(state="rejected", facts=None); continue
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            records[name] = dict(state="absent", facts=None); continue
+        except OSError:
+            records[name] = dict(state="rejected", facts=None); continue
+        try:
+            records[name] = dict(state="available", facts=native_facts(name, document(path, 16384)))
+        except (OSError, ValueError, KeyError, TypeError, RecursionError):
+            records[name] = dict(state="rejected", facts=None)
+    return records
+
+
+def export_failure(value, result, pool, preexisting):
+    # Called only after the owner has attempted to join every owned child.
+    # Outer cleanup and Weather's original cleanup are distinct observations.
+    same(result["success"], False)
+    jobs = {job["name"]: job for job in pool.jobs if job["name"] in result["statuses"]}
+    statuses = {name: job["process"].returncode if (job := jobs.get(name)) is not None
+        and job["process"] is not None else None for name in result["statuses"]}
+    failure = dict(schema=6, kind="weather-android-owner-failure", identity=result["identity"],
+        phase=result["phase"], statuses=statuses, owner_cleanup=result["cleanup"],
+        native_diagnostic=native_diagnostic(jobs.get("native")),
+        weather_records=native_originals(Path(value["weather_root"]), preexisting),
+        diagnostic_only=True, success=False, joined_core_acceptance=False, vm_cleanup_pending=True,
+        expiry_proven=False, physical_device=False, production_authority=False)
+    write(canonical(value["output_directory"], directory=True) / FAILURE_NAME, failure)
+
+
 def preparation_record(value, expected_identity):
     exact(value, ("schema", "kind", "identity", "prepared_sha256", "result_sha256", "apk",
         "original_preparation_verified", "runtime_executed", "publication_started"))
@@ -318,6 +416,7 @@ def run(value):
     private.mkdir(mode=0o700); socket_parent.mkdir(mode=0o700)
     canonical(private, directory=True, mode=0o700); canonical(socket_parent, directory=True, mode=0o700)
     write(private / "preparation.json", preparation)
+    preexisting = {name: os.path.lexists(weather / relative) for name, relative in NATIVE_RECORDS.items()}
     pool = Children(); env = environment(); phase, success, ready = "driver", False, None
     netns = os.readlink("/proc/self/ns/net"); outer = time.monotonic() + DRIVER_SECONDS
     statuses = dict(driver=None, tunnel=None, native=None)
@@ -395,11 +494,13 @@ def run(value):
         success=success, phase=phase, statuses=statuses, cleanup=dict(**cleanup, socket_removed=socket_absent,
         host_netns_unchanged=unchanged), helper_requests=0, joined_core_acceptance=False, vm_cleanup_pending=True)
     write(private / "result.json", result)
+    if not success: export_failure(value, result, pool, preexisting)
     return result
 
 
 def join(value):
     """Combine only original closed records; QEMU/host teardown is still external."""
+    require(not os.path.lexists(Path(value["output_directory"]) / FAILURE_NAME))
     private = Path(value["run_directory"]) / "android-owner"
     weather = Path(value["weather_root"])
     owner = document(private / "result.json")
@@ -490,6 +591,7 @@ def candidate(value, guest, expected_identity, manifest):
 
 def accept(output, core_commit, weather_commit, manifest, kvm_cleanup):
     """Promote only after the enclosing owner has joined and removed its VM."""
+    require(not os.path.lexists(Path(output) / FAILURE_NAME))
     hosted(core_commit, weather_commit)
     output = canonical(output, directory=True)
     require(output.is_relative_to(CORE) and output != CORE and type(manifest) is str and E["HEX"].fullmatch(manifest))

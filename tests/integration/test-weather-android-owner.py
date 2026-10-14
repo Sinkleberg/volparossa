@@ -33,6 +33,8 @@ ENV = dict(GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="1")
 NATIVE_RESULT = dict(schema=1, kind="hosted-android-protected-core-installed-trial", phase="complete", success=True,
     process_drain_confirmed=True, policy_cleanup_complete=True, host_netns_unchanged=True, synthetic=False,
     expiry_proven=False, core_delivery=False, joined_core_acceptance=False, mobile_core=False, production_authority=False)
+NATIVE_DIAGNOSTIC = dict(schema=6, kind="weather-android-native-diagnostic", outcome="failed", category="value",
+    code="CORE_SOCKET_ONLY", joined_core_acceptance=False)
 INERT_ROLES = r'''
 import json, os, signal, socket, sys, time
 from pathlib import Path
@@ -68,6 +70,12 @@ elif role == 'native':
     # This role never connects to the socket or creates an Android process.
     # Only coordinator ownership, ordering and failure propagation are tested.
     if mode == 'native-fail': sys.exit(2)
+    if mode.startswith('native-diagnostic'):
+        print('PRIVATE stdout https://example.invalid/private-token', flush=True)
+        print('PRIVATE stderr private-key-fragment', file=sys.stderr, flush=True)
+        print('VOLPAROSSA_ANDROID_NATIVE_DIAGNOSTIC ' + json.dumps(data['diagnostic']), flush=True)
+        if mode == 'native-diagnostic-trailing': print('PRIVATE trailing data', flush=True)
+        sys.exit(1)
     if mode == 'native-deadline': time.sleep(30)
     if mode == 'cancel-native': os.kill(os.getppid(), signal.SIGTERM); time.sleep(30)
     path = Path(data['native_result']); path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -260,6 +268,16 @@ class AcceptanceTests(RecordFixture):
             (self.output / "weather-android-delivery-evidence.json").read_bytes()))
         self.assertFalse(result["observations"]["joined_core_acceptance"])
 
+    def test_failure_diagnostic_is_never_join_or_acceptance_authority(self):
+        path = self.output / O["FAILURE_NAME"]
+        save(path, dict(schema=6, kind="weather-android-owner-failure", joined_core_acceptance=False))
+        with self.assertRaises(ValueError): self.join()
+        with self.assertRaises(ValueError): self.accept()
+        self.assertFalse((self.output / "weather-android-hosted-acceptance.json").exists())
+        path.unlink(); path.symlink_to(self.output / "does-not-exist")
+        with self.assertRaises(ValueError): self.join()
+        with self.assertRaises(ValueError): self.accept()
+
     def test_every_vm_cleanup_fact_and_original_owner_exit_is_required(self):
         original = self.vm.read_bytes()
         fields = dict(driver_finished=False, qemu_started=False, qemu_joined=False,
@@ -306,6 +324,70 @@ class AcceptanceTests(RecordFixture):
         self.accept(); path = self.output / "weather-android-hosted-acceptance.json"; raw = path.read_bytes()
         with self.assertRaises(FileExistsError): self.accept()
         self.assertEqual(path.read_bytes(), raw)
+
+
+class FailureRecordTests(RecordFixture):
+    def native_job(self, raw=None, *, status=1, opened=(), limit=2 * 1024**2):
+        if raw is None:
+            raw = O["N"]["PREFIX"].encode() + json.dumps(NATIVE_DIAGNOSTIC).encode() + b"\n"
+        return dict(process=SimpleNamespace(returncode=status), open=set(opened), limit=limit,
+            data=dict(stdout=bytearray(raw), stderr=bytearray(b"PRIVATE stderr not exported")))
+
+    def test_only_closed_last_native_marker_is_exported_not_original_streams(self):
+        job = self.native_job(); job["data"]["stdout"][:0] = b"PRIVATE raw stdout\n"
+        result = O["native_diagnostic"](job)
+        self.assertEqual(result, dict(state="available", record=NATIVE_DIAGNOSTIC))
+        self.assertNotIn("PRIVATE", json.dumps(result))
+        self.assertEqual(O["native_diagnostic"](None), dict(state="absent", record=None))
+        self.assertEqual(O["native_diagnostic"](self.native_job(b"private unmarked output")),
+            dict(state="absent", record=None))
+
+    def test_malformed_extra_field_oversized_duplicate_and_nonfinal_marker_rejected(self):
+        prefix = O["N"]["PREFIX"].encode(); good = json.dumps(NATIVE_DIAGNOSTIC).encode()
+        values = (prefix + good, prefix + good + b"\nPRIVATE trailing\n", prefix + b"{}\n",
+            prefix + good + b"\n" + prefix + good + b"\n", prefix + b"x" * 4096 + b"\n",
+            prefix + json.dumps(dict(NATIVE_DIAGNOSTIC, private="PRIVATE")).encode() + b"\n",
+            prefix + json.dumps(dict(NATIVE_DIAGNOSTIC, code="PRIVATE_KEY")).encode() + b"\n",
+            prefix + json.dumps(dict(NATIVE_DIAGNOSTIC, category="private-category")).encode() + b"\n",
+            prefix + good[:-1] + b',"schema":6}\n', prefix + b"\xff\n",
+            prefix + json.dumps(dict(NATIVE_DIAGNOSTIC, joined_core_acceptance=True)).encode() + b"\n")
+        for index, raw in enumerate(values):
+            with self.subTest(index=index):
+                self.assertEqual(O["native_diagnostic"](self.native_job(raw)), dict(state="rejected", record=None))
+        for job in (self.native_job(status=None), self.native_job(opened=("stdout",)), self.native_job(limit=32)):
+            self.assertEqual(O["native_diagnostic"](job), dict(state="rejected", record=None))
+
+    def test_original_result_and_emulator_cleanup_are_separate_diagnostic_facts(self):
+        records = O["native_originals"](self.weather, dict.fromkeys(O["NATIVE_RECORDS"], False))
+        self.assertEqual(records["result"], dict(state="available", facts=NATIVE_RESULT))
+        self.assertEqual(records["failure"], dict(state="absent", facts=None))
+        self.assertEqual(records["emulator_cleanup"]["state"], "available")
+        self.assertEqual(records["emulator_cleanup"]["facts"], json.loads((self.proof / "emulator-cleanup.json").read_bytes()))
+        for record in O["native_originals"](self.weather, dict.fromkeys(O["NATIVE_RECORDS"], True)).values():
+            self.assertEqual(record, dict(state="rejected", facts=None))
+
+    def test_private_original_failure_text_is_only_finite_code_and_category(self):
+        original = dict(schema=1, phase="baseline", category="ValueError", code="CORE_SOCKET_ONLY")
+        self.assertEqual(O["native_facts"]("failure", original),
+            dict(phase="baseline", category="value", code="CORE_SOCKET_ONLY"))
+        projected = O["native_facts"]("failure", dict(original, category="PRIVATE_EXCEPTION", code="PRIVATE /path?token"))
+        self.assertEqual(projected, dict(phase="baseline", category="unknown", code="UNKNOWN"))
+        for replacement in (dict(original, private="PRIVATE"), dict(original, phase="PRIVATE"),
+                dict(original, schema=True), dict(original, code=["PRIVATE"])):
+            with self.assertRaises(ValueError): O["native_facts"]("failure", replacement)
+
+    def test_original_unsafe_missing_symlink_oversize_and_extra_fields_are_explicit(self):
+        path = self.live / "result.json"; original = path.read_bytes()
+        preexisting = dict.fromkeys(O["NATIVE_RECORDS"], False)
+        def state(): return O["native_originals"](self.weather, preexisting)["result"]
+        path.unlink(); self.assertEqual(state(), dict(state="absent", facts=None))
+        target = self.root / "private-original.json"; save(target, original); path.symlink_to(target)
+        self.assertEqual(state(), dict(state="rejected", facts=None)); path.unlink()
+        for raw, mode in ((b"x" * 16385, 0o600), (original, 0o644),
+                (dict(NATIVE_RESULT, private="PRIVATE"), 0o600), (dict(NATIVE_RESULT, success=1), 0o600),
+                (dict(NATIVE_RESULT, production_authority=True), 0o600)):
+            save(path, raw, mode)
+            self.assertEqual(state(), dict(state="rejected", facts=None))
 
 
 class ContractTests(RecordFixture):
@@ -371,7 +453,8 @@ class ContractTests(RecordFixture):
             self.assertEqual(controller[remote + 1:], ["/usr/bin/sudo", "-n", "/usr/bin/python3", "-B", O["CONTROL"], action])
         with self.assertRaises(ValueError): O["command"](self.config, "controller", "/bin/sh")
         self.assertEqual(O["command"](self.config, "native"), ["/usr/bin/python3", "-B",
-            str(self.weather / "scripts/prepare_hosted_android_ci.py"), "--run-protected-core",
+            str(HERE / "weather-android-native.py"), "--weather-root", str(self.weather),
+            "--core-commit", CORE_COMMIT, "--weather-commit", WEATHER_COMMIT,
             "--upstream-socket", str(self.run / "android-api/core-api.sock")])
 
     def test_configuration_has_exact_paths_pins_and_no_program_injection(self):
@@ -493,7 +576,7 @@ class CoordinatorTests(unittest.TestCase):
         ready = dict(schema=6, kind="weather-android-guest-ready", manifest_sha256="1" * 64, core_sha256="2" * 64,
             prepared_sha256="3" * 64, deadline_unix_seconds=int(time.time()) + 800, remaining_seconds=800,
             api_socket_ready=True, cold_caches_absent=True, helper_requests=0, joined_delivery_proven=False)
-        save(self.root / "inert-roles.json", dict(ready=ready,
+        save(self.root / "inert-roles.json", dict(ready=ready, diagnostic=NATIVE_DIAGNOSTIC,
             finalize=dict(schema=6, kind="weather-android-finalize-requested", prepared_sha256="3" * 64,
                 finalize_requested=True, joined_delivery_proven=False), tunnel=tunnel_record(F["fixture"]()[2]),
             socket=str(self.run / "android-api/core-api.sock"),
@@ -522,6 +605,7 @@ class CoordinatorTests(unittest.TestCase):
             socket_removed=True, host_netns_unchanged=True))
         self.assertTrue((self.root / "finalized").exists())
         self.assertFalse((self.run / "android-api/core-api.sock").exists())
+        self.assertFalse((self.output / O["FAILURE_NAME"]).exists())
 
     def test_native_failure_never_requests_finalize(self):
         result = self.run_owner("native-fail")
@@ -529,6 +613,42 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(result["statuses"]["native"], 2)
         self.assertFalse((self.root / "finalized").exists())
         self.assertTrue(result["cleanup"]["children_joined"])
+        failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
+        self.assertEqual(failure["native_diagnostic"], dict(state="absent", record=None))
+        self.assertEqual(failure["statuses"]["native"], 2)
+        self.assertEqual(failure["owner_cleanup"], result["cleanup"])
+
+    def test_early_native_guard_code_is_visible_after_owned_cleanup_without_live_files(self):
+        result = self.run_owner("native-diagnostic-early")
+        self.assertFalse(result["success"])
+        path = self.output / O["FAILURE_NAME"]; raw = path.read_bytes(); failure = json.loads(raw)
+        self.assertEqual(set(failure), {"schema", "kind", "identity", "phase", "statuses", "owner_cleanup",
+            "native_diagnostic", "weather_records", "diagnostic_only", "success", "joined_core_acceptance",
+            "vm_cleanup_pending", "expiry_proven", "physical_device", "production_authority"})
+        self.assertEqual(failure["identity"], IDENTITY)
+        self.assertEqual(failure["native_diagnostic"], dict(state="available", record=NATIVE_DIAGNOSTIC))
+        self.assertEqual(failure["weather_records"], dict.fromkeys(O["NATIVE_RECORDS"], dict(state="absent", facts=None)))
+        self.assertTrue(failure["owner_cleanup"]["children_joined"] and failure["owner_cleanup"]["socket_removed"])
+        self.assertEqual(failure["statuses"], dict(driver=-signal.SIGTERM, tunnel=0, native=1))
+        self.assertTrue(failure["diagnostic_only"] and failure["vm_cleanup_pending"])
+        self.assertFalse(any(failure[key] for key in ("success", "joined_core_acceptance", "expiry_proven",
+            "physical_device", "production_authority")))
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertNotIn(b"PRIVATE", raw); self.assertNotIn(str(self.root).encode(), raw)
+        self.assertFalse((self.root / "finalized").exists())
+        with self.assertRaises(ValueError): O["join"](self.value)
+        with self.assertRaises(FileExistsError): O["write"](path, {})
+        self.assertEqual(path.read_bytes(), raw)
+
+    def test_malformed_native_diagnostic_cannot_skip_cleanup_or_request_finalize(self):
+        mutate(self.root / "inert-roles.json", lambda value: value["diagnostic"].update(private="PRIVATE"))
+        result = self.run_owner("native-diagnostic-invalid")
+        failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
+        self.assertFalse(result["success"])
+        self.assertTrue(result["cleanup"]["children_joined"] and result["cleanup"]["socket_removed"])
+        self.assertEqual(failure["native_diagnostic"], dict(state="rejected", record=None))
+        self.assertNotIn("PRIVATE", json.dumps(failure))
+        self.assertFalse((self.root / "finalized").exists())
 
     def test_native_deadline_is_abort_and_still_joins_all_children(self):
         with patch.dict(G, NATIVE_SECONDS=0.2): result = self.run_owner("native-deadline")
@@ -566,6 +686,13 @@ class CoordinatorTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertTrue(result["cleanup"]["children_joined"] and result["cleanup"]["socket_removed"])
         self.assertFalse((self.root / "finalized").exists())
+        failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
+        self.assertEqual(failure["phase"], "native")
+        self.assertEqual(failure["statuses"]["native"], -signal.SIGTERM)
+        self.assertEqual(failure["native_diagnostic"], dict(state="absent", record=None))
+        self.assertTrue(failure["owner_cleanup"]["children_joined"] and failure["diagnostic_only"])
+        self.assertFalse(any(failure[key] for key in ("success", "joined_core_acceptance", "expiry_proven",
+            "physical_device", "production_authority")))
 
 
 if __name__ == "__main__": unittest.main()

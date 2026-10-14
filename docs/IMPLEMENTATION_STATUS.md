@@ -31,7 +31,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | PR19 proves the installed lifecycle with synthetic products. PR21 adds explicit cache creation/reuse; PR22 is merged as `93770b59` with separate native preparation/live entrypoints. Exact Weather source `f6ee8299` passes components and CodeQL; core guest candidate `709ec8aa` passes Quality `38597941234`. The next candidate connects the hosted owner, native app and disposable VM, with original-receipt and teardown gates. Actual joined execution remains unproved. Live expiry, physical devices and iOS remain open; historical synthetic expiry and real web proofs are unchanged. |
+| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | PR19 proves the installed lifecycle with synthetic products. PR21 adds explicit cache creation/reuse; PR22 is merged as `93770b59` with separate native preparation/live entrypoints. Exact Weather source `f6ee8299` passes components and CodeQL. Core `13c74fbf` passes Quality `38607515064` but actual trial `38607507096` stops at native exit 1; its original artifact omits the underlying native error. Add a closed failure diagnostic before repeating the joined trial. Live delivery, expiry, physical devices and iOS remain open; historical synthetic expiry and real web proofs are unchanged. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38519187504` fails Cloud FINALIZE after READY with `wire_receipt/io`; its separate base-maintenance restores and cleanup pass. Diagnostic candidate `8ea8a059` passes workspace Quality and CodeQL, but actual `38595365736` fails before topology execution: the isolated agent test build lacks Tokio `test-util`. Correction `d22f7892` passes Quality `38601264906`, including seven isolated-package outcome tests; actual trial `38607252325` is dispatched on that exact source. The original FINALIZE failure, consumer repair/restore and remote cleanup remain open. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 and PR247 are merged; main `17afa3f0` contains the finite operator grants, guest module, protected exchange and CLI verifier. Corrected source `09b0d3cc` passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`. Software evidence does not establish production-route execution, production authority, current vendor appraisal, an approved measured workload or actual private execution. Suitable confidential-computing hardware is unavailable; storage and Android integration continue in parallel. |
@@ -87,7 +87,32 @@ CLI/HTTP/UI evidence from this run, completed VM destruction and byte-identical
 restoration of the hosted runner's temporary KVM ACL. Only explicitly named,
 closed evidence is exported, never raw private receipts or native state.
 
-These are implemented candidate gates, not a completed Android-to-core trial.
+Actual [trial `38607507096`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38607507096)
+on `13c74fbf11ddefb7ff6b6c080242029ae5a0c53e` passes APK preparation,
+pinned mqvpn compilation and image verification, then stops in the owner's
+`native` phase with exit 1. The owner joins its children without forced killing
+and removes its socket; the outer runner destroys the VM, removes private guest
+state and restores the original 77-byte KVM ACL exactly. The underlying native
+error and the native runtime's own cleanup records were not exported, so this
+run establishes neither their cause nor installed-app delivery. Its original
+ten-member artifact matches SHA-256
+`bc7bd8e6d4e4c6008b0ec7b7929f19f630d04eb369f3140262d0dc61fcd633a5`.
+
+[Quality `38607515064`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38607515064)
+passes on PR merge `e69a9b68`; only README.md differs from the trial's source.
+All 215 Android contract checks run without skips, alongside successful Clippy
+and workspace tests. The workspace reports 3,661 passes and seven ignored tests;
+runner-policy namespace skips and one separate CLI fixture skip are not actual
+datapath evidence. [CodeQL `38607507812`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38607507812)
+also passes. These checks do not replace the failed joined trial.
+
+The diagnostic candidate preserves the pinned native runtime and all execution
+budgets while exposing a bounded, closed failure diagnostic, including guards
+that run before native phase receipts exist. Raw native output remains private;
+an error record cannot satisfy the delivery or cleanup acceptance gates.
+Local inert checks pass: 44 owner, ten native-launcher, sixteen hosted-workflow
+and sixteen VM-wiring tests. They verify error visibility, redaction, cleanup
+ordering and rejection of malformed or stale records, not actual native delivery.
 No local native build or host-network change was performed for these components.
 
 ### Latest storage trial
