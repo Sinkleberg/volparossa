@@ -140,7 +140,8 @@ def receipt(work):
 def main(args):
     P.require(len(args) == 1 and args[0] in ('test', 'receipt'), 'guest_fixed_command')
     P.hosted()
-    P.require(os.environ.get('GITHUB_REF') == 'refs/heads/feature/protected-compute-guest', 'guest_branch_only')
+    P.require(os.environ.get('GITHUB_REF') in ('refs/heads/feature/protected-compute-guest',
+        'refs/heads/feature/protected-compute-quote-exchange'), 'guest_branch_only')
     P.install_signals()
     work = P.workdir()
     P.cargo_env(work)

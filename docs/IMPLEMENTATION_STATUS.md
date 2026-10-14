@@ -32,9 +32,110 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Join core-delivered products to the now-proven installed Android refresh/background-expiry lifecycle. | PR19 is merged as `ad10d7d9`, with the exact tested tree of `576550f3`. Original Android `38497919547` and component `38497925414` pass; the Android proof includes real tap refresh, background/resume, hidden expired tables, unchanged three requests per product and full cleanup. Products are synthetic in this trial. Actual core delivery into Android, physical devices and iOS remain open; separate web evidence is unchanged. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Original actual trial `38497089463` on `0057262e` fails Cloud publication with a FINALIZE `wire_receipt/io` result. Local cleanup passes, but remote cleanup and provider usage are not confirmed. Quality `38497060046` and CodeQL `38497058053` pass and do not replace actual acceptance. Consumer repair, restore, deletion and reciprocal capacity remain unproven; Cloud PR234 waits for this shared integration. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Actual trial `38508516347` on `b9a8905e` fails Image publication during the TLS handshake, before the provider receives FINALIZE. Its separate base maintenance/restoration proof passes; consumer maintenance and remote cleanup do not. Candidate `c0b2b62b` adds closed TLS diagnostics and profile-four Image/Cloud adapters, not a fix. Hosted Rust checks and a new exact-source trial remain required. The older Cloud FINALIZE failure is retained below. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Protected remote compute — `volparossa`, then Code/Browser | Connect guest-owned quote collection to an authorized protected provider exchange, then prove a private task on another node. | PR246 is merged as `e282a3ce`. Its source `62261f3e` passes compilation, all 52 appraisal tests, targeted Clippy and 16 new software lifecycle tests in original run `38502691198`; Quality and CodeQL also pass. It does not release private input or replace appraisal. Production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
+| Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR247 is merged as `17afa3f0`, with the exact tested tree of `09b0d3cc`. Targeted run `38512217556` passes 52 appraisal, 16 guest and twelve quote tests; Quality `38512223814` also executes all eight new agent/control/CLI cases and passes. CodeQL `38512218075` passes. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
+
+### Authorized quote exchange candidate
+
+The software slice is now integrated through
+[PR247](https://github.com/VOLPAROSSA/volparossa/pull/247), merge `17afa3f0`.
+Its tree `18eac7f7d42bc5f04ea83a70d2512946f30fa264` exactly matches tested source
+`09b0d3cc349337e49ca48e23832f1b1db2d62f79`.
+Original targeted run
+[`38512217556`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38512217556)
+passes 52 appraisal, 16 guest and twelve quote tests, plus targeted Clippy.
+Quality `38512223814` passes strict workspace Clippy and 3,655 workspace tests,
+with zero failures and seven ignored tests. All eight new agent/control/CLI
+regressions actually execute and pass. Its three namespace wrappers cannot create
+the required namespaces; they are not live datapath evidence. CodeQL
+`38512218075` passes all four analyses and the aggregate check.
+
+Independent reconstruction and root replay confirm the original artifacts and
+logs, exact source/tree and unchanged committed lockfile. The core, guest and
+quote artifact ZIPs for `38512217556` are respectively
+`c66de783d3b42ba875ba1820bb4dafbfcb962dac277c0e3a64eefb62e5a9c026`,
+`a679817b06a133a1b58c90bd51efcbda5ff90db2a9492c418e3a66432abdb71b`
+and `b7dcd2dee7dc44e632bb98586de281fae519ee680f63605daee7b3f394ebb472`.
+Its log ZIP is
+`5992a88556979020e9f7e93f59e48f73cbff6408dc5af86ec3d94cc6dff83152`;
+the Quality and CodeQL log ZIPs are respectively
+`bd0d84401bd2021638c994d78cdf4a42fac42de448e58679dccb580bcafe56a0`
+and `d0bb8688e008f17bea9a8ee381ae66562e39180c4f0528b29778d8563632aff9`.
+Software integration does not establish confidential hardware or private-task
+execution. The earlier revision-specific results remain below.
+
+The new quote-only path connects guest-owned evidence collection to the existing
+protected provider stream. An operator must explicitly authorize one requester
+identity, a lifetime of at most ten minutes and at most 64 attempts. Registration
+is independent of public compute. A separate operation selector and signing
+domain prevent public-job messages from being treated as attestation requests.
+
+The CLI creates its fresh, one-use challenge only after route setup, pinned TLS
+and the provider's authenticated challenge have succeeded. It receives the bounded
+binary quote on that same local control connection, completes transport and policy
+checks, then applies the existing reference-evidence verifier. No raw report,
+hardware identifier, key or transcript is printed or put in a public cache.
+The result keeps full appraisal, worker admission and private-input release false.
+
+The service owns retained keys and an expiry supervisor. Detach, authority loss
+and expiry revoke the key without claiming that a blocking firmware ioctl has
+stopped. One process-wide permit remains with the actual worker until it returns,
+including across detach and reattach. This prevents cancelled requests from
+creating an unbounded series of firmware workers.
+
+Original hosted run
+[`38511031734`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38511031734)
+on `85a013825ce33e2122de344092d8a3889a4af2b5` passes all 52 appraisal tests,
+16 guest tests and twelve quote tests, with zero failures or ignored tests.
+Targeted content Clippy also passes. The separate quote receipt requires the
+appraisal and guest results from that same source; all three stages actually
+execute. Independent reconstruction and root replay confirm the original
+artifacts, exact tree `4a64a68df7a3ba572a572d7b20336dccdc0666f1`, unchanged
+committed lockfile and the digest chain between prerequisite receipts.
+
+The original core, guest and quote artifact ZIPs are respectively
+`e4e66a899b324c57e90c355f20f149c32c4549b249107c3768708ca501b18c04`,
+`d48540551b72e3efb83aabd2653940be4c3c69dcbae3530f62a53a7b3427fcbc`
+and `50bfd73b1cc61d13005145ad802e5c4afd6d8cc8ef65c3daaa81de9772e33eca`;
+the original log ZIP is
+`45d8e1dd32c49ac607e7682e53d4695624035f4ca33a0ef7c3eefbf4706c3001`.
+These synthetic guest and quote reports do not prove firmware success, a working
+production route, confidential hardware, full appraisal, worker admission or
+private-task execution. See the
+[quote exchange guide](development/PROTECTED_COMPUTE_VERIFIER.md#authorized-quote-exchange-candidate)
+for commands and the remaining authority boundaries.
+
+Original run
+[`38510015317`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38510015317)
+on `944da52cb9b5bbfed29f2f3e93b337f83b4b56f8` fails three Clippy rules:
+`similar_names`, `map_unwrap_or` and `ignored_unit_patterns`. Its 52 exact
+appraisal tests pass with zero failures or ignored tests. The guest and quote
+steps are skipped; their artifacts contain only failed receipts, not executed
+tests. Independent reconstruction and root replay confirm the exact source,
+unchanged committed lock, original artifacts and this limited result. The core
+artifact ZIP is
+`6411652b4098e504bf50d8891be281401a4f2f24518944b76883705c9a5ac944`;
+the original log ZIP is
+`10bf16d005a56ef7de6b1b39a918506c896da85b3b93b39c2c92cde352deec3c`.
+
+Separate Quality run `38510082539` fails formatting before strict workspace
+Clippy or workspace tests. Its original log ZIP is
+`dc81f3443896e67a3883fcc8ec4b0bb5b5e5b4839d1fb017e17081c9caf4808a`.
+The exact hosted formatter output has been applied and its eleven resulting
+files checked by hash. The three Clippy corrections preserve the same lazy
+deadline fallback, unit-output polling and test behavior; no lint gate is relaxed.
+The corrected revision passes the targeted core/guest/quote run above. Separate
+Quality `38511036689` passes formatting, fuzz lint and dependency/license checks,
+then stops at `struct_field_names` in the CLI's private `PublicPolicy` type.
+Workspace tests, including the eight new agent/control/CLI cases, are skipped.
+Its original log ZIP is
+`73cd058d0f2d9554d0676dd48bb809aaea88c44e63bcaa05edf6b5265ba5bf99`.
+Renaming that private type to `PublicExpectations` leaves the JSON
+`public_policy_id` field, strict schema, policy criteria and CLI options unchanged.
+Independent review confirms the narrow correction. CodeQL `38511032900` on
+`85a01382` passes, but does not replace the failed Quality result on that source.
+The corrected `09b0d3cc` acceptance is recorded above. No local Rust tool was run.
 
 ### Guest-owned protected-compute session candidate
 
@@ -174,13 +275,80 @@ with explicit omissions and unchanged size limits. It exports no identifiers,
 addresses, paths, keys, payloads or nested error text. Deadlines, retries, quotas,
 authorization and the blocking worker's disk permit remain unchanged.
 
-Independent source review, 62 inert smoke checks and 41 wiring checks pass. Eleven
-new Rust regressions are written but still require hosted compilation, strict
-Clippy and execution. They include a lost receipt after a durable commit, actual
+Independent source review, 62 inert smoke checks and 41 wiring checks pass.
+Diagnostic revision `b9a8905e3b0b95d0e44cd41d083776cf0fa0b86e` passes original
+Quality run `38505948590`, including strict workspace Clippy and all eleven new
+Rust regressions. These cover a lost receipt after a durable commit, actual
 database/integrity/lease errors, outer timeout and cancellation with a still-owned
-blocking permit. The existing broad wire-test filter includes all eleven. This is
-diagnostic preparation, not a fix for the original Cloud failure; a new actual
-consumer trial remains required after the hosted source checks.
+blocking permit. The content suite reports 192 passes, zero failures and zero
+ignored tests. Three namespace probes and one inert Python case are skipped;
+these component results are not live consumer acceptance.
+
+Original CodeQL run `38505945732` passes all four analyses and its aggregate;
+two Rust extraction diagnostics remain explicit. Independent reconstruction
+and root replay bind the original logs and API results to tree
+`7b6d96080ca6a6e0f56345e11164fc1717ff03b6`. The Quality log ZIP is
+`56ec2335afc2177a83b043dcf80875d9cd3533321baa4e0dadf1c655175b1f11`;
+the CodeQL log ZIP is
+`8c8870bf2f08c0516aedfc3bbaa3e335ebe2fe3335ce1e550dd79b8b86f1acc4`.
+
+Actual Image/Cloud trial
+[`38508516347`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38508516347)
+fails on that exact revision. Image publication stops at fragment zero, copy one,
+with intended operation FINALIZE, `agent_ready/agent_rejected`,
+`CONTENT_UNAVAILABLE`, and detail `tls_handshake/none`. This is a local preparation
+observation: that attempt never reaches the provider's FINALIZE/challenge/READY
+or storage backend. The provider sidecar has no storage failure tuple for it,
+which neither identifies a cause nor proves absence of a transport error.
+Cloud publication, consumer enrollment, repair, restore and deletion do not run.
+
+The separate base trial passes service restart, cursor progress from 3 to 4 to 8,
+a fresh-owner nine-fragment result, three replacements, two non-consuming
+hash-verified restores, deletion of eleven retained copies and zero final usage
+on all three base providers. These are not consumer results. Consumer-local
+cleanup removes 20 directories and 38 files with no process left; remote cleanup
+and provider usage remain unconfirmed. The combined acceptance gate rejects the
+report. The disposable guest's root-network state is unchanged.
+
+Independent reconstruction and root replay verify original metadata, all 76
+artifact members and receipt hashes. The artifact ZIP is
+`33285c55e9230844eded7da8b67b7c32aa04d6fe4bcb9c9baf4aaa48cc81d62d`;
+the log ZIP is
+`ad69cda61c65610771740883795651a35a606e81580008549590955c52828cae`.
+The equal before/after root-state hash is
+`f618c7aed6548ab65465235ea1e402ae33dfb2ce12b95e66a4bbfa132c20b8cd`.
+The earlier Cloud `wire_receipt/io` failure remains a separate observation;
+neither run establishes the other's cause.
+
+Candidate `c0b2b62b` adds six closed request-local TLS classes: offer,
+configuration, actual handshake deadline, authentication, other TLS and I/O.
+The optional wire field preserves old readers and the existing result/code/Ack;
+enclosing deadlines and cancellation clear the TLS observation. No raw error,
+identifier, address or payload is exported. A returned TLS error can originate
+in the carrying protected stream, so it is not attributed to the provider.
+Timeouts, retries, quotas, policy and resource scheduling are unchanged.
+
+Current CLI diagnostics use version three. Historical versions one and two keep
+their exact shapes. Consumer profile four pins Image
+`3b5830476dabd548debfdfade4fdf72acb4fa992` and Cloud
+`ea24b6cd53a14b204a7b8fbfda5c76ec9ca297e7`; all 23 pinned source blobs are
+verified, and profiles one through three are unchanged. The hosted acceptance
+command explicitly requires the new profile while historical replay remains
+available. Image's 50 adapter checks, Cloud's seven diagnostic/provenance checks,
+108 inert consumer checks and the new positive/negative CLI gate checks pass.
+The fifteen new Rust regressions still require hosted compilation and execution.
+This is diagnostic preparation, not a repair: actual publication, maintenance,
+restore, remote deletion, provider usage and cleanup must still pass together.
+
+Joining current `main` preserves published quote request tags 43–45 and response
+tag 33; the unmerged storage-maintenance operation moves to free request tag 46
+and response tag 34. Old storage-candidate encodings are not compatibility aliases.
+Four new wire regressions freeze the quote encodings and reject the old maintenance
+bytes instead of interpreting them as quote authority. The existing non-overlapping
+provider refresh now also recognizes a live quote-only service; a fifth regression
+covers registration and withdrawal after deactivation. These five integration
+regressions, like the fifteen TLS cases, still need hosted Rust execution. No local
+Rust tool or active host-network configuration was used or changed.
 
 ### Explicit local policy for protected compute
 

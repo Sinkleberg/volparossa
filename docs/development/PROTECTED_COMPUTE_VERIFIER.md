@@ -358,14 +358,89 @@ processes. The [implementation ledger](../IMPLEMENTATION_STATUS.md#guest-owned-p
 retains the artifact hashes and earlier failed attempts; neither software success
 nor a compiled firmware call proves execution inside an approved confidential guest.
 
-Remaining integration includes an authorized caller over the protected provider
-stream, an approved guest image and model/runtime assets, full report appraisal,
-and protected task-input/output handling. This module installs no daemon, changes
-no host configuration, starts no listener or scheduler, and does not enable private
-network execution merely because the firmware call compiles.
+The quote service below connects an authorized caller to this module over the existing
+protected provider stream. An approved guest image and model/runtime assets, full
+report appraisal and protected task-input/output handling remain required. The
+guest module itself installs no daemon, changes no host configuration and starts
+no listener or scheduler. A compiled firmware call does not enable private work.
 
 Source references: the pinned [firmware API](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/src/firmware/guest/mod.rs)
 and the [Linux SEV guest interface](https://www.kernel.org/doc/html/latest/virt/coco/sev-guest.html).
+
+## Authorized quote exchange candidate
+
+The quote-only service and CLI are integrated through
+[PR247](https://github.com/VOLPAROSSA/volparossa/pull/247), merge `17afa3f0`, with
+the exact tested tree of `09b0d3cc`. They do not admit a worker or send a private
+task. Original hosted run `38512217556` passes all 52 appraisal tests, 16 guest
+tests and twelve quote tests, plus targeted content Clippy. Quality `38512223814`
+also executes all eight new agent/control/CLI tests and passes; CodeQL
+`38512218075` passes. Independent reconstruction and root replay bind these
+results to original artifacts, source and the unchanged lockfile. Earlier failed
+attempts retain their revision-specific evidence in the implementation ledger.
+The production protected-route exchange still needs an actual trial; software
+tests do not prove confidential hardware or private-task execution. No suitable
+confidential-computing hardware is currently available.
+
+### Operator authority and cancellation
+
+`volparossa compute quote attach` uses the existing protected local control
+socket. It requires `--bind`, `--advertised-hostname`, `--requester-key`,
+`--max-seconds` and `--max-attempts`; none grants general peer access. The exact
+requester key must be valid and nonzero. The grant permits at most 600 seconds
+and 64 attempts, while each quote retains the existing shorter challenge limit.
+Current participation, endpoint policy and service registration are checked
+again during operation. Public compute and quote registration remain separate.
+
+`volparossa compute quote detach` revokes the grant and retained keys. A live
+supervisor also revokes them on expiry or authority loss. Guest sessions own
+their state without exporting private keys; dropping their owner cancels any
+surviving session. A process-wide single permit stays with the blocking firmware
+worker until its real return, even if its async supervisor has been cancelled.
+Detach therefore does not promise an interrupted ioctl or immediate free capacity.
+
+### One fresh protected exchange
+
+`volparossa compute quote verify` requires `--provider-key`, `--public-policy`,
+`--vcek` and `--vendor-crl`. The public policy is strict JSON, bounded to 4 KiB,
+with explicit version, public policy identifier, measurement, guest SVN,
+current/reported/committed/launch TCB floors and SMT choice. It supplies no
+production root override or private task context. The bounded DER certificate
+and CRL are supplied locally; this command does not fetch collateral.
+
+The agent opens the existing protected route, checks the selected provider's
+offer and pinned TLS identity, and receives its signed quote challenge. Only
+then does it tell the CLI that the stream is ready. The CLI creates its fresh
+30-second, one-use verifier session after that readiness response, so route setup
+does not consume the verifier's short challenge lifetime.
+
+Provider selector 7 and signing domain `VOLPAROSSA/compute-quote/v1\0` are distinct
+from public compute selector 5 and its unchanged domain. Bounded binary frames
+travel over the same owned connection, not a transcript file or a new unprotected
+listener. The response binds the exact request and guest-generated public key.
+Transport closure and a final route/policy check precede reference verification.
+
+The CLI prints only closed evidence status and the outstanding appraisal
+obligations. It never prints a raw report, hardware identifier, key or transcript.
+Reference verification keeps `complete_appraisal`, `worker_admission` and
+`private_input_released` false. The receiving authorized requester necessarily
+processes the report in memory; this exchange is not anonymous quote disclosure.
+
+### Evidence required for integration
+
+Twelve content regressions cover message separation, exact authorization,
+bounded framing, retained-key expiry, delivery failure, cancellation during
+firmware work, late results, policy loss and finite attempts. These twelve tests
+pass in the hosted run above. Eight more tests cover the agent, local control
+messages and CLI policy/output; their workspace execution also passes.
+Synthetic firmware is test-only and cannot be selected by production configuration.
+
+The separate quote software receipt requires the original source and lock binding,
+52 appraisal tests, targeted Clippy and 16 guest tests before accepting the exact
+twelve quote results. It does not treat these tests as proof of production-route
+execution, confidential hardware, complete appraisal or private-task execution.
+The [implementation ledger](../IMPLEMENTATION_STATUS.md#authorized-quote-exchange-candidate)
+tracks both integrated software slices and the remaining runtime proof separately.
 
 ## What is still needed before private tasks can run remotely
 

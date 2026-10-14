@@ -7,10 +7,26 @@ use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 use volparossa_content::provider::compute::{
     self as wire, ComputeBackend, ComputeFuture, ComputeService,
+    guest::GuestLimits,
+    quote::{QuoteAuthority, QuoteAuthorityFuture, QuoteError, QuoteGrant, QuoteService},
 };
 use volparossa_local_control::compute as rpc;
 
 struct RefusingBroker(AtomicUsize);
+
+struct QuoteRequester([u8; 32]);
+
+impl QuoteAuthority for QuoteRequester {
+    fn check(&self, requester: [u8; 32]) -> QuoteAuthorityFuture<'_> {
+        Box::pin(async move {
+            if requester == self.0 {
+                Ok(())
+            } else {
+                Err(QuoteError::Unauthorized)
+            }
+        })
+    }
+}
 
 impl ComputeBackend for RefusingBroker {
     fn exchange(&self, requester: [u8; 32], bytes: Vec<u8>) -> ComputeFuture<'_> {
@@ -158,6 +174,57 @@ async fn joined(fixture: Fixture) -> usize {
         .unwrap();
     assert!(TcpStream::connect(fixture.address).await.is_err());
     registrations
+}
+
+#[tokio::test]
+async fn automatic_quote_only_refresh_registers_then_withdraws_after_deactivation() {
+    let identity = Identity::generate();
+    let runtime = ContentRuntime::new(&identity).unwrap();
+    let endpoint = ProviderEndpoint::new("provider.example", 8443).unwrap();
+    let requester_key = SigningKey::from_bytes(&[19; 32]).verifying_key().to_bytes();
+    let quote = QuoteService::new(
+        Arc::clone(&runtime.signer),
+        QuoteGrant {
+            requester_key,
+            limits: GuestLimits {
+                expires_at: now() + 60,
+                maximum_attempts: 1,
+            },
+        },
+        Arc::clone(&runtime.quote_firmware),
+        Arc::new(QuoteRequester(requester_key)),
+    )
+    .unwrap();
+    // A real owned supervisor is live, but no request or firmware operation is made.
+    let supervisor = tokio::spawn(Arc::clone(&quote).supervise().unwrap());
+    let mut registry = PublicationRegistry::new();
+    registry.set_quote(Arc::clone(&quote));
+    assert!(registry.has_quote());
+    assert!(!registry.has_compute());
+    assert!(!registry.has_private_storage());
+    let registry = Mutex::new(registry);
+    let (discovery, mut observed, actor) =
+        DiscoveryControlHandle::content_refresh_for_test(*identity.peer_id(), vec![Ok(())]);
+    let refresh = refresh_provider_offer(true, &registry, &runtime.signer, &endpoint, &discovery);
+    assert!(matches!(
+        timeout(Duration::from_secs(5), refresh).await.unwrap(),
+        ProviderRefresh::Registered(Ok(()))
+    ));
+    assert_eq!(observed.try_recv().unwrap(), 1);
+
+    quote.deactivate();
+    assert!(!registry.lock().await.has_quote());
+    let refresh = refresh_provider_offer(true, &registry, &runtime.signer, &endpoint, &discovery);
+    assert!(matches!(
+        timeout(Duration::from_secs(5), refresh).await.unwrap(),
+        ProviderRefresh::Withdrawn
+    ));
+    assert_eq!(timeout(Duration::from_secs(5), actor).await.unwrap().unwrap(), 1);
+    timeout(Duration::from_secs(5), supervisor)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(runtime.quote_firmware.available_permits(), 1);
 }
 
 #[tokio::test]
