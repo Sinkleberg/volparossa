@@ -65,6 +65,26 @@ remain independent of this candidate. See the
 [reviewed dependency sources](../third_party/rust/README.md#resolver-validation-and-cname-scope)
 for upstream fixes and the precise reachability assessment.
 
+The first [hosted Quality run `38619532866`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38619532866)
+on `a61465b1` stops at the isolated harness's locked dependency fetch. Root and
+fuzz locked fetches succeed; Cargo requires a harness lock update. PR merge
+`b3806ae8` has the exact candidate tree. Formatting and shell checks pass, but
+resolver compilation, regression execution and full dependency/license checks
+have not run. Original logs ZIP SHA-256 is
+`096d1f762f007784b5f23cfc9363b636d75924a93cef3af28495c20d2940265c`.
+Reconcile that standalone lock with Cargo on the disposable hosted runner,
+retain the original and generated lock difference, and keep the locked gate
+failing until the reviewed correction is committed. Do not infer a valid lock
+from a manually complete-looking dependency graph.
+
+The failure-only diagnostic copies the authenticated standalone harness and its
+four reviewed vendor trees to temporary runner storage, then asks the already
+installed Cargo 1.85 to reconcile that lock offline without building. It exports
+only the before/after public locks, their diff and a closed status. Root, fuzz
+and original harness locks stay unchanged, and the original locked-fetch exit
+still fails Quality. A generated lock is evidence to review, not an automatic
+correction or a passed regression suite.
+
 ### Authorized quote exchange candidate
 
 The new quote-only path connects guest-owned evidence collection to the existing
