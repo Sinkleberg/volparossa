@@ -31,7 +31,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | PR19 proves the installed lifecycle with synthetic products; PR22 supplies separate preparation/live entrypoints. Actual `38634359589` on `85978d55` passes the previously failing KVM boundary and enters the installed trial, then fails with `CHILD_FAILED`. Original owner, native, VM and ACL cleanup records pass their stated boundaries. The existing inner emulator diagnosis is not exported yet, so the failing command remains unknown. Joined delivery, live expiry, physical devices and iOS remain open. |
+| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | PR19 proves the installed lifecycle with synthetic products; PR22 supplies separate preparation/live entrypoints. Actual `38641552623` on `ac2a7c7f` passes KVM admission but is interrupted during the installed trial. Owner/VM/ACL cleanup passes; native process and policy cleanup are unconfirmed. The first owner stop reason is missing, so it must be retained before cleanup changes process statuses. Joined delivery, live expiry, physical devices and iOS remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38519187504` fails Cloud FINALIZE after READY with `wire_receipt/io`; its separate base-maintenance restores and cleanup pass. Diagnostic candidate `8ea8a059` passes workspace Quality and CodeQL, but actual `38595365736` fails before topology execution: the isolated agent test build lacks Tokio `test-util`. Correction `d22f7892` passes Quality `38601264906`, including seven isolated-package outcome tests; actual trial `38607252325` is dispatched on that exact source. The original FINALIZE failure, consumer repair/restore and remote cleanup remain open. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 and PR247 are merged; main `17afa3f0` contains the finite operator grants, guest module, protected exchange and CLI verifier. Corrected source `09b0d3cc` passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`. Software evidence does not establish production-route execution, production authority, current vendor appraisal, an approved measured workload or actual private execution. Suitable confidential-computing hardware is unavailable; storage and Android integration continue in parallel. |
@@ -205,7 +205,7 @@ baseline, numeric identities or raw ACLs. Independent source review and all
 with shell syntax, ShellCheck and diff checks. The actual result below verifies
 group suitability and access across these boundaries, not joined delivery.
 
-#### Current Android installed trial failure
+#### Earlier Android installed trial failure
 
 Actual [run `38634359589`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38634359589)
 checks out exact `85978d551ecdd8d41636919dff53c866b452cc81` and retains Weather
@@ -257,6 +257,49 @@ All 112 focused inert checks pass: 12 parser, 63 owner, 20 hosted-wiring and
 17 VM-wiring cases. This establishes the observation contract, not the cause of
 the prior inner failure or actual Android delivery.
 
+#### Current Android interruption
+
+Actual [run `38641552623`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38641552623)
+uses exact `ac2a7c7f8ebc2ead7c83263b82fd8f0437cfb362` and the same Weather
+`f6ee8299` source. KVM continuity and native entry access pass again. During
+`installed-emulator-trial`, Weather records `HOSTED_ANDROID_CORE_INTERRUPTED`;
+its cleanup then reports `CLEANUP_UNCONFIRMED`. Native process drain and policy
+cleanup are explicitly false, and the inner emulator cleanup record is absent.
+The new inner diagnostic is valid, but both original observations are absent;
+it does not identify a failing emulator command.
+
+The owner exits its native wait before recording any stage status. Its exported
+failure instead contains statuses observed after child cleanup, which cannot
+identify whether a deadline, an earlier driver/tunnel exit, an I/O error or
+cancellation stopped the wait. The correction must retain that original stop
+before cleanup. There is no evidence yet that changing a timeout would fix it.
+
+Outer cleanup remains distinct: owner children are joined without forced
+killing, output is drained, the socket is removed and its network namespace is
+unchanged. QEMU is joined, private guest state removed and the original 77-byte
+KVM ACL restored exactly. These results do not establish native cleanup or
+Android delivery. The later missing guest archive is a secondary failure.
+
+The original 13-file artifact ZIP has SHA-256
+`0315a902b48c42034d98896f735b14486b0e2312f21a0e5afc7e0fbf7a2f07bf`;
+the original logs ZIP has SHA-256
+`18cb7e9a232cb31f2fe25bf0f1e4b711682b4fb6973075f22369c9c50763230d`.
+
+The follow-up retains the owner's stop reason, stage, expired budget categories
+and already-observed child statuses **before** cleanup. Failure schema 7 adds
+this closed observation to the existing failure file; success, delivery and
+join records remain schema 6. Neither historical nor new failure records can
+authorize acceptance. Missing diagnostic capture cannot replace the original
+failed result or prevent cleanup. No raw exception text, process identifiers,
+private paths or streams are exported.
+
+All 136 focused inert checks pass: 72 owner, 20 hosted-workflow, 17 VM-wiring,
+12 inner-diagnostic and 15 native-launcher tests. They cover deadline sources,
+early driver/tunnel exit, cancellation, I/O failure and pre-cleanup status
+retention. Execution limits, publication lifetimes, Weather source and cleanup
+ordering are unchanged. The failed run's cause and joined delivery still need
+an actual trial with this correction.
+
 #### Deterministic relay-cache test inputs
 
 [Quality `38641559561`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38641559561)
@@ -279,8 +322,8 @@ The failing checkout `2302f068` merges `ac2a7c7f` with main `7b728846`. Its
 `discovery.rs` blob is identical to the earlier successful `85978d55` Quality
 checkout. Original logs ZIP SHA-256:
 `02d7deaaed1ca9ac3a1c2ef04bf4d4df1a5b00e13d8a0c2c5d276de9869085e0`.
-The actual Android trial `38641552623` continues on original `ac2a7c7f`; this test
-correction neither restarts it nor establishes successful delivery.
+The actual Android trial `38641552623` failed on original `ac2a7c7f` as described
+above; this test correction does not change that result or establish delivery.
 
 ### Latest storage trial
 

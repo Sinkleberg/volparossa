@@ -47,7 +47,9 @@ data = json.loads((root / 'inert-roles.json').read_bytes())
 if role == 'driver':
     if mode == 'driver-exit': sys.exit(3)
     (root / 'driver-ready').touch()
-    while not (root / 'finalized').exists(): time.sleep(.01)
+    while not (root / 'finalized').exists():
+        if mode == 'driver-exit-native' and (root / 'native-started').exists(): sys.exit(7)
+        time.sleep(.01)
 elif role == 'read-ready':
     if not (root / 'driver-ready').exists(): sys.exit(1)
     if mode == 'cancel-ready': os.kill(os.getppid(), signal.SIGTERM); sys.exit(1)
@@ -69,10 +71,14 @@ elif role == 'tunnel':
         print(json.dumps(data['tunnel']), flush=True); sys.exit(0)
     signal.signal(signal.SIGTERM, finish)
     if mode == 'tunnel-exit': finish()
-    while True: time.sleep(.01)
+    while True:
+        if mode == 'tunnel-exit-native' and (root / 'native-started').exists(): finish()
+        time.sleep(.01)
 elif role == 'native':
     # This role never connects to the socket or creates an Android process.
     # Only coordinator ownership, ordering and failure propagation are tested.
+    (root / 'native-started').touch()
+    if mode in ('driver-exit-native', 'tunnel-exit-native'): time.sleep(30)
     if mode == 'native-fail': sys.exit(2)
     if mode.startswith('native-diagnostic'):
         if 'inner' in mode:
@@ -280,9 +286,10 @@ class AcceptanceTests(RecordFixture):
 
     def test_failure_diagnostic_is_never_join_or_acceptance_authority(self):
         path = self.output / O["FAILURE_NAME"]
-        save(path, dict(schema=6, kind="weather-android-owner-failure", joined_core_acceptance=False))
-        with self.assertRaises(ValueError): self.join()
-        with self.assertRaises(ValueError): self.accept()
+        for schema in (6, 7):
+            save(path, dict(schema=schema, kind="weather-android-owner-failure", joined_core_acceptance=False))
+            with self.assertRaises(ValueError): self.join()
+            with self.assertRaises(ValueError): self.accept()
         self.assertFalse((self.output / "weather-android-hosted-acceptance.json").exists())
         path.unlink(); path.symlink_to(self.output / "does-not-exist")
         with self.assertRaises(ValueError): self.join()
@@ -643,6 +650,82 @@ class ContractTests(RecordFixture):
             O["ready_record"](ready, self.config, historical=True)
 
 
+class StopObservationTests(unittest.TestCase):
+    def pool(self):
+        return SimpleNamespace(overflow=False, jobs=[dict(name=name, process=SimpleNamespace(returncode=status),
+            open=set(streams)) for name, status, streams in (("driver", None, ("stdout", "stderr")),
+                ("tunnel", 1, ("stderr",)), ("native", -signal.SIGTERM, ()))])
+
+    def test_native_budget_sources_are_distinct_and_ties_are_not_recomputed(self):
+        names = ("owner-reserve", "publication-reserve-monotonic", "native", "publication-reserve-wall")
+        for reached in ((name,) for name in names):
+            with self.subTest(reached=reached), patch.object(O["time"], "monotonic", return_value=100), \
+                    patch.object(O["time"], "time", return_value=200):
+                mono = tuple((name, 100 if name in reached else 101) for name in names[:3])
+                wall = ((names[3], 200 if names[3] in reached else 201),)
+                with self.assertRaises(O["Deadline"]) as caught: O["check_deadlines"](mono, wall)
+                self.assertEqual(caught.exception.budgets, reached)
+            # Cleanup may occur much later; the original branch facts stay frozen.
+            with patch.object(O["time"], "monotonic", side_effect=AssertionError("no later clock read")), \
+                    patch.object(O["time"], "time", side_effect=AssertionError("no later clock read")):
+                stop = O["owner_stop"](caught.exception, "native-wait", self.pool())
+            self.assertEqual(stop["budgets"], list(reached))
+        with patch.object(O["time"], "monotonic", return_value=100), patch.object(O["time"], "time", return_value=200):
+            with self.assertRaises(O["Deadline"]) as caught:
+                O["check_deadlines"](tuple((name, 100) for name in names[:3]), ((names[3], 200),))
+        self.assertEqual(caught.exception.budgets, names)
+
+    def test_wait_keeps_the_original_minimum_and_wall_deadline(self):
+        pool = SimpleNamespace(done=lambda _: False)
+        with patch.object(O["time"], "monotonic", return_value=100), patch.object(O["time"], "time", return_value=200):
+            with self.assertRaises(O["Deadline"]) as caught:
+                O["Children"].wait(pool, None, 100, deadline_scopes=(("owner", 101), ("read-ready", 100)))
+            self.assertEqual(caught.exception.budgets, ("read-ready",))
+            with self.assertRaises(O["Deadline"]) as caught:
+                O["Children"].wait(pool, None, 101, wall_deadline=200,
+                    deadline_scopes=(("owner", 102), ("finalize", 101)), wall_scope="publication-wall")
+            self.assertEqual(caught.exception.budgets, ("publication-wall",))
+            with self.assertRaises(ValueError):
+                O["Children"].wait(pool, None, 99, deadline_scopes=(("owner", 101),))
+            # A non-expired check neither sleeps nor renews any authorization.
+            self.assertIsNone(O["check_deadlines"]((("owner", 101),), (("publication-wall", 201),)))
+
+    def test_snapshot_is_copied_without_polling_and_preserves_negative_exit_status(self):
+        pool = self.pool()
+        stop = O["owner_stop"](O["Failure"]("tunnel-exited"), "native-wait", pool)
+        self.assertEqual(stop["children"]["driver"]["state"], "running")
+        self.assertEqual(stop["children"]["tunnel"], dict(state="exited", status=1, stdout_open=False, stderr_open=True))
+        self.assertEqual(stop["children"]["native"]["status"], -signal.SIGTERM)
+        pool.jobs[0]["process"].returncode = 255
+        pool.jobs[0]["open"].clear(); pool.overflow = True
+        self.assertEqual(stop["children"]["driver"], dict(state="running", status=None, stdout_open=True, stderr_open=True))
+        self.assertFalse(stop["output_overflow"])
+
+    def test_only_fixed_reasons_are_exported_without_exception_text(self):
+        cases = ((O["Failure"]("PRIVATE path/key/url"), "guard-rejected"),
+            (O["Failure"](["PRIVATE"]), "guard-rejected"), (OSError("PRIVATE"), "io-error"),
+            (subprocess.SubprocessError("PRIVATE"), "subprocess-error"), (ValueError("PRIVATE"), "guard-rejected"),
+            (O["Failure"]("output-limit"), "output-limit"))
+        for error, reason in cases:
+            stop = O["owner_stop"](error, "native-start", self.pool())
+            self.assertEqual(stop["reason"], reason)
+            self.assertNotIn("PRIVATE", json.dumps(stop))
+            self.assertEqual(stop["budgets"], [])
+        self.assertIsNone(O["validate_owner_stop"](None))
+
+    def test_closed_snapshot_rejects_unknown_fields_and_false_deadline_claims(self):
+        original = O["owner_stop"](O["Failure"]("interrupted"), "native-wait", self.pool())
+        changes = (lambda value: value.update(private="PRIVATE"), lambda value: value.update(stage="PRIVATE"),
+            lambda value: value.update(reason="PRIVATE"), lambda value: value.update(reason="deadline"),
+            lambda value: value.update(budgets=["native"]), lambda value: value.update(output_overflow=1),
+            lambda value: value["children"]["driver"].update(pid=1234),
+            lambda value: value["children"]["native"].update(status=True),
+            lambda value: value["children"]["native"].update(status=-256))
+        for change in changes:
+            value = copy.deepcopy(original); change(value)
+            with self.assertRaises(ValueError): O["validate_owner_stop"](value)
+
+
 class ChildTests(unittest.TestCase):
     def setUp(self):
         self.seams = patch.dict(G, TERM_SECONDS=0.15, KILL_SECONDS=1)
@@ -775,7 +858,7 @@ class CoordinatorTests(unittest.TestCase):
         self.assertFalse((self.output / O["FAILURE_NAME"]).exists())
         self.assertFalse((self.output / D["NAME"]).exists())
 
-    def test_kvm_access_loss_stops_before_driver_or_publication_and_preserves_failure_schema(self):
+    def test_kvm_access_loss_stops_before_driver_or_publication_with_versioned_failure(self):
         before = dict(KF["private_fixture"](), open_result="eperm")
         with patch.dict(K, snapshot=lambda: before): result = self.run_owner("normal")
         self.assertEqual(result["phase"], "driver")
@@ -789,7 +872,10 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(receipt["native"], dict(state="absent", record=None))
         failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
         self.assertNotIn("kvm", failure)
-        self.assertEqual(failure["schema"], 6)
+        self.assertEqual(failure["schema"], 7)
+        self.assertEqual(failure["owner_stop"]["reason"], "guard-rejected")
+        self.assertEqual(failure["owner_stop"]["stage"], "driver")
+        self.assertTrue(all(child["state"] == "not-started" for child in failure["owner_stop"]["children"].values()))
 
     def test_group_grant_loss_is_explicit_and_stops_before_driver(self):
         acl = KF["acl_fixture"](); acl["named_group_write"] = False
@@ -830,12 +916,16 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(failure["native_diagnostic"], dict(state="absent", record=None))
         self.assertEqual(failure["statuses"]["native"], 2)
         self.assertEqual(failure["owner_cleanup"], result["cleanup"])
+        stop = failure["owner_stop"]
+        self.assertEqual((stop["reason"], stop["stage"], stop["budgets"]), ("native-exited", "native-result", []))
+        self.assertEqual(stop["children"]["native"], dict(state="exited", status=2, stdout_open=False, stderr_open=False))
+        self.assertEqual(stop["children"]["driver"]["state"], "running")
 
     def test_early_native_guard_code_is_visible_after_owned_cleanup_without_live_files(self):
         result = self.run_owner("native-diagnostic-early")
         self.assertFalse(result["success"])
         path = self.output / O["FAILURE_NAME"]; raw = path.read_bytes(); failure = json.loads(raw)
-        self.assertEqual(set(failure), {"schema", "kind", "identity", "phase", "statuses", "owner_cleanup",
+        self.assertEqual(set(failure), {"schema", "kind", "identity", "phase", "statuses", "owner_cleanup", "owner_stop",
             "native_diagnostic", "weather_records", "diagnostic_only", "success", "joined_core_acceptance",
             "vm_cleanup_pending", "expiry_proven", "physical_device", "production_authority"})
         self.assertEqual(failure["identity"], IDENTITY)
@@ -855,7 +945,7 @@ class CoordinatorTests(unittest.TestCase):
         inner = D["validate_receipt"](json.loads((self.output / D["NAME"]).read_bytes()))
         self.assertEqual(inner["records"], dict.fromkeys(D["INPUTS"], dict(state="absent", facts=None)))
 
-    def test_inner_failure_receipt_is_written_after_children_join_and_preserves_schema_six(self):
+    def test_inner_failure_receipt_is_written_after_children_join_and_preserves_original_run_schema_six(self):
         originals = dict(emulator=DF["emulator_fixture"](), guest_network=DF["network_fixture"]())
         mutate(self.root / "inert-roles.json", lambda value: value.update(inner_records=originals,
             inner_paths={name: str(self.weather / relative) for name, relative in D["INPUTS"].items()}))
@@ -871,7 +961,8 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(receipt["records"], {name: dict(state="available", facts=value)
             for name, value in originals.items()})
         failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
-        self.assertEqual(failure["schema"], 6)
+        self.assertEqual(failure["schema"], 7)
+        self.assertEqual(result["schema"], 6)
         self.assertNotIn("inner", failure)
         self.assertNotIn("PRIVATE", json.dumps(receipt))
         self.assertFalse((self.root / "finalized").exists())
@@ -945,12 +1036,72 @@ class CoordinatorTests(unittest.TestCase):
         self.assertFalse(result["success"]); self.assertEqual(result["phase"], "native")
         self.assertTrue(result["cleanup"]["children_joined"])
         self.assertFalse((self.root / "finalized").exists())
+        self.assertIsNone(result["statuses"]["native"])
+        failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
+        stop = failure["owner_stop"]
+        self.assertEqual((stop["reason"], stop["stage"], stop["budgets"]), ("deadline", "native-wait", ["native"]))
+        self.assertEqual(stop["children"]["native"]["state"], "running")
+        self.assertIsNone(stop["children"]["native"]["status"])
+        self.assertEqual(failure["statuses"]["native"], -signal.SIGTERM)
 
     def test_driver_exit_cannot_be_mistaken_for_ready(self):
         result = self.run_owner("driver-exit")
         self.assertFalse(result["success"]); self.assertEqual(result["phase"], "read-ready")
         self.assertIsNone(result["statuses"]["native"])
         self.assertFalse((self.root / "finalized").exists())
+
+    def test_driver_exit_during_native_is_frozen_before_cleanup_changes_other_statuses(self):
+        result = self.run_owner("driver-exit-native")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["phase"], "native")
+        self.assertIsNone(result["statuses"]["native"])
+        failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
+        stop = failure["owner_stop"]
+        self.assertEqual((stop["reason"], stop["stage"], stop["budgets"]), ("driver-exited", "native-wait", []))
+        self.assertEqual(stop["children"]["driver"]["status"], 7)
+        self.assertEqual(stop["children"]["native"]["state"], "running")
+        self.assertEqual(failure["statuses"]["native"], -signal.SIGTERM)
+        self.assertTrue(result["cleanup"]["children_joined"])
+        self.assertFalse((self.root / "finalized").exists())
+
+    def test_early_clean_tunnel_exit_still_aborts_and_is_not_inferred_from_cleanup(self):
+        result = self.run_owner("tunnel-exit-native")
+        self.assertFalse(result["success"])
+        failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
+        stop = failure["owner_stop"]
+        self.assertEqual((stop["reason"], stop["stage"]), ("tunnel-exited", "native-wait"))
+        self.assertEqual(stop["children"]["tunnel"]["status"], 0)
+        self.assertEqual(stop["children"]["native"]["state"], "running")
+        self.assertTrue(result["cleanup"]["children_joined"])
+        self.assertFalse((self.root / "finalized").exists())
+
+    def test_pipe_io_error_is_distinct_and_never_exports_private_error_text(self):
+        original = O["Children"].pump
+        def pump(pool, timeout=0.05, *, cleanup=False):
+            if not cleanup and any(job["name"] == "native" for job in pool.jobs):
+                raise OSError("PRIVATE https://secret.invalid/key")
+            return original(pool, timeout, cleanup=cleanup)
+        with patch.object(O["Children"], "pump", pump): result = self.run_owner("native-deadline")
+        self.assertFalse(result["success"])
+        raw = (self.output / O["FAILURE_NAME"]).read_bytes(); failure = json.loads(raw)
+        self.assertEqual(failure["owner_stop"]["reason"], "io-error")
+        self.assertEqual(failure["owner_stop"]["stage"], "native-wait")
+        self.assertTrue(result["cleanup"]["children_joined"])
+        self.assertNotIn(b"PRIVATE", raw); self.assertNotIn(b"secret.invalid", raw)
+
+    def test_optional_stop_capture_failure_keeps_original_failure_and_cleanup(self):
+        with patch.dict(G, owner_stop=lambda *_: (_ for _ in ()).throw(ValueError("PRIVATE capture error"))):
+            result = self.run_owner("native-fail")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["schema"], 6)
+        self.assertEqual(result["statuses"]["native"], 2)
+        self.assertTrue(result["cleanup"]["children_joined"] and result["cleanup"]["socket_removed"])
+        raw = (self.output / O["FAILURE_NAME"]).read_bytes(); failure = json.loads(raw)
+        self.assertIsNone(failure["owner_stop"])
+        self.assertEqual(failure["statuses"]["native"], 2)
+        self.assertTrue((self.output / K["NAME"]).is_file())
+        self.assertTrue((self.output / D["NAME"]).is_file())
+        self.assertNotIn(b"PRIVATE", raw)
 
     def test_finalization_failure_keeps_guest_cleanup_pending(self):
         result = self.run_owner("finalize-fail")
@@ -969,7 +1120,7 @@ class CoordinatorTests(unittest.TestCase):
         self.assertFalse((self.root / "finalized").exists())
 
     def test_cancel_after_tunnel_and_native_spawn_joins_without_finalize(self):
-        def interrupt(*_): raise O["Failure"]("inert cancellation")
+        def interrupt(*_): raise O["Failure"]("interrupted")
         prior = signal.signal(signal.SIGTERM, interrupt)
         try: result = self.run_owner("cancel-native")
         finally: signal.signal(signal.SIGTERM, prior)
@@ -979,6 +1130,10 @@ class CoordinatorTests(unittest.TestCase):
         failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
         self.assertEqual(failure["phase"], "native")
         self.assertEqual(failure["statuses"]["native"], -signal.SIGTERM)
+        self.assertEqual(failure["owner_stop"]["reason"], "interrupted")
+        self.assertEqual(failure["owner_stop"]["stage"], "native-wait")
+        self.assertEqual(failure["owner_stop"]["budgets"], [])
+        self.assertIsNone(failure["owner_stop"]["children"]["native"]["status"])
         self.assertEqual(failure["native_diagnostic"], dict(state="absent", record=None))
         self.assertTrue(failure["owner_cleanup"]["children_joined"] and failure["diagnostic_only"])
         self.assertFalse(any(failure[key] for key in ("success", "joined_core_acceptance", "expiry_proven",

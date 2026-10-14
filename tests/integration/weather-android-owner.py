@@ -51,9 +51,78 @@ NATIVE_RECORDS = {
     "failure": "build/hosted-android-live-ci/failure.json",
     "emulator_cleanup": "build/overmorrow-hosted-android-live-proof/emulator-cleanup.json",
 }
+STOP_REASONS = frozenset(("deadline", "driver-exited", "tunnel-exited", "native-exited", "output-limit",
+    "interrupted", "io-error", "guard-rejected", "subprocess-error"))
+STOP_STAGES = frozenset(("driver", "read-ready", "tunnel", "native-start", "native-wait", "native-result",
+    "tunnel-join", "finalize", "driver-join", "complete"))
+STOP_BUDGETS = frozenset(("wait", "wall", "owner", "owner-reserve", "read-ready", "socket-ready", "native",
+    "tunnel", "tunnel-join", "finalize", "publication-reserve-monotonic", "publication-reserve-wall",
+    "publication-join-monotonic", "publication-join-wall", "publication-monotonic", "publication-wall",
+    "publication-grace-monotonic", "publication-grace-wall"))
 
 
 class Failure(ValueError): pass
+
+
+class Deadline(Failure):
+    def __init__(self, budgets):
+        super().__init__("deadline")
+        self.budgets = tuple(budgets)
+
+
+def check_deadlines(monotonic, wall=()):
+    """Record the actual expired limits at the original decision, not at cleanup."""
+    now, utc = time.monotonic(), time.time()
+    expired = [name for name, deadline in monotonic if now >= deadline]
+    expired.extend(name for name, deadline in wall if utc >= deadline)
+    if expired: raise Deadline(expired)
+
+
+def validate_owner_stop(value):
+    if value is None: return None  # No retained pre-cleanup observation; not evidence of a clean run.
+    exact(value, ("reason", "stage", "budgets", "children", "output_overflow"))
+    require(type(value["reason"]) is str and value["reason"] in STOP_REASONS
+        and type(value["stage"]) is str and value["stage"] in STOP_STAGES)
+    budgets = value["budgets"]
+    require(type(budgets) is list and len(budgets) <= 4
+        and all(type(name) is str and name in STOP_BUDGETS for name in budgets)
+        and len(set(budgets)) == len(budgets) and bool(budgets) == (value["reason"] == "deadline"))
+    exact(value["children"], ("driver", "tunnel", "native"))
+    for child in value["children"].values():
+        exact(child, ("state", "status", "stdout_open", "stderr_open"))
+        require(type(child["state"]) is str and child["state"] in ("not-started", "running", "exited"))
+        if child["state"] == "exited": E["integer"](child["status"], -255, 255)
+        else: same(child["status"], None)
+        require(type(child["stdout_open"]) is bool and type(child["stderr_open"]) is bool)
+        if child["state"] == "not-started": require(not child["stdout_open"] and not child["stderr_open"])
+    require(type(value["output_overflow"]) is bool)
+    return value
+
+
+def owner_stop(error, stage, pool):
+    """Freeze only observations already made by the owner, before it sends TERM.
+
+    Do not poll here: a child may exit between the failed check and cleanup.
+    Cached return codes and pipe states describe that observed boundary, not a
+    claim that every process was alive at precisely the same instant.
+    """
+    reason, budgets = "guard-rejected", []
+    if isinstance(error, Deadline): reason, budgets = "deadline", list(error.budgets)
+    elif isinstance(error, Failure) and error.args and type(error.args[0]) is str \
+            and error.args[0] in STOP_REASONS - {"deadline"}:
+        reason = error.args[0]
+    elif isinstance(error, OSError): reason = "io-error"
+    elif isinstance(error, subprocess.SubprocessError): reason = "subprocess-error"
+    jobs = {job["name"]: job for job in pool.jobs if job["name"] in ("driver", "tunnel", "native")}
+    children = {}
+    for name in ("driver", "tunnel", "native"):
+        job = jobs.get(name); process = job["process"] if job is not None else None
+        status = process.returncode if process is not None else None
+        children[name] = dict(state="not-started" if process is None else "running" if status is None else "exited",
+            status=status, stdout_open=job is not None and "stdout" in job["open"],
+            stderr_open=job is not None and "stderr" in job["open"])
+    return validate_owner_stop(dict(reason=reason, stage=stage, budgets=budgets, children=children,
+        output_overflow=pool.overflow))
 
 
 def canonical(path, *, directory=False, mode=None):
@@ -262,10 +331,11 @@ class Children:
             try: os.killpg(process.pid, sig)
             except ProcessLookupError: pass
 
-    def wait(self, job, deadline, driver=None, wall_deadline=None):
+    def wait(self, job, deadline, driver=None, wall_deadline=None, *, deadline_scopes=None, wall_scope="wall"):
+        scopes = (("wait", deadline),) if deadline_scopes is None else deadline_scopes
+        same(min(limit for _, limit in scopes), deadline)
         while not self.done(job):
-            if time.monotonic() >= deadline or (wall_deadline is not None and time.time() >= wall_deadline):
-                raise Failure("deadline")
+            check_deadlines(scopes, () if wall_deadline is None else ((wall_scope, wall_deadline),))
             self.pump()
             if driver is not None and driver["process"].returncode is not None: raise Failure("driver-exited")
         return job["process"].returncode
@@ -440,15 +510,16 @@ def native_originals(weather, preexisting):
     return records
 
 
-def export_failure(value, result, pool, preexisting):
+def export_failure(value, result, pool, preexisting, stop):
     # Called only after the owner has attempted to join every owned child.
     # Outer cleanup and Weather's original cleanup are distinct observations.
     same(result["success"], False)
     jobs = {job["name"]: job for job in pool.jobs if job["name"] in result["statuses"]}
     statuses = {name: job["process"].returncode if (job := jobs.get(name)) is not None
         and job["process"] is not None else None for name in result["statuses"]}
-    failure = dict(schema=6, kind="weather-android-owner-failure", identity=result["identity"],
+    failure = dict(schema=7, kind="weather-android-owner-failure", identity=result["identity"],
         phase=result["phase"], statuses=statuses, owner_cleanup=result["cleanup"],
+        owner_stop=validate_owner_stop(stop),
         native_diagnostic=native_diagnostic(jobs.get("native")),
         weather_records=native_originals(Path(value["weather_root"]), preexisting),
         diagnostic_only=True, success=False, joined_core_acceptance=False, vm_cleanup_pending=True,
@@ -513,21 +584,24 @@ def run(value):
     pool = Children(); env = environment(); phase, success, ready = "driver", False, None
     netns = os.readlink("/proc/self/ns/net"); outer = time.monotonic() + DRIVER_SECONDS
     statuses = dict(driver=None, tunnel=None, native=None)
+    stage, stop = "driver", None
     try:
         require(K["usable"](kvm_before) and K["group_usable"](acl_before) and baseline_state == "available")
         require(all(K["project"](kvm_before, initial["snapshot"])[key] is True for key in K["COMPARISONS"]))
         driver = pool.start(command(value, "driver"), "driver", env, CORE, 4 * 1024**2)
-        phase = "read-ready"
+        phase = stage = "read-ready"
         while ready is None:
-            require(len(pool.jobs) < 1202 and time.monotonic() < outer)
+            require(len(pool.jobs) < 1202)
+            check_deadlines((("owner", outer),))
             probe = pool.start(command(value, "controller", "read-ready"), "controller", env, CORE, 16384)
-            status = pool.wait(probe, min(outer, time.monotonic() + 12), driver)
+            ready_deadlines = (("owner", outer), ("read-ready", time.monotonic() + 12))
+            status = pool.wait(probe, min(limit for _, limit in ready_deadlines), driver, deadline_scopes=ready_deadlines)
             if status == 0:
                 ready = E["decode"](bytes(probe["data"]["stdout"]), 16384); ready_record(ready, value)
                 break
             # Failed readiness probes carry no evidence; retain no remote text.
             for raw in probe["data"].values(): raw.clear()
-            if time.monotonic() >= outer: raise Failure("deadline")
+            check_deadlines((("owner", outer),))
             until = min(outer, time.monotonic() + 2)
             while time.monotonic() < until:
                 pool.pump()
@@ -535,51 +609,68 @@ def run(value):
         write(private / "ready.json", ready)
         absolute = ready["deadline_unix_seconds"]
         publication_deadline = time.monotonic() + absolute - time.time()
-        phase = "tunnel"
+        phase = stage = "tunnel"
         tunnel_started = time.monotonic()
         tunnel = pool.start(command(value, "tunnel"), "tunnel", env, CORE)
         socket = socket_parent / "core-api.sock"
-        until = min(outer, publication_deadline - 90, time.monotonic() + 5)
+        socket_deadlines = (("owner", outer), ("publication-reserve-monotonic", publication_deadline - 90),
+            ("socket-ready", time.monotonic() + 5))
         while not socket.exists():
-            if time.monotonic() >= until: raise Failure("deadline")
+            check_deadlines(socket_deadlines)
             pool.pump()
             if driver["process"].returncode is not None: raise Failure("driver-exited")
             if tunnel["process"].returncode is not None: raise Failure("tunnel-exited")
         info = T["owned"](socket, stat.S_ISSOCK, 0o600); socket_identity = info.st_dev, info.st_ino
         require(list(socket_parent.iterdir()) == [socket])
         phase = "native"
+        stage = "native-start"
         native = pool.start(command(value, "native"), "native", env, weather, 2 * 1024**2)
-        deadline = min(outer - 60, publication_deadline - 90, tunnel_started + NATIVE_SECONDS)
+        stage = "native-wait"
+        native_deadlines = (("owner-reserve", outer - 60), ("publication-reserve-monotonic", publication_deadline - 90),
+            ("native", tunnel_started + NATIVE_SECONDS))
         while not pool.done(native):
-            if time.monotonic() >= deadline or time.time() >= absolute - 90: raise Failure("deadline")
+            check_deadlines(native_deadlines, (("publication-reserve-wall", absolute - 90),))
             pool.pump()
             if driver["process"].returncode is not None: raise Failure("driver-exited")
             if tunnel["process"].returncode is not None: raise Failure("tunnel-exited")
-        statuses["native"] = native["process"].returncode; same(statuses["native"], 0)
+        stage = "native-result"
+        statuses["native"] = native["process"].returncode
+        if statuses["native"] != 0: raise Failure("native-exited")
         native_result(document(weather / "build/hosted-android-live-ci/result.json"))
         require(T["same_socket"](socket, socket_identity))
-        phase = "tunnel-join"
+        phase = stage = "tunnel-join"
         pool.signal(tunnel, signal.SIGTERM)
-        statuses["tunnel"] = pool.wait(tunnel, min(publication_deadline - 60, tunnel_started + TUNNEL_SECONDS,
-            time.monotonic() + 10), driver, absolute - 60)
+        tunnel_deadlines = (("publication-join-monotonic", publication_deadline - 60),
+            ("tunnel", tunnel_started + TUNNEL_SECONDS), ("tunnel-join", time.monotonic() + 10))
+        statuses["tunnel"] = pool.wait(tunnel, min(limit for _, limit in tunnel_deadlines), driver, absolute - 60,
+            deadline_scopes=tunnel_deadlines, wall_scope="publication-join-wall")
         same(statuses["tunnel"], 0)
         tunnel_value = E["decode"](bytes(tunnel["data"]["stdout"]), 65536); tunnel_record(tunnel_value)
         require(not socket.exists() and not list(socket_parent.iterdir()))
         write(private / "tunnel.json", tunnel_value)
-        phase = "finalize"
-        require(time.time() < absolute and time.monotonic() < publication_deadline)
+        phase = stage = "finalize"
+        check_deadlines((("publication-monotonic", publication_deadline),), (("publication-wall", absolute),))
         request = pool.start(command(value, "controller", "finalize"), "controller", env, CORE, 16384)
-        same(pool.wait(request, min(publication_deadline, time.monotonic() + 12), wall_deadline=absolute), 0)
+        finalize_deadlines = (("publication-monotonic", publication_deadline), ("finalize", time.monotonic() + 12))
+        same(pool.wait(request, min(limit for _, limit in finalize_deadlines), wall_deadline=absolute,
+            deadline_scopes=finalize_deadlines, wall_scope="publication-wall"), 0)
         finalized = E["decode"](bytes(request["data"]["stdout"]), 16384)
         same(finalized, dict(schema=6, kind="weather-android-finalize-requested", prepared_sha256=ready["prepared_sha256"],
             finalize_requested=True, joined_delivery_proven=False))
         write(private / "finalize.json", finalized)
-        phase = "driver-join"
-        statuses["driver"] = pool.wait(driver, min(outer, publication_deadline + 60), wall_deadline=absolute + 60)
+        phase = stage = "driver-join"
+        driver_deadlines = (("owner", outer), ("publication-grace-monotonic", publication_deadline + 60))
+        statuses["driver"] = pool.wait(driver, min(limit for _, limit in driver_deadlines), wall_deadline=absolute + 60,
+            deadline_scopes=driver_deadlines, wall_scope="publication-grace-wall")
         same(statuses["driver"], 0)
-        phase, success = "complete", True
-    except (Failure, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        phase, stage, success = "complete", "complete", True
+    except (Failure, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         success = False
+        try: stop = owner_stop(error, stage, pool)
+        except (OSError, ValueError, KeyError, TypeError, RecursionError):
+            # Losing optional diagnostics must neither mask the original
+            # failure nor prevent cleanup and the original failed result.
+            stop = None
     finally:
         cleanup = pool.close()
     socket_absent = not (socket_parent / "core-api.sock").exists() and not list(socket_parent.iterdir())
@@ -589,7 +680,7 @@ def run(value):
         success=success, phase=phase, statuses=statuses, cleanup=dict(**cleanup, socket_removed=socket_absent,
         host_netns_unchanged=unchanged), helper_requests=0, joined_core_acceptance=False, vm_cleanup_pending=True)
     write(private / "result.json", result)
-    if not success: export_failure(value, result, pool, preexisting)
+    if not success: export_failure(value, result, pool, preexisting, stop)
     native_job = next((job for job in pool.jobs if job["name"] == "native"), None)
     observed = native_kvm(native_job, result["identity"])
     write(Path(value["output_directory"]) / K["NAME"], K["continuity_receipt"](result["identity"], kvm_before,
