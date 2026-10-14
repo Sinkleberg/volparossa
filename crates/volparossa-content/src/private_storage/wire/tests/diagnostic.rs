@@ -123,7 +123,7 @@ async fn lost_receipt_after_committed_finalize_keeps_wire_error_and_custody() {
     let signed = fixture.request(&challenge, owned, StorageOperation::Finalize);
     // The real challenge has arrived. Only the later server receipt write now fails.
     fail.store(true, Ordering::SeqCst);
-    let bridge_trace = super::bridge_observation::Trace::default();
+    let bridge_trace = bridge_observation::Trace::default();
     assert!(matches!(
         finish_observed(
             &mut client,

@@ -588,16 +588,20 @@ async fn exchange(
         local,
         id,
         "CONTENT_OK",
-        Payload::Content(ContentReceipt {
-            bytes: transfer.ciphertext_bytes,
-            peer_bytes: transfer.ciphertext_bytes,
-            providers_used: 1,
-            provider_peer_ids: vec![request.peer.to_string()],
-            control_relay_peer_id: control.to_string(),
-            ..ContentReceipt::default()
-        }),
+        Payload::Content(route_receipt(transfer.ciphertext_bytes, request.peer, control)),
     )
     .await
+}
+
+fn route_receipt(bytes: u64, provider: PeerId, control: PeerId) -> ContentReceipt {
+    ContentReceipt {
+        bytes,
+        peer_bytes: bytes,
+        providers_used: 1,
+        provider_peer_ids: vec![provider.to_string()],
+        control_relay_peer_id: control.to_string(),
+        ..ContentReceipt::default()
+    }
 }
 
 async fn send_ready<W: AsyncWrite + Unpin>(

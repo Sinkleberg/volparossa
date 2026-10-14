@@ -1,5 +1,22 @@
 use super::*;
 
+#[test]
+fn terminal_route_receipt_retains_exact_fields_and_no_custody_claim() {
+    let provider = PeerId::random();
+    let control = PeerId::random();
+    assert_eq!(
+        route_receipt(37, provider, control),
+        ContentReceipt {
+            bytes: 37,
+            peer_bytes: 37,
+            providers_used: 1,
+            provider_peer_ids: vec![provider.to_string()],
+            control_relay_peer_id: control.to_string(),
+            ..ContentReceipt::default()
+        }
+    );
+}
+
 #[tokio::test]
 async fn outcome_query_uses_actual_unix_peer_uid_and_consumes_only_its_request() {
     let runtime = ContentRuntime::new(&volparossa_identity::Identity::generate()).unwrap();
