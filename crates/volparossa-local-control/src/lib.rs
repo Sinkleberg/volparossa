@@ -39,6 +39,7 @@ pub use private_storage::{
 };
 pub use private_storage_detail::{
     PrivateStorageDeadlineScope, PrivateStorageRemoteDetail, PrivateStorageRemoteStage,
+    PrivateStorageTlsFailure,
 };
 
 use prost::Message;

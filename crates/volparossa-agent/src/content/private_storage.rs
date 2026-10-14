@@ -492,9 +492,12 @@ async fn exchange(
     .await?;
     let mut remote = observation
         .requester_boundary(Stage::TlsHandshake, local, async {
-            tls::connect(flow.stream_mut(), request.peer, &provider.offer)
+            tls::connect_observed(flow.stream_mut(), request.peer, &provider.offer)
                 .await
-                .map_err(|_| ContentError::Unavailable)
+                .map_err(|(_, failure)| {
+                    observation.record_tls_failure(failure);
+                    ContentError::Unavailable
+                })
         })
         .await?;
     let challenge = observation

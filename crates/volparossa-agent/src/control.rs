@@ -1153,6 +1153,7 @@ mod tests {
         let detail = Some(PrivateStorageRemoteDetail {
             stage: PrivateStorageRemoteStage::Challenge as i32,
             deadline_scope: PrivateStorageDeadlineScope::Exchange as i32,
+            tls_failure: None,
         });
         assert!(matches!(
             stream_error_response(vec![1; 16], ContentError::Unavailable, true, detail),

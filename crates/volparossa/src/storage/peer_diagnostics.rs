@@ -10,7 +10,7 @@ use volparossa_content::private_storage::{
 };
 use volparossa_local_control::{
     ControlResult, PrivateStorageDeadlineScope, PrivateStorageRemoteDetail,
-    PrivateStorageRemoteStage,
+    PrivateStorageRemoteStage, PrivateStorageTlsFailure,
 };
 
 const MAX_FAILURES: usize = 8;
@@ -145,6 +145,31 @@ struct OriginalFailure {
 struct AgentDetail {
     stage: PrivateStorageRemoteStage,
     deadline_scope: PrivateStorageDeadlineScope,
+    #[serde(deserialize_with = "Option::deserialize")]
+    tls_failure: Option<PrivateStorageTlsFailure>,
+}
+
+/// The exact v2 DTO: adding a TLS field never changes historical acceptance.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct OriginalAgentDetail {
+    stage: PrivateStorageRemoteStage,
+    deadline_scope: PrivateStorageDeadlineScope,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct OriginalDetailedFailure {
+    #[serde(deserialize_with = "Option::deserialize")]
+    fragment_index: Option<usize>,
+    copy_index: usize,
+    operation: Operation,
+    stage: Stage,
+    category: Category,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_code: Option<AgentCode>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_detail: Option<OriginalAgentDetail>,
 }
 
 impl AgentDetail {
@@ -153,6 +178,11 @@ impl AgentDetail {
         Some(Self {
             stage: PrivateStorageRemoteStage::try_from(detail.stage).ok()?,
             deadline_scope: PrivateStorageDeadlineScope::try_from(detail.deadline_scope).ok()?,
+            tls_failure: detail
+                .tls_failure
+                .map(PrivateStorageTlsFailure::try_from)
+                .transpose()
+                .ok()?,
         })
     }
 
@@ -167,6 +197,7 @@ impl AgentDetail {
         PrivateStorageRemoteDetail {
             stage: self.stage as i32,
             deadline_scope: self.deadline_scope as i32,
+            tls_failure: self.tls_failure.map(|failure| failure as i32),
         }
         .validate_rejection(result, code)
         .is_ok()
@@ -183,7 +214,7 @@ pub(super) struct Diagnostics {
 impl Default for Diagnostics {
     fn default() -> Self {
         Self {
-            version: 2,
+            version: 3,
             failures: Vec::new(),
             omitted_failures: 0,
         }
@@ -208,6 +239,27 @@ impl Serialize for Diagnostics {
                 })
                 .collect();
             value.serialize_field("failures", &original)?;
+        } else if self.version == 2 {
+            let original: Vec<_> = self
+                .failures
+                .iter()
+                .map(|failure| OriginalDetailedFailure {
+                    fragment_index: failure.fragment_index,
+                    copy_index: failure.copy_index,
+                    operation: failure.operation,
+                    stage: failure.stage,
+                    category: failure.category,
+                    agent_code: failure.agent_code,
+                    agent_detail: failure
+                        .agent_detail
+                        .as_ref()
+                        .map(|detail| OriginalAgentDetail {
+                            stage: detail.stage,
+                            deadline_scope: detail.deadline_scope,
+                        }),
+                })
+                .collect();
+            value.serialize_field("failures", &original)?;
         } else {
             value.serialize_field("failures", &self.failures)?;
         }
@@ -226,7 +278,7 @@ impl<'de> Deserialize<'de> for Diagnostics {
             omitted_failures: usize,
         }
         let wire = Wire::deserialize(deserializer)?;
-        if !matches!(wire.version, 1 | 2) || wire.failures.len() > MAX_FAILURES {
+        if !matches!(wire.version, 1..=3) || wire.failures.len() > MAX_FAILURES {
             return Err(serde::de::Error::custom(
                 "diagnostic version or failure bound",
             ));
@@ -245,6 +297,21 @@ impl<'de> Deserialize<'de> for Diagnostics {
                         category: old.category,
                         agent_code: old.agent_code,
                         agent_detail: None,
+                    }
+                } else if wire.version == 2 {
+                    let original: OriginalDetailedFailure = serde_json::from_value(value)?;
+                    Failure {
+                        fragment_index: original.fragment_index,
+                        copy_index: original.copy_index,
+                        operation: original.operation,
+                        stage: original.stage,
+                        category: original.category,
+                        agent_code: original.agent_code,
+                        agent_detail: original.agent_detail.map(|detail| AgentDetail {
+                            stage: detail.stage,
+                            deadline_scope: detail.deadline_scope,
+                            tls_failure: None,
+                        }),
                     }
                 } else {
                     serde_json::from_value::<Failure>(value)?

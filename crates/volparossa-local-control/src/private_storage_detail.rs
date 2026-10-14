@@ -43,6 +43,27 @@ pub enum PrivateStorageDeadlineScope {
     Exchange = 2,
 }
 
+/// Request-local TLS failure class, never a diagnosis of the remote provider.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, prost::Enumeration, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[repr(i32)]
+pub enum PrivateStorageTlsFailure {
+    /// Reserved; an absent observation must be encoded as no optional field.
+    Unobserved = 0,
+    /// The existing offer identity, hostname or lifetime check failed.
+    Offer = 1,
+    /// The existing local TLS configuration could not be constructed.
+    Configuration = 2,
+    /// The existing local ten-second handshake timeout actually elapsed.
+    HandshakeDeadline = 3,
+    /// A typed TLS certificate error was returned, possibly by the outer stream.
+    Authentication = 4,
+    /// Another typed TLS error or the existing ALPN/version check failed.
+    TlsOther = 5,
+    /// Another I/O error was returned, not proof of a local handshake deadline.
+    Io = 6,
+}
+
 /// Optional bounded detail on a failed initial private-storage control response.
 /// Old peers ignore this additive field and still receive the same result/code/Ack.
 #[derive(Clone, Copy, PartialEq, Eq, Message)]
@@ -53,6 +74,9 @@ pub struct PrivateStorageRemoteDetail {
     /// Closed enclosing timeout observation.
     #[prost(enumeration = "PrivateStorageDeadlineScope", tag = "2")]
     pub deadline_scope: i32,
+    /// Optional returned TLS failure; no payload, identity, address or error text.
+    #[prost(enumeration = "PrivateStorageTlsFailure", optional, tag = "3")]
+    pub tls_failure: Option<i32>,
 }
 
 impl PrivateStorageRemoteDetail {
@@ -80,6 +104,18 @@ impl PrivateStorageRemoteDetail {
                 "private storage detail combination",
             ));
         }
+        if let Some(failure) = self.tls_failure {
+            let failure = PrivateStorageTlsFailure::try_from(failure)
+                .map_err(|_| ControlProtocolError::Invalid("private storage TLS failure"))?;
+            if failure == PrivateStorageTlsFailure::Unobserved
+                || stage != PrivateStorageRemoteStage::TlsHandshake
+                || deadline != PrivateStorageDeadlineScope::None
+            {
+                return Err(ControlProtocolError::Invalid(
+                    "private storage TLS combination",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -101,7 +137,8 @@ impl PrivateStorageRemoteDetail {
             _ => return Err(ControlProtocolError::Invalid("private storage detail code")),
         };
         if result != expected
-            || (self.deadline_scope != PrivateStorageDeadlineScope::None as i32
+            || ((self.deadline_scope != PrivateStorageDeadlineScope::None as i32
+                || self.tls_failure.is_some())
                 && result != ControlResult::Unavailable)
         {
             return Err(ControlProtocolError::Invalid(

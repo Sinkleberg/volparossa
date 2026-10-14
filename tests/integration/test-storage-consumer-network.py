@@ -31,10 +31,10 @@ def interfaces(capture, names):
         capture['interface_statistics'][name] = item
 
 
-def fixture():
-    value = F['fixture'](profile_version=3)
+def fixture(profile_version=3):
+    value = F['fixture'](profile_version=profile_version)
     underlay = U['fixture']()[1]
-    value.update(schema_version=3, control_underlay=underlay)
+    value.update(schema_version=profile_version, control_underlay=underlay)
     peers = value['expected_peers']
     for name, phase in value['network'].items():
         phase.update(layout=M['layout'](underlay, peers), control_before=copy.deepcopy(underlay['after']),
@@ -90,6 +90,22 @@ class ConsumerNetwork(unittest.TestCase):
             old['schema_version'] = 3
             with self.assertRaises((ValueError, KeyError)): M['OLD']['validate_evidence'](old)
 
+    def test_tls_source_profile_has_its_own_schema_without_relaxing_network_or_app_gates(self):
+        value = fixture(4)
+        M['OLD']['validate_evidence'](value)
+        for version in (1, 2, 3):
+            changed = copy.deepcopy(value); changed['schema_version'] = version
+            with self.assertRaises((ValueError, KeyError)): M['OLD']['validate_evidence'](changed)
+        changed = fixture(); changed['schema_version'] = 4
+        with self.assertRaises(ValueError): M['OLD']['validate_evidence'](changed)
+        for mutate in (lambda v: v['publish'].update(node_joined=False),
+                lambda v: v['deleted_usage'][0].update(committed_bytes=1),
+                lambda v: v['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+                lambda v: v['network']['exercise']['gates']['observed_context_routes'].pop(),
+                lambda v: v['network']['finish']['control_after']['nodes']['relay0']['links'].pop()):
+            changed = copy.deepcopy(value); mutate(changed)
+            with self.assertRaises(ValueError): M['OLD']['validate_evidence'](changed)
+
     def test_every_begin_end_kernel_readback_and_original_binding_is_required(self):
         original = fixture()
         for name in M['PHASES']:
@@ -137,7 +153,13 @@ class ConsumerNetwork(unittest.TestCase):
             with self.assertRaises(ValueError): M['OLD']['validate_evidence'](value)
 
     def test_actual_builder_cli_and_exact_export_names(self):
-        value = fixture()
+        self.assert_builder(3)
+
+    def test_tls_builder_cli_requires_its_original_profile_and_keeps_all_network_checks(self):
+        self.assert_builder(4)
+
+    def assert_builder(self, profile_version):
+        value = fixture(profile_version)
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
             # Historical helper serializes common receipts; new profile files
@@ -159,7 +181,7 @@ class ConsumerNetwork(unittest.TestCase):
             U['save'](work, 'private-storage-fragments-isolation.json', M['canonical'](value['isolation']))
             U['save'](work, 'storage-consumer-isolation.json', M['canonical'](value['consumer_isolation']))
             result = subprocess.run([sys.executable, '-B', str(HERE / 'storage-consumer-maintenance-evidence.py'),
-                'evidence-v3', str(work), str(work / 'joined.json')], capture_output=True, timeout=10)
+                f'evidence-v{profile_version}', str(work), str(work / 'joined.json')], capture_output=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads((work / 'joined.json').read_bytes()), value)
             for operation, more in (('layout', []), ('readback', [str(work / 'storage-consumer-publish-control-before.json')]),

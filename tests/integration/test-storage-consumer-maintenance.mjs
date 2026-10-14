@@ -44,6 +44,78 @@ const detailedFailure = (stage = 'route_connect', deadline_scope = 'none') => ({
   ...transferFailure(), stage: 'agent_ready', category: 'agent_rejected', agent_code: 'CONTENT_UNAVAILABLE',
   agent_detail: { stage, deadline_scope } });
 const detailedDiagnostics = (failures = [detailedFailure()]) => ({ version: 2, failures, omitted_failures: 0 });
+const tlsDiagnostics = (tls_failure = 'authentication') => ({ version: 3, omitted_failures: 0,
+  failures: [{ ...detailedFailure('tls_handshake'), agent_detail: {
+    stage: 'tls_handshake', deadline_scope: 'none', tls_failure } }] });
+
+test('profile4 binds TLS diagnostic3 to the actual call without changing old profiles', () => {
+  for (const app of ['image', 'cloud']) {
+    const diagnostic = tlsDiagnostics();
+    const value = { status: 'incomplete', code: 'retained_operation_incomplete', local_process_joined: true,
+      storage: { operation_complete: false, deposit_diagnostics: diagnostic, private_path: 'SECRET' } };
+    const result = publishFailure(value, app, 'deposit', false, 4);
+    assert.equal(result.version, 5); assert.equal(result.publish_observation.version, 4);
+    assert.deepEqual(result.publish_observation.deposit_diagnostics, diagnostic);
+    assert.doesNotMatch(JSON.stringify(result), /SECRET|private_path/u);
+    for (const old of [2, 3]) {
+      assert.equal(publishFailure(value, app, 'deposit', false, old).publish_observation.deposit_diagnostics_state, 'invalid');
+    }
+    for (const old of [1, 2]) {
+      assert.throws(() => depositDiagnostic(diagnostic, old), /deposit_diagnostics/u);
+      const relabeled = structuredClone(diagnostic); relabeled.version = old;
+      assert.throws(() => depositDiagnostic(relabeled, old), /deposit_diagnostics/u);
+    }
+    const complete = { status: 'complete', local_process_joined: true,
+      storage: { operation_complete: true, deposit_diagnostics: { ...diagnostic, failures: [] } } };
+    assert.doesNotThrow(() => requirePublishComplete(complete, app, 'deposit', 4));
+    delete complete.storage.deposit_diagnostics;
+    assert.equal(publishFailure(complete, app, 'deposit', false, 4).publish_observation.deposit_diagnostics_state, 'missing');
+    assert.equal(publishFailure({ status: 'failed' }, app, 'create', false, 4)
+      .publish_observation.deposit_diagnostics_state, 'not_applicable');
+  }
+});
+
+test('TLS classes require the observed handshake with no enclosing deadline and unavailable code', () => {
+  for (const tls of ['offer', 'configuration', 'handshake_deadline', 'authentication', 'tls_other', 'io']) {
+    for (const stage of ['tls_handshake', 'stream_open', 'challenge', 'unobserved']) {
+      for (const scope of ['none', 'operation', 'exchange']) {
+        for (const code of ['CONTENT_UNAVAILABLE', 'CONTENT_INVALID', 'CONTENT_BUSY', 'CONTENT_POLICY', 'unknown']) {
+          const value = tlsDiagnostics(tls), failure = value.failures[0];
+          failure.agent_detail.stage = stage; failure.agent_detail.deadline_scope = scope; failure.agent_code = code;
+          if (stage === 'tls_handshake' && scope === 'none' && code === 'CONTENT_UNAVAILABLE') {
+            assert.deepEqual(depositDiagnostic(value, 3), value);
+          } else assert.throws(() => depositDiagnostic(value, 3), /deposit_diagnostics/u);
+        }
+      }
+    }
+  }
+  const absent = tlsDiagnostics(null);
+  assert.deepEqual(depositDiagnostic(absent, 3), absent);
+  absent.failures[0].agent_detail = null;
+  assert.deepEqual(depositDiagnostic(absent, 3), absent);
+});
+
+test('profile4 rejects missing reserved malformed and raw TLS details without leaking them', () => {
+  const mutations = [d => { delete d.failures[0].agent_detail.tls_failure; },
+    ...['unobserved', 'PRIVATE', 0, 1, false, [], {}].map(v => d => { d.failures[0].agent_detail.tls_failure = v; }),
+    d => { d.failures[0].agent_detail.raw = 'PRIVATE'; }, d => { d.failures[0].stage = 'agent_terminal'; },
+    d => { d.failures[0].category = 'io'; d.failures[0].agent_code = null; },
+    d => { d.failures.push(structuredClone(d.failures[0])); }, d => { d.omitted_failures = 1; },
+    d => { d.failures = Array(9).fill(d.failures[0]); }, d => { d.version = 2; }];
+  for (const mutate of mutations) {
+    const diagnostic = tlsDiagnostics(); mutate(diagnostic);
+    assert.throws(() => depositDiagnostic(diagnostic, 3), /deposit_diagnostics/u);
+    const result = publishFailure({ status: 'complete', local_process_joined: true,
+      storage: { operation_complete: true, deposit_diagnostics: diagnostic } }, 'image', 'deposit', false, 4);
+    assert.equal(result.passed, false); assert.equal(result.version, 5);
+    assert.equal(result.publish_observation.deposit_diagnostics_state, 'invalid');
+    assert.equal(result.publish_observation.deposit_diagnostics, null);
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE/u);
+  }
+  const all = tlsDiagnostics();
+  all.failures = Array.from({ length: 8 }, (_, i) => ({ ...all.failures[0], fragment_index: i >> 1, copy_index: i % 2 }));
+  assert.equal(depositDiagnostic(all, 3).failures.length, 8);
+});
 
 test('profile 3 requires version2 detail without upgrading historical observations', () => {
   for (const app of ['image', 'cloud']) {

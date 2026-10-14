@@ -1169,6 +1169,48 @@ class MaintenanceEvidence(unittest.TestCase):
                 'report', str(path), '1' * 40], capture_output=True, timeout=5)
             self.assertNotEqual(result.returncode, 0, 'historical v2 must not pass the current CLI gate')
 
+    def test_current_consumer_v4_cli_requires_new_generation_but_preserves_historical_replay(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        original = fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'report.json'
+            for profile in (1, 3, 4):
+                consumers = (CONSUMER_FIXTURE['fixture']() if profile == 1 else network['fixture'](profile))
+                combined = dict(report(original), schema_version=4, consumers=consumers)
+                for command in ('report', 'report-consumer-v4'):
+                    with self.subTest(profile=profile, command=command):
+                        path.write_text(json.dumps(combined))
+                        path.chmod(0o600)
+                        result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                            command, str(path), '1' * 40], capture_output=True, timeout=10)
+                        self.assertEqual(result.returncode == 0, command == 'report' or profile == 4,
+                            result.stdout + result.stderr)
+
+    def test_current_consumer_v4_cli_keeps_source_types_cleanup_and_network_checks(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        original = dict(report(fixture()), schema_version=4, consumers=network['fixture'](4))
+        mutations = (
+            lambda v: v.update(source_revision='2' * 40),
+            lambda v: v['cleanup'].update(complete=False),
+            lambda v: v['consumers'].update(schema_version=4.0),
+            lambda v: v['consumers'].update(schema_version=True),
+            lambda v: v['consumers']['provision'].update(version=4.0),
+            lambda v: v['consumers']['provision'].update(version=True),
+            lambda v: v['consumers']['provision'].update(pins=CHECK['CONSUMERS']['PROVISIONER']['load_pins'](3)),
+            lambda v: v['consumers']['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'report.json'
+            for index, mutate in enumerate(mutations):
+                with self.subTest(mutation=index):
+                    value = copy.deepcopy(original)
+                    mutate(value)
+                    path.write_text(json.dumps(value))
+                    path.chmod(0o600)
+                    result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                        'report-consumer-v4', str(path), '1' * 40], capture_output=True, timeout=10)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_original_schema_three_remains_explicit_without_reinterpreting_broker_evidence(self):
         original = fixture(previous=True)
         consumers = CONSUMER_FIXTURE['fixture'](previous=True)

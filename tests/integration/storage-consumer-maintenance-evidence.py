@@ -278,7 +278,7 @@ def validate_provision(value):
     false = ('storage_enrollment_created', 'peer_storage_proven', 'application_restore_proven',
         'sdk_or_browser_provisioned', 'immich_or_opencloud_server_started')
     keys(value, ('version', 'kind', 'success', 'pins', 'pins_sha256', 'tools', *true, *false))
-    require(type(value['version']) is int and value['version'] in (1, 2, 3)
+    require(type(value['version']) is int and value['version'] in (1, 2, 3, 4)
         and value['kind'] == 'storage-consumer-maintenance-runtime-provision' and value['success'] is True
         and encoded(value['pins']) == encoded(PROVISIONER['load_pins'](value['version']))
         and value['pins_sha256'] == hashlib.sha256(PROVISIONER['pins_path'](value['version']).read_bytes()).hexdigest()
@@ -426,16 +426,18 @@ def provider_counters(capture):
 
 
 def validate_evidence(value, *, previous=False):
-    dynamic = not previous and type(value.get('schema_version')) is int and value['schema_version'] == 3
+    tls_profile = not previous and type(value.get('schema_version')) is int and value['schema_version'] == 4
+    dynamic = tls_profile or (not previous and type(value.get('schema_version')) is int and value['schema_version'] == 3)
     keys(value, ('schema_version', 'kind', 'success', 'scope', 'provision', 'provision_sha256',
         'prepare', *PHASES, 'withdrawal', 'private_cleanup', 'initial_usage', 'uploaded_usage',
         'restored_usage', 'deleted_usage', 'expected_peers', 'layout', 'isolation', 'consumer_isolation', 'network',
         *(() if previous else ('control_transition',)), *(('control_underlay',) if dynamic else ())))
-    require(type(value['schema_version']) is int and value['schema_version'] == (1 if previous else 3 if dynamic else 2)
+    require(type(value['schema_version']) is int and value['schema_version'] == (1 if previous else 4 if tls_profile else 3 if dynamic else 2)
         and value['kind'] == 'storage-consumer-maintenance-evidence' and value['success'] is True,
         'consumer_evidence_identity')
     require(encoded(value['scope']) == encoded(SCOPE), 'consumer_evidence_scope')
     validate_provision(value['provision'])
+    require((value['provision']['version'] == 4) == tls_profile, 'consumer_tls_source_profile')
     provision_sha = hashlib.sha256(encoded(value['provision'])).hexdigest()
     require(value['provision_sha256'] == provision_sha, 'consumer_provision_hash')
     network, network_layout = None, None
@@ -443,7 +445,7 @@ def validate_evidence(value, *, previous=False):
         network = runpy.run_path(str(HERE / 'storage-consumer-network.py'))
         network['U']['validate'](value['control_underlay'], value['expected_peers'], value['layout'], value['control_transition'])
         network_layout = network['layout'](value['control_underlay'], value['expected_peers'])
-        require(value['provision']['version'] == 3, 'consumer_network_source_profile')
+        require(value['provision']['version'] == (4 if tls_profile else 3), 'consumer_network_source_profile')
     prepared = value['prepare']['node']
     for phase in ('prepare', *PHASES):
         validate_orchestration(value[phase], phase, provision_sha, prepared, network_layout=network_layout)
@@ -502,14 +504,16 @@ def validate_evidence(value, *, previous=False):
     return value
 
 
-def build_evidence(work, *, network_version=1):
+def build_evidence(work, *, network_version=1, tls_profile=False):
     require(network_version in (1, 2), 'consumer_network_version')
+    require(type(tls_profile) is bool and (not tls_profile or network_version == 2), 'consumer_tls_source_profile')
     work = Path(work)
     def get(name):
         return read(work / name)[0]
     provision, raw = read(work / 'storage-consumer-provision.json')
     require(raw == encoded(provision), 'consumer_provision_encoding')
-    value = dict(schema_version=3 if network_version == 2 else 2, kind='storage-consumer-maintenance-evidence', success=True,
+    value = dict(schema_version=4 if tls_profile else 3 if network_version == 2 else 2,
+        kind='storage-consumer-maintenance-evidence', success=True,
         scope=dict(SCOPE), provision=provision, provision_sha256=hashlib.sha256(raw).hexdigest(),
         **{name: get(f'storage-consumer-{name}.json') for name in ('prepare', *PHASES, 'withdrawal')},
         private_cleanup=get('storage-consumer-private-cleanup.json'),
@@ -542,9 +546,10 @@ def main(arguments):
         print('\n'.join(EXPORT_NAMES))
     elif len(arguments) == 2 and arguments[0] == 'check':
         validate_evidence(read(Path(arguments[1]))[0])
-    elif len(arguments) == 3 and arguments[0] in ('evidence', 'evidence-v3'):
-        current = arguments[0] == 'evidence-v3'
-        value = build_evidence(Path(arguments[1]), network_version=2 if current else 1)
+    elif len(arguments) == 3 and arguments[0] in ('evidence', 'evidence-v3', 'evidence-v4'):
+        current = arguments[0] != 'evidence'
+        value = build_evidence(Path(arguments[1]), network_version=2 if current else 1,
+            tls_profile=arguments[0] == 'evidence-v4')
         # Keep the existing 1MiB bound; do not multiply indentation for repeated
         # actual kernel snapshots. Historical serialization stays unchanged.
         raw = canonical(value) if current else encoded(value)

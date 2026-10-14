@@ -76,17 +76,82 @@ def diagnostic_failure(profile_version=2):
             deposit_diagnostics_state='observed', deposit_diagnostics=dict(version=1, omitted_failures=0,
                 failures=[dict(fragment_index=2, copy_index=1, operation='reserve', stage='agent_terminal',
                     category='io', agent_code=None)])))
-    if profile_version == 3:
-        value['version'] = 4
+    if profile_version in (3, 4):
+        value['version'] = profile_version + 1
         observed = value['publish_observation']
-        observed['version'] = 3
-        observed['deposit_diagnostics']['version'] = 2
+        observed['version'] = profile_version
+        observed['deposit_diagnostics']['version'] = profile_version - 1
         observed['deposit_diagnostics']['failures'][0].update(stage='agent_ready', category='agent_rejected',
             agent_code='CONTENT_UNAVAILABLE', agent_detail=dict(stage='route_connect', deadline_scope='none'))
+        if profile_version == 4:
+            observed['deposit_diagnostics']['failures'][0]['agent_detail'].update(
+                stage='tls_handshake', tls_failure='authentication')
     return value
 
 
 class ConsumerReceipts(unittest.TestCase):
+    def test_profile_four_retains_original_child_tls_failure_and_rejects_downgrades(self):
+        value = diagnostic_failure(4)
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=4), value)
+        for old in (1, 2, 3):
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=old)
+        for old in (1, 2):
+            diagnostic = copy.deepcopy(value['publish_observation']['deposit_diagnostics'])
+            diagnostic['version'] = old
+            with self.assertRaises(ValueError):
+                M['validate_deposit_diagnostics'](diagnostic, old)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            calls = []
+            def child(command, _):
+                calls.append(command)
+                return 1, raw, b'PRIVATE-RAW-STDERR'
+            with patch.dict(G, run_child=child, PROFILE_VERSION=4):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(calls[0][-2:], ['--profile-version', '4'])
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertEqual(caught.exception.report['node_report_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+
+    def test_profile_four_enforces_tls_matrix_and_required_nullable_field(self):
+        for tls in ('offer', 'configuration', 'handshake_deadline', 'authentication', 'tls_other', 'io'):
+            for stage in ('tls_handshake', 'stream_open', 'challenge', 'unobserved'):
+                for scope in ('none', 'operation', 'exchange'):
+                    for code in ('CONTENT_UNAVAILABLE', 'CONTENT_INVALID', 'CONTENT_BUSY', 'CONTENT_POLICY', 'unknown'):
+                        value = diagnostic_failure(4)
+                        failure = value['publish_observation']['deposit_diagnostics']['failures'][0]
+                        failure.update(agent_code=code, agent_detail=dict(stage=stage, deadline_scope=scope, tls_failure=tls))
+                        if stage == 'tls_handshake' and scope == 'none' and code == 'CONTENT_UNAVAILABLE':
+                            M['validate_node_report'](value, 'publish', PROVISION, profile_version=4)
+                        else:
+                            with self.assertRaises(ValueError):
+                                M['validate_node_report'](value, 'publish', PROVISION, profile_version=4)
+        for absent in (None, dict(stage='tls_handshake', deadline_scope='none', tls_failure=None)):
+            value = diagnostic_failure(4)
+            value['publish_observation']['deposit_diagnostics']['failures'][0]['agent_detail'] = absent
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=4)
+
+    def test_profile_four_rejects_nonclosed_reserved_tls_and_keeps_missing_invalid_failures(self):
+        mutations = [lambda f: f['agent_detail'].pop('tls_failure'), lambda f: f['agent_detail'].update(raw='PRIVATE'),
+            lambda f: f.update(stage='agent_terminal'), lambda f: f.update(category='io', agent_code=None)]
+        mutations += [lambda f, v=v: f['agent_detail'].update(tls_failure=v)
+            for v in ('unobserved', 'PRIVATE', 0, 1, False, [], {})]
+        for mutate in mutations:
+            value = diagnostic_failure(4)
+            mutate(value['publish_observation']['deposit_diagnostics']['failures'][0])
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=4)
+        for state in ('missing', 'invalid'):
+            value = diagnostic_failure(4)
+            value['publish_observation'].update(status='complete', core_operation_complete=True,
+                deposit_diagnostics_state=state, deposit_diagnostics=None)
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=4)
+
     def test_profile_three_binds_detail_version_exact_child_call_and_original_bytes(self):
         value = diagnostic_failure(3)
         self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=3), value)
@@ -474,7 +539,7 @@ class ConsumerOrchestration(unittest.TestCase):
         # the actual runpy/load_pins closure in that same sparse arrangement.
         names = ('storage-consumer-maintenance-smoke.py', 'storage-consumer-maintenance-provision.py',
             'storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json',
-            'storage-consumer-maintenance-pins-v3.json', 'image-snapshot-provision.py',
+            'storage-consumer-maintenance-pins-v3.json', 'storage-consumer-maintenance-pins-v4.json', 'image-snapshot-provision.py',
             'agent-private-task-code.py', 'agent-private-task-code-pins.json',
             'private-storage-fragments-smoke.py', 'private-storage-replicas-smoke.py',
             'private-storage-peer-smoke.py', 'content-provider-https-smoke.py',
@@ -489,6 +554,7 @@ class ConsumerOrchestration(unittest.TestCase):
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](), M['PROVISIONER']['load_pins']())
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](2), M['PROVISIONER']['load_pins'](2))
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](3), M['PROVISIONER']['load_pins'](3))
+                self.assertEqual(loaded['PROVISIONER']['load_pins'](4), M['PROVISIONER']['load_pins'](4))
                 self.assertEqual(loaded['FLOW_MINIMUM'], M['FLOW_MINIMUM'])
                 for absent in ('image-snapshot-provision.py', 'agent-private-task-code.py', 'agent-private-task-code-pins.json'):
                     (root / absent).unlink()
@@ -504,13 +570,13 @@ class ConsumerOrchestration(unittest.TestCase):
         import io
         from contextlib import redirect_stdout
         with redirect_stdout(io.StringIO()):
-            for profile in (2, 3):
+            for profile in (2, 3, 4):
                 M['main'](['flow-minimum', 'publish', '--profile-version', str(profile)])
                 self.assertEqual(G['PROFILE_VERSION'], profile)
             M['main'](['flow-minimum', 'publish'])
             self.assertEqual(G['PROFILE_VERSION'], 1)
         with self.assertRaises(ValueError):
-            M['main'](['flow-minimum', 'publish', '--profile-version', '4'])
+            M['main'](['flow-minimum', 'publish', '--profile-version', '5'])
 
     def test_preparation_creates_only_original_finite_authority_from_exact_cipher_size(self):
         original, calls, owners = prepared(), [], iter(('4' * 64, '5' * 64))

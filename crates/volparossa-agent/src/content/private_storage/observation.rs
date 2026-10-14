@@ -9,7 +9,7 @@ use std::{
 use tokio::{net::UnixStream, time::timeout};
 use volparossa_local_control::{
     PrivateStorageDeadlineScope as Deadline, PrivateStorageRemoteDetail,
-    PrivateStorageRemoteStage as Stage,
+    PrivateStorageRemoteStage as Stage, PrivateStorageTlsFailure,
 };
 
 use super::{ContentError, until_requester_closed};
@@ -20,6 +20,7 @@ pub(super) struct Observation {
     // All access belongs to that one task; no observer task or runtime identifiers.
     stage: AtomicI32,
     deadline: AtomicI32,
+    tls_failure: AtomicI32,
 }
 
 impl Observation {
@@ -28,14 +29,28 @@ impl Observation {
             .store(Stage::Unobserved as i32, Ordering::Relaxed);
         self.deadline
             .store(Deadline::None as i32, Ordering::Relaxed);
+        self.tls_failure
+            .store(PrivateStorageTlsFailure::Unobserved as i32, Ordering::Relaxed);
+    }
+
+    pub(super) fn record_tls_failure(&self, failure: PrivateStorageTlsFailure) {
+        if self.stage.load(Ordering::Relaxed) == Stage::TlsHandshake as i32
+            && self.deadline.load(Ordering::Relaxed) == Deadline::None as i32
+            && failure != PrivateStorageTlsFailure::Unobserved
+        {
+            self.tls_failure.store(failure as i32, Ordering::Relaxed);
+        }
     }
 
     pub(super) fn detail(&self) -> Option<PrivateStorageRemoteDetail> {
         let stage = self.stage.load(Ordering::Relaxed);
         let deadline_scope = self.deadline.load(Ordering::Relaxed);
+        let failure = self.tls_failure.load(Ordering::Relaxed);
         let detail = PrivateStorageRemoteDetail {
             stage,
             deadline_scope,
+            tls_failure: (failure != PrivateStorageTlsFailure::Unobserved as i32)
+                .then_some(failure),
         };
         // No observation for policy/resource/cancel, or an inner deadline while
         // awaiting an uninstrumented policy recheck. Never invent that boundary.
@@ -91,6 +106,10 @@ impl Observation {
             if let Ok(result) = operation.await {
                 result
             } else {
+                self.tls_failure.store(
+                    PrivateStorageTlsFailure::Unobserved as i32,
+                    Ordering::Relaxed,
+                );
                 self.deadline.store(scope as i32, Ordering::Relaxed);
                 Err(ContentError::Unavailable)
             }

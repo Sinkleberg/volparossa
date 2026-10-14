@@ -10,6 +10,7 @@ fn rejected() -> ControlResponse {
         private_storage_remote_detail: Some(PrivateStorageRemoteDetail {
             stage: PrivateStorageRemoteStage::ProviderLookup as i32,
             deadline_scope: PrivateStorageDeadlineScope::None as i32,
+            tls_failure: None,
         }),
         payload: Some(Payload::Ack(Empty {})),
     }
@@ -99,6 +100,7 @@ fn private_storage_detail_has_only_closed_bounded_stage_and_deadline_values() {
             response.private_storage_remote_detail = Some(PrivateStorageRemoteDetail {
                 stage,
                 deadline_scope,
+                tls_failure: None,
             });
             let allowed = match deadline_scope {
                 0 => stage != 0,
@@ -118,6 +120,110 @@ fn private_storage_detail_has_only_closed_bounded_stage_and_deadline_values() {
                 encode_response(&response).is_ok(),
                 allowed && deadline_scope == 0
             );
+        }
+    }
+}
+
+#[test]
+fn optional_tls_failure_preserves_original_detail_wire_and_old_reader() {
+    #[derive(Clone, PartialEq, Message)]
+    struct OriginalDetail {
+        #[prost(enumeration = "PrivateStorageRemoteStage", tag = "1")]
+        stage: i32,
+        #[prost(enumeration = "PrivateStorageDeadlineScope", tag = "2")]
+        deadline_scope: i32,
+    }
+    let original = OriginalDetail {
+        stage: PrivateStorageRemoteStage::TlsHandshake as i32,
+        deadline_scope: PrivateStorageDeadlineScope::None as i32,
+    };
+    let wire = original.encode_to_vec();
+    let mut detail = PrivateStorageRemoteDetail::decode(wire.as_slice()).unwrap();
+    assert_eq!(detail.tls_failure, None);
+    assert_eq!(detail.encode_to_vec(), wire);
+    for failure in 1..=6 {
+        detail.tls_failure = Some(failure);
+        detail.validate().unwrap();
+        let wire = detail.encode_to_vec();
+        assert!(wire.len() <= 6);
+        assert_eq!(OriginalDetail::decode(wire.as_slice()).unwrap(), original);
+        assert_eq!(
+            PrivateStorageRemoteDetail::decode(wire.as_slice()).unwrap(),
+            detail
+        );
+    }
+}
+
+fn tls_rejected(failure: i32) -> ControlResponse {
+    let mut response = rejected();
+    response.private_storage_remote_detail = Some(PrivateStorageRemoteDetail {
+        stage: PrivateStorageRemoteStage::TlsHandshake as i32,
+        deadline_scope: PrivateStorageDeadlineScope::None as i32,
+        tls_failure: Some(failure),
+    });
+    response
+}
+
+fn assert_response_validity(response: &ControlResponse, allowed: bool) {
+    assert_eq!(encode_response(response).is_ok(), allowed);
+    let decoded = decode_response(&response.encode_to_vec());
+    assert_eq!(decoded.is_ok(), allowed);
+    if allowed {
+        assert_eq!(decoded.unwrap(), *response);
+        assert!(response.encoded_len() < 80);
+    }
+}
+
+#[test]
+fn tls_failure_roundtrips_only_six_closed_nonzero_values() {
+    for failure in 1..=6 {
+        assert_response_validity(&tls_rejected(failure), true);
+    }
+    for failure in [i32::MIN, -1, 0, 7, 99, i32::MAX] {
+        assert_response_validity(&tls_rejected(failure), false);
+    }
+}
+
+#[test]
+fn tls_failure_requires_handshake_boundary_without_an_enclosing_deadline() {
+    for failure in 1..=6 {
+        for stage in 0..=8 {
+            for deadline_scope in 0..=2 {
+                let mut response = tls_rejected(failure);
+                response.private_storage_remote_detail = Some(PrivateStorageRemoteDetail {
+                    stage,
+                    deadline_scope,
+                    tls_failure: Some(failure),
+                });
+                let allowed = stage == PrivateStorageRemoteStage::TlsHandshake as i32
+                    && deadline_scope == PrivateStorageDeadlineScope::None as i32;
+                assert_response_validity(&response, allowed);
+            }
+        }
+    }
+}
+
+#[test]
+fn tls_failure_rejects_success_other_failure_codes_and_non_ack_payloads() {
+    for failure in 1..=6 {
+        for (result, code) in [
+            (ControlResult::Ok, "CONTENT_OK"),
+            (ControlResult::InvalidRequest, "CONTENT_INVALID"),
+            (ControlResult::InvalidState, "CONTENT_BUSY"),
+            (ControlResult::Policy, "CONTENT_POLICY"),
+            (ControlResult::Unavailable, "PRIVATE_UNLISTED_CODE"),
+            (ControlResult::Unavailable, "CONTENT_BUSY"),
+            (ControlResult::Ok, "CONTENT_UNAVAILABLE"),
+        ] {
+            let mut response = tls_rejected(failure);
+            response.result = result as i32;
+            response.diagnostic_code = code.into();
+            assert_response_validity(&response, false);
+        }
+        for payload in [None, Some(Payload::Status(crate::StatusSnapshot::default()))] {
+            let mut response = tls_rejected(failure);
+            response.payload = payload;
+            assert_response_validity(&response, false);
         }
     }
 }

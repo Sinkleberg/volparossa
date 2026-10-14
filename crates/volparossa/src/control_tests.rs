@@ -13,6 +13,7 @@ async fn private_storage_detail_requires_initial_operation_and_exact_correlation
         let detail = Some(PrivateStorageRemoteDetail {
             stage: PrivateStorageRemoteStage::ProviderLookup as i32,
             deadline_scope: PrivateStorageDeadlineScope::Operation as i32,
+            tls_failure: None,
         });
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
@@ -71,6 +72,7 @@ async fn terminal_response_cannot_export_a_pre_ready_detail() {
             private_storage_remote_detail: Some(PrivateStorageRemoteDetail {
                 stage: PrivateStorageRemoteStage::Challenge as i32,
                 deadline_scope: PrivateStorageDeadlineScope::None as i32,
+                tls_failure: None,
             }),
             payload: Some(Payload::Ack(Empty {})),
         },
