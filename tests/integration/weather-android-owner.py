@@ -133,7 +133,7 @@ def prepared(weather, core_commit, weather_commit):
     return result
 
 
-def preflight(weather, core_commit, weather_commit, output):
+def preflight(weather, core_commit, weather_commit, output, kvm_baseline=None):
     result = prepared(weather, core_commit, weather_commit)
     output = canonical(output, directory=True)
     require(output.is_relative_to(CORE) and output != CORE)
@@ -141,7 +141,27 @@ def preflight(weather, core_commit, weather_commit, output):
     if not K["usable"](before):
         write(output / K["NAME"], K["receipt"](identity(core_commit, weather_commit), "preflight", before))
         raise Failure("kvm-unavailable")
+    if kvm_baseline is not None:
+        selected = Path(kvm_baseline)
+        parent = canonical(selected.parent, directory=True, mode=0o700)
+        require(parent.is_relative_to(CORE) and parent.parent == output.parent and parent != output
+            and re.fullmatch(r"weather-client-kvm\.[A-Za-z0-9]{6}", parent.name)
+            and selected == parent / "kvm-before-vm.json")
+        acl = K["group_acl"]()
+        if not K["group_usable"](acl):
+            write(output / K["NAME"], K["continuity_receipt"](identity(core_commit, weather_commit), before,
+                acl, "absent", phase="preflight"))
+            raise Failure("kvm-group-unavailable")
+        write(selected, K["continuity_baseline_record"](identity(core_commit, weather_commit), before, acl))
     return result
+
+
+def kvm_continuity(run, selected_identity):
+    path = Path(run) / "kvm-before-vm.json"
+    if not os.path.lexists(path): return "absent", None
+    try:
+        return "available", K["continuity_baseline"](document(path, 16384), selected_identity)
+    except (OSError, ValueError, KeyError, TypeError): return "rejected", None
 
 
 def config(path):
@@ -456,6 +476,8 @@ def run(value):
     canonical(private, directory=True, mode=0o700); canonical(socket_parent, directory=True, mode=0o700)
     write(private / "preparation.json", preparation)
     kvm_before = K["snapshot"]()
+    acl_before = K["group_acl"]()
+    baseline_state, initial = kvm_continuity(run_dir, identity(value["core_commit"], value["weather_commit"]))
     write(private / "kvm-baseline.json", K["baseline_record"](
         identity(value["core_commit"], value["weather_commit"]), kvm_before))
     preexisting = {name: os.path.lexists(weather / relative) for name, relative in NATIVE_RECORDS.items()}
@@ -463,7 +485,8 @@ def run(value):
     netns = os.readlink("/proc/self/ns/net"); outer = time.monotonic() + DRIVER_SECONDS
     statuses = dict(driver=None, tunnel=None, native=None)
     try:
-        require(K["usable"](kvm_before))
+        require(K["usable"](kvm_before) and K["group_usable"](acl_before) and baseline_state == "available")
+        require(all(K["project"](kvm_before, initial["snapshot"])[key] is True for key in K["COMPARISONS"]))
         driver = pool.start(command(value, "driver"), "driver", env, CORE, 4 * 1024**2)
         phase = "read-ready"
         while ready is None:
@@ -540,8 +563,8 @@ def run(value):
     if not success: export_failure(value, result, pool, preexisting)
     native_job = next((job for job in pool.jobs if job["name"] == "native"), None)
     observed = native_kvm(native_job, result["identity"])
-    write(Path(value["output_directory"]) / K["NAME"], K["receipt"](result["identity"], "owner", kvm_before,
-        observed["state"], observed["record"]))
+    write(Path(value["output_directory"]) / K["NAME"], K["continuity_receipt"](result["identity"], kvm_before,
+        acl_before, baseline_state, initial, observed["state"], observed["record"]))
     return result
 
 
@@ -676,6 +699,7 @@ def main():
     first = actions.add_parser("preflight")
     for key in ("weather-root", "core-commit", "weather-commit"): first.add_argument("--" + key, required=True)
     first.add_argument("--kvm-output", required=True, type=Path)
+    first.add_argument("--kvm-baseline", type=Path)
     for name in ("run", "join"):
         actions.add_parser(name).add_argument("--config", required=True, type=Path)
     last = actions.add_parser("accept")
@@ -686,7 +710,7 @@ def main():
     previous = {sig: signal.signal(sig, interrupted) for sig in SIGNALS}
     try:
         if args.action == "preflight": result = preflight(Path(args.weather_root), args.core_commit,
-            args.weather_commit, args.kvm_output)
+            args.weather_commit, args.kvm_output, args.kvm_baseline)
         elif args.action == "run": result = run(config(args.config))
         elif args.action == "join": result = join(config(args.config))
         else: result = accept(Path(args.output), args.core_commit, args.weather_commit, args.manifest, Path(args.kvm_cleanup))

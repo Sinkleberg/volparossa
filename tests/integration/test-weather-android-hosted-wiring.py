@@ -2,12 +2,14 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Inert hosted workflow contracts; no download, SDK, native process or VM."""
 import copy
+from contextlib import redirect_stdout
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
 import re
+import runpy
 import stat
 import subprocess
 import sys
@@ -209,6 +211,61 @@ class AndroidHostedWiring(unittest.TestCase):
         self.assertEqual(SOURCE.count('sudo -n setfacl -m'), 1)
         self.assertIn('--weather-commit "$VOLPAROSSA_WEATHER_SOURCE_SHA"', section)
         self.assertNotIn('--run-protected-core', SOURCE)  # The owner controls this, never an independent workflow child.
+
+    def test_kvm_grant_uses_only_guarded_existing_private_primary_group(self):
+        section = block('Grant only this disposable runner temporary KVM access')
+        self.assertIn('sudo -n setfacl -m "g:$group:rw" /dev/kvm', section)
+        self.assertLess(section.index('getfacl --absolute-names'), section.index('# BEGIN KVM_PRIVATE_GROUP'))
+        self.assertLess(section.index('# END KVM_PRIVATE_GROUP'), section.index('sudo -n setfacl -m'))
+        for forbidden in ('usermod', 'chmod', 'u:$(id -u)', 'udevadm trigger', '/etc/udev', '--retry'):
+            self.assertNotIn(forbidden, section)
+        output = io.StringIO()
+        with patch.object(runpy, 'run_path', return_value=dict(grant_primary_group=lambda: 23456)), redirect_stdout(output):
+            exec(compile(embedded('KVM_PRIVATE_GROUP'), 'KVM_PRIVATE_GROUP', 'exec'), {})
+        self.assertEqual(output.getvalue(), '23456\n')
+        for error in (ValueError('PRIVATE_ID_23456'), OSError('PRIVATE_ACL'), KeyError('PRIVATE_NAME')):
+            def fail(): raise error
+            with patch.object(runpy, 'run_path', return_value=dict(grant_primary_group=fail)), \
+                    self.assertRaises(SystemExit) as raised:
+                exec(compile(embedded('KVM_PRIVATE_GROUP'), 'KVM_PRIVATE_GROUP', 'exec'), {})
+            self.assertEqual(str(raised.exception), 'KVM scoped group grant unavailable')
+
+    def test_rejected_group_or_preexisting_acl_never_reaches_setfacl(self):
+        body = textwrap.dedent(block('Grant only this disposable runner temporary KVM access').split('run: |\n', 1)[1])
+        with tempfile.TemporaryDirectory(prefix='wa-grant-') as temporary:
+            root = Path(temporary)
+            script = '''WEATHER_INPUTS=$1
+RUNNER_ENVIRONMENT=github-hosted
+getfacl() { printf 'inert original ACL\\n'; }
+python3() { return 1; }
+sudo() { printf 'unexpected grant\\n' > "$WEATHER_INPUTS/unexpected"; }
+''' + body
+            result = subprocess.run(['/bin/bash', '-c', script, 'inert-grant', str(root)], capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse((root / 'unexpected').exists())
+            self.assertEqual((root / 'kvm.acl').read_text(), 'inert original ACL\n')
+
+    def test_pending_kvm_udev_events_settle_bounded_before_restore_even_on_timeout(self):
+        cleanup = block('Restore exact original hosted KVM ACL')
+        fragment = 'settle_status=0\n' + textwrap.dedent(cleanup.split('settle_status=0\n', 1)[1].split('            python3 -B -', 1)[0])
+        self.assertIn('timeout --kill-after=5s 20s sudo -n udevadm settle --timeout=15', fragment)
+        self.assertLess(fragment.index('udevadm settle'), fragment.index('sudo -n setfacl --restore='))
+        self.assertLess(fragment.index('sudo -n setfacl --restore='), fragment.index('test "$settle_status" -eq 0'))
+        for status in (0, 1, 124):
+            with self.subTest(status=status), tempfile.TemporaryDirectory(prefix='wa-udev-') as temporary:
+                root = Path(temporary); (root / 'kvm.acl').write_text('original inert ACL\n')
+                script = '''set -euo pipefail
+WEATHER_INPUTS=$1
+fixture_status=$2
+timeout() { printf 'settle\\n' >> "$WEATHER_INPUTS/trace"; return "$fixture_status"; }
+sudo() { printf 'restore\\n' >> "$WEATHER_INPUTS/trace"; }
+getfacl() { printf 'original inert ACL\\n'; }
+''' + fragment
+                result = subprocess.run(['/bin/bash', '-c', script, 'inert-restore', str(root), str(status)],
+                    capture_output=True, timeout=5)
+                self.assertEqual(result.returncode, 0 if status == 0 else 1, result.stderr)
+                self.assertEqual((root / 'trace').read_text().splitlines(), ['settle', 'restore'])
+                self.assertEqual((root / 'kvm.acl').read_bytes(), (root / 'kvm-restored.acl').read_bytes())
 
     def test_vm_owner_keeps_hosted_policy_privileges_without_broad_sudo_wrapper(self):
         section = block('Run actual Android-triggered protected delivery')

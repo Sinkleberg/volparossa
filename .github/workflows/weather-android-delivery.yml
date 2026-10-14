@@ -227,8 +227,23 @@ jobs:
           umask 077
           test ! -e "$WEATHER_INPUTS/kvm.acl"
           getfacl --absolute-names /dev/kvm > "$WEATHER_INPUTS/kvm.acl"
-          printf '%s\n' 'Temporarily grant only this runner UID KVM access; restore the exact original ACL afterward.'
-          sudo -n setfacl -m "u:$(id -u):rw" /dev/kvm
+          group=$(python3 -B - <<'PY'
+          # BEGIN KVM_PRIVATE_GROUP
+          import runpy
+          from pathlib import Path
+          observer = runpy.run_path(str(Path('tests/integration/weather-android-kvm.py').resolve()))
+          try:
+              print(observer['grant_primary_group']())
+          except (OSError, ValueError, TypeError, KeyError):
+              raise SystemExit('KVM scoped group grant unavailable') from None
+          # END KVM_PRIVATE_GROUP
+          PY
+          )
+          # KVM create/destroy uevents let systemd uaccess replace ACL_USER
+          # entries. Its reset preserves ACL_GROUP; never alter membership or
+          # install a persistent udev rule on this disposable runner.
+          printf '%s\n' 'Temporarily grant the existing runner-private primary group KVM access; restore the exact original ACL afterward.'
+          sudo -n setfacl -m "g:$group:rw" /dev/kvm
       - name: Prepare offline Android APK before any guest publication
         timeout-minutes: 60
         run: |
@@ -295,10 +310,16 @@ jobs:
           if test -f "$WEATHER_INPUTS/kvm.acl"; then
             test ! -L "$WEATHER_INPUTS/kvm.acl"
             test "$(stat -Lc '%u:%a:%h' "$WEATHER_INPUTS/kvm.acl")" = "$(id -u):600:1"
+            # QEMU/emulator children have already joined. Drain outstanding
+            # destroy-event ACL processing before restoring the original bytes.
+            # Even a settle failure must not skip the restoration attempt.
+            settle_status=0
+            timeout --kill-after=5s 20s sudo -n udevadm settle --timeout=15 || settle_status=$?
             sudo -n setfacl --restore="$WEATHER_INPUTS/kvm.acl"
             test ! -e "$WEATHER_INPUTS/kvm-restored.acl"
             getfacl --absolute-names /dev/kvm > "$WEATHER_INPUTS/kvm-restored.acl"
             cmp "$WEATHER_INPUTS/kvm.acl" "$WEATHER_INPUTS/kvm-restored.acl"
+            test "$settle_status" -eq 0
             python3 -B - "$WEATHER_INPUTS" <<'PY'
           # BEGIN ACL_CLEANUP
           import hashlib, json, os, re, stat, sys

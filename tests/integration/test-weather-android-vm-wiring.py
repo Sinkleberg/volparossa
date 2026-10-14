@@ -94,6 +94,7 @@ class ArgumentsAndResources(unittest.TestCase):
             "    printf '%s\\n' 'Additional proof: public model HTTPS acquisition", 1)[0]
         script = ("set -eu\nfixture_profile=$1\nweather_android_source=$2\nHERE=$3\nexpected_commit=$4\n"
             "WEATHER_CLIENT_ARCHIVE=/inert/archive\nWEATHER_CLIENT_MANIFEST_SHA256=$5\noutput_directory=/inert/output\n"
+            "RUN_DIRECTORY=/inert/weather-client-kvm.ABCDEF\n"
             '''python3() {
     if [ "$3" = runtime-version ]; then printf '{"bundle_version":%s}\\n' "$fixture_profile"
     else printf '%s\\n' "$@"; fi
@@ -109,7 +110,7 @@ class ArgumentsAndResources(unittest.TestCase):
                     if expected == 0 and version == 6:
                         self.assertEqual(result.stdout.decode().splitlines(), ["-B", str(HERE / "weather-android-owner.py"),
                             "preflight", "--weather-root", selected, "--core-commit", COMMIT, "--weather-commit", weather_commit,
-                            "--kvm-output", "/inert/output"])
+                            "--kvm-output", "/inert/output", "--kvm-baseline", "/inert/weather-client-kvm.ABCDEF/kvm-before-vm.json"])
                     else: self.assertEqual(result.stdout, b"")
 
 

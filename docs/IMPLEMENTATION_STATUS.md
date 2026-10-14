@@ -31,7 +31,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | PR19 proves the installed lifecycle with synthetic products; PR22 supplies separate preparation/live entrypoints. Core `d9c2f675` passes Quality and CodeQL, but actual trial `38615075140` stops before native live execution at `KVM_REQUIRED_NO_TCG`. Earlier APK preparation and outer QEMU startup succeeded; the later access failure's underlying cause is not established. Observe that boundary without changing KVM permissions or the native guard. Joined delivery, live expiry, physical devices and iOS remain open. |
+| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | PR19 proves the installed lifecycle with synthetic products; PR22 supplies separate preparation/live entrypoints. Actual `38624043886` on `ca292e41` localizes the KVM access loss to about 40.6 seconds between pre-QEMU preflight and owner startup. Quality and CodeQL pass, but no native live delivery starts. The next candidate uses a guarded temporary runner-private group ACL and a true pre-QEMU baseline; the native guard and product budgets remain unchanged. Joined delivery, live expiry, physical devices and iOS remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38519187504` fails Cloud FINALIZE after READY with `wire_receipt/io`; its separate base-maintenance restores and cleanup pass. Diagnostic candidate `8ea8a059` passes workspace Quality and CodeQL, but actual `38595365736` fails before topology execution: the isolated agent test build lacks Tokio `test-util`. Correction `d22f7892` passes Quality `38601264906`, including seven isolated-package outcome tests; actual trial `38607252325` is dispatched on that exact source. The original FINALIZE failure, consumer repair/restore and remote cleanup remain open. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 and PR247 are merged; main `17afa3f0` contains the finite operator grants, guest module, protected exchange and CLI verifier. Corrected source `09b0d3cc` passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`. Software evidence does not establish production-route execution, production authority, current vendor appraisal, an approved measured workload or actual private execution. Suitable confidential-computing hardware is unavailable; storage and Android integration continue in parallel. |
@@ -115,7 +115,7 @@ and sixteen VM-wiring tests. They verify error visibility, redaction, cleanup
 ordering and rejection of malformed or stale records, not actual native delivery.
 No local native build or host-network change was performed for these components.
 
-#### Latest Android actual result
+#### Earlier Android guard failure
 
 The closed diagnostic now identifies the failing guard in
 [run `38615075140`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38615075140),
@@ -164,6 +164,46 @@ review, shell syntax, ShellCheck and diff checks pass. The older VM shell
 access check can still stop earlier with generic exit 77; this observer does
 not diagnose that boundary. Its comparison baseline starts before the owner
 launches the guest driver, not at the original ACL grant.
+
+#### Current KVM continuity candidate
+
+Actual [run `38624043886`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38624043886)
+on `ca292e4166e013a1964b412e91358bd52721fe73` fails before starting the driver,
+tunnel or native process. Pre-QEMU access succeeds at 19:49:19.416Z; the owner
+probe at 19:50:00.043Z has no real/effective read/write access and open returns
+`EACCES`. The earlier receipt compares identity and device to its own owner
+baseline, not to preflight. It cannot prove continuity across that interval.
+Owner and VM cleanup and original ACL restoration pass. Artifact `11923868858`
+ZIP SHA-256 is `48c74caa8c3402c440989a7c3cbad354602e6ee34e4af7612349adee0e6aeb98`;
+original logs ZIP SHA-256 is
+`f6cb9aa9eeccf11a20a19eb72707d3ab96a15c4da0239153bb9b87efe5164405`.
+Quality `38624052635` and CodeQL `38624048007` pass on that source; this is not
+actual Android acceptance.
+
+Source review finds a concrete possible mechanism: KVM VM creation can emit a
+device change event, and the runner's systemd uaccess path clears named-user
+ACL entries while retaining named-group entries. The original run does not
+record that mutation or identify its actor; causality remains unproven.
+See the [KVM event implementation](https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/v6.8/virt/kvm/kvm_main.c),
+[systemd ACL implementation](https://raw.githubusercontent.com/systemd/systemd/v255/src/shared/devnode-acl.c)
+and [exact runner image manifest](https://github.com/actions/runner-images/blob/ubuntu24/20261012.334/images/ubuntu/Ubuntu2404-Readme.md).
+
+The candidate grants only the existing non-root primary runner group after
+checking its exclusive account/group membership and rejecting aliases or any
+pre-existing extended ACL. This prevents mask recomputation from unmasking
+other named grants. It does not change group membership, install udev rules,
+grant world access or repeatedly regrant permissions. After owned children
+join, bounded privileged udev settling precedes byte-exact original ACL restore;
+settle failure still attempts restoration and prevents a cleanup success claim.
+
+A private pre-QEMU baseline now supplies real continuity comparisons in the
+closed diagnostic schema 2. Schema 1 remains readable; the native guard,
+Weather pin, success schema 6 and publication/execution budgets are unchanged.
+Only finite access and comparison fields are exported, never the private
+baseline, numeric identities or raw ACLs. Independent source review and all
+118 focused inert tests pass (12 KVM, 15 native, 56 owner, 19 hosted and 16 VM),
+with shell syntax, ShellCheck and diff checks. Actual group suitability,
+continued KVM access and joined Android delivery still require hosted execution.
 
 ### Latest storage trial
 

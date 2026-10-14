@@ -926,7 +926,8 @@ if [ -n "$weather_client_bundle" ]; then
         # Native compilation and immutable preparation happened earlier on the
         # hosted runner, never inside the publication's finite lifetime.
         python3 -B "$HERE/weather-android-owner.py" preflight --weather-root "$weather_android_source" \
-            --core-commit "$expected_commit" --weather-commit "$weather_android_commit" --kvm-output "$output_directory"
+            --core-commit "$expected_commit" --weather-commit "$weather_android_commit" --kvm-output "$output_directory" \
+            --kvm-baseline "$RUN_DIRECTORY/kvm-before-vm.json"
     else
         [ -z "$weather_android_source" ] || exit 64
     fi

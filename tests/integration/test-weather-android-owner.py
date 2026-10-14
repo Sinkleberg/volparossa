@@ -468,6 +468,44 @@ class ContractTests(RecordFixture):
         self.assertFalse(receipt["joined_core_acceptance"])
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
+    def test_preflight_persists_private_pre_qemu_baseline_only_at_fixed_run_path(self):
+        path = self.run / "kvm-before-vm.json"
+        with patch.dict(G, prepared=lambda *_: preparation_record()), \
+                patch.dict(K, snapshot=KF["private_fixture"], group_acl=KF["acl_fixture"]):
+            self.assertEqual(O["preflight"](self.weather, CORE_COMMIT, WEATHER_COMMIT, self.output, path), preparation_record())
+            with self.assertRaises(FileExistsError): O["preflight"](self.weather, CORE_COMMIT, WEATHER_COMMIT, self.output, path)
+            for bad in (self.run / "other.json", self.output / "kvm-before-vm.json", self.root / "kvm-before-vm.json"):
+                with self.assertRaises(ValueError): O["preflight"](self.weather, CORE_COMMIT, WEATHER_COMMIT, self.output, bad)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        initial = K["continuity_baseline"](json.loads(path.read_bytes()), IDENTITY)
+        self.assertEqual(initial["snapshot"], KF["private_fixture"]())
+        self.assertEqual(initial["acl"], KF["acl_fixture"]())
+        self.assertEqual(O["kvm_continuity"](self.run, IDENTITY), ("available", initial))
+        self.assertFalse((self.output / "kvm-before-vm.json").exists())
+
+    def test_private_pre_qemu_baseline_rejects_cross_run_symlink_mode_and_oversize(self):
+        path = self.run / "kvm-before-vm.json"
+        self.assertEqual(O["kvm_continuity"](self.run, IDENTITY), ("absent", None))
+        initial = K["continuity_baseline_record"](IDENTITY, KF["private_fixture"](), KF["acl_fixture"]())
+        for value, mode in ((dict(initial, identity=dict(IDENTITY, run_attempt="2")), 0o600),
+                (dict(initial, extra="PRIVATE"), 0o600), (b"x" * 16385, 0o600), (initial, 0o644)):
+            save(path, value, mode)
+            self.assertEqual(O["kvm_continuity"](self.run, IDENTITY), ("rejected", None))
+        path.unlink(); target = self.root / "private.json"; save(target, initial); path.symlink_to(target)
+        self.assertEqual(O["kvm_continuity"](self.run, IDENTITY), ("rejected", None))
+
+    def test_preflight_group_acl_failure_is_visible_and_never_creates_baseline(self):
+        acl = KF["acl_fixture"](); acl["mask_write"] = False
+        path = self.run / "kvm-before-vm.json"
+        with patch.dict(G, prepared=lambda *_: preparation_record()), \
+                patch.dict(K, snapshot=KF["private_fixture"], group_acl=lambda: acl):
+            with self.assertRaisesRegex(ValueError, "kvm-group-unavailable"):
+                O["preflight"](self.weather, CORE_COMMIT, WEATHER_COMMIT, self.output, path)
+        self.assertFalse(path.exists())
+        receipt = K["validate_receipt"](json.loads((self.output / K["NAME"]).read_bytes()))
+        self.assertEqual((receipt["schema"], receipt["phase"]), (2, "preflight"))
+        self.assertFalse(receipt["acl_before_publication"]["mask_write"])
+
     def test_kvm_receipt_alone_never_supplies_acceptance_records(self):
         receipt = K["receipt"](IDENTITY, "owner", KF["private_fixture"]())
         save(self.output / K["NAME"], receipt)
@@ -635,8 +673,10 @@ class CoordinatorTests(unittest.TestCase):
         self.seams = patch.dict(G, CORE=self.root, prepared=lambda *_: preparation_record(), environment=lambda: {},
             TERM_SECONDS=1, KILL_SECONDS=1, DRIVER_SECONDS=75)
         self.seams.start(); self.addCleanup(self.seams.stop)
-        self.kvm_seam = patch.dict(K, snapshot=lambda: KF["private_fixture"]())
+        self.kvm_seam = patch.dict(K, snapshot=lambda: KF["private_fixture"](), group_acl=KF["acl_fixture"])
         self.kvm_seam.start(); self.addCleanup(self.kvm_seam.stop)
+        save(self.run / "kvm-before-vm.json", K["continuity_baseline_record"](
+            IDENTITY, KF["private_fixture"](), KF["acl_fixture"]()))
 
     def run_owner(self, mode):
         def command(_value, name, action=None):
@@ -667,11 +707,42 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(result["statuses"], dict(driver=None, tunnel=None, native=None))
         self.assertFalse((self.root / "driver-ready").exists())
         receipt = K["validate_receipt"](json.loads((self.output / K["NAME"]).read_bytes()))
+        self.assertEqual(receipt["schema"], 2)
+        self.assertEqual(receipt["before_qemu"]["open_result"], "opened")
         self.assertEqual(receipt["owner_before_publication"]["open_result"], "eperm")
         self.assertEqual(receipt["native"], dict(state="absent", record=None))
         failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
         self.assertNotIn("kvm", failure)
         self.assertEqual(failure["schema"], 6)
+
+    def test_group_grant_loss_is_explicit_and_stops_before_driver(self):
+        acl = KF["acl_fixture"](); acl["named_group_write"] = False
+        with patch.dict(K, group_acl=lambda: acl): result = self.run_owner("normal")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["statuses"], dict(driver=None, tunnel=None, native=None))
+        receipt = K["validate_receipt"](json.loads((self.output / K["NAME"]).read_bytes()))
+        self.assertTrue(receipt["acl_before_qemu"]["named_group_write"])
+        self.assertFalse(receipt["acl_before_publication"]["named_group_write"])
+        self.assertFalse((self.root / "driver-ready").exists())
+
+    def test_missing_pre_qemu_baseline_is_not_replaced_with_self_comparison(self):
+        (self.run / "kvm-before-vm.json").unlink()
+        result = self.run_owner("normal")
+        self.assertFalse(result["success"])
+        receipt = K["validate_receipt"](json.loads((self.output / K["NAME"]).read_bytes()))
+        self.assertEqual(receipt["baseline_state"], "absent")
+        self.assertIsNone(receipt["before_qemu"])
+        self.assertTrue(all(receipt["owner_before_publication"][key] is None for key in K["COMPARISONS"]))
+        self.assertFalse((self.root / "driver-ready").exists())
+
+    def test_changed_identity_is_compared_against_pre_qemu_and_blocks_publication(self):
+        changed = KF["private_fixture"](); changed["credentials"][3:] = [45678] * 3
+        with patch.dict(K, snapshot=lambda: changed): result = self.run_owner("normal")
+        self.assertFalse(result["success"])
+        receipt = K["validate_receipt"](json.loads((self.output / K["NAME"]).read_bytes()))
+        self.assertFalse(receipt["owner_before_publication"]["same_identity"])
+        self.assertFalse((self.root / "driver-ready").exists())
+        self.assertNotIn("45678", json.dumps(receipt))
 
     def test_native_failure_never_requests_finalize(self):
         result = self.run_owner("native-fail")
