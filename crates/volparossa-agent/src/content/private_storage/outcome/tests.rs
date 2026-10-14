@@ -131,17 +131,25 @@ async fn task_abort_records_cancel_before_the_owned_stream_closes() {
     let guard = owner.begin(1, &[5; 16]).unwrap();
     let (send, started) = oneshot::channel();
     let task = tokio::spawn(async move {
-        let _stream = server;
+        let stream = server;
         let retained = guard;
         retained.enter(Phase::RemoteReceiptRead);
         send.send(()).unwrap();
         std::future::pending::<()>().await;
+        drop(retained);
+        drop(stream);
     });
     started.await.unwrap();
+    assert_eq!(
+        client.try_read(&mut [0; 1]).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
     task.abort();
     assert!(task.await.unwrap_err().is_cancelled());
     assert_eq!(client.read(&mut [0; 1]).await.unwrap(), 0);
     let result = owner.take(1, &[5; 16]).unwrap();
+    result.validate().unwrap();
+    assert_eq!(result.phase, Phase::RemoteReceiptRead as i32);
     assert_eq!(result.category, Category::Cancelled as i32);
     assert_eq!(result.deadline, Deadline::None as i32);
 }

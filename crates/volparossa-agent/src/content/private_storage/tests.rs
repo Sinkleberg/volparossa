@@ -19,6 +19,7 @@ fn terminal_route_receipt_retains_exact_fields_and_no_custody_claim() {
 
 #[tokio::test]
 async fn outcome_query_uses_actual_unix_peer_uid_and_consumes_only_its_request() {
+    use volparossa_local_control::PrivateStorageOutcomeStatus as Status;
     let runtime = ContentRuntime::new(&volparossa_identity::Identity::generate()).unwrap();
     let (_caller, socket) = UnixStream::pair().unwrap();
     let uid = socket.peer_cred().unwrap().uid();
@@ -35,7 +36,6 @@ async fn outcome_query_uses_actual_unix_peer_uid_and_consumes_only_its_request()
     let query = |id| PrivateStorageOutcomeRequest {
         original_request_id: vec![id; 16],
     };
-    use volparossa_local_control::PrivateStorageOutcomeStatus as Status;
     for (id, expected) in [
         (4, Status::Missing),
         (3, Status::Observed),
