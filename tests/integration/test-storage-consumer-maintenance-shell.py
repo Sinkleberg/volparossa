@@ -57,12 +57,13 @@ private_storage_replicas_serve relay4 "$3"
     def test_current_consumer_explicitly_selects_matching_profile_at_all_boundaries(self):
         runner = (HERE / 'run-alpha-topology-vm.sh').read_text()
         guest = (HERE / 'kvm-alpha-topology.sh').read_text()
-        self.assertIn('storage-consumer-maintenance-provision.py provision --download --profile-version 6', runner)
-        self.assertIn('storage-consumer-maintenance-smoke.py" "$@" --profile-version 6', TEXT)
-        self.assertIn('evidence-v6 "$WORK" "$WORK/storage-consumer-evidence.json"', TEXT)
+        self.assertIn('storage-consumer-maintenance-provision.py provision --download --profile-version 7', runner)
+        self.assertIn('storage-consumer-maintenance-smoke.py" "$@" --profile-version 7', TEXT)
+        self.assertIn('evidence-v7 "$WORK" "$WORK/storage-consumer-evidence.json"', TEXT)
         for name in ('storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json',
                 'storage-consumer-maintenance-pins-v3.json', 'storage-consumer-maintenance-pins-v4.json',
-                'storage-consumer-maintenance-pins-v5.json', 'storage-consumer-maintenance-pins-v6.json'):
+                'storage-consumer-maintenance-pins-v5.json', 'storage-consumer-maintenance-pins-v6.json',
+                'storage-consumer-maintenance-pins-v7.json'):
             self.assertIn(f'"$source_directory/tests/integration/{name}"', guest)
             self.assertIn(f'"$WORK/bin/{name}"', guest)
 

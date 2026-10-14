@@ -40,7 +40,8 @@ pub use private_storage::{
     PrivateStorageReady, PrivateStorageRemoteRequest, PrivateStorageServeRequest,
 };
 pub use private_storage_detail::{
-    PrivateStorageDeadlineScope, PrivateStorageRemoteDetail, PrivateStorageRemoteStage,
+    PrivateStorageChallengeDetail, PrivateStorageChallengePhase, PrivateStorageDeadlineScope,
+    PrivateStorageElapsedBucket, PrivateStorageRemoteDetail, PrivateStorageRemoteStage,
     PrivateStorageStreamFailure, PrivateStorageTlsFailure,
 };
 pub use private_storage_outcome::{

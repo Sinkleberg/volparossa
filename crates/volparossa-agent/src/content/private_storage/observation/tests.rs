@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use tokio::{io::AsyncWriteExt, sync::oneshot};
+use tokio::{io::AsyncWriteExt, sync::oneshot, time::timeout};
 
 use super::*;
 
@@ -37,6 +37,7 @@ async fn every_observed_boundary_keeps_original_error_and_success_resets_detail(
                 deadline_scope: Deadline::None as i32,
                 tls_failure: None,
                 stream_failure: None,
+                challenge: None,
             })
         );
         observation.boundary(stage, async { Ok(()) }).await.unwrap();
@@ -134,6 +135,7 @@ async fn only_actual_elapsed_budget_sets_its_exact_operation_or_exchange_scope()
             deadline_scope: Deadline::Operation as i32,
             tls_failure: None,
             stream_failure: None,
+            challenge: None,
         })
     );
     observation.reset();
@@ -156,6 +158,7 @@ async fn only_actual_elapsed_budget_sets_its_exact_operation_or_exchange_scope()
             deadline_scope: Deadline::Exchange as i32,
             tls_failure: None,
             stream_failure: None,
+            challenge: None,
         })
     );
     observation.reset();
@@ -178,6 +181,7 @@ async fn only_actual_elapsed_budget_sets_its_exact_operation_or_exchange_scope()
             deadline_scope: Deadline::Operation as i32,
             tls_failure: None,
             stream_failure: None,
+            challenge: None,
         })
     );
     observation.reset();
@@ -335,6 +339,7 @@ async fn tls_failure_is_request_local_and_reset_by_success_or_another_boundary()
                 deadline_scope: Deadline::None as i32,
                 tls_failure: Some(failure as i32),
                 stream_failure: None,
+                challenge: None,
             })
         );
         observation
@@ -382,6 +387,7 @@ async fn enclosing_deadlines_clear_tls_failure_and_keep_their_original_scope() {
                 deadline_scope: scope as i32,
                 tls_failure: None,
                 stream_failure: None,
+                challenge: None,
             })
         );
     }

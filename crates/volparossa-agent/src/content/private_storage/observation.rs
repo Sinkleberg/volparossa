@@ -6,14 +6,21 @@ use std::{
     time::Duration,
 };
 
-use tokio::{net::UnixStream, time::timeout};
+use tokio::{
+    net::UnixStream,
+    time::{Instant, timeout_at},
+};
+use volparossa_content::private_storage::wire::begin_observation::{self, Observer};
 use volparossa_local_control::{
-    PrivateStorageDeadlineScope as Deadline, PrivateStorageRemoteDetail,
-    PrivateStorageRemoteStage as Stage, PrivateStorageStreamFailure, PrivateStorageTlsFailure,
+    PrivateStorageChallengePhase, PrivateStorageDeadlineScope as Deadline,
+    PrivateStorageRemoteDetail, PrivateStorageRemoteStage as Stage, PrivateStorageStreamFailure,
+    PrivateStorageTlsFailure,
 };
 
 use super::{ContentError, until_requester_closed};
 use crate::route_setup::ContentStreamOpenCause;
+
+mod challenge;
 
 pub(super) const fn stream_failure(cause: ContentStreamOpenCause) -> PrivateStorageStreamFailure {
     match cause {
@@ -40,6 +47,7 @@ pub(super) struct Observation {
     deadline: AtomicI32,
     tls_failure: AtomicI32,
     stream_failure: AtomicI32,
+    challenge: challenge::Progress,
 }
 
 impl Observation {
@@ -48,6 +56,7 @@ impl Observation {
     }
 
     pub(super) fn reset(&self) {
+        self.challenge.reset();
         self.stage
             .store(Stage::Unobserved as i32, Ordering::Relaxed);
         self.deadline
@@ -92,6 +101,7 @@ impl Observation {
                 .then_some(failure),
             stream_failure: (stream_failure != PrivateStorageStreamFailure::Unobserved as i32)
                 .then_some(stream_failure),
+            challenge: self.challenge.detail(),
         };
         // No observation for policy/resource/cancel, or an inner deadline while
         // awaiting an uninstrumented policy recheck. Never invent that boundary.
@@ -105,9 +115,14 @@ impl Observation {
     ) -> Result<T, ContentError> {
         self.reset();
         self.stage.store(stage as i32, Ordering::Relaxed);
+        if stage == Stage::Challenge {
+            self.challenge.enter();
+        }
         let result = preparation.await;
         if result.is_ok() {
             self.reset();
+        } else {
+            self.challenge.fail();
         }
         result
     }
@@ -142,11 +157,18 @@ impl Observation {
     ) -> impl Future<Output = Result<T, ContentError>> {
         // Construct the original timeout now, not lazily on our first poll: the
         // diagnostic wrapper must not shift the existing absolute deadline.
-        let operation = timeout(duration, operation);
+        let started = Instant::now();
+        let operation = timeout_at(started + duration, operation);
+        if scope == Deadline::Operation {
+            // The observation and deadline share this same construction-time instant,
+            // not a second clock reading or the first poll after admission waiting.
+            self.challenge.start_operation(started);
+        }
         async move {
             if let Ok(result) = operation.await {
                 result
             } else {
+                self.challenge.fail();
                 self.tls_failure.store(
                     PrivateStorageTlsFailure::Unobserved as i32,
                     Ordering::Relaxed,
@@ -158,6 +180,24 @@ impl Observation {
                 self.deadline.store(scope as i32, Ordering::Relaxed);
                 Err(ContentError::Unavailable)
             }
+        }
+    }
+}
+
+impl Observer for Observation {
+    fn phase(&self, phase: begin_observation::Phase) {
+        if self.stage.load(Ordering::Relaxed) == Stage::Challenge as i32 {
+            self.challenge.phase(match phase {
+                begin_observation::Phase::SelectorWriteFlush => {
+                    PrivateStorageChallengePhase::SelectorWriteFlush
+                }
+                begin_observation::Phase::GrantWriteFlush => {
+                    PrivateStorageChallengePhase::GrantWriteFlush
+                }
+                begin_observation::Phase::ChallengeReadVerify => {
+                    PrivateStorageChallengePhase::ChallengeReadVerify
+                }
+            });
         }
     }
 }

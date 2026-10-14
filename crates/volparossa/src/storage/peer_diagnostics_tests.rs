@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[path = "peer_challenge_diagnostics_tests.rs"]
+mod challenge_tests;
+
 fn value(error: &Error) -> serde_json::Value {
     let mut diagnostics = Diagnostics::default();
     diagnostics.push(
@@ -190,11 +193,11 @@ fn diagnostic_v1_replay_is_exact_and_v2_requires_its_new_nullable_field() {
     changed["version"] = 1.into();
     assert!(serde_json::from_value::<Diagnostics>(changed).is_err());
     let current = value(&anyhow::anyhow!("private-canary"));
-    assert_eq!(current["version"], 5);
+    assert_eq!(current["version"], 6);
     assert_eq!(current["failures"][0].as_object().unwrap().len(), 8);
     assert!(current["failures"][0]["agent_detail"].is_null());
     assert!(current["failures"][0]["agent_outcome"].is_null());
-    for version in [0, 6] {
+    for version in [0, 7] {
         let mut changed = historical.clone();
         changed["version"] = version.into();
         assert!(serde_json::from_value::<Diagnostics>(changed).is_err());
@@ -237,8 +240,10 @@ async fn correlated_agent_detail_reaches_only_the_bounded_ready_failure_projecti
             deadline_scope: PrivateStorageDeadlineScope::None as i32,
             tls_failure: Some(PrivateStorageTlsFailure::Io as i32),
             stream_failure: None,
+            challenge: None,
         },
-        serde_json::json!({"stage":"tls_handshake","deadline_scope":"none","tls_failure":"io","stream_failure":null}),
+        serde_json::json!({"stage":"tls_handshake","deadline_scope":"none","tls_failure":"io",
+            "stream_failure":null,"challenge":null}),
     )
     .await;
     for code in 1..=10 {
@@ -249,8 +254,10 @@ async fn correlated_agent_detail_reaches_only_the_bounded_ready_failure_projecti
                 deadline_scope: PrivateStorageDeadlineScope::None as i32,
                 tls_failure: None,
                 stream_failure: Some(code),
+                challenge: None,
             },
-            serde_json::json!({"stage":"stream_open","deadline_scope":"none","tls_failure":null,"stream_failure":failure}),
+            serde_json::json!({"stage":"stream_open","deadline_scope":"none","tls_failure":null,
+                "stream_failure":failure,"challenge":null}),
         )
         .await;
     }
@@ -313,7 +320,7 @@ async fn correlated_projection_case(
         );
     }
     let report = serde_json::to_value(diagnostics).unwrap();
-    assert_eq!(report["version"], 5);
+    assert_eq!(report["version"], 6);
     assert_eq!(report["omitted_failures"], 1);
     assert_eq!(report["failures"].as_array().unwrap().len(), 8);
     for (copy, failure) in report["failures"].as_array().unwrap().iter().enumerate() {
@@ -615,7 +622,7 @@ fn diagnostic_v5_stream_failures_reject_unknown_values_and_unrelated_scopes() {
         )
         .unwrap();
     let report = serde_json::to_value(joined).unwrap();
-    assert_eq!(report["version"], 5);
+    assert_eq!(report["version"], 6);
     assert_eq!(report["failures"][0]["fragment_index"], 2);
     assert_eq!(
         report["failures"][0]["agent_detail"]["stream_failure"],
@@ -698,7 +705,7 @@ fn diagnostic_v4_outcome_is_closed_and_requires_a_real_post_ready_boundary() {
 }
 
 #[test]
-fn diagnostic_v5_keeps_original_error_and_bounded_fragment_outcomes_without_identifiers() {
+fn diagnostic_v6_keeps_original_error_and_bounded_fragment_outcomes_without_identifiers() {
     let outcome: AgentOutcome =
         serde_json::from_value(outcome_report()["failures"][0]["agent_outcome"].clone()).unwrap();
     let error = Error::new(WireError::Io(io::Error::other("/private/id-and-keys")))
@@ -711,7 +718,7 @@ fn diagnostic_v5_keeps_original_error_and_bounded_fragment_outcomes_without_iden
     assert!(error.downcast_ref::<Boundary>().is_some());
     let report = value(&error);
     let mut expected = outcome_report();
-    expected["version"] = 5.into();
+    expected["version"] = 6.into();
     assert_eq!(report, expected);
     let hidden = value(&Error::new(io::Error::other("private")).context(outcome));
     assert!(hidden["failures"][0]["agent_outcome"].is_null());

@@ -5,6 +5,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ControlProtocolError, ControlResponse, ControlResult, control_response::Payload};
 
+mod challenge;
+pub use challenge::{
+    PrivateStorageChallengeDetail, PrivateStorageChallengePhase, PrivateStorageElapsedBucket,
+};
+
 /// Last polled private-storage preparation boundary; never a remote denial claim.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, prost::Enumeration, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -109,6 +114,9 @@ pub struct PrivateStorageRemoteDetail {
     /// Optional protected-stream failure; distinct from the later provider TLS.
     #[prost(enumeration = "PrivateStorageStreamFailure", optional, tag = "4")]
     pub stream_failure: Option<i32>,
+    /// Optional request-local challenge progress and coarse elapsed budgets.
+    #[prost(message, optional, tag = "5")]
+    pub challenge: Option<PrivateStorageChallengeDetail>,
 }
 
 impl PrivateStorageRemoteDetail {
@@ -161,6 +169,17 @@ impl PrivateStorageRemoteDetail {
                 ));
             }
         }
+        if let Some(challenge) = self.challenge {
+            challenge.validate()?;
+            if stage != PrivateStorageRemoteStage::Challenge
+                || self.tls_failure.is_some()
+                || self.stream_failure.is_some()
+            {
+                return Err(ControlProtocolError::Invalid(
+                    "private storage challenge combination",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -184,7 +203,8 @@ impl PrivateStorageRemoteDetail {
         if result != expected
             || ((self.deadline_scope != PrivateStorageDeadlineScope::None as i32
                 || self.tls_failure.is_some()
-                || self.stream_failure.is_some())
+                || self.stream_failure.is_some()
+                || self.challenge.is_some())
                 && result != ControlResult::Unavailable)
         {
             return Err(ControlProtocolError::Invalid(

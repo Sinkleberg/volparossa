@@ -8,6 +8,7 @@
 #[cfg(test)]
 mod tests;
 
+pub mod begin_observation;
 pub mod bridge_observation;
 pub mod diagnostic;
 
@@ -275,8 +276,25 @@ pub async fn begin<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    begin_observed(stream, grant, &begin_observation::Unobserved).await
+}
+
+/// The same challenge exchange with synchronous, request-local progress callbacks.
+/// The original frames, flushes, authentication checks and I/O budget are unchanged.
+///
+/// # Errors
+/// Returns exactly the failures of [`begin`]; observations do not authorize a retry.
+pub async fn begin_observed<S>(
+    stream: &mut S,
+    grant: &VerifiedStorageGrant,
+    observer: &impl begin_observation::Observer,
+) -> Result<StorageChallenge, WireError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     timeout(IO_TIMEOUT, async {
         grant.current(unix_now()?)?;
+        observer.phase(begin_observation::Phase::SelectorWriteFlush);
         write_frame(
             stream,
             &Selector {
@@ -287,7 +305,9 @@ where
             .encode_to_vec(),
         )
         .await?;
+        observer.phase(begin_observation::Phase::GrantWriteFlush);
         write_frame(stream, &grant.signed().encode()).await?;
+        observer.phase(begin_observation::Phase::ChallengeReadVerify);
         Ok(StorageChallenge::decode_and_verify(
             &read_frame(stream, MAX_CHALLENGE_BYTES).await?,
             grant,

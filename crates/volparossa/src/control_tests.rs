@@ -1,21 +1,42 @@
 use super::*;
 use volparossa_local_control::{
-    Empty, PrivateStorageDeadlineScope, PrivateStorageRemoteRequest, PrivateStorageRemoteStage,
+    Empty, PrivateStorageChallengeDetail, PrivateStorageChallengePhase, PrivateStorageDeadlineScope,
+    PrivateStorageElapsedBucket, PrivateStorageRemoteRequest, PrivateStorageRemoteStage,
     control_response::Payload, read_request, write_response,
 };
 
 #[tokio::test]
 async fn private_storage_detail_requires_initial_operation_and_exact_correlation() {
-    for (private_storage, correlated) in [(true, true), (false, true), (true, false)] {
-        let directory = tempfile::tempdir().unwrap();
-        let socket = directory.path().join("control.sock");
-        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
-        let detail = Some(PrivateStorageRemoteDetail {
+    for detail in [
+        PrivateStorageRemoteDetail {
             stage: PrivateStorageRemoteStage::ProviderLookup as i32,
             deadline_scope: PrivateStorageDeadlineScope::Operation as i32,
             tls_failure: None,
             stream_failure: None,
-        });
+            challenge: None,
+        },
+        PrivateStorageRemoteDetail {
+            stage: PrivateStorageRemoteStage::Challenge as i32,
+            deadline_scope: PrivateStorageDeadlineScope::Operation as i32,
+            tls_failure: None,
+            stream_failure: None,
+            challenge: Some(PrivateStorageChallengeDetail {
+                phase: PrivateStorageChallengePhase::ChallengeReadVerify as i32,
+                before_challenge: PrivateStorageElapsedBucket::Under1s as i32,
+                in_challenge: PrivateStorageElapsedBucket::AtLeast120s as i32,
+            }),
+        },
+    ] {
+        initial_detail_correlation_case(detail).await;
+    }
+}
+
+async fn initial_detail_correlation_case(detail: PrivateStorageRemoteDetail) {
+    for (private_storage, correlated) in [(true, true), (false, true), (true, false)] {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("control.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let detail = Some(detail);
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
             let request = read_request(&mut stream).await.unwrap();
@@ -75,6 +96,7 @@ async fn terminal_response_cannot_export_a_pre_ready_detail() {
                 deadline_scope: PrivateStorageDeadlineScope::None as i32,
                 tls_failure: None,
                 stream_failure: None,
+                challenge: None,
             }),
             payload: Some(Payload::Ack(Empty {})),
         },

@@ -382,7 +382,7 @@ private_storage_maintenance_finalize_report() {
         --slurpfile consumers "$WORK/handoff-report-consumers.part" \
         --slurpfile host "$WORK/handoff-report-host.part" --argjson complete "$CLEANUP_COMPLETE" \
         --argjson remaining "$REMAINING_OWNED_OBJECTS" '
-      {schema_version:5,report_kind:"volparossa-private-storage-maintenance",source_revision:$revision,run_id:$run,
+      {schema_version:6,report_kind:"volparossa-private-storage-maintenance",source_revision:$revision,run_id:$run,
        phase:$phase,runner_exit_status:$status,maintenance:$evidence[0],consumers:$consumers[0],
        success:($status == 0 and $evidence[0].success == true and $consumers[0].success == true and $complete and $remaining == 0 and $host[0].unchanged == true),
        observed_blocker:(if $blocker == "NONE" then null else $blocker end),
@@ -397,6 +397,6 @@ private_storage_maintenance_finalize_report() {
             install -o "$OUTPUT_UID" -g "$OUTPUT_GID" -m 0600 "$maintenance_artifact" "$output_directory/$maintenance_name"
         fi
     done
-    python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" report-consumer-v6 \
+    python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" report-consumer-v7 \
         "$WORK/private-storage-maintenance-smoke.json" "$expected_commit"
 }

@@ -533,7 +533,7 @@ async fn exchange(
         .await?;
     let challenge = observation
         .requester_boundary(Stage::Challenge, local, async {
-            wire::begin(&mut remote, &request.grant)
+            wire::begin_observed(&mut remote, &request.grant, observation)
                 .await
                 .map_err(|_| ContentError::Unavailable)
         })
