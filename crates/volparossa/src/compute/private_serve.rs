@@ -190,8 +190,7 @@ impl Active {
         let (activity, signal) = watch::channel(true);
         let execution = tokio::spawn(async move {
             let result = private_task::execute_mode(&config, input, signal, mode).await;
-            slot.finish(&result);
-            result
+            finish_execution(&mut slot, result)
         });
         Self {
             id,
@@ -218,6 +217,17 @@ impl Active {
             Err(_) => Err(private_task::CleanupUnconfirmed.into()),
         }
     }
+}
+
+fn finish_execution(slot: &mut ExecutionSlot, result: Result<Value>) -> Result<Value> {
+    slot.finish(&result);
+    if let Err(error) = &result {
+        // Cover failures before worker supervision and after report validation.
+        // The existing opt-in target emits only closed facts, never error text.
+        // This observation grants neither cleanup nor a different wire response.
+        super::supervise::diagnostic::failure("task", error);
+    }
+    result
 }
 
 impl Drop for Active {

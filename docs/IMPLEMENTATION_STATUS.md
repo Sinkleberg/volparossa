@@ -70,6 +70,22 @@ host-state evidence. Raw model output remains excluded. Original artifact
 original job-log ZIP SHA-256:
 `5ff8a4055bf966f192f80b366cbeb8428d77793c6ee6525b3109eecf292af36e`.
 
+The next diagnostic candidate observes failed private-service tasks after the
+existing cleanup-slot decision, including errors before worker supervision or
+after report validation. It uses the existing opt-in local diagnostic target
+and an exact closed list of setup/result-binding codes. Unknown errors remain
+unclassified; raw errors, paths, prompts, request identities and model output
+are not exported. Wire responses, cleanup/cancellation precedence, retry policy,
+model, resources and acceptance are unchanged. This is not a fix or a causal
+explanation for the six observed failures.
+
+The core's closed collector passes 23 Python checks; Code passes 25 smoke
+contracts and already uses that collector from its pinned core. Three new Rust
+tests cover real pre-supervisor admission failure, report rejection, logging
+enabled/disabled, privacy canaries and unchanged cleanup/cancellation behavior;
+hosted execution remains pending. No actual trial has been repeated on this
+diagnostic candidate.
+
 [Source-only native run `38671551374`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38671551374)
 on `b8bd8228` passes the normal build and all five check targets. ABI, loader,
 BF16/F32 and the new output-constraint tests also pass under ASan/UBSan. The

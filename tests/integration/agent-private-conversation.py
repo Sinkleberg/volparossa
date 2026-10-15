@@ -52,6 +52,17 @@ CLIENT_CODES = {'busy', 'invalid_request', 'handshake_required', 'cancelled', 'e
                 'not_connected', 'probe_failed'}
 SERVICE_PHASES = {'execution', 'capture', 'refresh', 'lifetime', 'reap', 'storage', 'task'}
 SERVICE_CODES = {
+    'compute_private_budget', 'compute_model_memory_headroom', 'compute_runtime_busy', 'compute_lock_invalid',
+    'compute_output_create', 'compute_sandbox_spawn', 'compute_sandbox_prerequisite', 'compute_runtime_missing',
+    'compute_native_backend_authorization', 'compute_native_backend_manifest_hash',
+    'compute_native_backend_manifest_schema', 'compute_native_backend_identity',
+    'compute_native_backend_artifacts', 'compute_native_backend_conversion', 'compute_native_backend_file',
+    'compute_native_backend_scope', 'compute_native_backend_policy', 'compute_native_backend_output_constraint',
+    'compute_private_result_scope', 'compute_private_result_input', 'compute_private_result_model',
+    'compute_private_result_model_weights', 'compute_private_result_outputs', 'compute_private_result_output',
+    'compute_native_backend_result_binding', 'compute_native_backend_result_precision',
+    'compute_native_backend_output_constraint_binding', 'conversation_generation_policy_binding',
+    'conversation_output_constraint_binding', 'conversation_report_binding',
     'unclassified', 'worker_other', 'startup_missing_result', 'result_observed', 'panic', 'join_cancelled',
     'compute_deadline', 'compute_owner_busy', 'compute_memory_budget', 'compute_storage_budget',
     'compute_process_bound', 'compute_thread_bound', 'compute_process_observation', 'compute_observation_size',

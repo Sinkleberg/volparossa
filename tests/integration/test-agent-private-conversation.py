@@ -221,7 +221,7 @@ class FixtureTests(unittest.TestCase):
                 FIX['service_diagnostic'](link)
 
     def test_native_output_subtypes_are_fixed_local_observations_not_raw_errors(self):
-        codes = {code for code in FIX['SERVICE_CODES'] if code.startswith('conversation_')}
+        codes = {code for code in FIX['SERVICE_CODES'] if code.startswith('conversation_') and not code.endswith('_binding')}
         self.assertEqual(len(codes), 15)
         events = [dict(version=1, phase='execution', detail=dict(code=code, io_kind='none',
             exit_code=None, signal=None, stderr_class=None)) for code in sorted(codes)]
@@ -236,6 +236,29 @@ class FixtureTests(unittest.TestCase):
             self.assertTrue(result['unrecognized_record'])
             self.assertFalse(result['truncated'])
             self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
+
+    def test_task_setup_and_report_failures_remain_closed_and_bounded(self):
+        source = (HERE.parents[1] / 'crates/volparossa/src/compute/supervise/diagnostic.rs').read_text()
+        prefix = source.split('const FIXED_CODES: &[&str] = &[', 1)[1].split('"compute_deadline"', 1)[0]
+        codes = re.findall(r'"([A-Za-z_]+)"', prefix)
+        self.assertEqual(len(codes), 30)
+        self.assertIn('compute_model_memory_headroom', codes)
+        self.assertIn('compute_private_result_scope', codes)
+        with tempfile.TemporaryDirectory(prefix='qwen-fixture-test-', dir=HERE) as directory:
+            path = Path(directory) / 'private.log'
+            for start in range(0, len(codes), 15):
+                events = [dict(version=1, phase='task', detail=dict(code=code, io_kind='none',
+                    exit_code=None, signal=None, stderr_class=None)) for code in codes[start:start + 15]]
+                invalid = dict(events[0], detail=dict(events[0]['detail'],
+                    code=events[0]['detail']['code'] + ' PRIVATE_CANARY'))
+                path.write_text(''.join('DEBUG private_execution_diagnostic ' + json.dumps(value) + '\n'
+                    for value in [*events, invalid]))
+                path.chmod(0o600)
+                result = FIX['service_diagnostic'](path)
+                self.assertEqual(result['events'], events)
+                self.assertTrue(result['unrecognized_record'])
+                self.assertFalse(result['truncated'])
+                self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
 
     def test_service_diagnostic_vocabulary_matches_source_and_log_is_not_exported(self):
         source = (HERE.parents[1] / 'crates/volparossa/src/compute/supervise/diagnostic.rs').read_text()

@@ -9,6 +9,38 @@ use std::sync::Mutex;
 mod generation;
 
 const FIXED_CODES: &[&str] = &[
+    // Private-service setup/result boundaries outside the worker supervisor.
+    // Exact equality only: prefixes and path-bearing messages remain unknown.
+    "compute_private_budget",
+    "compute_model_memory_headroom",
+    "compute_runtime_busy",
+    "compute_lock_invalid",
+    "compute_output_create",
+    "compute_sandbox_spawn",
+    "compute_sandbox_prerequisite",
+    "compute_runtime_missing",
+    "compute_native_backend_authorization",
+    "compute_native_backend_manifest_hash",
+    "compute_native_backend_manifest_schema",
+    "compute_native_backend_identity",
+    "compute_native_backend_artifacts",
+    "compute_native_backend_conversion",
+    "compute_native_backend_file",
+    "compute_native_backend_scope",
+    "compute_native_backend_policy",
+    "compute_native_backend_output_constraint",
+    "compute_private_result_scope",
+    "compute_private_result_input",
+    "compute_private_result_model",
+    "compute_private_result_model_weights",
+    "compute_private_result_outputs",
+    "compute_private_result_output",
+    "compute_native_backend_result_binding",
+    "compute_native_backend_result_precision",
+    "compute_native_backend_output_constraint_binding",
+    "conversation_generation_policy_binding",
+    "conversation_output_constraint_binding",
+    "conversation_report_binding",
     "compute_deadline",
     "compute_owner_busy",
     "compute_memory_budget",
@@ -564,6 +596,19 @@ assert result == dict(version=1, truncated=False, unrecognized_record=False, sta
             "closed diagnostic parser rejected actual subscriber output"
         );
         assert!(result.stdout.is_empty() && result.stderr.is_empty());
+    }
+
+    #[test]
+    fn fixed_task_codes_require_exact_equality_and_do_not_disclose_context() {
+        for code in FIXED_CODES {
+            let error = anyhow::anyhow!("PRIVATE_TASK_CANARY /private/input").context(*code);
+            let detail = describe(&error);
+            assert_eq!(detail.code, *code);
+            let raw = serde_json::to_string(&detail).unwrap();
+            assert!(!raw.contains("PRIVATE_TASK_CANARY") && !raw.contains("/private/input"));
+            let altered = anyhow::anyhow!("{code} PRIVATE_TASK_CANARY");
+            assert_eq!(describe(&altered).code, "unclassified");
+        }
     }
 
     #[test]
