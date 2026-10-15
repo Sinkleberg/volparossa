@@ -223,8 +223,7 @@ async fn append_timing_is_requested_in_same_query_and_unsolicited_or_invalid_dat
             // The closed listener makes any unexpected second query fail the expected status.
         });
         let outcome =
-            super::super::diagnostics::with_append_timing(enabled, query(&socket, &[43; 16]))
-                .await;
+            super::super::diagnostics::with_append_timing(enabled, query(&socket, &[43; 16])).await;
         server.await.unwrap();
         assert_eq!(outcome.status, expected);
         assert!(outcome.valid());

@@ -73,7 +73,11 @@ fn append_diagnostics_v7_keeps_exact_historical_outcome_shapes() {
 
 #[test]
 fn append_diagnostics_v7_closes_bucket_nullable_and_operation_phase_domains() {
-    for field in ["before_payload", "in_payload_write_flush", "in_receipt_read"] {
+    for field in [
+        "before_payload",
+        "in_payload_write_flush",
+        "in_receipt_read",
+    ] {
         for bucket in BUCKETS {
             let mut report = append_report();
             report["failures"][0]["agent_outcome"]["append_timing"][field] = bucket.into();
@@ -114,10 +118,19 @@ fn append_diagnostics_v7_closes_bucket_nullable_and_operation_phase_domains() {
         let mut report = append_report();
         report["failures"][0]["agent_outcome"]["detail"]["phase"] = phase.into();
         report["failures"][0]["agent_outcome"]["append_timing"]["in_receipt_read"] = receipt;
-        assert_eq!(serde_json::from_value::<Diagnostics>(report).is_ok(), expected);
+        assert_eq!(
+            serde_json::from_value::<Diagnostics>(report).is_ok(),
+            expected
+        );
     }
     for operation in [
-        "prepare", "reserve", "progress", "finalize", "renew", "read_range", "delete",
+        "prepare",
+        "reserve",
+        "progress",
+        "finalize",
+        "renew",
+        "read_range",
+        "delete",
     ] {
         let mut report = append_report();
         report["failures"][0]["operation"] = operation.into();
@@ -250,10 +263,9 @@ fn append_diagnostics_cli_is_explicit_per_replica_or_fragment_command() {
         }
     }
     for group in ["local", "peer"] {
-        let error = crate::Cli::try_parse_from([
-            "volparossa", "storage", group, "--append-diagnostics-v7",
-        ])
-        .unwrap_err();
+        let error =
+            crate::Cli::try_parse_from(["volparossa", "storage", group, "--append-diagnostics-v7"])
+                .unwrap_err();
         assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 }

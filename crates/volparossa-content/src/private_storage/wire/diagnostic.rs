@@ -226,11 +226,9 @@ macro_rules! payload_io_code {
                 $boundary,
                 "__INTERRUPTED"
             ),
-            PayloadIoKind::Other => concat!(
-                "CONTENT_PROVIDER_STORAGE_V2_APPEND__",
-                $boundary,
-                "__OTHER"
-            ),
+            PayloadIoKind::Other => {
+                concat!("CONTENT_PROVIDER_STORAGE_V2_APPEND__", $boundary, "__OTHER")
+            }
         }
     };
 }

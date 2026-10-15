@@ -952,7 +952,11 @@ async fn provider_failure_event(
                 unix_millis(),
             );
             if let Some(code) = failure.payload_io_event_code() {
-                state.log(volparossa_local_control::LogLevel::Info, code, unix_millis());
+                state.log(
+                    volparossa_local_control::LogLevel::Info,
+                    code,
+                    unix_millis(),
+                );
             }
         }
     }
