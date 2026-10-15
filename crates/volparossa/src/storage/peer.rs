@@ -40,11 +40,8 @@ pub(super) async fn with_diagnostics<F: Future>(
     flow_v8: bool,
     work: F,
 ) -> F::Output {
-    diagnostics::with_flow_acquire(
-        flow_v8,
-        with_append_diagnostics(append_v7 || flow_v8, work),
-    )
-    .await
+    diagnostics::with_flow_acquire(flow_v8, with_append_diagnostics(append_v7 || flow_v8, work))
+        .await
 }
 
 #[derive(Debug, Subcommand)]

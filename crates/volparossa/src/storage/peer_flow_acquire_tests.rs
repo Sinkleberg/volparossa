@@ -13,11 +13,11 @@ use volparossa_local_control::{
     control_response::Payload, read_request, write_response,
 };
 
-use super::*;
 use super::super::{
     diagnostics::{Boundary, Diagnostics, Stage, append_timing_enabled, flow_acquire_enabled},
     outcome, with_diagnostics,
 };
+use super::*;
 
 const HELPER_REASONS: [&str; 12] = [
     "helper_kernel",
@@ -60,7 +60,10 @@ fn allowed(stage: &str, reason: &str) -> bool {
         }
         "material" => matches!(reason, "metadata" | "topology"),
         "slot_reservation" => {
-            matches!(reason, "unconfirmed" | "local_capacity" | "local_unavailable")
+            matches!(
+                reason,
+                "unconfirmed" | "local_capacity" | "local_unavailable"
+            )
         }
         "helper_acquire" => HELPER_REASONS.contains(&reason),
         "descriptor_clone" => reason == "io",
@@ -75,10 +78,9 @@ fn flow_acquire_v8_accepts_exactly_35_pairs_on_each_endpoint() {
     for endpoint in ["first", "last"] {
         let mut accepted = 0;
         for stage in 0..=8 {
-            let stage = serde_json::to_value(
-                PrivateStorageFlowAcquireStage::try_from(stage).unwrap(),
-            )
-            .unwrap();
+            let stage =
+                serde_json::to_value(PrivateStorageFlowAcquireStage::try_from(stage).unwrap())
+                    .unwrap();
             for reason in 0..=19 {
                 let reason = serde_json::to_value(
                     PrivateStorageFlowAcquireReason::try_from(reason).unwrap(),
@@ -109,7 +111,10 @@ fn flow_acquire_v8_binds_round_count_and_first_last_equality() {
         assert_eq!(replay(value.clone()), value);
         value["failures"][0]["agent_detail"]["flow_acquire"]["last"]["reason"] =
             "helper_timeout".into();
-        assert_eq!(serde_json::from_value::<Diagnostics>(value).is_ok(), rounds > 1);
+        assert_eq!(
+            serde_json::from_value::<Diagnostics>(value).is_ok(),
+            rounds > 1
+        );
     }
     for invalid in [
         json!(0),
@@ -189,18 +194,30 @@ fn flow_acquire_v8_requires_the_original_ready_stream_unavailable_boundary() {
         ("/failures/0/agent_code", json!("unknown")),
         ("/failures/0/agent_code", Value::Null),
         ("/failures/0/agent_detail/stage", json!("challenge")),
-        ("/failures/0/agent_detail/deadline_scope", json!("operation")),
+        (
+            "/failures/0/agent_detail/deadline_scope",
+            json!("operation"),
+        ),
         ("/failures/0/agent_detail/deadline_scope", json!("exchange")),
         ("/failures/0/agent_detail/tls_failure", json!("io")),
-        ("/failures/0/agent_detail/stream_failure", json!("route_state")),
+        (
+            "/failures/0/agent_detail/stream_failure",
+            json!("route_state"),
+        ),
         ("/failures/0/agent_detail/stream_failure", Value::Null),
-        ("/failures/0/agent_detail/challenge", json!({
-            "phase":"challenge_read_verify", "before_challenge":"under_1s",
-            "in_challenge":"under_1s"
-        })),
-        ("/failures/0/agent_outcome", json!({
-            "status":"missing", "detail":null, "append_timing":null
-        })),
+        (
+            "/failures/0/agent_detail/challenge",
+            json!({
+                "phase":"challenge_read_verify", "before_challenge":"under_1s",
+                "in_challenge":"under_1s"
+            }),
+        ),
+        (
+            "/failures/0/agent_outcome",
+            json!({
+                "status":"missing", "detail":null, "append_timing":null
+            }),
+        ),
     ] {
         let mut value = report();
         *value.pointer_mut(pointer).unwrap() = invalid;
@@ -227,7 +244,9 @@ fn flow_acquire_v8_preserves_exact_historical_json_bytes_and_rejects_cross_gener
     for version in 1..=7 {
         let mut detail = String::new();
         if version >= 2 {
-            detail.push_str(",\"agent_detail\":{\"stage\":\"provider_lookup\",\"deadline_scope\":\"none\"");
+            detail.push_str(
+                ",\"agent_detail\":{\"stage\":\"provider_lookup\",\"deadline_scope\":\"none\"",
+            );
             if version >= 3 {
                 detail.push_str(",\"tls_failure\":null");
             }
@@ -367,7 +386,10 @@ async fn flow_acquire_v8_cli_is_explicit_and_mutually_exclusive_with_v7() {
                 else {
                     panic!();
                 };
-                assert_eq!((append_diagnostics_v7, flow_acquire_diagnostics_v8), expected);
+                assert_eq!(
+                    (append_diagnostics_v7, flow_acquire_diagnostics_v8),
+                    expected
+                );
             }
         }
         for first in ["--append-diagnostics-v7", "--flow-acquire-diagnostics-v8"] {
@@ -653,7 +675,12 @@ async fn flow_acquire_v8_never_classifies_free_text_or_exports_private_error_con
         for field in ["agent_code", "agent_detail", "agent_outcome"] {
             assert!(value["failures"][0][field].is_null());
         }
-        for private in ["CONTENT_UNAVAILABLE", "flow_acquire", "helper_capacity", "prompt-canary"] {
+        for private in [
+            "CONTENT_UNAVAILABLE",
+            "flow_acquire",
+            "helper_capacity",
+            "prompt-canary",
+        ] {
             assert!(!value.to_string().contains(private));
         }
     })
