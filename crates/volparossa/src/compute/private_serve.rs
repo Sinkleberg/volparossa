@@ -337,14 +337,12 @@ fn respond(
                 wire::error(Some(&request.id), "cleanup_unconfirmed")
             } else if active.is_some() {
                 wire::error(Some(&request.id), "busy")
-            } else if conversation.output_constraint().is_some()
+            } else if (conversation.output_constraint().is_some()
                 && !config
                     .native_backend
-                    .supports_output_constraint(config.model_profile)
-            {
-                wire::error(Some(&request.id), "invalid_request")
-            } else if config.native_backend.enabled()
-                && !conversation.requires_generation_policy_handshake()
+                    .supports_output_constraint(config.model_profile))
+                || (config.native_backend.enabled()
+                    && !conversation.requires_generation_policy_handshake())
             {
                 wire::error(Some(&request.id), "invalid_request")
             } else if let Some(slot) = ExecutionSlot::admit(gate) {

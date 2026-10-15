@@ -36,12 +36,34 @@ tool use, prompt truncation, extra time or alternate model is introduced.
 through the actual worker/encode/decode path with a synthetic native executor.
 That test caught and corrected a cross-layer input-field rejection. Thirteen
 new Rust cases cover manifest, request/result, parser and IPC bindings; execution
-is pending on GitHub. Source-only C++ checks exercise the pinned grammar with
-synthetic pieces; their native compilation and sanitizer execution are pending.
-The new hosted workflow retains failures and runs the constraint checks before
-the unchanged all-type tensor test with its known sanitizer finding. No local
-Rust, native build or inference ran. These contracts are not proof of an actual
-OpenCode coding task or protected peer execution.
+remains pending. Hosted Quality run `38671767972` on `030c16f0` passes formatting,
+native Python contracts and dependency checks, but strict Clippy rejects two
+adjacent identical rejection branches (`if_same_then_else`). They are now one
+equivalent disjunction, without suppressing the lint or changing admission.
+The earlier run `38671600105` stopped at formatting, before Rust compilation;
+`030c16f0` changes only those seven formatting hunks. These contracts are not
+proof of an actual OpenCode coding task or protected peer execution.
+
+[Source-only native run `38671551374`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38671551374)
+on `b8bd8228` passes the normal build and all five check targets. ABI, loader,
+BF16/F32 and the new output-constraint tests also pass under ASan/UBSan. The
+unchanged upstream all-type test then fails on the already recorded unaligned
+Q1_0/Q8_0 load at `ggml/src/ggml-cpu/arch/x86/quants.c:590`; the full sanitizer
+job remains **failed**. The selected converter and model adapter admit BF16/F32,
+not this quantized kernel. This narrower evidence supports the next bounded
+development trial, not a clean upstream sanitizer result or release readiness.
+No model was loaded and no local Rust, native build or inference ran.
+
+The normal build's v3 manifest binds the six wrapper sources, exact upstream
+tree and library SHA-256
+`3e59444d6f81c753ab1fcd3418ebabfb42f0368b24c76961ee59ddaf339617fa`.
+Native sources, Python contracts and workflow are byte-identical between
+`b8bd8228` and `030c16f0`. Original normal artifact SHA-256:
+`40ecaab5262d043a25b3d30d52a641f8406130103741e00d6857eca925201163`;
+sanitizer artifact:
+`3c948ae71d8c54870fe1a151b95d699556aa0907f9ccd17b5a9d3d18d71b5272`;
+job-log ZIP:
+`21b840e5ec8c39d8e7af2d9b23214b6eb1a5b04f324343fd57386a6ab8d21dde`.
 
 Initial source-only run `38671269423` on `4e5126ad` stops before compilation or
 build-log creation in both modes. The original preflight resolves CMake to
