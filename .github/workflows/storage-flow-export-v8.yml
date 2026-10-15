@@ -172,11 +172,11 @@ jobs:
             if test -n "$skip"; then
               exclusions=(--skip "$skip")
             fi
-            # Cargo uses substring filters: the unrelated compute document
-            # module also contains `storage::` in its fully qualified names.
-            if test "$label" = cli-historical; then
-              exclusions+=(--skip compute::)
-            fi
+            # Cargo uses substring filters: unrelated compute modules also
+            # contain `storage::` or `control::tests::` in their full names.
+            case "$label" in
+              cli-historical|cli-control) exclusions+=(--skip compute::) ;;
+            esac
             timeout --kill-after=5s 600s \
               cargo test --locked --offline -p "$package" "${target[@]}" "$filter" \
               -- --list "${exclusions[@]}" 2>&1 | tee "storage-flow-v8-evidence/$label-inventory.log"
