@@ -376,8 +376,8 @@ getfacl() { printf 'original inert ACL\\n'; }
         for raw in ('emulator-diagnostic.json', 'guest-network-diagnostic.json'):
             self.assertNotIn(raw, block('Upload only closed evidence and pinned-input provenance'))
 
-    def test_early_driver_projection_is_bounded_local_only_after_cleanup(self):
-        name = 'Project closed early guest-driver failure observations'
+    def test_early_or_late_driver_projection_is_bounded_local_only_after_cleanup(self):
+        name = 'Project closed early or late guest-driver failure observations'
         section = block(name)
         self.assertIn("if: always() && env.WEATHER_OUTPUT != ''", section)
         self.assertIn('timeout --signal=TERM --kill-after=1s 10s python3 -B '

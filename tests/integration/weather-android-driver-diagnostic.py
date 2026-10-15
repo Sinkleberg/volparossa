@@ -49,6 +49,18 @@ for _node in "client bootstrap1 bootstrap2 relay0 relay1 relay2 relay3 relay4 re
     for _check in "SERVICE_UNAVAILABLE SOCKET_UNAVAILABLE MAINPID_INVALID GETUNITBYPID_MISMATCH NETWORK_NAMESPACE_MISMATCH NOTIFY_CONTRACT FDSTORE_MAX_CONTRACT FDSTORE_PRESERVE_CONTRACT CGROUP_CONTRACT SOCKET_METADATA".split():
         BLOCKERS[f"HELPER_{_check}_{_node}"] = "helper"
 BLOCKER_VALUES = frozenset(BLOCKER_GROUPS) | {"helper", "unknown", "none"}
+# Schema one retains its original finite projection. These existing guest
+# postflight guards are visible only in the new, late-driver schema two.
+POSTFLIGHT_BLOCKER_GROUPS = {
+    "android-path-capture": "WEATHER_ANDROID_PATHS_UNAVAILABLE",
+    "android-observer-close": "WEATHER_ANDROID_CAPTURE_INCOMPLETE",
+    "weather-source-changed": "WEATHER_PRODUCTS_SOURCE_CHANGED",
+    "android-guest-evidence": "WEATHER_ANDROID_EVIDENCE_INVALID",
+    "android-controller-cleanup": "WEATHER_ANDROID_CONTROLLER_CLEANUP_FAILED",
+}
+LATE_BLOCKERS = dict(BLOCKERS, **{literal: category
+    for category, literals in POSTFLIGHT_BLOCKER_GROUPS.items() for literal in literals.split()})
+LATE_BLOCKER_VALUES = BLOCKER_VALUES | frozenset(POSTFLIGHT_BLOCKER_GROUPS)
 REPORT_FLAGS = frozenset("general_nat_reachability_claimed full_c02_claimed explicit_origin_authenticated_https normal_user_publication native_name_retrieval native_static_site public_filter_snapshot adaptive_provider_workers pressure late_provider_recovery requester_cancellation browser_integration_claimed arbitrary_https_integration_claimed speed_improvement_claimed full_alpha_acceptance_claimed".split())
 REPORT_KEYS = REPORT_FLAGS | {"schema_version", "report_kind", "source_revision", "run_id", "phase", "success", "transfer", "runner_exit_status", "observed_blocker", "cleanup", "host_state", "scope"}
 
@@ -108,7 +120,7 @@ def read_source(root, relative, limit, projector):
         return observation("rejected")
 
 
-def owner_gate(value, expected):
+def early_owner_gate(value, expected):
     """Accept only the current, closed early-driver failure shape; not success."""
     exact(value, ("schema", "kind", "identity", "phase", "statuses", "owner_cleanup", "owner_stop",
         "tunnel_diagnostic", "native_diagnostic", "weather_records", "diagnostic_only", "success",
@@ -142,7 +154,57 @@ def owner_gate(value, expected):
     return dict(reason="driver-exited", stage="read-ready", driver_status=child["status"])
 
 
-def provider(raw, expected):
+def late_owner_gate(value, expected):
+    """The exact observed post-native failure, not guest API/evidence success.
+
+    The owner accepted the native result, tunnel record and finalize request,
+    then rejected the guest driver's exit status. None of those facts proves
+    successful guest API finalization or establishes the guest failure cause.
+    """
+    require(type(value) is dict)
+    exact(value["statuses"], ("driver", "native", "tunnel"))
+    status = value["statuses"]["driver"]
+    E["integer"](status, -255, 255); require(status != 0)
+    children = {name: dict(state="exited", status=code, stdout_open=False, stderr_open=False)
+        for name, code in (("driver", status), ("native", 0), ("tunnel", 0))}
+    same(value, dict(schema=8, kind="weather-android-owner-failure", identity=expected, phase="driver-join",
+        statuses=dict(driver=status, native=0, tunnel=0),
+        owner_stop=dict(reason="guard-rejected", stage="driver-join", budgets=[], children=children, output_overflow=False),
+        owner_cleanup=dict(children_joined=True, output_drained=True, forced_kill=False,
+            socket_removed=True, host_netns_unchanged=True),
+        tunnel_diagnostic=None, native_diagnostic=dict(state="absent", record=None),
+        weather_records=dict(result=dict(state="available", facts=dict(schema=1,
+            kind="hosted-android-protected-core-installed-trial", phase="complete", success=True,
+            process_drain_confirmed=True, policy_cleanup_complete=True, host_netns_unchanged=True,
+            synthetic=False, expiry_proven=False, core_delivery=False, joined_core_acceptance=False,
+            mobile_core=False, production_authority=False)), failure=dict(state="absent", facts=None),
+            emulator_cleanup=dict(state="available", facts=dict(schema=1, direct_children_reaped=True,
+                private_avd_removed=True, private_android_home_removed=True, trial_returned=True,
+                enclosing_namespace_cleanup_required=True))),
+        diagnostic_only=True, success=False, joined_core_acceptance=False, vm_cleanup_pending=True,
+        expiry_proven=False, physical_device=False, production_authority=False))
+    return dict(reason="guard-rejected", stage="driver-join", driver_status=status)
+
+
+def owner_gate(value, expected):
+    identity(expected)
+    require(type(value) is dict)
+    if value.get("phase") == "driver-join": return late_owner_gate(value, expected)
+    return early_owner_gate(value, expected)
+
+
+def diagnostic_schema(stop):
+    exact(stop, ("reason", "stage", "driver_status"))
+    E["integer"](stop["driver_status"], -255, 255); require(stop["driver_status"] != 0)
+    if stop["stage"] == "read-ready":
+        same(stop["reason"], "driver-exited")
+        return 1
+    same(stop["stage"], "driver-join"); same(stop["reason"], "guard-rejected")
+    return 2
+
+
+def provider(raw, expected, schema=1):
+    E["integer"](schema, 1, 2)
     value = E["decode"](raw, 1048576)
     exact(value, REPORT_KEYS)
     same(value["schema_version"], 4)
@@ -160,7 +222,8 @@ def provider(raw, expected):
     phase = finite(value["phase"], TOPOLOGY_PHASES)
     blocker = value["observed_blocker"]
     require(blocker is None or type(blocker) is str and len(blocker) <= 256)
-    facts = dict(phase=phase, blocker="none" if blocker is None else BLOCKERS.get(blocker, "unknown"),
+    blockers = BLOCKERS if schema == 1 else LATE_BLOCKERS
+    facts = dict(phase=phase, blocker="none" if blocker is None else blockers.get(blocker, "unknown"),
         runner_exit_status=value["runner_exit_status"])
     # Compare original selected facts and private run binding before projecting.
     # Different unreviewed strings must not look equal merely because both map
@@ -196,10 +259,11 @@ def phase(raw):
 
 
 def receipt(root, expected, stop):
+    schema = diagnostic_schema(stop)
     sources, originals = {}, []
     for label, relative in ROOTS.items():
         report = read_source(root, str(Path(relative) / "content-provider-smoke.json"), 1048576,
-            lambda raw: provider(raw, expected))
+            lambda raw: provider(raw, expected, schema))
         if report["state"] == "available":
             originals.append(report["facts"]["binding"])
             report["facts"] = report["facts"]["facts"]
@@ -208,7 +272,7 @@ def receipt(root, expected, stop):
     if conflict:
         for row in sources.values():
             if row["report"]["state"] != "absent": row["report"] = observation("rejected")
-    result = dict(schema=1, kind="weather-android-driver-diagnostic", identity=expected, owner_stop=stop,
+    result = dict(schema=schema, kind="weather-android-driver-diagnostic", identity=expected, owner_stop=stop,
         sources=sources, provider_consistency="rejected" if conflict else "absent" if not originals else "single" if len(originals) == 1 else "consistent",
         vm=read_source(root, "vm-incomplete.json", 65536, lambda raw: vm(raw, expected)),
         diagnostic_only=True, success=False, joined_core_acceptance=False, cause_established=False,
@@ -227,20 +291,21 @@ def validate_observation(value, validator):
 def validate_receipt(value):
     exact(value, ("schema", "kind", "identity", "owner_stop", "sources", "provider_consistency", "vm",
         "diagnostic_only", "success", "joined_core_acceptance", "cause_established", "cleanup_verified", "physical_device", "production_authority"))
-    same(value["schema"], 1); same(value["kind"], "weather-android-driver-diagnostic"); identity(value["identity"])
+    E["integer"](value["schema"], 1, 2)
+    same(value["schema"], diagnostic_schema(value["owner_stop"]))
+    same(value["kind"], "weather-android-driver-diagnostic"); identity(value["identity"])
+    if value["schema"] == 2: same(value["identity"]["weather_commit"], WEATHER_COMMIT)
     same(value["diagnostic_only"], True)
     for key in ("success", "joined_core_acceptance", "cause_established", "cleanup_verified", "physical_device", "production_authority"):
         same(value[key], False)
-    exact(value["owner_stop"], ("reason", "stage", "driver_status"))
-    same(value["owner_stop"]["reason"], "driver-exited"); same(value["owner_stop"]["stage"], "read-ready")
-    E["integer"](value["owner_stop"]["driver_status"], -255, 255); require(value["owner_stop"]["driver_status"] != 0)
     def phase_value(item):
         require(item is None or type(item) is str and item in TOPOLOGY_PHASES | {"unknown"})
     def check_phase(facts):
         exact(facts, ("phase",)); phase_value(facts["phase"]); require(facts["phase"] is not None)
     def check_report(facts):
         exact(facts, ("phase", "blocker", "runner_exit_status")); check_phase(dict(phase=facts["phase"]))
-        require(type(facts["blocker"]) is str and facts["blocker"] in BLOCKER_VALUES)
+        blockers = BLOCKER_VALUES if value["schema"] == 1 else LATE_BLOCKER_VALUES
+        require(type(facts["blocker"]) is str and facts["blocker"] in blockers)
         E["integer"](facts["runner_exit_status"], 0, 255)
     exact(value["sources"], ROOTS)
     states, reports = [], []
@@ -270,7 +335,7 @@ def export(root, expected):
     try:
         stop = owner_gate(E["decode"](private_read(root, "weather-android-owner-failure.json", 65536), 65536), expected)
     except ERRORS:
-        return False  # Not this admitted early failure; no new authority or record.
+        return False  # Neither admitted failure shape; no new authority or record.
     result = receipt(root, expected, stop)
     with os.fdopen(os.open(root / NAME, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "wb") as stream:
         os.fchmod(stream.fileno(), 0o600); stream.write(encoded(result)); stream.flush()

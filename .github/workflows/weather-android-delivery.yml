@@ -353,7 +353,7 @@ jobs:
           # END ACL_CLEANUP
           PY
           fi
-      - name: Project closed early guest-driver failure observations
+      - name: Project closed early or late guest-driver failure observations
         if: always() && env.WEATHER_OUTPUT != ''
         run: |
           set -euo pipefail

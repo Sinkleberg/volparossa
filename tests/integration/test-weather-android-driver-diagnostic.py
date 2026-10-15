@@ -31,6 +31,26 @@ def owner_fixture():
         expiry_proven=False, physical_device=False, production_authority=False)
 
 
+def late_owner_fixture():
+    # Exact closed shape from actual 38679477312's original 13-file artifact;
+    # owner SHA256 423636b9572117ec988ec3dc6ee5d75a5a34322a5b88d203e8f68c7d58110c16.
+    # Only run/source identity is replaced with the deterministic test identity.
+    value = owner_fixture()
+    value.update(phase="driver-join", statuses=dict(driver=1, native=0, tunnel=0))
+    value["owner_stop"].update(reason="guard-rejected", stage="driver-join")
+    for name in ("native", "tunnel"):
+        value["owner_stop"]["children"][name].update(state="exited", status=0)
+    value["weather_records"]["result"] = dict(state="available", facts=dict(schema=1,
+        kind="hosted-android-protected-core-installed-trial", phase="complete", success=True,
+        process_drain_confirmed=True, policy_cleanup_complete=True, host_netns_unchanged=True,
+        synthetic=False, expiry_proven=False, core_delivery=False, joined_core_acceptance=False,
+        mobile_core=False, production_authority=False))
+    value["weather_records"]["emulator_cleanup"] = dict(state="available", facts=dict(schema=1,
+        direct_children_reaped=True, private_avd_removed=True, private_android_home_removed=True,
+        trial_returned=True, enclosing_namespace_cleanup_required=True))
+    return value
+
+
 def provider_fixture():
     return dict({key: False for key in D["REPORT_FLAGS"]}, schema_version=4,
         report_kind="volparossa-native-content-providers", source_revision=IDENTITY["core_commit"],
@@ -66,6 +86,9 @@ class DriverDiagnosticTests(unittest.TestCase):
 
     def receipt(self):
         return D["receipt"](self.root, IDENTITY, D["owner_gate"](owner_fixture(), IDENTITY))
+
+    def late_receipt(self):
+        return D["receipt"](self.root, IDENTITY, D["owner_gate"](late_owner_fixture(), IDENTITY))
 
     def test_normal_failed_report_without_phase_file(self):
         self.write("content-provider-smoke.json", provider_fixture())
@@ -297,6 +320,146 @@ class DriverDiagnosticTests(unittest.TestCase):
             self.assertFalse((self.root / D["NAME"]).exists())
         changed = copy.deepcopy(original); changed["identity"]["weather_commit"] = "b" * 40
         with self.assertRaises(ValueError): D["validate_receipt"](changed)
+
+    def test_original_late_owner_shape_keeps_missing_guest_facts_unknown(self):
+        stop = D["owner_gate"](late_owner_fixture(), IDENTITY)
+        self.assertEqual(stop, dict(reason="guard-rejected", stage="driver-join", driver_status=1))
+        result = self.late_receipt()
+        self.assertEqual(result["schema"], 2)
+        self.assertEqual(result["owner_stop"], stop)
+        self.assertEqual(result["provider_consistency"], "absent")
+        self.assertTrue(all(row["report"]["state"] == row["phase"]["state"] == "absent"
+            for row in result["sources"].values()))
+        self.assertEqual(result["vm"], dict(state="absent", facts=None))
+        for key in ("success", "joined_core_acceptance", "cause_established", "cleanup_verified",
+                    "physical_device", "production_authority"):
+            self.assertIs(result[key], False)
+
+    def test_every_late_owner_fact_is_exact_not_just_exit_status(self):
+        original = late_owner_fixture()
+        def changes(value, path=()):
+            if type(value) is dict:
+                yield path, dict(value, unreviewed=CANARY)
+                for key, child in value.items():
+                    missing = dict(value); del missing[key]
+                    yield path, missing
+                    yield from changes(child, (*path, key))
+            elif type(value) is bool:
+                yield path, not value
+                yield path, int(value)
+            elif type(value) is int:
+                yield path, bool(value)
+                yield path, value + 1
+            elif type(value) is list:
+                yield path, [CANARY]
+            else:
+                yield path, CANARY
+        for path, replacement in changes(original):
+            value = copy.deepcopy(original)
+            if path:
+                selected = value
+                for key in path[:-1]: selected = selected[key]
+                selected[path[-1]] = replacement
+            else: value = replacement
+            with self.subTest(path=path, replacement=type(replacement).__name__):
+                with self.assertRaises((ValueError, KeyError, TypeError)):
+                    D["owner_gate"](value, IDENTITY)
+                self.write("weather-android-owner-failure.json", value)
+                self.assertFalse(D["export"](self.root, IDENTITY))
+                self.assertFalse((self.root / D["NAME"]).exists())
+
+    def test_late_nonzero_driver_status_preserved_after_join_only(self):
+        for status in (-255, -15, 1, 255):
+            value = late_owner_fixture(); value["statuses"]["driver"] = status
+            value["owner_stop"]["children"]["driver"]["status"] = status
+            self.assertEqual(D["owner_gate"](value, IDENTITY)["driver_status"], status)
+        for status in (0, True, -256, 256, 1.5):
+            value = late_owner_fixture(); value["statuses"]["driver"] = status
+            value["owner_stop"]["children"]["driver"]["status"] = status
+            with self.assertRaises(ValueError): D["owner_gate"](value, IDENTITY)
+
+    def test_late_postflight_labels_do_not_broaden_schema_one(self):
+        source = Path(__file__).with_name("weather-android-delivery.sh").read_text()
+        for category, literals in D["POSTFLIGHT_BLOCKER_GROUPS"].items():
+            for literal in literals.split():
+                self.assertIn("fail " + literal, source)
+                value = provider_fixture()
+                value.update(phase="weather-android-delivery-verify", observed_blocker=literal)
+                self.write("content-provider-smoke.json", value)
+                early, late = self.receipt(), self.late_receipt()
+                self.assertEqual(early["schema"], 1)
+                self.assertEqual(early["sources"]["normal"]["report"]["facts"]["blocker"], "unknown")
+                self.assertEqual(late["sources"]["normal"]["report"]["facts"]["blocker"], category)
+                early["sources"]["normal"]["report"]["facts"]["blocker"] = category
+                with self.assertRaises(ValueError): D["validate_receipt"](early)
+                value["observed_blocker"] += CANARY
+                self.write("content-provider-smoke.json", value)
+                self.assertEqual(self.late_receipt()["sources"]["normal"]["report"]["facts"]["blocker"], "unknown")
+
+    def test_late_projection_retains_original_sources_but_never_private_content(self):
+        value = provider_fixture()
+        value.update(phase=CANARY, observed_blocker=CANARY, scope=CANARY,
+            transfer=dict(secret=CANARY), host_state=dict(secret=CANARY))
+        self.write("published/content-provider-smoke.json", value)
+        self.write("work-4/current-phase", CANARY.encode())
+        summary = vm_fixture(); summary.update(driver_phase=CANARY, topology_phase=CANARY)
+        self.write("vm-incomplete.json", summary)
+        self.write("runner.stderr", CANARY.encode())
+        self.write("work-5/content-provider-smoke.json", provider_fixture())
+        result = self.late_receipt()
+        self.assertEqual(result["sources"]["published"]["report"]["facts"]["blocker"], "unknown")
+        self.assertEqual(result["sources"]["work_4"]["phase"]["facts"]["phase"], "unknown")
+        self.assertEqual(result["vm"]["facts"]["driver_phase"], "unknown")
+        self.assertNotIn(CANARY.encode(), D["encoded"](result))
+        self.assertNotIn(("b" * 32).encode(), D["encoded"](result))
+        for key, replacement in (("run_id", "c" * 32), ("phase", "OTHER_PRIVATE_PHASE"),
+                                 ("observed_blocker", "OTHER_PRIVATE_BLOCKER"), ("runner_exit_status", 2)):
+            other = copy.deepcopy(value); other[key] = replacement
+            self.write("content-provider-smoke.json", other)
+            result = self.late_receipt()
+            self.assertEqual(result["provider_consistency"], "rejected")
+            self.assertTrue(all(result["sources"][label]["report"]["state"] == "rejected"
+                for label in ("normal", "published")))
+
+    def test_late_invalid_source_cannot_become_guest_failure_evidence(self):
+        for key, replacement in (("source_revision", "c" * 40), ("success", True),
+                                 ("schema_version", True), ("runner_exit_status", True), ("extra", CANARY)):
+            value = provider_fixture(); value[key] = replacement
+            self.write("content-provider-smoke.json", value)
+            self.assertEqual(self.late_receipt()["sources"]["normal"]["report"]["state"], "rejected")
+
+    def test_late_schema_and_source_cannot_be_downgraded_or_grant_authority(self):
+        result = self.late_receipt()
+        for key, replacement in (("schema", 1), ("schema", True), ("schema", 3), ("extra", CANARY),
+                *((key, True) for key in ("success", "joined_core_acceptance", "cause_established",
+                    "cleanup_verified", "physical_device", "production_authority"))):
+            value = copy.deepcopy(result); value[key] = replacement
+            with self.subTest(key=key, replacement=replacement), self.assertRaises(ValueError):
+                D["validate_receipt"](value)
+        for commit in (D["LEGACY_WEATHER_COMMIT"], D["FIRST_DRIVER_WEATHER_COMMIT"], "c" * 40):
+            value = copy.deepcopy(result); value["identity"]["weather_commit"] = commit
+            with self.assertRaises(ValueError): D["validate_receipt"](value)
+        early = self.receipt(); early["schema"] = 2
+        with self.assertRaises(ValueError): D["validate_receipt"](early)
+        for key, replacement in (("stage", "read-ready"), ("reason", "driver-exited"),
+                                 ("driver_status", 0), ("driver_status", True)):
+            value = copy.deepcopy(result); value["owner_stop"][key] = replacement
+            with self.assertRaises(ValueError): D["validate_receipt"](value)
+
+    def test_late_export_uses_existing_files_after_join_without_overwrite(self):
+        self.write("weather-android-owner-failure.json", late_owner_fixture())
+        self.write("content-provider-smoke.json", provider_fixture())
+        self.write("current-phase", b"weather-android-delivery-verify\n")
+        originals = {path: path.read_bytes() for path in self.root.iterdir()}
+        self.assertTrue(D["export"](self.root, IDENTITY))
+        path = self.root / D["NAME"]; raw = path.read_bytes()
+        result = D["validate_receipt"](json.loads(raw))
+        self.assertEqual(result["schema"], 2)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertLessEqual(len(raw), D["MAX_BYTES"])
+        with self.assertRaises(FileExistsError): D["export"](self.root, IDENTITY)
+        self.assertEqual(path.read_bytes(), raw)
+        self.assertEqual({path: path.read_bytes() for path in originals}, originals)
 
     def test_cli_host_binding_and_environment_identity(self):
         env = dict(GITHUB_ACTIONS="true", RUNNER_ENVIRONMENT="github-hosted", GITHUB_REPOSITORY="VOLPAROSSA/volparossa",
