@@ -120,6 +120,7 @@ fn requester(request: &QuoteAttachRequest, at: u64) -> Result<[u8; 32], ContentE
         .map_err(|_| ContentError::Invalid)?;
     if key == [0; 32]
         || VerifyingKey::from_bytes(&key).is_err()
+        || !matches!(request.confirmation_version, None | Some(1))
         || !(1..=64).contains(&request.maximum_attempts)
         || !request
             .expires_at
@@ -180,7 +181,12 @@ impl ContentRuntime {
             state: Arc::clone(&context.state),
             endpoint: endpoint.clone(),
         });
-        let service = QuoteService::new(
+        let constructor = if request.confirmation_version == Some(1) {
+            QuoteService::new_confirmation
+        } else {
+            QuoteService::new
+        };
+        let service = constructor(
             Arc::clone(&self.signer),
             QuoteGrant {
                 requester_key,
@@ -333,10 +339,34 @@ mod tests {
             requester_key: key.to_vec(),
             expires_at: 601,
             maximum_attempts: 64,
+            confirmation_version: None,
         };
         assert_eq!(requester(&request, 1).unwrap(), key);
         assert!(requester(&request, 0).is_err());
         assert!(requester(&request, 601).is_err());
+        assert_eq!(
+            requester(
+                &QuoteAttachRequest {
+                    confirmation_version: Some(1),
+                    ..request.clone()
+                },
+                1
+            )
+            .unwrap(),
+            key
+        );
+        for version in [0, 2, u32::MAX] {
+            assert!(
+                requester(
+                    &QuoteAttachRequest {
+                        confirmation_version: Some(version),
+                        ..request.clone()
+                    },
+                    1
+                )
+                .is_err()
+            );
+        }
         for attempts in [0, 65] {
             assert!(
                 requester(

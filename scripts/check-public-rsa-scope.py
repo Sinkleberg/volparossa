@@ -32,9 +32,9 @@ SNP_CHECKSUM = "fa9d0aa97897c4bce02f8b7e4afd06901b5bc04880d5b51b0542c753fb79981c
 COLLATERAL = SNP.with_name("collateral.rs")
 COLLATERAL_CHECKSUM = "c718d3fb5f1d58795ede17ad3e7e34871d3cb95331e39994e1744fc924b78b24"
 GUEST = SNP.parent.parent / "guest.rs"
-# Reviewed change: recheck cancellation/expiry before propagating fetch errors.
+# Reviewed change: one fixed HPKE random probe under the existing live guest key.
 # Fixed Firmware::open/get_report calls and public-only advisory scope are unchanged.
-GUEST_CHECKSUM = "e67e45e6e6b4fe7a1bb5d9d9c21ca2245fb44d50873c2a6e572c68b04663da17"
+GUEST_CHECKSUM = "f2c9a81644ad7680ef0bae87d5d2119ee670c1f01ddf15ad33fbd66b91449e57"
 CONTENT = Path("crates/volparossa-content/Cargo.toml")
 MARKER = "  # Root-only public RSA exception: scripts/check-public-rsa-scope.py must pass."
 SEV_MANIFEST = dict(version="=8.0.0", git=GIT, rev=REVISION, **{"default-features": False},

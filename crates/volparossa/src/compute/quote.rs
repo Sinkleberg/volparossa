@@ -1,5 +1,7 @@
-//! Explicit quote-only attachment and fresh reference-evidence verification.
+//! Explicit quote attachment, reference verification and optional key confirmation.
 //! No private task, raw quote export, workload approval, or worker permit.
+
+mod confirmation;
 
 use std::{
     path::{Path, PathBuf},
@@ -20,7 +22,7 @@ use volparossa_content::provider::compute::{
     quote as wire,
 };
 use volparossa_local_control::{
-    Empty, QuoteAttachRequest, QuoteRemoteRequest, control_request::Operation,
+    Empty, QuoteAttachRequest, QuoteReady, QuoteRemoteRequest, control_request::Operation,
     control_response::Payload,
 };
 
@@ -47,6 +49,9 @@ pub(crate) struct Attach {
     max_seconds: u16,
     #[arg(long, value_parser = clap::value_parser!(u16).range(1..=64))]
     max_attempts: u16,
+    /// Explicitly permit the separate one-probe key-confirmation profile; no private work.
+    #[arg(long)]
+    key_confirmation_v1: bool,
 }
 
 #[derive(Debug, Args)]
@@ -62,6 +67,9 @@ pub(crate) struct Verify {
     /// Supplied complete DER ARK CRL for ASK scope, not general VCEK revocation proof.
     #[arg(long)]
     vendor_crl: PathBuf,
+    /// Require same-connection key possession after verifying the original quote.
+    #[arg(long)]
+    key_confirmation_v1: bool,
 }
 
 #[derive(Deserialize)]
@@ -182,6 +190,7 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
                         requester_key: args.requester_key.to_bytes().to_vec(),
                         expires_at,
                         maximum_attempts: u32::from(args.max_attempts),
+                        confirmation_version: args.key_confirmation_v1.then_some(1),
                     }),
                 )
                 .await?,
@@ -223,8 +232,9 @@ struct Report {
 }
 
 /// Local projection of the agent-verified provider claim, not hardware evidence.
-/// The CLI cannot independently authenticate this projection. Even the original
-/// provider signature would only bind a claim, not establish its truth.
+/// The legacy path cannot independently authenticate this projection. The opt-in
+/// path also verifies the original signature but keeps this conservative report:
+/// a provider signature binds a claim, not its truth.
 #[derive(Serialize)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -260,13 +270,14 @@ impl RefusalReport {
 #[serde(untagged)]
 enum VerifyReport {
     Evidence(Report),
+    Confirmed(confirmation::Report),
     ProviderRefusal(RefusalReport),
 }
 
 impl VerifyReport {
     fn require_evidence(&self) -> Result<()> {
         ensure!(
-            matches!(self, Self::Evidence(_)),
+            matches!(self, Self::Evidence(_) | Self::Confirmed(_)),
             "quote_provider_reported_device_unavailable"
         );
         Ok(())
@@ -288,6 +299,18 @@ fn check_terminal(
     Ok(())
 }
 
+fn check_ready(ready: &QuoteReady, provider: &VerifyingKey, confirmation: bool) -> Result<()> {
+    ensure!(
+        ready.provider_key == provider.as_bytes(),
+        "quote_ready_provider"
+    );
+    ensure!(
+        ready.confirmation_version == confirmation.then_some(1),
+        "quote_ready_confirmation_version"
+    );
+    Ok(())
+}
+
 async fn verify(args: &Verify, socket: &Path) -> Result<VerifyReport> {
     let (policy_id, policy) =
         PublicExpectations::decode(&super::read_file(&args.public_policy, 4096)?)?;
@@ -301,6 +324,7 @@ async fn verify(args: &Verify, socket: &Path) -> Result<VerifyReport> {
         socket,
         Operation::QuoteRemote(QuoteRemoteRequest {
             provider_key: args.provider_key.to_bytes().to_vec(),
+            confirmation_version: args.key_confirmation_v1.then_some(1),
         }),
     )
     .await?;
@@ -311,10 +335,7 @@ async fn verify(args: &Verify, socket: &Path) -> Result<VerifyReport> {
     let Some(Payload::QuoteReady(ready)) = response.payload else {
         anyhow::bail!("quote_ready_missing");
     };
-    ensure!(
-        ready.provider_key == args.provider_key.as_bytes(),
-        "quote_ready_provider"
-    );
+    check_ready(&ready, &args.provider_key, args.key_confirmation_v1)?;
     // Route/TLS and provider authentication are ready. No long setup consumes this challenge.
     let owner = SessionOwner::new(
         policy_id,
@@ -326,6 +347,9 @@ async fn verify(args: &Verify, socket: &Path) -> Result<VerifyReport> {
         },
     )?;
     let pending = owner.begin()?;
+    if args.key_confirmation_v1 {
+        return confirmation::verify(&ready, pending, &mut stream, &id, &vcek, &crl).await;
+    }
     let request = QuoteRequest::from_challenge(pending.challenge_bytes())?;
     wire::write_request(&mut stream, &request).await?;
     let outcome = wire::read_outcome(&mut stream, &request).await?;
@@ -387,6 +411,87 @@ fn obligation(value: OutstandingAppraisal) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(clap::Parser)]
+    struct QuoteOptions {
+        #[command(subcommand)]
+        command: Command,
+    }
+
+    #[test]
+    fn quote_cli_confirmation_flag_is_opt_in_at_both_endpoints() {
+        use clap::Parser as _;
+
+        let key = hex::encode(
+            ed25519_dalek::SigningKey::from_bytes(&[19; 32])
+                .verifying_key()
+                .to_bytes(),
+        );
+        for enabled in [false, true] {
+            let mut verify = vec![
+                "quote",
+                "verify",
+                "--provider-key",
+                &key,
+                "--public-policy",
+                "policy.json",
+                "--vcek",
+                "vcek.der",
+                "--vendor-crl",
+                "crl.der",
+            ];
+            let mut attach = vec![
+                "quote",
+                "attach",
+                "--bind",
+                "127.0.0.1:8443",
+                "--advertised-hostname",
+                "provider.example",
+                "--requester-key",
+                &key,
+                "--max-seconds",
+                "30",
+                "--max-attempts",
+                "1",
+            ];
+            if enabled {
+                verify.push("--key-confirmation-v1");
+                attach.push("--key-confirmation-v1");
+            }
+            let Command::Verify(parsed) = QuoteOptions::try_parse_from(verify).unwrap().command
+            else {
+                panic!("verify command");
+            };
+            assert_eq!(parsed.key_confirmation_v1, enabled);
+            let Command::Attach(parsed) = QuoteOptions::try_parse_from(attach).unwrap().command
+            else {
+                panic!("attach command");
+            };
+            assert_eq!(parsed.key_confirmation_v1, enabled);
+        }
+    }
+
+    #[test]
+    fn quote_cli_readiness_rejects_mode_downgrade_unsolicited_upgrade_and_substitution() {
+        let key = ed25519_dalek::SigningKey::from_bytes(&[19; 32]).verifying_key();
+        let mut ready = QuoteReady {
+            provider_key: key.to_bytes().to_vec(),
+            requester_key: vec![2; 32],
+            confirmation_version: None,
+        };
+        for enabled in [false, true] {
+            for version in [None, Some(0), Some(1), Some(2), Some(u32::MAX)] {
+                ready.confirmation_version = version;
+                assert_eq!(
+                    check_ready(&ready, &key, enabled).is_ok(),
+                    version == enabled.then_some(1)
+                );
+            }
+        }
+        ready.confirmation_version = Some(1);
+        ready.provider_key = vec![2; 32];
+        assert!(check_ready(&ready, &key, true).is_err());
+    }
 
     fn policy() -> serde_json::Value {
         let tcb = serde_json::json!({"bootloader": 1, "tee": 2, "snp": 3, "microcode": 4});

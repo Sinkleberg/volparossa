@@ -32,6 +32,10 @@ pub struct QuoteRequest {
 }
 
 impl QuoteRequest {
+    pub(in crate::provider::compute) const fn expires_at(&self) -> u64 {
+        self.expires_at
+    }
+
     /// Wrap a canonical verifier challenge. Freshness is checked on guest admission.
     ///
     /// # Errors
@@ -70,7 +74,7 @@ impl QuoteRequest {
         Self::from_challenge(&parsed.challenge)
     }
 
-    pub(super) fn sha256(&self) -> [u8; 32] {
+    pub(in crate::provider::compute) fn sha256(&self) -> [u8; 32] {
         Sha256::digest(&self.challenge).into()
     }
 
