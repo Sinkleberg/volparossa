@@ -448,6 +448,14 @@ selects `protected_quote=no`; its expected exports and failure assertions are
 unchanged. A separate inert test checks that the quote scenario returns before
 any general export. The failed run is not integration acceptance.
 
+Quality run `38748458971` on `46564f39` passes that Weather step, then stops
+in the Android VM-cleanup fixtures: four extracted-shell fixtures omit the
+`scenario` initialized by the real runner. They now explicitly select
+`content-provider`, with the original exit-status, join, private-state and
+no-overwrite assertions unchanged. The targeted workflow also runs this
+existing 18-test suite. This second fixture failure is retained separately
+from the successful source-only run `38747325606`; neither proves a live route.
+
 #### Integrated quote exchange
 
 The new quote-only path connects guest-owned evidence collection to the existing
