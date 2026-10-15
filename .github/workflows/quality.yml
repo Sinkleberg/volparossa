@@ -71,8 +71,27 @@ jobs:
           python3 -B tests/integration/transaction-abci-contract-tests.py
           python3 -B tests/integration/transaction-abci-wiring-tests.py
 
+      - name: Check closed provider and Weather diagnostics without network access
+        run: |
+          python3 -B tests/integration/test-content-provider-worker-budget.py
+          python3 -B tests/integration/test-content-provider-resource-ready.py
+          python3 -B tests/integration/test-content-provider-pressure.py
+          python3 -B tests/integration/test-content-provider-pressure-smoke.py
+          python3 -B tests/integration/test-content-provider-pressure-shell.py
+          python3 -B tests/integration/test-content-provider-pressure-wiring.py
+          sh -n tests/integration/content-provider-pressure-smoke.sh
+          node --version
+          node -e 'if (Number(process.versions.node.split(".")[0]) < 22) process.exit(1)'
+          node --test tests/integration/test-weather-source-observer.mjs
+          python3 -B tests/integration/test-weather-products-delivery.py
+          python3 -B tests/integration/test-weather-products-hosted-wiring.py
+          python3 -B tests/integration/test-weather-overmorrow-hosted-wiring.py
+          python3 -B tests/integration/test-weather-products-delivery-shell.py
+          python3 -B tests/integration/test-weather-client-runner.py
+
       - name: Check formatting and shell sources
         run: |
+          python3 -B scripts/test-diagnose-backport-lock.py
           cargo fmt --all -- --check
           ./scripts/check-shell.sh
 
@@ -85,6 +104,10 @@ jobs:
           cargo test --locked -p volparossa compute::native_cpu
           cargo test --locked -p volparossa compute::resources::tests
 
+      - name: Check bounded bidirectional streaming before audit tool builds
+        # In-memory duplex and real TLS only; no host sockets or namespace setup.
+        run: cargo test --locked -p volparossa-tcp-proxy --test streaming
+
       - name: Install pinned dependency-audit tools
         run: |
           tool_root="${RUNNER_TEMP}/cargo-tools"
@@ -94,11 +117,35 @@ jobs:
           printf '%s\n' "$tool_root/bin" >>"$GITHUB_PATH"
 
       - name: Fetch locked Rust dependencies
+        id: fetch-dependencies
         run: |
           cargo fetch --locked
           cargo fetch --locked --manifest-path fuzz/Cargo.toml
-          cargo fetch --locked \
-            --manifest-path third_party/rust/backport-regressions/Cargo.toml
+          if cargo fetch --locked \
+            --manifest-path third_party/rust/backport-regressions/Cargo.toml; then
+            :
+          else
+            original_status=$?
+            printf '%s\n' 'backport_lock_diagnostic=true' >>"$GITHUB_OUTPUT"
+            # Diagnostics never turn this failed locked fetch into acceptance.
+            python3 -B scripts/diagnose-backport-lock.py \
+              --fetch-status "$original_status" \
+              --output "$RUNNER_TEMP/backport-lock-diagnostic" || true
+            exit "$original_status"
+          fi
+
+      - name: Preserve failed standalone lock reconciliation
+        if: ${{ failure() && steps.fetch-dependencies.outputs.backport_lock_diagnostic == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backport-lock-diagnostic-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/backport-lock-diagnostic/before.Cargo.lock
+            ${{ runner.temp }}/backport-lock-diagnostic/after.Cargo.lock
+            ${{ runner.temp }}/backport-lock-diagnostic/Cargo.lock.diff
+            ${{ runner.temp }}/backport-lock-diagnostic/status.json
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Lint standalone fuzz package
         run: |

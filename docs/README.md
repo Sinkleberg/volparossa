@@ -78,6 +78,7 @@ or go directly to a topic when you already know what you need.
 | [Mailbox import confirmation](services/MAILBOX_IMPORT_CONFIRMATION.md) | When an application may confirm message import. |
 | [Unbound fallback](network/UNBOUND_FALLBACK.md) | Resolver lifecycle and bounded DNS-cache misses. |
 | [Decentralized agents](services/DECENTRALIZED_AGENTS.md) | Training, public peer tasks, models, privacy and mutual review. |
+| [Protected compute preparation](development/PROTECTED_COMPUTE_VERIFIER.md) | Public attestation fixtures, limited evidence and the missing private-worker acceptance path. |
 | [Cooperative Code evidence](COOPERATIVE_CODE.md) | Passed bounded public code repair and the separate incomplete native OpenCode trial. |
 | [Cooperative browser evidence](COOPERATIVE_BROWSER.md) | Public peer execution, source-bound trials and remaining answer-completion limits. |
 | [Whitelist](privacy/WHITELIST.md) | Current destination-policy authority and enforcement. |
@@ -88,6 +89,7 @@ or go directly to a topic when you already know what you need.
 - [Operations](development/OPERATIONS.md): configuration, commands, packaging and removal.
 - [Testing](development/TESTING.md): focused checks, disposable topologies and acceptance requirements.
 - [Implementation status](IMPLEMENTATION_STATUS.md): detailed evidence ledger, including failed trials.
+- [Execution plan](IMPLEMENTATION_STATUS.md#execution-priorities-and-next-milestones): next milestones, shared dependencies and current blockers.
 - [Applications](applications/APPLICATIONS.md): boundaries and links for the application repositories.
 - [Contributing](../CONTRIBUTING.md): how to propose and verify a useful change.
 - [Security policy](../SECURITY.md): private vulnerability reporting.

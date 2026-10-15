@@ -207,6 +207,7 @@ async fn process_connection(
                 | control_request::Operation::PrivateStorageRemote(_)
                 | control_request::Operation::ContentCustody(_)
                 | control_request::Operation::ComputeRemote(_)
+                | control_request::Operation::QuoteRemote(_)
         )
     ) {
         let mut ready_sent = false;
@@ -273,6 +274,16 @@ async fn process_connection(
             }
             Some(control_request::Operation::ComputeRemote(remote)) => {
                 Box::pin(context.content.compute_remote(
+                    remote.clone(),
+                    &context,
+                    &mut stream,
+                    &request.request_id,
+                    &mut ready_sent,
+                ))
+                .await
+            }
+            Some(control_request::Operation::QuoteRemote(remote)) => {
+                Box::pin(context.content.quote_remote(
                     remote.clone(),
                     &context,
                     &mut stream,
@@ -365,6 +376,7 @@ async fn handle_request(request: ControlRequest, context: &ControlContext) -> Co
         | control_request::Operation::ContentCustody(_)
         | control_request::Operation::ContentCustodyDiscover(_)
         | control_request::Operation::ComputeRemote(_)
+        | control_request::Operation::QuoteRemote(_)
         | control_request::Operation::ContentDownloadHttps(_) => {
             // These require the same authorized stream, never a second socket or generic dispatch.
             response(
@@ -391,6 +403,14 @@ async fn handle_request(request: ControlRequest, context: &ControlContext) -> Co
         control_request::Operation::ComputeAttach(request) => content_response(
             request_id,
             context.content.compute_attach(&request, context).await,
+        ),
+        control_request::Operation::QuoteAttach(request) => content_response(
+            request_id,
+            context.content.quote_attach(&request, context).await,
+        ),
+        control_request::Operation::QuoteDetach(_) => content_response(
+            request_id,
+            context.content.quote_detach(&context.discovery).await,
         ),
         control_request::Operation::ComputeDiscover(request) => {
             match Box::pin(context.content.compute_discover(&request, context)).await {

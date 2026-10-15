@@ -2,9 +2,16 @@
 
 These instructions apply to the entire repository and must remain in force in future sessions.
 
+## Autonomous project execution
+
+- User revision 2026-10-11, applicable across all VOLPAROSSA repositories: use independent engineering judgment to make the project work well. Choose implementation details, architecture within the agreed requirements, priorities, parallel work, checks, and commit/push timing without requesting approval for ordinary development steps.
+- Continue useful work and resolve obsolete workflow restrictions against the user's latest explicit requirements. Distinguish a current implementation limit or an earlier milestone from a permanent prohibition. Explain material tradeoffs and preserve existing work; do not silently drop agreed functionality.
+- Autonomy does not authorize disclosing private data, using real funds, changing the development host's active configuration, bypassing access or release controls, or lowering agreed privacy. Ask a focused question only when a consequential choice falls outside the established scope or authority; do not repeatedly request authority already granted.
+
 ## Mission and truthfulness
 
 - Build VOLPAROSSA v1 as an open-source, decentralised VPN overlay for Debian 13 amd64.
+- This is the required network baseline, not a limit on the agreed DICN services or application integrations. Develop the shared cache, storage, compute and transaction layers alongside their applications; support additional platforms where feasible without treating an untested port as complete.
 - The normal data path is always `client -> exactly one relay -> exit -> destination`; every parallel path uses a different relay between the same client and exit.
 - Never describe ordinary TCP or single-path QUIC as MPTCP or Multipath QUIC. A feature is complete only when tests prove that its real datapath and required number of paths carry data.
 - Keep `docs/IMPLEMENTATION_STATUS.md` current. Checked items must be supported by passing tests or explicit evidence; incomplete work stays unchecked.
@@ -28,8 +35,9 @@ These instructions apply to the entire repository and must remain in force in fu
 - TCP: transparent proxy framing over TLS 1.3 over a Linux `IPPROTO_MPTCP` connection whose subflows are bound to selected WireGuard relay paths; no silent ordinary-TCP fallback.
 - General UDP: datagrams over a protected single-path QUIC MASQUE CONNECT-IP/CONNECT-UDP association through exactly one relay; destination tuple is pinned.
 - Browser QUIC/HTTP/3: original QUIC datagrams inside MASQUE CONNECT-IP over genuine Multipath QUIC with at least two active WireGuard relay paths. Default is fail closed when multipath is required and unavailable.
-- Do not add v1 cover traffic, cells, artificial delay, batching, packet duplication, FEC, erasure coding, adaptive path equalisation, payments, tokens, blockchain, automatic exit enablement, or a GUI. Keep scheduler interfaces extensible for later policies.
-- User extension 2026-10-04: research a separate reusable Transaction-layer for VOLPAROSSA Bank. Isolated simulations and protocol research are authorized; they do not enable real-money services, introduce fees/tokens into overlay participation, or grant model workers financial authority. Keep securities ownership, payment authorization, internal accounting and external settlement distinct. Do not represent reversible simulations as distributed settlement, legal ownership or guaranteed recovery of externally transferred funds.
+- Do not add cover traffic, cells, artificial delay, batching, packet duplication, FEC, erasure coding or adaptive path equalisation to the v1 network datapaths. Keep scheduler interfaces extensible for later policies. This transport restriction does not prohibit investigation and evidence-backed adoption of erasure coding under the separate Storage-layer's uniform redundancy policy, with compatibility and recoverability preserved.
+- Do not add payments, tokens or blockchain as conditions of overlay participation, automatically enable exit service, or add a GUI to the core daemon. These boundaries do not prohibit the agreed Transaction-layer or application user interfaces.
+- User extension 2026-10-04 and subsequent clarification: research and implement a separate reusable Transaction-layer connected to VOLPAROSSA Bank; research alone is not the endpoint. Isolated single-node and multi-node integration tests with fictitious assets/test units are authorized. They do not enable real-money services, introduce fees/tokens into overlay participation, or grant model workers financial authority. Keep securities ownership, payment authorization, internal accounting and external settlement distinct. Do not represent reversible simulations as distributed settlement, legal ownership or guaranteed recovery of externally transferred funds.
 
 ## Architecture and implementation choices
 
@@ -53,7 +61,7 @@ These instructions apply to the entire repository and must remain in force in fu
 - Never alter the development host's active DNS, routes, firewall, VPN, sysctls, or network configuration. Network tests run only in disposable Linux network namespaces using veth devices and temporary nftables rules.
 - Any script requiring root must print its exact intended changes, request confirmation where appropriate, trap interruption, and implement idempotent full cleanup. Verify original host routes, DNS, and firewall remain unchanged.
 - Do not install or permanently modify anything outside this workspace without explicit user approval. Never use `curl | sh`, untagged containers, unpinned Git dependencies, or silently downloaded binaries.
-- Do not commit or push unless the user explicitly requests it.
+- User revision 2026-10-11, applicable across all VOLPAROSSA repositories: independently decide when scoped, verified changes are ready to commit and push; no separate user approval is required. Keep unrelated or unfinished work separate, preserve unpublished changes, and respect branch protections and required checks. This replaces the earlier per-operation commit/push approval requirement; it does not expand host, release-signing, or installation permissions.
 
 ## Quality workflow
 

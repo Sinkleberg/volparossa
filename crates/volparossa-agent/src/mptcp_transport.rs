@@ -398,7 +398,7 @@ impl ClientMptcpTransport {
             let acquired = helper
                 .acquire_transport_socket(request)
                 .await
-                .map_err(|_| MptcpTransportError::AcquireUnconfirmed)?;
+                .map_err(|error| slot.acquire_failed(error))?;
             let flow = acquired.metadata().mptcp_flow_handle.clone();
             let retirement = slot.bind(
                 volparossa_routing::RetireMptcpFlow {

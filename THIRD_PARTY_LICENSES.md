@@ -70,6 +70,136 @@ that revision are therefore retained unchanged under
 URLs, sizes and hashes in the optional pins. Converted artifacts include all
 five notices; no notice is replaced by this summary.
 
+## Public SNP verifier fixture trial
+
+The disposable public-fixture workflow selects
+[`virtee/sev`](https://github.com/virtee/sev) version 8.0.0 at exact commit
+`a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5`, tree
+`636379a232b75ad3c0f2a079acc1788dc13a920f`. The upstream Apache-2.0
+[license](third_party/licenses/virtee-sev-8.0.0-Apache-2.0.txt) is retained
+unchanged. One explicit lockfile-only correction is applied as described below.
+This is a source-built CI probe,
+not a production dependency, prebuilt worker or task-release authority.
+
+The [exact pinset](tests/integration/protected-compute-verifier-pins.json)
+records bytes and SHA-256 for the original Cargo.toml, Cargo.lock, license,
+four-test target and public Milan certificate/report inputs. The original
+lockfile remains available unchanged in the verified upstream Git commit.
+The pinned commit updates the `rand` package to `0.8.8` but leaves
+`num-bigint-dig 0.8.6` referring to absent `rand 0.8.5`. The
+[fixture preparer](tests/integration/protected-compute-verifier.py) changes
+only that one reference to `rand 0.8.8`, without changing any package version,
+checksum or executable source. Both lockfiles are 66,223 bytes: original SHA-256
+`fe1511ef932c1a54d0cd70ac470b41de8357ab2efca9ed6b3a4ea22c3b7d3bd0`,
+effective SHA-256 `7b7dbf853cecf44a8d2a6b51283012b446db97600f4e19af36a1c642b8bfa7cb`.
+Schema-two pins and result receipts distinguish both identities; only this exact
+unstaged change is accepted after pristine-source verification. Rust 1.85.0,
+`--locked` and the `snp,crypto_nossl` feature selection
+are explicit; native compilation is confined to the disposable hosted runner.
+The compiler comes from the pinned-version Rust toolchain distribution, not a
+reproduced compiler source build. The upstream checkout and dependency sources
+retain their own notices there; neither binaries nor a vendored dependency tree
+are distributed by this change. See [trial scope and remaining requirements](docs/development/PROTECTED_COMPUTE_VERIFIER.md).
+
+## Core signature verification dependency
+
+The core [signature-facts module](crates/volparossa-content/src/provider/compute/attestation.rs)
+selects the same exact `sev` revision with default features disabled and only
+`snp,crypto_nossl`. It uses upstream Milan ARK/ASK bytes as cryptographic reference
+roots, not as independently authorized production trust. Its two unchanged
+public regression inputs are copied from `tests/certs_data/` into
+`crates/volparossa-content/tests/fixtures/snp/`: `report_milan.hex` (2,368 bytes,
+SHA-256 `3d956e9104969a038031a6b63dd6c4b60000619d37702065994f7da76f88ae7d`)
+and `vcek_milan.der` (1,360 bytes, SHA-256
+`3bbfb6ee259f75a95d13168cfdf2e034181bb93c7c016825731cbe8ea16c95e1`). They
+remain Apache-2.0 inputs under the unchanged upstream license linked above.
+`x509-cert` is constrained to 0.2.5 (Apache-2.0 OR MIT) from
+[RustCrypto formats](https://github.com/RustCrypto/formats/tree/x509-cert/v0.2.5/x509-cert)
+for certificate validity access; it is also the version in the pinned upstream
+lockfile. The workspace now adopts the exact dependency lock compiled and tested
+by [core trial 38432553365](https://github.com/VOLPAROSSA/volparossa/actions/runs/38432553365):
+143,756 bytes, SHA-256
+`f87bfe531b282c83665a066daec181564edf8d256a08a6b024e2d5810f5abbac`.
+All 531 original package identities, versions and checksums are retained. The
+29 additions belong to the verifier dependency closure; the seven additional
+feature edges at existing packages were checked against their upstream manifests.
+The 28 new registry archives match their lockfile checksums and retain compatible
+upstream licenses; the remaining addition is the exact pinned SEV Git source.
+The license collector accepts only that Git identity and unchanged Apache-2.0
+license bytes, SHA-256
+`c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4`.
+Current hosted checks use `cargo fetch --locked`, followed by locked/offline
+metadata, tests and Clippy. The standalone probe and its separate lock correction
+remain historical evidence, not substitutes for the core build.
+
+### RSA advisory scope
+
+`rsa 0.9.10` is affected by
+[RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html), which
+concerns private-key leakage through timing. It is **not patched** here. The
+selected [SEV verification code](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/src/certs/snp/cert_nossl.rs)
+uses `RsaPublicKey` and PSS/SHA-384 verification only. Its RSA operation applies
+the public exponent to a public signature; no RSA private key, decryption,
+signing or key generation is used by this core call path.
+
+The dependency check admits this advisory as non-applicable only after checking
+the exact source, features, incoming dependency edges and reviewed verifier
+source. It then creates a temporary root-only audit configuration. The ordinary
+deny configuration has no global exemption, and the separate fuzz graph neither
+uses RSA/SEV nor receives this exception. A changed dependency or use requires
+fresh review; this finding is not permission to use RSA private-key operations.
+
+The module has no vendor-collateral downloader or task-release hook. VCEK
+extension-to-chip and reported-TCB binding is checked. Production trust, current
+vendor security policy and complete worker appraisal remain separate requirements. AMD's
+[VCEK and KDS specification 57230](https://docs.amd.com/v/u/en-US/57230), revision
+1.05, identifies the product CRL endpoint and certificate extensions. Those
+vendor inputs are distinct from local authorization of roots and workload code;
+neither is supplied by a peer assertion or a successful signature check.
+
+### Guest firmware quote request
+
+The guest-session candidate reuses the same exact Apache-2.0 `sev` dependency,
+features and committed lockfile. Its only additional upstream production call
+path is [guest firmware `open` and `get_report`](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/src/firmware/guest/mod.rs):
+open the fixed `/dev/sev-guest` device and return the original `SNP_GET_REPORT`
+bytes with explicit message-version/VMPL inputs. No extended-report allocation,
+certificate downloader, derived-key operation, RSA signing, RSA decryption or
+RSA key generation is added. The public-RSA guard separately pins the reviewed
+guest source; this does not broaden the advisory exception or the fuzz graph.
+
+The guest's own ephemeral key uses the existing `RecipientKeyPair` implementation,
+not this RSA dependency. Original upstream source and notices are unchanged;
+there is no new binary, dependency version or local upstream patch. Compilation
+or synthetic collection tests cannot establish that actual firmware ran, that
+the key is protected from the host, or that the guest is an authorized worker.
+
+### Supplied Milan revocation list
+
+The candidate session verifier also uses `rsa =0.9.10` directly for public-only
+PSS/SHA-384 verification of a supplied ARK revocation list. This is the same
+Apache-2.0 OR MIT package already pinned in the lockfile, with checksum
+`b8573f03f5883dcaebdfcf4725caa1ecb9c15b2ef50c43a07b816e06799bb12d`;
+no package version is changed. The exact-source and dependency-graph guard
+now covers this second public-verification path. The advisory remains unpatched
+and the restriction against private-key operations is unchanged.
+
+The public fixture `ark_milan_20260922.crl` was retrieved unchanged from
+[AMD's Milan CRL endpoint](https://kdsintf.amd.com/vcek/v1/Milan/crl) on
+2026-10-14 (Europe/Amsterdam). It contains 866 bytes and has SHA-256
+`dd68e9e3feb97dd0e95135feeae47d9cc193c73239a6281ec9884c00d5e6a525`.
+Its ARK-Milan signature authenticates CRL number 12, valid from
+2026-09-22 07:35:42 UTC until 2026-11-09 01:00:00 UTC, with no listed
+revocations. This is public issuer-signed validation data, not VOLPAROSSA
+source code or a production trust grant; the binary has no local patches.
+
+The closed profile follows AMD 57230 revision 1.05 and
+[RFC 5280 CRL processing](https://www.rfc-editor.org/rfc/rfc5280.html#section-6.3).
+It checks the fixed Milan certificate path and a complete ARK-issued list for
+that path's ASK. It does not prove individual VCEK revocation status, absence
+of newer collateral, an acceptable firmware version or private execution.
+The fixture's validity dates do not authorize future use outside that interval.
+
 ## CometBFT ABCI transaction adapter inputs
 
 The TEST-only transaction adapter generates its wire bindings from the official
@@ -673,7 +803,7 @@ license/NOTICE files; it fails on an unapproved source or missing notice.
 
 ### Debian 13 compatible Rust security overrides
 
-Three crates.io packages are overridden with verified project-local source.
+Four crates.io packages are overridden with verified project-local source.
 The Hickory and time fixed releases require Rust 1.88, while the future
 single-backend libp2p-yamux release also raises its MSRV above Debian 13's
 Rust 1.85:
@@ -681,26 +811,34 @@ Rust 1.85:
 | Component | Exact source and upstream revision | License | Local security patch |
 |---|---|---|---|
 | hickory-proto 0.25.2 | crates.io SHA-256 `f8a6fe56c0038198998a6f217ca4e7ef3a5e51f46163bd6dd60b5c71ca6c6502`; git `527c9f470a418cf6b92da902ea0aaa5749963d59` | Apache-2.0 OR MIT; original license files preserved | `third_party/rust/patches/hickory-proto-0.25.2-rustsec.patch`, SHA-256 `bd1d5df1a13574d5c8b546e1a53dfde04d524353a646c8235786d7724215828a`; bounds compression candidates, rejects cross-zone NSEC3 proofs, and adds a non-default regression-only adapter |
+| hickory-resolver 0.25.2 | crates.io SHA-256 `dc62a9a99b0bfb44d2ab95a7208ac952d31060efc16241c87eaf36406fecf87a`; git `527c9f470a418cf6b92da902ea0aaa5749963d59` | MIT OR Apache-2.0; original license files preserved | `third_party/rust/patches/hickory-resolver-0.25.2-dnssec.patch`, SHA-256 `2e070665e78337e620dfb3f8c15ff09a938ad3fa711e240798732de4c204f1b2`; rejects bogus answers before cache insertion and CNAME following; the archive's non-authoritative development lock is omitted from the vendor tree |
 | time 0.3.41 | crates.io SHA-256 `8a7619e19bc266e0f9c5e6686659d394bc57973859340060a69221e57dbc0c40`; git `cc35dcfcde917bb833c114e2b4c00292a374c4ba` | Apache-2.0 OR MIT; original license files preserved | `third_party/rust/patches/time-0.3.41-rustsec.patch`, SHA-256 `bc4ad8b199c3284c59b1aa259d5ec907d43f7cb898083a8d5ab99a71cc7a5c8a`; bounds RFC 2822 comment recursion |
 | libp2p-yamux 0.47.0 | crates.io SHA-256 `f15df094914eb4af272acf9adaa9e287baa269943f32ea348ba29cfb9bfc60d8`; git `9736aacf814eb7b9df0372c5f9adcffba8a4b212` | MIT; exact upstream repository license retained | `third_party/rust/patches/libp2p-yamux-0.47.0-single-backend.patch`, SHA-256 `1a845f6cfaa57c993b54f654dc8e9294a450de8c46be323618481a7cc750740d`; removes the retired 0.12 backend, pins fixed yamux 0.13.10, and preserves read-after-close policy |
 
 The complete sources, patch review notes, resulting tree hashes, test
 contract, and removal condition are in `third_party/rust/README.md`.
-`scripts/check-rust-dependencies.sh` reconstructs all three trees from the exact
+`scripts/check-rust-dependencies.sh` reconstructs all four trees from the exact
 archives, applies the locked patches, byte-compares the result, verifies
 unchanged licenses and the feature graph, runs CVSS 4.0-capable cargo-deny
 advisory/license/ban/source checks, and performs an independent no-fetch cargo-audit scan against a
 local RustSec checkout. It prints that checkout's exact commit.
 
 The GPL-3.0-only harness under `third_party/rust/backport-regressions` has a
-rustc-1.85-resolved lockfile (SHA-256
-`08e7bcd46d2e3f7411e8f4e855c70027f627be6061f63ab459c43f41a687c5cc`)
-and executes all five dependency-security regressions offline. Its Hickory feature calls the same
+Rust-1.85-targeted lockfile (SHA-256
+`965c606acf0c93d9a9d6b8415b3ae503185e8b3ec7eecf3d6251c9047cd14659`)
+and executes the dependency-security regressions offline. Its Hickory feature calls the same
 private NSEC3 validator through a doc-hidden adapter; that feature is absent
 from and forbidden in the production dependency graph. Its bounded Yamux raw
 frame test proves an oversized first-stream body fails closed without an
 unwind; its public-wrapper test preserves `set_max_num_streams` and
 `read_after_close(false)` semantics.
+
+The resolver-specific check rejects DNSSEC-bogus answers before cache insertion
+and alias following, backporting upstream commit
+`92f93c0b889f6a292bc943304d88c4c6561fe1b9` for GHSA-5j98-2g5x-46v6.
+The separate CNAME advisory GHSA-6f2x-v7q7-m7m5 is assessed against the pinned
+0.25 stub and the absence of the separate recursor crate in both graphs, with
+targeted regression and graph checks. Neither GHSA receives a new scanner waiver.
 
 RustSec scanners still identify the unchanged semantic versions as affected.
 `RUSTSEC-2026-0009`, `RUSTSEC-2026-0118`, and
@@ -719,7 +857,7 @@ The dependency gate requires CVSS 4.0-capable `cargo-deny >= 0.18.6` and
 provides an independent advisory scan.
 
 Candidate packaging excludes workspace members and admits path dependencies
-only at the three exact verified vendor paths above.
+only at the four exact verified vendor paths above.
 `yamux 0.13.10` omits license files from its crate archive, so exact
 Apache-2.0 and MIT files from official release tag
 `70db05dc63e8368bd0559a5ec0dba6e5fc2bdd41` are retained under

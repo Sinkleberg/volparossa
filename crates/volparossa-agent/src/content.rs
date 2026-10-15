@@ -19,7 +19,10 @@ mod named_admission_tests;
 mod object_policy;
 mod parallel;
 mod private_storage;
+mod quote;
+mod quote_remote;
 mod recent;
+mod rediscovery;
 #[cfg(test)]
 mod refresh_tests;
 mod replication;
@@ -117,6 +120,9 @@ pub(crate) struct ContentRuntime {
     worker_budget: worker_budget::WorkerBudget,
     contribution: Arc<Mutex<Option<Arc<contribution::ContributionRuntime>>>>,
     compute: Arc<Mutex<Option<Arc<compute::Attachment>>>>,
+    quote: Arc<Mutex<Option<quote::Attachment>>>,
+    // Process-long: cancelling/detaching a service cannot create another firmware slot.
+    quote_firmware: Arc<tokio::sync::Semaphore>,
     object_policy: volparossa_content::object_policy::ObjectPolicyGate,
     object_policy_owner: Arc<std::sync::OnceLock<object_policy::ObjectPolicyOwner>>,
 }
@@ -171,6 +177,8 @@ impl ContentRuntime {
             worker_budget: worker_budget::WorkerBudget::default(),
             contribution: Arc::new(Mutex::new(None)),
             compute: Arc::new(Mutex::new(None)),
+            quote: Arc::new(Mutex::new(None)),
+            quote_firmware: Arc::new(tokio::sync::Semaphore::new(1)),
             object_policy: volparossa_content::object_policy::ObjectPolicyGate::default(),
             object_policy_owner: Arc::new(std::sync::OnceLock::new()),
         })
@@ -340,7 +348,11 @@ impl ContentRuntime {
             .set_priority(CONTRIBUTION_SOCKET_PRIORITY)
             .map_err(|_| ContentError::Unavailable)?;
         // The listener and a verified registration exist before announcing service availability.
-        if !options.automatic || registry.has_live_publications(now()) || registry.has_compute() {
+        if !options.automatic
+            || registry.has_live_publications(now())
+            || registry.has_compute()
+            || registry.has_quote()
+        {
             context
                 .discovery
                 .register_content_offer(self.offer(endpoint.clone())?)
@@ -437,6 +449,7 @@ impl ContentRuntime {
                             && !registry.has_private_storage()
                             && !registry.has_custody()
                             && !registry.has_compute()
+                            && !registry.has_quote()
                         {
                             drop(registry);
                             let _ = discovery.withdraw_content_offer().await;
@@ -504,6 +517,9 @@ impl ContentRuntime {
         let mut current = self.service.lock().await;
         if let Some(attachment) = self.compute.lock().await.take() {
             attachment.deactivate();
+        }
+        if let Some(attachment) = self.quote.lock().await.take() {
+            attachment.stop().await;
         }
         if let Some(service) = current.take() {
             let _ = service.stop.send(true);
@@ -759,68 +775,7 @@ impl ContentRuntime {
         policy: &volparossa_policy::VerifiedManifest,
         control_peer: libp2p::PeerId,
     ) -> Result<(Vec<String>, u64), ContentError> {
-        if complete(manifest, store)? {
-            return Ok((Vec::new(), 0));
-        }
-        let mut used = std::collections::BTreeSet::new();
-        let mut attempted = std::collections::BTreeSet::new();
-        let mut bytes = 0_u64;
-        if let Some(scope) = recent::RecentProviderScope::for_route(context, policy).await {
-            let recent = context
-                .content
-                .refresh_recent_provider_hints(scope, &context.discovery, Duration::from_secs(1))
-                .await;
-            attempted.extend(recent.iter().map(|provider| provider.peer_id));
-            let (providers, received) =
-                Self::pull_providers(context, manifest, store, policy, recent).await?;
-            used.extend(providers);
-            bytes = received;
-            if complete(manifest, store)? {
-                return Ok((used.into_iter().collect(), bytes));
-            }
-        }
-        let discovered = context
-            .discovery
-            .discover_content_providers(control_peer, 16)
-            .await;
-        let state = context.state.read().await;
-        if !state.roles().client
-            || state
-                .active_policy(unix_millis())
-                .as_ref()
-                .map(volparossa_policy::VerifiedManifest::policy_hash)
-                != Some(policy.policy_hash())
-        {
-            return Err(ContentError::Policy);
-        }
-        drop(state);
-        let providers = match discovered {
-            Ok(providers) => providers,
-            Err(DiscoveryError::Invalid) => return Err(ContentError::Invalid),
-            Err(DiscoveryError::Invalidated) => return Err(ContentError::Policy),
-            Err(
-                DiscoveryError::Busy
-                | DiscoveryError::Closed
-                | DiscoveryError::Timeout
-                | DiscoveryError::Unavailable,
-            ) => {
-                // A later unavailable capability search cannot erase verified earlier bytes.
-                // Native callers still require complete reconstruction; HTTPS fills only gaps.
-                if bytes > 0 {
-                    return Ok((used.into_iter().collect(), bytes));
-                }
-                return Err(ContentError::Unavailable);
-            }
-        };
-        let providers = providers
-            .into_iter()
-            .filter(|provider| !attempted.contains(&provider.peer_id))
-            .collect();
-        let (providers, received) =
-            Self::pull_providers(context, manifest, store, policy, providers).await?;
-        used.extend(providers);
-        bytes = bytes.checked_add(received).ok_or(ContentError::Invalid)?;
-        Ok((used.into_iter().collect(), bytes))
+        rediscovery::pull(context, manifest, store, policy, control_peer).await
     }
 
     /// Reuse the same bounded provider set after a name-metadata round; no second discovery.

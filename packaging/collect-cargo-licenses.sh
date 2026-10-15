@@ -55,10 +55,34 @@ while IFS="	" read -r crate_name crate_version license_expression license_file m
     source_label=$source
     case "$source" in
         registry+https://github.com/rust-lang/crates.io-index*) ;;
+        'git+https://github.com/virtee/sev?rev=a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5#a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5')
+            # The sole approved Git input. Cargo authenticates the pinned source;
+            # also require its exact package identity and unchanged license bytes.
+            if [ "$crate_name" != sev ] || [ "$crate_version" != 8.0.0 ] ||
+                [ "$license_expression" != Apache-2.0 ] ||
+                { [ "$license_file" != - ] && [ "$license_file" != LICENSE ]; }
+            then
+                printf '%s\n' 'Pinned SEV package has unexpected license metadata.' >&2
+                exit 1
+            fi
+            sev_license=$(dirname -- "$manifest_path")/LICENSE
+            reviewed_sev_license=$repository_root/third_party/licenses/virtee-sev-8.0.0-Apache-2.0.txt
+            if [ ! -f "$sev_license" ] || [ ! -f "$reviewed_sev_license" ] ||
+                [ "$(sha256sum "$reviewed_sev_license" | awk '{print $1}')" != \
+                  c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4 ] ||
+                ! cmp -s "$sev_license" "$reviewed_sev_license"
+            then
+                printf '%s\n' 'Pinned SEV license differs from its reviewed upstream bytes.' >&2
+                exit 1
+            fi
+            ;;
         path)
             case "$manifest_path" in
                 "$repository_root/third_party/rust/vendor/hickory-proto-0.25.2/Cargo.toml")
                     source_label='vendored-crates.io+hickory-proto-0.25.2-security-backport'
+                    ;;
+                "$repository_root/third_party/rust/vendor/hickory-resolver-0.25.2/Cargo.toml")
+                    source_label='vendored-crates.io+hickory-resolver-0.25.2-security-backport'
                     ;;
                 "$repository_root/third_party/rust/vendor/time-0.3.41/Cargo.toml")
                     source_label='vendored-crates.io+time-0.3.41-security-backport'

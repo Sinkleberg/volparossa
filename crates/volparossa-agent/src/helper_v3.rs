@@ -3753,6 +3753,106 @@ mod tests {
         ));
     }
 
+    async fn acquire_transport_rejection(
+        result: HelperResult,
+        alter: fn(&mut HelperResponse),
+    ) -> HelperClientError {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let socket = directory.path().join("helper.sock");
+        let listener = UnixListener::bind(&socket).expect("bind");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let request = read_request(&mut stream).await.expect("request");
+            assert!(matches!(
+                request.operation,
+                Some(helper_request::Operation::AcquireTransportSocket(_))
+            ));
+            let mut response = HelperResponse {
+                protocol_version: HELPER_PROTOCOL_VERSION,
+                request_id: request.request_id.clone(),
+                result: result as i32,
+                diagnostic_code: "TRANSPORT_SOCKET_UNAVAILABLE".to_owned(),
+                operation_digest: operation_digest(&request).expect("digest").to_vec(),
+                outcome: None,
+            };
+            alter(&mut response);
+            let frame = if response.outcome.is_some() {
+                // Deliberately bypass only the test server's encoder: production must reject
+                // a non-Ok response carrying success metadata before treating it as definitive.
+                assert!(encode_response(&response).is_err());
+                let body = volparossa_protocol::encode_canonical(
+                    &response,
+                    volparossa_routing::MAX_HELPER_FRAME,
+                )
+                .expect("bounded protobuf body");
+                let length = u32::try_from(body.len()).expect("bounded test frame");
+                let mut frame = length.to_be_bytes().to_vec();
+                frame.extend_from_slice(&body);
+                frame
+            } else {
+                encode_response(&response).expect("response")
+            };
+            stream.write_all(&frame).await.expect("write response");
+            stream.flush().await.expect("flush response");
+        });
+        let response =
+            HelperClient::new_for_test(socket, directory.path().join("unused"), geteuid().as_raw())
+                .acquire_transport_socket(transport_request(TransportSocketKind::MptcpConnected))
+                .await;
+        server.await.expect("server");
+        match response {
+            Err(error) => error,
+            Ok(_) => panic!("rejected Acquire must not return a descriptor"),
+        }
+    }
+
+    #[tokio::test]
+    async fn acquire_transport_exact_rejection_preserves_safe_helper_result() {
+        for result in [
+            HelperResult::Kernel,
+            HelperResult::Capacity,
+            HelperResult::Unavailable,
+        ] {
+            assert!(matches!(
+                acquire_transport_rejection(result, |_| {}).await,
+                HelperClientError::Rejected(actual) if actual == result
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn acquire_transport_uncorrelated_rejection_is_not_definitive() {
+        for alter in [
+            (|response: &mut HelperResponse| response.request_id[0] ^= 1)
+                as fn(&mut HelperResponse),
+            |response: &mut HelperResponse| response.operation_digest[0] ^= 1,
+        ] {
+            assert!(matches!(
+                acquire_transport_rejection(HelperResult::Kernel, alter).await,
+                HelperClientError::Correlation
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn acquire_transport_rejection_with_success_outcome_is_not_definitive() {
+        let error = acquire_transport_rejection(HelperResult::Kernel, |response| {
+            let request = transport_request(TransportSocketKind::MptcpConnected);
+            response.outcome = Some(helper_response::Outcome::TransportSocketReady(
+                TransportSocketReady {
+                    path_id: request.path_id,
+                    role: request.role,
+                    descriptor_kind: request.descriptor_kind,
+                    local: request.expected_local,
+                    remote: request.expected_remote,
+                    mptcp_flow_handle: vec![9; 32],
+                },
+            ));
+        })
+        .await;
+        assert!(matches!(error, HelperClientError::Protocol(_)));
+    }
+
     #[test]
     fn token_reader_rejects_links_and_wrong_modes() {
         let directory = tempfile::tempdir().expect("tempdir");

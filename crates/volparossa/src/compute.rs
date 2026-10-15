@@ -13,6 +13,7 @@ mod private_serve;
 mod private_task;
 mod public_code;
 mod public_serve;
+mod quote;
 mod resources;
 mod sandbox;
 mod serving_snapshot;
@@ -66,6 +67,11 @@ pub(crate) enum Command {
     Peer {
         #[command(subcommand)]
         command: Box<peer::Command>,
+    },
+    /// Explicitly authorize or verify quote-only evidence, without admitting private work.
+    Quote {
+        #[command(subcommand)]
+        command: Box<quote::Command>,
     },
 }
 
@@ -180,6 +186,7 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
         }
         Command::Serve(options) => return broker::run(*options).await,
         Command::Peer { command } => return peer::run(*command, socket).await,
+        Command::Quote { command } => return quote::run(*command, socket).await,
     };
     options.validate()?;
     if !options.execute {
