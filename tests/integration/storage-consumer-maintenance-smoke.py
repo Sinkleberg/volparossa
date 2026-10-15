@@ -49,6 +49,11 @@ FAILURE_CODES = {'phase_deadline', 'authority_expired', 'authority_changed', 're
     'cipher_identity', 'cipher_receipt', 'snapshot_crypto', 'publish_operation', 'enrollment_policy', 'enrollment',
     'fragment_geometry', 'catalog_creation', 'configuration', 'input_changed', 'private_file', 'private_directory',
     'application_failed'}
+CATALOG_FAILURE_CODES = {'catalog_materialization_failed', 'catalog_restore_validation',
+    'catalog_metadata_validation', 'catalog_selection_validation', 'catalog_plaintext_validation',
+    'catalog_file_version_changed', 'catalog_receipt_validation', 'catalog_crypto_timeout',
+    'catalog_crypto_unavailable', 'catalog_crypto_failed', 'catalog_crypto_report_invalid',
+    'catalog_cleanup_failed', 'catalog_stage_changed', 'catalog_cancelled'}
 CANCELLED = False
 PROFILE_VERSION = 1
 NETWORK_VERSION = 1
@@ -339,8 +344,32 @@ def validate_node_report(value, phase, provision, prepared=None, *, profile_vers
                     require(deposit is None, 'deposit_diagnostics')
                 require(not (observed['status'] == 'complete' and observed['local_process_joined'] is True)
                     or (observed['operation'] == 'deposit' and state in ('missing', 'invalid')), 'deposit_diagnostics')
+        lifecycle = 'publish_cleanup' in value
+        if lifecycle:
+            fields += ('publish_cleanup',)
+            cleanup = value['publish_cleanup']
+            keys(cleanup, ('app', 'state'))
+            require(phase == 'publish' and profile_version in (None, 8)
+                and cleanup['app'] in ('image', 'cloud') and cleanup['state'] in ('complete', 'failed'),
+                'publish_cleanup')
+            app = cleanup['app']
+            stages = {f'{app}_{step}' for step in ('publish', 'enroll', 'policy_read', 'core_close')}
+            if app == 'cloud':
+                stages |= {'cloud_catalog_prepare', 'cloud_catalog_create', 'cloud_catalog_validate'}
+            require(value['stage'] in stages and value['code'] in
+                FAILURE_CODES | CATALOG_FAILURE_CODES | {'core_close_failed'}, 'publish_lifecycle')
+            if 'publish_observation' in value:
+                require(value['publish_observation']['version'] == 8
+                    and value['publish_observation']['app'] == app, 'publish_lifecycle')
+            if value['code'] in CATALOG_FAILURE_CODES:
+                require(value['stage'] == 'cloud_catalog_create', 'publish_lifecycle')
+            if value['stage'].endswith('_core_close') or value['code'] == 'core_close_failed':
+                require(value['stage'] == f'{app}_core_close' and cleanup['state'] == 'failed'
+                    and value['code'] in ('core_close_failed', 'phase_deadline'), 'publish_lifecycle')
+            expected_version = 10
         keys(value, fields)
-        require(value['stage'] in STAGES and value['code'] in FAILURE_CODES and value['cleanup_confirmed'] is False, 'failure_report')
+        require((lifecycle or (value['stage'] in STAGES and value['code'] in FAILURE_CODES))
+            and value['cleanup_confirmed'] is False, 'failure_report')
     else:
         keys(value, ('version', 'kind', 'phase', 'passed', 'provision_sha256', 'image', 'cloud', 'scope'))
         keys(value['scope'], SCOPE)

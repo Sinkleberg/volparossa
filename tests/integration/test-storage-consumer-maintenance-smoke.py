@@ -110,6 +110,79 @@ def diagnostic_failure(profile_version=2):
 
 
 class ConsumerReceipts(unittest.TestCase):
+    def test_profile8_publish_lifecycle_is_closed_and_keeps_historical_versions_strict(self):
+        original = dict(version=10, kind='storage-consumer-maintenance', phase='publish', passed=False,
+            provision_sha256=PROVISION, stage='cloud_catalog_create', code='catalog_materialization_failed',
+            cleanup_confirmed=False, publish_cleanup=dict(app='cloud', state='failed'))
+        for code in M['CATALOG_FAILURE_CODES']:
+            for state in ('complete', 'failed'):
+                value = copy.deepcopy(original)
+                value.update(code=code)
+                value['publish_cleanup']['state'] = state
+                self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=8), value)
+        for app in ('image', 'cloud'):
+            for stage in ('publish', 'enroll', 'policy_read', 'core_close'):
+                value = copy.deepcopy(original)
+                value.update(stage=f'{app}_{stage}', code='core_close_failed' if stage == 'core_close'
+                             else 'application_failed')
+                value['publish_cleanup']['app'] = app
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=8)
+        cases = [lambda v: v.update(version=9), lambda v: v.update(version=True),
+            lambda v: v.update(phase='exercise'), lambda v: v.update(passed=True),
+            lambda v: v.update(cleanup_confirmed=True), lambda v: v.update(stage='cloud_catalog'),
+            lambda v: v.update(stage='cloud_policy_read'), lambda v: v.update(code='PRIVATE'),
+            lambda v: v.update(raw_error='PRIVATE'), lambda v: v['publish_cleanup'].update(state=True),
+            lambda v: v['publish_cleanup'].update(state='PRIVATE'),
+            lambda v: v['publish_cleanup'].update(app='image'),
+            lambda v: v['publish_cleanup'].update(remote_cleanup_confirmed=True),
+            lambda v: v.update(stage='cloud_core_close'),
+            lambda v: v.update(code='core_close_failed')]
+        for mutate in cases:
+            value = copy.deepcopy(original)
+            mutate(value)
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                M['validate_node_report'](value, value['phase'], PROVISION, profile_version=8)
+        for profile in range(1, 8):
+            with self.subTest(profile=profile), self.assertRaises(ValueError):
+                M['validate_node_report'](original, 'publish', PROVISION, profile_version=profile)
+        for version in range(1, 10):
+            value = copy.deepcopy(original)
+            value['version'] = version
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION)
+        value = copy.deepcopy(original)
+        del value['publish_cleanup']
+        with self.assertRaises(ValueError):
+            M['validate_node_report'](value, 'publish', PROVISION)
+
+    def test_profile8_primary_deposit_and_close_failure_both_survive_node_export(self):
+        value = diagnostic_failure(8)
+        old = copy.deepcopy(value)
+        value.update(version=10, publish_cleanup=dict(app='cloud', state='failed'))
+        M['validate_node_report'](value, 'publish', PROVISION, profile_version=8)
+        M['validate_node_report'](old, 'publish', PROVISION, profile_version=8)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            with patch.dict(G, PROFILE_VERSION=8, run_child=lambda *_: (1, raw, b'PRIVATE-DO-NOT-EXPORT')):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            retained = caught.exception.report
+            self.assertEqual(retained['node'], value)
+            self.assertEqual(retained['node_report_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertFalse(retained['cleanup_confirmed'])
+            self.assertFalse(retained['node']['cleanup_confirmed'])
+            self.assertNotIn('PRIVATE', json.dumps(retained))
+        for mutate in (lambda v: v['publish_cleanup'].update(app='image'),
+                       lambda v: v['publish_observation'].update(version=7),
+                       lambda v: v.update(stage='cloud_core_close')):
+            invalid = copy.deepcopy(value)
+            mutate(invalid)
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](invalid, 'publish', PROVISION, profile_version=8)
+
     def test_profile_eight_original_failed_child_and_only_closed_timing_survive(self):
         value = diagnostic_failure(8)
         self.assertEqual(value['version'], 9)

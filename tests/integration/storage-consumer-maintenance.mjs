@@ -45,6 +45,25 @@ const FAILURE_CODES = new Set(['phase_deadline', 'authority_expired', 'authority
   'image_decrypt', 'plaintext_mismatch', 'cloud_size', 'cloud_body', 'cloud_plaintext_cleanup', 'authorization',
   'cipher_identity', 'cipher_receipt', 'snapshot_crypto', 'publish_operation', 'enrollment_policy', 'enrollment',
   'fragment_geometry', 'catalog_creation', 'configuration', 'input_changed', 'private_file', 'private_directory']);
+// Exact PrivateCatalogError codes retained by pinned Cloud dda7. In particular,
+// MATERIALIZATION_FAILED does NOT distinguish Storage restore from decryption.
+const CATALOG_CODES = Object.freeze({
+  MATERIALIZATION_FAILED: 'catalog_materialization_failed',
+  RESTORE_INCOMPLETE: 'catalog_restore_validation',
+  INVALID_SOURCE_METADATA: 'catalog_metadata_validation',
+  SOURCE_SELECTION_MISMATCH: 'catalog_selection_validation',
+  RESTORED_FILE_INVALID: 'catalog_plaintext_validation',
+  FILE_VERSION_CHANGED: 'catalog_file_version_changed',
+  INVALID_FILE_RECEIPT: 'catalog_receipt_validation',
+  CATALOG_CRYPTO_TIMEOUT: 'catalog_crypto_timeout',
+  CATALOG_CRYPTO_UNAVAILABLE: 'catalog_crypto_unavailable',
+  CATALOG_CRYPTO_FAILED: 'catalog_crypto_failed',
+  INVALID_CATALOG_CRYPTO_REPORT: 'catalog_crypto_report_invalid',
+  PRIVATE_CLEANUP_FAILED: 'catalog_cleanup_failed',
+  PRIVATE_STAGE_CHANGED: 'catalog_stage_changed',
+  CANCELLED: 'catalog_cancelled',
+});
+const PUBLISH_FAILURE_CODES = new Set([...Object.values(CATALOG_CODES), 'core_close_failed']);
 const fail = code => { throw Object.assign(new Error(code), { code }); };
 const check = (value, code) => { if (!value) fail(code); };
 const sha = value => createHash('sha256').update(value).digest('hex');
@@ -210,11 +229,72 @@ export function requirePublishComplete(value, app, operation, profileVersion = 1
 }
 
 export function consumerFailureReport(ctx, phase, error) {
+  if (error instanceof PublishLifecycleFailure) {
+    return { ...error.primary, version: 10, publish_cleanup: error.cleanup };
+  }
   const publish = error instanceof PublishFailure;
   return { version: publish ? error.observation.version + 1 : 1, kind: 'storage-consumer-maintenance', phase, passed: false,
     provision_sha256: ctx.provision, stage: ctx.stage,
-    code: ctx.signal.aborted ? 'phase_deadline' : FAILURE_CODES.has(error.code) ? error.code : 'application_failed',
+    code: ctx.signal.aborted ? 'phase_deadline' : FAILURE_CODES.has(error?.code)
+      || (ctx.profileVersion === 8 && phase === 'publish' && PUBLISH_FAILURE_CODES.has(error?.code))
+      ? error.code : 'application_failed',
     ...(publish ? { publish_observation: error.observation } : {}), cleanup_confirmed: false };
+}
+
+class PublishLifecycleFailure extends Error {
+  constructor(primary, cleanup, cause) {
+    super('publish_lifecycle_failed', { cause });
+    this.primary = Object.freeze(primary);
+    this.cleanup = Object.freeze(cleanup);
+  }
+}
+
+// This observation covers only the existing client close() call. It does not
+// prove remote provider cleanup, private-directory removal or a successful phase.
+export async function withPublishCore(ctx, app, core, operation) {
+  if (ctx.profileVersion !== 8) {
+    try { return await operation(); } finally { await core.close(); }
+  }
+  check(['image', 'cloud'].includes(app), 'arguments');
+  let result, primary, cause;
+  try { result = await operation(); }
+  catch (error) {
+    cause = error;
+    try { primary = consumerFailureReport(ctx, 'publish', error); }
+    catch { primary = consumerFailureReport(ctx, 'publish', undefined); }
+  }
+  const beforeClose = ctx.stage;
+  ctx.stage = `${app}_core_close`;
+  let state = 'complete';
+  try { await core.close(); }
+  catch (error) {
+    state = 'failed';
+    if (!primary) {
+      cause = error;
+      primary = consumerFailureReport(ctx, 'publish', { code: 'core_close_failed' });
+    }
+  }
+  if (primary) throw new PublishLifecycleFailure(primary, { app, state }, cause);
+  ctx.stage = beforeClose;
+  return result;
+}
+
+export async function createPublishCatalog(ctx, m, request, options) {
+  if (ctx.profileVersion === 8) ctx.stage = 'cloud_catalog_create';
+  let created;
+  try { created = await m.createPrivateCatalog(request, options); }
+  catch (error) {
+    if (ctx.profileVersion === 8 && typeof m.PrivateCatalogError === 'function'
+      && error instanceof m.PrivateCatalogError
+      && Object.hasOwn(CATALOG_CODES, error.code)) {
+      const code = CATALOG_CODES[error.code];
+      throw Object.assign(new Error(code, { cause: error }), { code });
+    }
+    throw error;
+  }
+  if (ctx.profileVersion === 8) ctx.stage = 'cloud_catalog_validate';
+  check(created.encrypted === true && created.sourceFallback === false && created.files === 1, 'catalog_creation');
+  return created;
 }
 
 export function fixtureBytes(label) {
@@ -628,14 +708,14 @@ async function prepare(ctx, m) {
   }
   return result;
 }
-async function publish(ctx, m) {
+export async function publish(ctx, m) {
   const result = {}, retained = { version: 1, provision_sha256: ctx.provision };
   for (const name of ['image', 'cloud']) {
     ctx.stage = `${name}_publish`;
     const app = join(ctx.root, name), r = await receipt(app, name), c = await config(app, ctx.profileVersion);
     check(c.fragmentBytes === Math.ceil(r.cipher_bytes / 4), 'fragment_geometry');
     const core = await m.CoreStorage.open(join(app, 'storage.json'));
-    try {
+    await withPublishCore(ctx, name, core, async () => {
       const factory = async path => { check(path === join(app, 'storage.json'), 'configuration'); return core; };
       let deposited;
       for (const operation of ['create', 'deposit']) {
@@ -646,13 +726,13 @@ async function publish(ctx, m) {
         if (operation === 'deposit') deposited = validateStorage(value, r.cipher_bytes, 'published');
       }
       if (name === 'cloud') {
-        ctx.stage = 'cloud_catalog';
+        ctx.stage = ctx.profileVersion === 8 ? 'cloud_catalog_prepare' : 'cloud_catalog';
         await fresh(join(app, 'work'));
-        const created = await m.createPrivateCatalog({ selection: [{ segments: ['synthetic-space', 'synthetic.bin'],
+        await createPublishCatalog(ctx, m, { selection: [{ segments: ['synthetic-space', 'synthetic.bin'],
           bundle: join(app, 'bundle'), config: join(app, 'storage.json') }], output: join(app, 'catalog'),
         workDirectory: join(app, 'work'), maxTotalBytes: 4 * MAX_CIPHER }, { signal: ctx.signal, storageFactory: factory });
-        check(created.encrypted === true && created.sourceFallback === false && created.files === 1, 'catalog_creation');
       }
+      if (ctx.profileVersion === 8) ctx.stage = `${name}_policy_read`;
       const policy = await json(join(app, 'maintenance-policy.json'), 32768);
       ctx.stage = `${name}_enroll`;
       check(policy.enrollment === join(app, 'maintenance') && policy.fromProviderKey === c.providers[0].key
@@ -664,7 +744,7 @@ async function publish(ctx, m) {
       retained[name] = await binding(app);
       result[name] = { cipher_sha256: r.cipher_sha256, ...deposited, enrollment_created: true,
         maintenance_started: false, original_journals_bound: true };
-    } finally { await core.close(); }
+    });
   }
   await writeJSON(join(ctx.root, 'consumer-binding.json'), retained);
   return result;

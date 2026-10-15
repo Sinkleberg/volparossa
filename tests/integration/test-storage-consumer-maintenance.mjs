@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Inert contracts only. These do not execute GPG, a core, or application code.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, writeFile, chmod, symlink, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, chmod, symlink, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { boundedFile, fixtureBytes, ForegroundObservation, MAX_CIPHER, PHASES, PLAIN_BYTES,
   consumerFailureReport, depositDiagnostic, parseProcStat, replacementReady, requirePublishComplete, retainedSnapshot,
-  retentionAdvanced, validateAppendProfile, validateCheckpoint, validateStorage } from './storage-consumer-maintenance.mjs';
+  retentionAdvanced, validateAppendProfile, validateCheckpoint, validateStorage,
+  createPublishCatalog, publish, withPublishCore } from './storage-consumer-maintenance.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const keys = [1, 2, 3].map(v => Buffer.alloc(32, v).toString('hex'));
@@ -548,6 +551,181 @@ test('cancellation and unrelated exceptions cannot inherit or fabricate a publis
   const cancelled = publishFailure({ status: 'cancelled', code: 'cancelled', local_process_joined: true }, 'image', 'create', true);
   assert.equal(cancelled.code, 'phase_deadline');
   assert.equal(cancelled.publish_observation.status, 'cancelled');
+});
+
+const publishContext = (profileVersion = 8) => ({ profileVersion, provision: 'a'.repeat(64),
+  stage: 'cloud_catalog_create', signal: { aborted: false } });
+class CatalogFixtureError extends Error {
+  constructor(code) { super('PRIVATE-EXCEPTION-CANARY'); this.code = code; }
+}
+async function lifecycleFailure(ctx, operation, close = async () => {}) {
+  try { await withPublishCore(ctx, 'cloud', { close }, operation); assert.fail('expected failure'); }
+  catch (error) { return { error, report: consumerFailureReport(ctx, 'publish', error) }; }
+}
+
+test('profile8 retains primary catalog error before independent close failure and later cancellation', async () => {
+  const ctx = publishContext(), primary = Object.assign(new Error('PRIVATE-PRIMARY'), { code: 'catalog_metadata_validation' });
+  let closed = 0;
+  const { error, report } = await lifecycleFailure(ctx, async () => { throw primary; }, async () => {
+    closed++; ctx.signal.aborted = true; throw new Error('PRIVATE-CLOSE');
+  });
+  assert.equal(error.cause, primary); assert.equal(closed, 1);
+  assert.deepEqual(report, { version: 10, kind: 'storage-consumer-maintenance', phase: 'publish', passed: false,
+    provision_sha256: ctx.provision, stage: 'cloud_catalog_create', code: 'catalog_metadata_validation',
+    cleanup_confirmed: false, publish_cleanup: { app: 'cloud', state: 'failed' } });
+  assert.doesNotMatch(JSON.stringify(report), /PRIVATE/u);
+});
+
+test('profile8 close-only error is separate and successful close is not phase or remote cleanup acceptance', async () => {
+  for (const failed of [false, true]) {
+    const ctx = publishContext();
+    const { report } = await lifecycleFailure(ctx, async () => {
+      if (!failed) throw new Error('PRIVATE-PRIMARY');
+      return 'completed operation';
+    }, async () => { if (failed) throw new Error('PRIVATE-CLOSE'); });
+    assert.equal(report.stage, failed ? 'cloud_core_close' : 'cloud_catalog_create');
+    assert.equal(report.code, failed ? 'core_close_failed' : 'application_failed');
+    assert.equal(report.publish_cleanup.state, failed ? 'failed' : 'complete');
+    assert.equal(report.passed, false); assert.equal(report.cleanup_confirmed, false);
+    assert.doesNotMatch(JSON.stringify(report), /PRIVATE|provider_usage_proven|remote_cleanup_confirmed/u);
+  }
+});
+
+test('profile8 successful lifecycle preserves return identity and original close count and stage', async () => {
+  const ctx = publishContext(), result = {}, calls = [];
+  const actual = await withPublishCore(ctx, 'cloud', { close: async () => {
+    assert.equal(ctx.stage, 'cloud_core_close'); calls.push('close');
+  } }, async () => { calls.push('operation'); return result; });
+  assert.equal(actual, result); assert.deepEqual(calls, ['operation', 'close']);
+  assert.equal(ctx.stage, 'cloud_catalog_create');
+});
+
+test('an unusable optional error classification cannot skip close or export its contents', async () => {
+  const ctx = publishContext(), primary = new Error('PRIVATE-PRIMARY'); let closed = 0;
+  Object.defineProperty(primary, 'code', { get() { throw new Error('PRIVATE-GETTER'); } });
+  const { error, report } = await lifecycleFailure(ctx, async () => { throw primary; }, async () => { closed++; });
+  assert.equal(error.cause, primary); assert.equal(closed, 1);
+  assert.equal(report.code, 'application_failed'); assert.equal(report.publish_cleanup.state, 'complete');
+  assert.doesNotMatch(JSON.stringify(report), /PRIVATE/u);
+});
+
+test('typed catalog codes are finite and materialization does not invent a restore or decrypt cause', async () => {
+  const cases = { MATERIALIZATION_FAILED: 'catalog_materialization_failed', RESTORE_INCOMPLETE: 'catalog_restore_validation',
+    INVALID_SOURCE_METADATA: 'catalog_metadata_validation', SOURCE_SELECTION_MISMATCH: 'catalog_selection_validation',
+    RESTORED_FILE_INVALID: 'catalog_plaintext_validation', FILE_VERSION_CHANGED: 'catalog_file_version_changed',
+    INVALID_FILE_RECEIPT: 'catalog_receipt_validation', CATALOG_CRYPTO_TIMEOUT: 'catalog_crypto_timeout',
+    CATALOG_CRYPTO_UNAVAILABLE: 'catalog_crypto_unavailable', CATALOG_CRYPTO_FAILED: 'catalog_crypto_failed',
+    INVALID_CATALOG_CRYPTO_REPORT: 'catalog_crypto_report_invalid', PRIVATE_CLEANUP_FAILED: 'catalog_cleanup_failed',
+    PRIVATE_STAGE_CHANGED: 'catalog_stage_changed', CANCELLED: 'catalog_cancelled' };
+  for (const [source, expected] of Object.entries(cases)) {
+    const ctx = publishContext(), request = {}, options = {}; let calls = 0;
+    const modules = { PrivateCatalogError: CatalogFixtureError, createPrivateCatalog: async (r, o) => {
+      calls++; assert.equal(r, request); assert.equal(o, options); throw new CatalogFixtureError(source);
+    } };
+    const { report } = await lifecycleFailure(ctx, () => createPublishCatalog(ctx, modules, request, options));
+    assert.equal(calls, 1); assert.equal(report.stage, 'cloud_catalog_create'); assert.equal(report.code, expected);
+    assert.equal(report.publish_cleanup.state, 'complete'); assert.doesNotMatch(JSON.stringify(report), /PRIVATE/u);
+  }
+  for (const error of [new CatalogFixtureError('PRIVATE-UNKNOWN'),
+    Object.assign(new Error('PRIVATE'), { code: 'RESTORE_INCOMPLETE' }), null]) {
+    const ctx = publishContext();
+    const { report } = await lifecycleFailure(ctx, () => createPublishCatalog(ctx, {
+      PrivateCatalogError: CatalogFixtureError, createPrivateCatalog: async () => { throw error; },
+    }, {}, {}));
+    assert.equal(report.code, 'application_failed'); assert.doesNotMatch(JSON.stringify(report), /PRIVATE/u);
+  }
+});
+
+test('catalog return validation and cancellation retain their actual observed boundary', async () => {
+  const ctx = publishContext();
+  const { report } = await lifecycleFailure(ctx, () => createPublishCatalog(ctx, {
+    createPrivateCatalog: async () => ({ encrypted: true, sourceFallback: true, files: 1 }),
+  }, {}, {}));
+  assert.equal(report.stage, 'cloud_catalog_validate'); assert.equal(report.code, 'catalog_creation');
+  ctx.stage = 'cloud_catalog_create'; ctx.signal.aborted = true;
+  const cancelled = await lifecycleFailure(ctx, async () => { throw new Error('PRIVATE'); });
+  assert.equal(cancelled.report.code, 'phase_deadline');
+});
+
+test('original deposit observation survives profile8 close failure without promotion or mutation', async () => {
+  const ctx = publishContext(); ctx.stage = 'cloud_publish';
+  const value = { status: 'incomplete', code: 'retained_operation_incomplete', local_process_joined: true,
+    storage: { operation_complete: false, deposit_diagnostics: appendDiagnostics() } };
+  const original = publishFailure(value, 'cloud', 'deposit', false, 8);
+  const { report } = await lifecycleFailure(ctx, async () => requirePublishComplete(value, 'cloud', 'deposit', 8),
+    async () => { throw new Error('PRIVATE-CLOSE'); });
+  assert.equal(original.version, 9); assert.equal(report.version, 10);
+  assert.deepEqual(report.publish_observation, original.publish_observation);
+  assert.equal(report.code, 'publish_operation'); assert.equal(report.stage, 'cloud_publish');
+});
+
+test('profiles1 through7 preserve original finally precedence and legacy failure shape', async () => {
+  for (let profile = 1; profile <= 7; profile++) {
+    const ctx = publishContext(profile); ctx.stage = 'cloud_catalog';
+    const primary = new CatalogFixtureError('RESTORE_INCOMPLETE'), close = new Error('PRIVATE-CLOSE');
+    await assert.rejects(withPublishCore(ctx, 'cloud', { close: async () => { throw close; } },
+      () => createPublishCatalog(ctx, { PrivateCatalogError: CatalogFixtureError,
+        createPrivateCatalog: async () => { throw primary; } }, {}, {})), error => error === close);
+    assert.deepEqual(consumerFailureReport(ctx, 'publish', close), { version: 1,
+      kind: 'storage-consumer-maintenance', phase: 'publish', passed: false, provision_sha256: ctx.provision,
+      stage: 'cloud_catalog', code: 'application_failed', cleanup_confirmed: false });
+  }
+});
+
+test('real publish driver distinguishes missing policy read and still closes once', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vp-publish-'));
+  try {
+    await mkdir(join(root, 'image'), { mode: 0o700 });
+    await mkdir(join(root, 'image/bundle'), { mode: 0o700 });
+    const c = { version: 1, stateDirectory: join(root, 'image/archive'), deadlineMs: 100,
+      providers: keys.map(key => ({ key })), fragmentBytes: 25, appendDiagnosticsV7: true };
+    await writeFile(join(root, 'image/storage.json'), JSON.stringify(c), { mode: 0o600 });
+    await writeFile(join(root, 'image/bundle/receipt.json'), JSON.stringify({ cipher_bytes: 100,
+      cipher_sha256: 'a'.repeat(64), cipher_file: 'snapshot.pgp' }), { mode: 0o600 });
+    const ctx = { ...publishContext(), root }, calls = [];
+    const modules = { CoreStorage: { open: async () => ({ close: async () => { calls.push('close'); } }) },
+      runSnapshotStorage: async ({ operation }) => {
+        calls.push(operation);
+        const value = storage();
+        Object.assign(value.storage, { uncertain_payload_bytes: 0, physical_payload_charge_upper_bound: 200,
+          deposit_diagnostics: { version: 7, failures: [], omitted_failures: 0 } });
+        return value;
+      } };
+    let failed;
+    try { await publish(ctx, modules); } catch (error) { failed = error; }
+    assert.ok(failed);
+    const report = consumerFailureReport(ctx, 'publish', failed);
+    assert.equal(report.version, 10); assert.equal(report.stage, 'image_policy_read');
+    assert.equal(report.code, 'application_failed');
+    assert.deepEqual(report.publish_cleanup, { app: 'image', state: 'complete' });
+    assert.deepEqual(calls, ['create', 'deposit', 'close']);
+    assert.doesNotMatch(JSON.stringify(report), /ENOENT|vp-publish|maintenance-policy/u);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('actual JS v10 failures pass the unchanged Python orchestration entry boundary', async () => {
+  const records = [];
+  for (const code of ['MATERIALIZATION_FAILED', 'RESTORE_INCOMPLETE']) {
+    for (const closeFailed of [false, true]) {
+      const ctx = publishContext();
+      const { report } = await lifecycleFailure(ctx, () => createPublishCatalog(ctx, {
+        PrivateCatalogError: CatalogFixtureError,
+        createPrivateCatalog: async () => { throw new CatalogFixtureError(code); },
+      }, {}, {}), async () => { if (closeFailed) throw new Error('PRIVATE-CLOSE'); });
+      records.push(report);
+    }
+  }
+  const ctx = publishContext();
+  records.push((await lifecycleFailure(ctx, async () => {}, async () => { throw new Error('PRIVATE'); })).report);
+  const source = 'import json, runpy, sys\n' +
+    'm = runpy.run_path(sys.argv[1])\n' +
+    'for v in json.load(sys.stdin):\n' +
+    '    assert m["validate_node_report"](v, "publish", "a" * 64, profile_version=8) == v\n';
+  const child = spawnSync('/usr/bin/python3', ['-I', '-B', '-c', source,
+    fileURLToPath(new URL('./storage-consumer-maintenance-smoke.py', import.meta.url))], {
+    input: JSON.stringify(records), encoding: 'utf8', timeout: 10000, maxBuffer: 16384,
+  });
+  assert.equal(child.status, 0, child.stderr); assert.equal(child.stdout, '');
 });
 
 test('four explicit phases and distinct deterministic incompressible fixture identities', () => {
