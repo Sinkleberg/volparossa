@@ -44,7 +44,8 @@ jobs:
           test "$RUNNER_OS" = Linux
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -z "$(git status --porcelain)"
-          for tool in cmake c++ cc git readelf; do command -v "$tool"; done
+          env -i PATH=/usr/local/bin:/usr/bin:/bin /bin/bash -euo pipefail -c \
+            'for tool in cmake c++ cc git readelf nice python3; do command -v "$tool"; done'
       - name: Fetch the pinned upstream source only
         run: |
           set -euo pipefail
@@ -59,7 +60,7 @@ jobs:
           set -euo pipefail
           flags=()
           if test "$NATIVE_MODE" = asan-ubsan; then flags+=(--sanitize); fi
-          env -i PATH=/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 \
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 \
             python3 -B workers/volparossa-ml/build_llama_cpu.py \
               --source "$PWD/build/native-contract/llama" \
               --output "$PWD/build/native-contract/output" --execute --checks "${flags[@]}"

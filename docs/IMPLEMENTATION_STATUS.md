@@ -43,6 +43,15 @@ the unchanged all-type tensor test with its known sanitizer finding. No local
 Rust, native build or inference ran. These contracts are not proof of an actual
 OpenCode coding task or protected peer execution.
 
+Initial source-only run `38671269423` on `4e5126ad` stops before compilation or
+build-log creation in both modes. The original preflight resolves CMake to
+`/usr/local/bin/cmake`, while the scrubbed build PATH excludes `/usr/local/bin`.
+The generic builder failure does not retain its internal exception, so missing
+CMake is a source-supported diagnosis, not an exported error code. Preflight and
+build now use the same fixed hosted PATH, without installing anything. No native
+check passed in this attempt. Original job-log ZIP SHA-256:
+`f05e248ac6685079055b8a4db631d43b85ded5792be0d53a2374ce446c0e0177`.
+
 #### Earlier native candidate evidence
 
 - [ ] An owner-selected `llama_cpp_bf16_v1` backend is being connected to the
