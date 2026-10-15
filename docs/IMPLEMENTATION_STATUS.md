@@ -33,9 +33,9 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete Cloud APPEND and the consumer repair/restore sequence with request-bound diagnostics and bounded VM shutdown. | The base lifecycle passes, but the latest actual Cloud publication fails while awaiting an APPEND receipt. PR255 integrates bounded VM shutdown. Targeted APPEND diagnostics pass 99 Rust and 82 Python tests; PR232 connects explicit consumer profile 8 to the tested Image/Cloud adapters. Its first integrated Quality stops at a stale test fixture, corrected in `16692f1e` with 41 local wiring checks passing; full Quality `38722691110` remains pending. Consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Source Quality `38727088626` and CodeQL `38727084357` pass for PR232's `1db29f62` tree. Actual `38731855117` fails Cloud FINALIZE during TLS handshake; the original base lifecycle receipts still pass their checks. The new profile omitted an existing provider observer, so that missing evidence must be restored before another trial. Consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. No duplicate trial is running. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Actual `38709341304` completes one read and refuses six later requests because of its own cgroup headroom. Cache-release candidate `3146d2b4` passes 62 targeted Rust tests but fails four Clippy checks. Correction `2dd38983` is under Quality `38722825812`; Code `4fc36928` pins it and passes 410 source checks with four skips. No new actual trial is started before the core gates pass. Model, task and admission limits remain unchanged. This executor is not confidential peer execution or completion of the shared-brain requirement. |
+| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Core `3327115e` and Code `3a5c1f59` pass their source gates. Actual `38737284583` fails with a QEMU OOM-kill before a guest result can be retrieved; the deciding memory boundary and reached guest stage remain unknown. Bounded host-memory observations are the next diagnostic step. Model, task and admission limits remain unchanged. This executor is not confidential peer execution or completion of the shared-brain requirement. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify quote exchange on the production route, then execute a private task on another node with verified protection. | PR246 and PR247 are merged. The quote-only slice passes appraisal, guest, agent/control/CLI and quote software checks. Production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is still unavailable; local coding and storage integration continue without substituting for this requirement. |
 
 Detailed earlier Android and storage checkpoints remain in the
@@ -43,6 +43,77 @@ Detailed earlier Android and storage checkpoints remain in the
 The latest completed outcomes are summarized below.
 
 ### Latest completed integration evidence — 15 October
+
+- **The latest Storage trial reaches a different failure boundary.**
+  [Trial `38731855117`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38731855117)
+  runs exact `1db29f62809b9360d5c6acb31b0b0fa128190479`, after Quality
+  `38727088626` and CodeQL `38727084357` pass. Its combined report correctly
+  fails Cloud publication at fragment 0/copy 0, operation `finalize`, stage
+  `agent_ready`: the agent reports `tls_handshake` / `handshake_deadline`.
+  The enclosing deadline scope is `none`; `agent_outcome` is null. No payload
+  timing or transport cause can be inferred from that result. This is not the
+  preceding APPEND receipt-read failure.
+
+  The original base receipts pass the lifecycle checks for restart, pause/resume,
+  replacement, two restores and removal of all retained copies. Reconstructing
+  those checks is not a new published acceptance record and does not complete
+  the combined consumer scenario. Guest-local namespace and consumer-fixture
+  cleanup pass; consumer remote cleanup and provider usage remain unconfirmed.
+  Exact wrapper ordering and its final image check establish the bounded QEMU
+  stop and join, unlike the earlier timeout. The Storage wrapper does not emit
+  an independent post-removal scratch receipt.
+
+  Provider event-ring coverage cannot prove absence or correlation. A separate
+  activity sidecar is missing because the source enables its existing observer
+  for consumer profile 7, not the selected profile 8. Correcting that wiring
+  restores observation; it does not fix or explain the handshake failure.
+  Original artifact ZIP SHA-256:
+  `7620dfff47184fec77b7747d1f4f8a620b06bb80b74bd96a05b3f2f9a2ade3dd`;
+  log ZIP SHA-256:
+  `070ba2d91ff5368a0f5c5365df01a440f8992f6c2441b0b0bb19941eecf24b02`.
+  The exact source, closed diagnostic versions and both ZIPs are independently
+  checked. Cloud's separate upload-to-maintenance actual remains gated on this
+  combined Storage milestone; no duplicate trial is started.
+
+- **Cloud upload integration passes source checks, not actual maintenance.**
+  [Quality `38730435481`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38730435481)
+  passes on `f91958bd5eacc365898dbcd0c7a5c6fb86b454a3`, including the five
+  finite-enrollment authority cases, formatting, strict Clippy and workspace
+  checks. Namespace and optional harness skips remain skips. The candidate
+  binds the updated consumer profile and preserves original upload authority
+  across restart; this run does not perform an actual upload, peer replacement
+  or cold restoration. Its original log ZIP SHA-256 is
+  `5194964ff8e1773a96b9d303cfad77b2194591665f22f4c5588ab21bc694607c`.
+
+- **The latest native coding trial loses its VM before guest evidence returns.**
+  [Trial `38737284583`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38737284583)
+  uses Code `3a5c1f59b282952e378e9525f2cf47da43ee19b2` and core
+  `3327115e07d2c4fa976b2d0c625729a68df0aaf6`. Core Quality `38733078778`
+  and CodeQL `38732695543` pass; Code source run `38733022967` passes
+  410 checks with four explicit skips. The actual trial's prepared source,
+  build and preflight checks pass, then the QEMU unit reports `oom-kill` and
+  signal 9 during `guest-inference`. SSH exits 255 and no guest result is
+  recovered. This proves neither the deciding memory boundary nor whether
+  model preparation, the new worker cache hint or model execution was reached.
+  The fixed QEMU limit remains 13 GiB with swap disabled.
+
+  QEMU join, private VM scratch removal, unchanged observed host routes/DNS,
+  runner restoration and build cleanup are confirmed. Guest-internal worker
+  join and private-data cleanup cannot be separately confirmed without the
+  missing result. No successful edit, test or protected execution is claimed.
+  Original artifact ZIP SHA-256:
+  `031678c85a91bc8210c5dff121b8a1037cdb31e9519bc5a19cfdd36ce39d0cf2`;
+  log ZIP SHA-256:
+  `358264ace79ac02eee6d355a8d095a0245b20d5ed14623a5bad14af48c480d39`.
+  Independent audit checks both source trees, bundled files and original ZIPs.
+  The next candidate adds bounded host-cgroup observations without changing
+  model, task, limits or disk-cache configuration.
+
+  The preceding [trial `38726624377`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38726624377)
+  on Code `4fc36928` / core `2dd38983` has a different outcome: one actual
+  read, a second admitted request cancelled by the memory guard, then five
+  admission refusals. It records no OOM kill and no edit or test. Its guest
+  memory observations are not evidence about the later lost VM.
 
 - **Actual Android-to-core delivery passes in an emulator.**
   [Trial `38717988016`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38717988016)
