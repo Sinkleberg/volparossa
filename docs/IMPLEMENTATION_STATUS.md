@@ -178,7 +178,13 @@ ZIP SHA-256:
 
 This establishes the shared-descriptor lifetime correction, not the cause of
 the earlier native-core [Quality failure `38688104130`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38688104130)
-or distributed consumer acceptance. Full integration checks remain required.
+or distributed consumer acceptance. [Quality `38697903143`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38697903143)
+passes on the exact reviewed tree, including all three regressions and the legacy
+lifecycle in the full workspace suite, formatting, dependency checks and strict
+Clippy. CodeQL also passes; PR254 is merged. Seven intentionally ignored tests,
+three namespace checks skipped before entry and one optional harness skip are
+not live datapath evidence. Original Quality log ZIP SHA-256:
+`b60f561852fad9fcb6bd13ac9d0692718ac042e26060f8d9f855ec572fa91f54`.
 The first [targeted attempt `38695362871`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38695362871)
 stopped at incorrect temporary-directory permissions and formatting; the
 successful comparison corrects those test fixtures without relaxing production
