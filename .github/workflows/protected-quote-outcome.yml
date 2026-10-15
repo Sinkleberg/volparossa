@@ -1,10 +1,10 @@
 name: Protected quote outcome contracts
-run-name: Signed quote refusal source checks without hardware or route claims
+run-name: Quote and key-confirmation source checks without hardware or route claims
 
 on:
   workflow_dispatch:
   push:
-    branches: [feature/protected-compute-quote-outcome]
+    branches: [feature/protected-compute-quote-outcome, feature/protected-compute-key-confirmation]
 
 permissions:
   contents: read
@@ -78,19 +78,23 @@ jobs:
           timeout --signal=TERM --kill-after=15s 300s cargo +1.85.0 test --locked --offline \
             -p volparossa-content --lib provider::compute::quote:: -- --test-threads=1
           timeout --signal=TERM --kill-after=15s 300s cargo +1.85.0 test --locked --offline \
+            -p volparossa-content --lib private_message::confirmation:: -- --test-threads=1
+          timeout --signal=TERM --kill-after=15s 300s cargo +1.85.0 test --locked --offline \
             -p volparossa-content --lib provider::compute::attestation::session::outcome_tests:: -- --test-threads=1
       - name: Exercise agent handoff and CLI refusal semantics offline
         run: |
           set -euo pipefail
+          timeout --signal=TERM --kill-after=15s 300s cargo +1.85.0 test --locked --offline \
+            -p volparossa-local-control --lib quote:: -- --test-threads=1
           timeout --signal=TERM --kill-after=15s 1200s cargo +1.85.0 test --locked --offline \
             -p volparossa-agent --lib quote_ -- --test-threads=1
           timeout --signal=TERM --kill-after=15s 600s cargo +1.85.0 test --locked --offline \
             -p volparossa --bin volparossa quote_ -- --test-threads=1
-      - name: Check the three affected packages with strict Clippy
+      - name: Check the four affected packages with strict Clippy
         run: |
           set -euo pipefail
           timeout --signal=TERM --kill-after=15s 900s cargo +1.85.0 clippy --locked --offline \
-            -p volparossa-content -p volparossa-agent -p volparossa --all-targets -- -D warnings
+            -p volparossa-content -p volparossa-agent -p volparossa-local-control -p volparossa --all-targets -- -D warnings
       - name: Recheck source and lockfile after execution
         if: always()
         run: |

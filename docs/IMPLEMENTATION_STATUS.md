@@ -36,7 +36,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | PR232's `32458165` passes source checks, but actual `38766434111` fails during Image FINALIZE with `stream_open / flow_acquire`. The original receipts do not retain the inner acquisition cause. Preserve typed request-local failures and test the existing acquisition/retirement boundaries before another trial. The previous Cloud-catalog failure remains unresolved; the passing base lifecycle does not establish combined consumer repair, restore, remote cleanup or reciprocal capacity. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Core `0de65f42` and Code `266d1a03` pass source checks. Their paired actual `38771413590` fails on its first request without a completed tool action; cleanup passes. The session wrapper loses the underlying diagnostic category, so preserve closed typed errors before choosing an execution fix or another trial. Keep the ordinary toolset, 4B/BF16 model and limits unchanged. The upstream sanitizer failure remains open; this efficiency slice does not complete protected peer execution or the shared brain. |
-| Protected remote compute — `volparossa`, then Code/Browser | Keep the live owner from verified quote through key confirmation, then bind an approved private workload to that protection. | PR258's authenticated refusal path is integrated and has actual route evidence. Candidate `9ddd5849` adds explicit same-connection key confirmation, original-expiry checks through final acknowledgement and 40 new Rust cases. Source acceptance is pending after a TLS test-fixture correction, detailed below; 127 inert Python contract checks pass. This is not private-task admission. Production authority, current vendor appraisal, approved workloads and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
+| Protected remote compute — `volparossa`, then Code/Browser | Keep the live owner from verified quote through key confirmation, then bind an approved private workload to that protection. | PR258's authenticated refusal path is integrated and has actual route evidence. Candidate `6bc31925` passes targeted source acceptance for explicit same-connection key confirmation, with original-expiry checks through final acknowledgement. Full integration checks remain pending. This is not private-task admission. Production authority, current vendor appraisal, approved workloads and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
@@ -44,14 +44,35 @@ The latest completed outcomes are summarized below.
 
 ### Latest completed integration evidence — 15 October
 
-- **Key confirmation compiles, but its source acceptance is not complete.**
+- **Same-connection key confirmation passes targeted source checks.**
+  [Run `38781307814`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38781307814)
+  checks exact `6bc319254499994971efdab61909d89e0df2ff7a`: 97 unique Rust
+  tests and 233 Python tests pass, without ignored or skipped cases. Formatting
+  and strict Clippy for the four affected packages pass; the original checkout,
+  final source tree and lockfile match. Original log ZIP SHA-256:
+  `a5b7e86ea68c2690c6420488823a944f2a32a4bb0f9fbb553788e44fa6a573fc`.
+
+  The explicit profile retains the original verifier owner through reference
+  verification, a fresh encrypted random probe, its signed echo and the final
+  correlated acknowledgement. It preserves legacy negotiation and refuses
+  unsupported confirmation instead of downgrading. Possession is separate from
+  approved key origin, complete appraisal and private-task authority; the
+  [command contract](development/PROTECTED_COMPUTE_VERIFIER.md#explicit-key-confirmation)
+  keeps those limits explicit. Full integration and actual hardware execution
+  remain outstanding.
+
+  Earlier source attempts remain failures, not additional acceptances.
   [Source run `38775482837`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38775482837)
   on `64ddee26` passes formatting, 16 guest cases and 48 quote cases. One new TLS
   fixture fails with `BrokenPipe` when the client closes after the provider has
   already dropped its in-memory endpoint. The remaining crypto, agent/CLI and
   strict lint gates are not reached. Revision `9ddd5849` changes only the fixture:
   both peers retain their endpoints until the other's TLS close notification is
-  read, under a five-second bound. A fresh source run must verify that correction.
+  read, under a five-second bound. Run `38776287805` then exposes an incorrect
+  expected protobuf tag in the new selector test; `c98af13d` corrects the test,
+  not the production selector. Runs `38777738731` and `38779304338` pass all
+  97 Rust cases but stop at strict Clippy. The subsequent fixes remove those
+  findings without suppressions; the successful run above verifies the result.
   Synthetic report facts remain test-only; these tests cannot prove actual
   confidential hardware, complete appraisal or private worker admission.
 

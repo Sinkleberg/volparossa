@@ -391,6 +391,7 @@ impl GuestSession {
         Ok(GuestQuoteSession {
             session: self,
             response,
+            confirmation_used: false,
         })
     }
 }
@@ -412,9 +413,44 @@ impl Drop for GuestSession {
 pub struct GuestQuoteSession {
     session: GuestSession,
     response: QuoteResponse,
+    confirmation_used: bool,
 }
 
 impl GuestQuoteSession {
+    pub(super) const fn expires_at(&self) -> u64 {
+        self.session.expires_at
+    }
+
+    pub(super) fn confirm_probe(
+        &mut self,
+        context: &[u8; 32],
+        encapsulated: &[u8; 32],
+        ciphertext: &[u8; 48],
+    ) -> Result<zeroize::Zeroizing<[u8; 32]>, GuestError> {
+        self.session.check_at(Stamp::now()?)?;
+        if std::mem::replace(&mut self.confirmation_used, true) {
+            self.session.key.erase();
+            return Err(GuestError::Replay);
+        }
+        let opened = {
+            let key = self
+                .session
+                .key
+                .0
+                .lock()
+                .map_err(|_| GuestError::Unavailable)?;
+            key.as_ref()
+                .ok_or(GuestError::Cancelled)?
+                .open_confirmation_probe(context, encapsulated, ciphertext)
+                .map_err(|_| GuestError::ReportBinding)
+        };
+        self.session.check_at(Stamp::now()?)?;
+        if opened.is_err() {
+            self.session.key.erase();
+        }
+        opened
+    }
+
     pub(super) const fn deadline(&self) -> Instant {
         self.session.deadline
     }

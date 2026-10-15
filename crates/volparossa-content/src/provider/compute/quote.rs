@@ -4,6 +4,7 @@
 //! interpreting public job RPCs as device authority. Reports identify hardware:
 //! neither this service nor its local framing offers transcript/log export.
 
+pub mod confirmation;
 mod outcome;
 mod transport;
 
@@ -168,6 +169,7 @@ impl Work {
 /// One explicit quote attachment, coexisting with the public compute service.
 /// No key access, task submission, lease renewal or private-input method exists.
 pub struct QuoteService {
+    confirmation: bool,
     signer: Arc<SigningKey>,
     requester: [u8; 32],
     owner: GuestSessionOwner,
@@ -196,6 +198,31 @@ impl QuoteService {
         firmware: Arc<Semaphore>,
         authority: Arc<dyn QuoteAuthority>,
     ) -> Result<Arc<Self>, QuoteError> {
+        Self::construct(signer, grant, firmware, authority, false)
+    }
+
+    /// Explicitly authorize the separate quote/key-confirmation profile.
+    /// This admits only one random probe, never private input or execution.
+    /// The original quote-only constructor does not enable this profile.
+    ///
+    /// # Errors
+    /// Uses the same exact requester, finite grant and process firmware permit.
+    pub fn new_confirmation(
+        signer: Arc<SigningKey>,
+        grant: QuoteGrant,
+        firmware: Arc<Semaphore>,
+        authority: Arc<dyn QuoteAuthority>,
+    ) -> Result<Arc<Self>, QuoteError> {
+        Self::construct(signer, grant, firmware, authority, true)
+    }
+
+    fn construct(
+        signer: Arc<SigningKey>,
+        grant: QuoteGrant,
+        firmware: Arc<Semaphore>,
+        authority: Arc<dyn QuoteAuthority>,
+        confirmation: bool,
+    ) -> Result<Arc<Self>, QuoteError> {
         if grant.requester_key == [0; 32]
             || VerifyingKey::from_bytes(&grant.requester_key).is_err()
             || firmware.available_permits() > 1
@@ -205,6 +232,7 @@ impl QuoteService {
         let owner = GuestSessionOwner::new(grant.limits)?;
         let (work, receiver) = mpsc::channel(1);
         Ok(Arc::new(Self {
+            confirmation,
             signer,
             requester: grant.requester_key,
             owner,
@@ -441,6 +469,9 @@ impl QuoteService {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        if self.confirmation {
+            return Err(QuoteError::Unauthorized);
+        }
         timeout(Duration::from_secs(EXCHANGE_SECONDS), async {
             if !self.is_active() {
                 return Err(QuoteError::Unavailable);

@@ -4,6 +4,9 @@ use prost::Message;
 
 use crate::ControlProtocolError;
 
+#[cfg(test)]
+mod confirmation_tests;
+
 /// Operator authorization for exactly one requester on the existing protected provider.
 #[derive(Clone, PartialEq, Message)]
 pub struct QuoteAttachRequest {
@@ -22,6 +25,9 @@ pub struct QuoteAttachRequest {
     /// Nonrefundable quote attempts, independent of the single firmware slot.
     #[prost(uint32, tag = "5")]
     pub maximum_attempts: u32,
+    /// Absent keeps quote-only authority; version one explicitly permits key confirmation.
+    #[prost(uint32, optional, tag = "6")]
+    pub confirmation_version: Option<u32>,
 }
 
 /// Select one provider, then wait for route/TLS/authenticated quote-challenge readiness.
@@ -30,6 +36,9 @@ pub struct QuoteRemoteRequest {
     /// Independently selected provider Ed25519 key.
     #[prost(bytes = "vec", tag = "1")]
     pub provider_key: Vec<u8>,
+    /// Explicit confirmation profile, never inferred from remote support.
+    #[prost(uint32, optional, tag = "2")]
+    pub confirmation_version: Option<u32>,
 }
 
 /// Content-free readiness. The following bounded binary frames are not generic control payloads.
@@ -41,6 +50,9 @@ pub struct QuoteReady {
     /// Agent identity that will sign the quote request.
     #[prost(bytes = "vec", tag = "2")]
     pub requester_key: Vec<u8>,
+    /// Exact negotiated mode; an opted-in caller must reject an absent version.
+    #[prost(uint32, optional, tag = "3")]
+    pub confirmation_version: Option<u32>,
 }
 
 fn key(bytes: &[u8]) -> Result<(), ControlProtocolError> {
@@ -50,9 +62,17 @@ fn key(bytes: &[u8]) -> Result<(), ControlProtocolError> {
     Ok(())
 }
 
+fn confirmation(version: Option<u32>) -> Result<(), ControlProtocolError> {
+    if !matches!(version, None | Some(1)) {
+        return Err(ControlProtocolError::Invalid("quote confirmation version"));
+    }
+    Ok(())
+}
+
 impl QuoteAttachRequest {
     pub(crate) fn validate(&self) -> Result<(), ControlProtocolError> {
         key(&self.requester_key)?;
+        confirmation(self.confirmation_version)?;
         if self.bind_address.is_empty()
             || self.bind_address.len() > 128
             || self.advertised_hostname.is_empty()
@@ -68,12 +88,14 @@ impl QuoteAttachRequest {
 
 impl QuoteRemoteRequest {
     pub(crate) fn validate(&self) -> Result<(), ControlProtocolError> {
+        confirmation(self.confirmation_version)?;
         key(&self.provider_key)
     }
 }
 
 impl QuoteReady {
     pub(crate) fn validate(&self) -> Result<(), ControlProtocolError> {
+        confirmation(self.confirmation_version)?;
         key(&self.provider_key)?;
         key(&self.requester_key)
     }
@@ -92,12 +114,14 @@ mod tests {
             requester_key: vec![1; 32],
             expires_at: 1000,
             maximum_attempts: 1,
+            confirmation_version: None,
         };
         for operation in [
             Operation::QuoteAttach(attach.clone()),
             Operation::QuoteDetach(Empty {}),
             Operation::QuoteRemote(QuoteRemoteRequest {
                 provider_key: vec![2; 32],
+                confirmation_version: None,
             }),
         ] {
             let request = ControlRequest {
@@ -123,7 +147,8 @@ mod tests {
         for bytes in [vec![], vec![0; 32], vec![1; 31], vec![1; 33]] {
             assert!(
                 QuoteRemoteRequest {
-                    provider_key: bytes.clone()
+                    provider_key: bytes.clone(),
+                    confirmation_version: None,
                 }
                 .validate()
                 .is_err()
@@ -152,6 +177,7 @@ mod tests {
         let ready = QuoteReady {
             provider_key: vec![1; 32],
             requester_key: vec![2; 32],
+            confirmation_version: None,
         };
         assert!(ready.validate().is_ok());
         assert_eq!(ready.encoded_len(), 68);
