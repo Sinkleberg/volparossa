@@ -456,6 +456,12 @@ no-overwrite assertions unchanged. The targeted workflow also runs this
 existing 18-test suite. This second fixture failure is retained separately
 from the successful source-only run `38747325606`; neither proves a live route.
 
+Quality run `38749561548` on `7fa4dee3` passes both corrected steps, then
+finds the same missing `scenario` in the older QEMU lifecycle test's extracted
+cleanup fixture. That fixture now explicitly selects `alpha`, without changing
+its shutdown, status or scratch-retention assertions. The targeted workflow also
+runs its 25 cases; no production shutdown path is changed by these corrections.
+
 #### Integrated quote exchange
 
 The new quote-only path connects guest-owned evidence collection to the existing
