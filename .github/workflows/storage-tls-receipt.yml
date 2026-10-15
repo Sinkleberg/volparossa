@@ -1,0 +1,153 @@
+name: Signed Storage receipt through nested TLS
+
+on:
+  push:
+    branches:
+      - test/storage-tls-receipt
+    paths:
+      - .github/workflows/storage-tls-receipt.yml
+      - crates/volparossa-agent/src/content/tls.rs
+      - crates/volparossa-agent/src/content/tls/tests/storage.rs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: storage-tls-receipt-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: never
+  SOURCE_BASE: b7e6358943a16ace8ca095b8af9ce292a12ed8af
+  EXACT_TEST: content::tls::tests::storage::signed_append_receipts_cross_nested_tls_without_extra_write_or_eof
+
+jobs:
+  receipt:
+    name: One signed in-memory nested TLS custody regression
+    if: >-
+      github.repository == 'VOLPAROSSA/volparossa' &&
+      github.ref == 'refs/heads/test/storage-tls-receipt'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out the exact reviewed test candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind unchanged production source and exact test scope
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_REPOSITORY" = VOLPAROSSA/volparossa
+          test "$GITHUB_REF" = refs/heads/test/storage-tls-receipt
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          git merge-base --is-ancestor "$SOURCE_BASE" HEAD
+          git diff --exit-code "$SOURCE_BASE" HEAD -- . \
+            ':(exclude).github/workflows/storage-tls-receipt.yml' \
+            ':(exclude)crates/volparossa-agent/src/content/tls.rs' \
+            ':(exclude)crates/volparossa-agent/src/content/tls/tests/storage.rs'
+          # The only change allowed in the existing module is the test declaration.
+          python3 -B - <<'PY'
+          import os
+          import pathlib
+          import subprocess
+          path = 'crates/volparossa-agent/src/content/tls.rs'
+          original = subprocess.check_output(['git', 'show', os.environ['SOURCE_BASE'] + ':' + path])
+          needle = b'#[cfg(test)]\nmod tests {\n'
+          assert original.count(needle) == 1
+          expected = original.replace(needle, needle + b'    mod storage;\n\n', 1)
+          assert pathlib.Path(path).read_bytes() == expected
+          PY
+          mkdir storage-tls-receipt-evidence
+          jq -n \
+            --arg source "$GITHUB_SHA" \
+            --arg base "$SOURCE_BASE" \
+            --arg workflow "$GITHUB_WORKFLOW_SHA" \
+            --arg test "$EXACT_TEST" \
+            --arg blob "$(git rev-parse HEAD:crates/volparossa-agent/src/content/tls/tests/storage.rs)" \
+            '{schema:1,source_commit:$source,production_base:$base,workflow_commit:$workflow,
+              test_name:$test,test_blob:$blob,production_source_unchanged:true,
+              scope:"signed-storage-nested-tls-in-memory",
+              real_mptcp_or_cloud_acceptance:false,
+              feature_equivalence_to_full_workspace_proven:false}' \
+            > storage-tls-receipt-evidence/source.json
+
+      - name: Install the existing pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.85.0 \
+            --profile minimal \
+            --component clippy \
+            --component rustfmt
+          rustup show active-toolchain
+          rustc --version --verbose
+          cargo --version --verbose
+
+      - name: Install the reviewed Protobuf compiler on the disposable hosted runner
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(dpkg --print-architecture)" = amd64
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            protobuf-compiler=3.21.12-8.2ubuntu0.3
+          test "$(protoc --version)" = 'libprotoc 3.21.12'
+
+      - name: Fetch the unchanged locked dependency graph
+        run: cargo fetch --locked
+
+      - name: Compile only the agent library test target without running it
+        run: |
+          set -euo pipefail
+          cargo test --locked --offline -p volparossa-agent --lib --no-run \
+            2>&1 | tee storage-tls-receipt-evidence/build.log
+
+      - name: Verify the exact regression is present once
+        run: |
+          set -euo pipefail
+          cargo test --locked --offline -p volparossa-agent --lib "$EXACT_TEST" \
+            -- --exact --list 2>&1 | tee storage-tls-receipt-evidence/inventory.log
+          test "$(grep -Fxc "$EXACT_TEST: test" storage-tls-receipt-evidence/inventory.log)" = 1
+          grep -Fx '1 test, 0 benchmarks' storage-tls-receipt-evidence/inventory.log
+
+      - name: Execute the single signed custody regression once
+        # No namespace, host sockets, model, EOF stimulus, retries or test-thread override.
+        run: |
+          set -euo pipefail
+          export RUST_BACKTRACE=1
+          timeout --kill-after=5s 90s \
+            cargo test --locked --offline -p volparossa-agent --lib "$EXACT_TEST" \
+            -- --exact --nocapture 2>&1 | tee storage-tls-receipt-evidence/test.log
+
+      - name: Lint the same agent library and test target
+        run: |
+          set -euo pipefail
+          cargo clippy --locked --offline -p volparossa-agent --lib --tests -- -D warnings \
+            2>&1 | tee storage-tls-receipt-evidence/clippy.log
+
+      - name: Check formatting without modifying the compiled and tested source
+        run: cargo fmt --all -- --check
+
+      - name: Retain the original scoped source and logs even after failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: storage-tls-receipt-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            storage-tls-receipt-evidence/source.json
+            storage-tls-receipt-evidence/build.log
+            storage-tls-receipt-evidence/inventory.log
+            storage-tls-receipt-evidence/test.log
+            storage-tls-receipt-evidence/clippy.log
