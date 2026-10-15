@@ -1,6 +1,7 @@
 //! Real signed requests and durable custody; diagnostics do not establish remote availability.
 
 use super::*;
+use crate::private_storage::LeaseId;
 use crate::private_storage::wire::diagnostic::{Failure, Observation};
 use std::sync::atomic::AtomicBool;
 
@@ -79,7 +80,7 @@ async fn invalid_append_payload_length_is_not_misreported_as_read_io() {
         let (mut client, task, challenge) =
             session(&fixture, Arc::new(AtomicBool::new(false))).await;
         let owned = StorageTarget {
-            lease_id: Some([32; 32]),
+            lease_id: Some(LeaseId::from_bytes([32; 16])),
             ..target(BYTES)
         };
         let signed = fixture.request(&challenge, owned, append(0, BYTES));
@@ -107,7 +108,7 @@ async fn stalled_append_payload_keeps_existing_timeout_without_inventing_io_erro
     let fixture = Fixture::new();
     let (mut client, task, challenge) = session(&fixture, Arc::new(AtomicBool::new(false))).await;
     let owned = StorageTarget {
-        lease_id: Some([32; 32]),
+        lease_id: Some(LeaseId::from_bytes([32; 16])),
         ..target(BYTES)
     };
     let signed = fixture.request(&challenge, owned, append(0, BYTES));
