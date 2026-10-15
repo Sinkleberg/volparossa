@@ -296,6 +296,15 @@ class GuestInputBytesTests(unittest.TestCase):
         api.update(D=prepared_module, P=prepared_module["P"], B=prepared_module["B"],
             validate_record=self.validate_record)
         self.api = api
+        # Keep the real fixed-worker verifier, projecting only fixture UID/eUID
+        # metadata instead of chowning files or changing this process identity.
+        bundle_tests = runpy.run_path(str(here / "test-weather-android-bundle.py"))
+        verify_worker_tree = api["B"]["verify_android_worker_tree"]
+        def fixture_worker_tree(path, expected):
+            with bundle_tests["worker_tree_identity"](path):
+                return verify_worker_tree(path, expected)
+        worker_source = patch.dict(api["B"], verify_android_worker_tree=fixture_worker_tree)
+        worker_source.start(); self.addCleanup(worker_source.stop)
         original_reader = E["private_bytes"]
         def fixture_reader(path, limit, uid, mode=0o600):
             self.assertIn(uid, (0, 985, os.getuid()))
@@ -319,6 +328,19 @@ class GuestInputBytesTests(unittest.TestCase):
 
     def test_identical_prepared_and_config_bytes_reach_real_lifecycle_validation(self):
         with self.assertRaises(ValueError): self.invoke()
+        self.validate_record.assert_called_once_with(self.lifecycle)
+
+    def test_legacy_caller_check_reproduces_source_failure_on_worker_owned_tree(self):
+        bundle_tests = runpy.run_path(str(Path(__file__).with_name("test-weather-android-bundle.py")))
+        def legacy_worker_check(path, expected):
+            with bundle_tests["worker_tree_identity"](path):
+                return self.api["B"]["verify_tree"](path, expected)
+        with patch.dict(self.api["B"], verify_android_worker_tree=legacy_worker_check):
+            with self.assertRaises(E["GuestVerificationFailure"]) as failed: self.invoke()
+        self.assertEqual(failed.exception.stage, "source")
+        self.validate_record.assert_not_called()
+        with self.assertRaises(E["GuestVerificationFailure"]) as failed: self.invoke()
+        self.assertEqual(failed.exception.stage, "api-lifecycle")
         self.validate_record.assert_called_once_with(self.lifecycle)
 
     def test_prepared_bytes_must_match_even_for_equivalent_json(self):

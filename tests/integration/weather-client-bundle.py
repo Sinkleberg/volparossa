@@ -1164,6 +1164,74 @@ def verify_tree(root, expected):
     return dict(manifest_sha256=expected, files=len(selected["files"]), runtime_executed=False)
 
 
+def _android_worker_info(path, maximum=None, mode=0o500):
+    B["canonical"](path)
+    info = path.lstat()
+    require(info.st_uid == 985 and stat.S_IMODE(info.st_mode) == mode)
+    if maximum is None:
+        require(stat.S_ISDIR(info.st_mode))
+    else:
+        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and 0 < info.st_size <= maximum)
+    return info
+
+
+def _android_worker_file(path, maximum, mode, *, retain=False):
+    before = _android_worker_info(path, maximum, mode)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        require(identity(os.fstat(descriptor)) == identity(before))
+        digest, remaining, chunks = hashlib.sha256(), before.st_size, []
+        while remaining:
+            chunk = os.read(descriptor, min(65536, remaining))
+            require(bool(chunk)); digest.update(chunk); remaining -= len(chunk)
+            if retain: chunks.append(chunk)
+        require(not os.read(descriptor, 1)
+            and identity(os.fstat(descriptor)) == identity(before)
+            and identity(path.lstat()) == identity(before))
+        B["canonical"](path)
+        return dict(bytes=before.st_size, sha256=digest.hexdigest()), b"".join(chunks), before
+    finally:
+        os.close(descriptor)
+
+
+def verify_android_worker_tree(root, expected):
+    """Root verifies only the fixed profile-6 tree owned by guest worker 985.
+
+    The ordinary caller-owned verifier remains unchanged. No process identity,
+    ownership or permission is changed, and captured source is never executed.
+    """
+    require(os.geteuid() == 0)
+    _, raw, manifest_info = _android_worker_file(root / "INPUTS.json", MAX_MANIFEST, 0o400, retain=True)
+    selected = manifest(raw, expected)
+    require(selected["version"] == 6)
+    files, directories, pending, count = {}, {}, [root], 0
+    while pending:
+        directory = pending.pop()
+        directories[directory] = _android_worker_info(directory)
+        with os.scandir(directory) as children:
+            for child in children:
+                count += 1; require(count <= MAX_FILES * 4)
+                path = Path(child.path)
+                require(len(path.relative_to(root).parts) <= 20)
+                if child.is_dir(follow_symlinks=False):
+                    pending.append(path)
+                else:
+                    require(child.is_file(follow_symlinks=False))
+                    files[str(path.relative_to(root))] = path
+                    require(len(files) <= MAX_FILES)
+        require(identity(directory.lstat()) == identity(directories[directory]))
+    require(set(files) == set(selected["files"]) | {"INPUTS.json"})
+    require({str(path.relative_to(root)) for path in directories if path != root} == B["directories"](files))
+    observed = {root / "INPUTS.json": manifest_info}
+    for name, item in selected["files"].items():
+        fingerprint, _, observed[files[name]] = _android_worker_file(files[name], item["bytes"], item["mode"])
+        require(fingerprint == {key: item[key] for key in ("bytes", "sha256")})
+    for path, before in (*directories.items(), *observed.items()):
+        require(identity(path.lstat()) == identity(before))
+        B["canonical"](path)
+    return dict(manifest_sha256=expected, files=len(selected["files"]), runtime_executed=False)
+
+
 def main():
     action, *args = sys.argv[1:]
     if action in ("capture", "capture-v2") and len(args) == 6:

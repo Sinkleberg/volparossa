@@ -2,14 +2,45 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Inert Android guest input tests; never run a binary, SDK, VM or origin fetch."""
 import copy
+from contextlib import contextmanager
 import hashlib
+import os
 from pathlib import Path
 import runpy
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 B = runpy.run_path(str(Path(__file__).with_name("weather-client-bundle.py")))
+
+
+@contextmanager
+def worker_tree_identity(root, *, overrides=None, caller=0):
+    """Only project fixture uid/euid metadata; never chown or change credentials.
+
+    Modes, types, symlinks, descriptors, inode identities and bytes remain real.
+    This explicitly models the guest root caller reading worker-owned files.
+    """
+    lstat, fstat = Path.lstat, os.fstat
+    overrides = {} if overrides is None else overrides
+    by_inode = {}
+    for path in (root, *root.rglob("*")):
+        info = lstat(path)
+        by_inode[info.st_dev, info.st_ino] = path
+    def projected(info, path):
+        if path not in by_inode.values(): return info
+        values = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+        values["st_uid"] = overrides.get(path, 985)
+        return SimpleNamespace(**values)
+    def path_info(path, *args, **kwargs):
+        return projected(lstat(path, *args, **kwargs), path)
+    def fd_info(fd):
+        info = fstat(fd)
+        return projected(info, by_inode.get((info.st_dev, info.st_ino)))
+    with patch.object(Path, "lstat", path_info), patch.object(os, "fstat", fd_info), \
+            patch.object(os, "geteuid", return_value=caller):
+        yield
 
 
 class AndroidInputs(unittest.TestCase):
@@ -130,6 +161,119 @@ class AndroidInputs(unittest.TestCase):
         # succeed; the archive helper never executes its admitted inputs.
         self.assertEqual(B["checked_archive"](archive, digest, runtime=True),
                          B["checked_archive"](archive, digest))
+
+    def worker_tree(self):
+        selected = self.selected(); raw, digest = self.manifest()
+        source = self.root / "inert"; source.write_bytes(self.raw); source.chmod(0o600)
+        archive = self.root / "guest.tar"
+        B["write_archive"](dict.fromkeys(selected, source), selected, raw, digest, archive)
+        frozen = self.root / "worker-owned"
+        B["checked_archive"](archive, digest, frozen)
+        return frozen, digest
+
+    def test_root_caller_rejects_original_worker_tree_but_fixed_worker_check_succeeds(self):
+        frozen, digest = self.worker_tree()
+        with worker_tree_identity(frozen):
+            # Reproduce the original incompatible root/caller ownership guard.
+            with self.assertRaises(ValueError): B["verify_tree"](frozen, digest)
+            result = B["verify_android_worker_tree"](frozen, digest)
+        self.assertEqual(result, dict(manifest_sha256=digest, files=39, runtime_executed=False))
+        with worker_tree_identity(frozen, caller=985):
+            self.assertEqual(B["verify_tree"](frozen, digest), result)
+            with self.assertRaises(ValueError): B["verify_android_worker_tree"](frozen, digest)
+
+    def test_root_worker_check_rejects_foreign_owner_on_manifest_file_and_directory(self):
+        frozen, digest = self.worker_tree()
+        for path in (frozen, frozen / "INPUTS.json", frozen / "runtime", frozen / "runtime/node"):
+            for uid in (0, 984, 986):
+                with self.subTest(path=path.relative_to(frozen), uid=uid), \
+                        worker_tree_identity(frozen, overrides={path: uid}), self.assertRaises(ValueError):
+                    B["verify_android_worker_tree"](frozen, digest)
+
+    def test_root_worker_check_rejects_modes_hashes_inventory_and_symlinks(self):
+        frozen, digest = self.worker_tree()
+        for path, wrong in ((frozen, 0o700), (frozen / "runtime", 0o550),
+                (frozen / "INPUTS.json", 0o600), (frozen / "runtime/node", 0o400)):
+            before = path.stat().st_mode & 0o777
+            path.chmod(wrong)
+            try:
+                with self.subTest(mode=wrong), worker_tree_identity(frozen), self.assertRaises(ValueError):
+                    B["verify_android_worker_tree"](frozen, digest)
+            finally: path.chmod(before)
+        target = frozen / "runtime/node.LICENSE"
+        target.chmod(0o600); target.write_bytes(b"x" * len(self.raw)); target.chmod(0o400)
+        with worker_tree_identity(frozen), self.assertRaises(ValueError): B["verify_android_worker_tree"](frozen, digest)
+        target.chmod(0o600); target.write_bytes(self.raw); target.chmod(0o400)
+        frozen.chmod(0o700)
+        extra = frozen / "unexpected"; extra.write_bytes(self.raw); extra.chmod(0o400); frozen.chmod(0o500)
+        with worker_tree_identity(frozen), self.assertRaises(ValueError): B["verify_android_worker_tree"](frozen, digest)
+        frozen.chmod(0o700); extra.unlink(); frozen.chmod(0o500)
+        target.parent.chmod(0o700); target.unlink(); target.symlink_to(self.root / "inert"); target.parent.chmod(0o500)
+        with worker_tree_identity(frozen), self.assertRaises(ValueError): B["verify_android_worker_tree"](frozen, digest)
+
+    def test_root_worker_check_requires_exact_manifest_and_version_six(self):
+        frozen, digest = self.worker_tree()
+        with worker_tree_identity(frozen), self.assertRaises(ValueError):
+            B["verify_android_worker_tree"](frozen, "f" * 64)
+        original = B["manifest"]
+        def old_manifest(raw, expected):
+            result = original(raw, expected); result["version"] = 5; return result
+        with worker_tree_identity(frozen), patch.dict(B["verify_android_worker_tree"].__globals__, manifest=old_manifest), \
+                self.assertRaises(ValueError):
+            B["verify_android_worker_tree"](frozen, digest)
+
+    def test_root_worker_check_rejects_extra_empty_directory_like_legacy_inventory(self):
+        frozen, digest = self.worker_tree()
+        frozen.chmod(0o700)
+        (frozen / "unexpected-empty").mkdir(mode=0o500)
+        frozen.chmod(0o500)
+        with worker_tree_identity(frozen), self.assertRaises(ValueError):
+            B["verify_android_worker_tree"](frozen, digest)
+        with worker_tree_identity(frozen, caller=985), self.assertRaises(ValueError):
+            B["verify_tree"](frozen, digest)
+
+    def test_root_worker_check_rejects_hardlink_and_root_symlink(self):
+        frozen, digest = self.worker_tree()
+        target = frozen / "runtime/node.LICENSE"
+        alias = self.root / "hardlink"
+        os.link(target, alias)
+        with worker_tree_identity(frozen), self.assertRaises(ValueError):
+            B["verify_android_worker_tree"](frozen, digest)
+        alias.unlink()
+        alias.symlink_to(frozen, target_is_directory=True)
+        with worker_tree_identity(frozen), self.assertRaises(ValueError):
+            B["verify_android_worker_tree"](alias, digest)
+
+    def test_root_worker_check_rejects_owner_change_during_descriptor_read(self):
+        frozen, digest = self.worker_tree()
+        target = frozen / "INPUTS.json"
+        overrides = {}
+        original_read = os.read
+        def changed(fd, count):
+            raw = original_read(fd, count)
+            if raw: overrides[target] = 986
+            return raw
+        with worker_tree_identity(frozen, overrides=overrides), patch.object(os, "read", changed), \
+                self.assertRaises(ValueError):
+            B["verify_android_worker_tree"](frozen, digest)
+
+    def test_root_worker_check_rejects_replacement_after_open_with_identical_bytes(self):
+        frozen, digest = self.worker_tree()
+        target = frozen / "INPUTS.json"
+        replacement = self.root / "replacement"
+        replacement.write_bytes(target.read_bytes()); replacement.chmod(0o400)
+        original_read = os.read
+        replaced = False
+        def changed(fd, count):
+            nonlocal replaced
+            raw = original_read(fd, count)
+            if raw and not replaced:
+                frozen.chmod(0o700); replacement.replace(target); frozen.chmod(0o500)
+                replaced = True
+            return raw
+        with worker_tree_identity(frozen), patch.object(os, "read", changed), self.assertRaises(ValueError):
+            B["verify_android_worker_tree"](frozen, digest)
+        self.assertTrue(replaced)
 
     def test_capture_checks_original_decoder_proof_bytes_without_execution(self):
         records = self.decoder_records()

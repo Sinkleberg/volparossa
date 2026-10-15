@@ -335,7 +335,7 @@ def guest(work, manifest_sha, core_sha, prepared_sha):
     with guest_group("source"):
         manifest_raw = private_bytes(work / "weather-products-delivery-manifest.json", B["MAX_MANIFEST"], 0, 0o400)
         manifest = B["manifest"](manifest_raw, manifest_sha); same(manifest["version"], 6)
-        B["verify_tree"](layout["source"], manifest_sha)
+        B["verify_android_worker_tree"](layout["source"], manifest_sha)
         same(B["fingerprint"](layout["binary"], 256 * 1024**2, normalized=0o555)["sha256"], core_sha)
     with guest_group("prepared"):
         prepared_raw = private_bytes(work / f"{PREFIX}-prepared.json", 8192, 0)
