@@ -80,6 +80,11 @@ jobs:
         working-directory: workers/volparossa-ml
         run: python3 -B -m unittest test_llama_cpu test_conversion_diagnostic test_native_output_constraint
 
+      - name: Check native CPU cache hints and unchanged admission without loading models
+        run: |
+          cargo test --locked -p volparossa compute::native_cpu
+          cargo test --locked -p volparossa compute::resources::tests
+
       - name: Install pinned dependency-audit tools
         run: |
           tool_root="${RUNNER_TEMP}/cargo-tools"

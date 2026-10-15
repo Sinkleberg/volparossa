@@ -126,7 +126,7 @@ fn manifest() -> Value {
             "chat_template_sha256":"c".repeat(64)},"build_manifest_sha256":"d".repeat(64)})
 }
 
-fn fixture() -> (tempfile::TempDir, Options) {
+pub(super) fn fixture() -> (tempfile::TempDir, Options) {
     let root = tempfile::tempdir().unwrap();
     fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
     let raw = serde_json::to_vec(&manifest()).unwrap();

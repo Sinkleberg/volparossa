@@ -273,12 +273,21 @@ async fn execute(options: &Options, activity: watch::Receiver<bool>) -> Result<V
             && options.model_profile.is_native_conversation()
             && tracing::enabled!(target: "volparossa::compute::private_diagnostic", tracing::Level::DEBUG),
     };
+    let cache_hint = request
+        .native_backend
+        .cache_hint(&options.native_backend, options.model_profile);
     let child = sandbox::command(options)
         .spawn()
         .context("compute_sandbox_spawn")?;
     // Failure does not publish partial adapters or delete diagnostic job artifacts.
     // A later job must use a new output directory, never silently overwrite them.
-    supervise::run(child, &request, options, activity).await
+    let result = supervise::run(child, &request, options, activity).await;
+    if let Some(hint) = cache_hint {
+        // Only a successful supervisor return proves cleanup and result validation.
+        // Keep the advisory syscall inside this runtime lease; never detach it.
+        hint.after_supervisor(&result, options.model_profile);
+    }
+    result
 }
 
 impl Options {

@@ -15,6 +15,9 @@ use sha2::{Digest as _, Sha256};
 
 use super::{Mode, ModelProfile};
 
+mod cache_hint;
+pub(super) use cache_hint::CacheHint;
+
 pub(super) const KIND: &str = "llama_cpp_bf16_v1";
 const SOURCE: &str = "7fe450e19305b828c199d602c23a8337aaa1f03b";
 const WEIGHTS: &str = "79f6bbc34572c0063d12022f0f93074d90bbcd5dfd82134423bf892f7f8df3cf";
@@ -251,6 +254,18 @@ pub(super) struct Request {
 }
 
 impl Request {
+    pub(super) fn cache_hint(&self, options: &Options, profile: ModelProfile) -> Option<CacheHint> {
+        if profile != ModelProfile::Qwen4bInstruct2507
+            || self.inference_backend != Some(KIND)
+            || self.native_backend_sha256 != options.native_backend_sha256
+        {
+            return None;
+        }
+        let root = options.native_backend_root.as_ref()?;
+        let bytes = self.expected_report.as_ref()?.get("gguf_bytes")?.as_u64()?;
+        CacheHint::bind(root, bytes)
+    }
+
     fn select_constraint(&mut self, input: &super::private_conversation::Input) -> Result<()> {
         if let Some(constraint) = input.output_constraint() {
             ensure!(
