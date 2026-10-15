@@ -22,7 +22,7 @@ defaults:
     shell: bash
 
 env:
-  BASELINE_COMMIT: d5230b25c48671e8093cafccb0cb657367e3891a
+  BASELINE_COMMIT: dd590d1a78fcf658425d6397f26ba8193e51199a
   CANDIDATE_COMMIT: ${{ github.sha }}
   CARGO_TERM_COLOR: never
   RUST_BACKTRACE: '1'
@@ -87,7 +87,7 @@ jobs:
       - name: Check out unchanged locking plus only the three regressions
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: d5230b25c48671e8093cafccb0cb657367e3891a
+          ref: dd590d1a78fcf658425d6397f26ba8193e51199a
           persist-credentials: false
 
       - name: Require the two shared-description cases to fail on the original locking
