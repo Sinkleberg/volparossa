@@ -5,7 +5,7 @@ use sha2::{Digest as _, Sha256};
 
 const CONSTRAINT: &str = "qwen_tagged_tool_json_v1";
 
-fn native_config(root: &std::path::Path, extended: bool) -> private_task::ExecutionConfig {
+pub(super) fn native_config(root: &std::path::Path, extended: bool) -> private_task::ExecutionConfig {
     let mut config = config(root);
     config.model_profile = ModelProfile::Qwen4bInstruct2507;
     let backend = root.join("backend");

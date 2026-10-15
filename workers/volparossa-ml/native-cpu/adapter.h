@@ -26,6 +26,16 @@ uint32_t vp_llama_open_stage_v1(void);
 // Absence preserves the original greedy_v1 path.
 uint32_t vp_llama_output_constraint_abi_v1(void);
 int32_t vp_llama_set_output_constraint_v1(void * handle, uint32_t mode, uint32_t tool_count);
+// Optional same-owner, same-thread in-memory session. No state crosses handles
+// or owners. The caller retains only the exact token LCP of already decoded
+// tokens, at most new_prompt_length-1, and must decode a nonempty suffix before
+// sampling. Mode/count is either 0/0 (greedy) or 1/1..32 (fresh fixed grammar).
+// A failed begin/decode/sample requires close, never a cold fallback. The caller
+// keeps each callback/opaque alive until replacement or close has returned.
+uint32_t vp_llama_native_session_abi_v1(void);
+int32_t vp_llama_begin_turn_v1(void * handle, uint32_t retained_tokens,
+                              uint32_t constraint_mode, uint32_t tool_count,
+                              vp_abort_v1 abort, void * opaque);
 int32_t vp_llama_open_v1(const char * model_path, uint32_t context_tokens,
                          uint32_t threads, vp_abort_v1 abort, void * opaque,
                          void ** handle);

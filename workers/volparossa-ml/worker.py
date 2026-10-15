@@ -260,7 +260,7 @@ def validate_request(value):
     required = {"version", "id", "mode", "model_root", "dataset_path", "output_root"}
     optional = {"steps", "threads", "max_seconds", "adapter_root", "owner_control", "model_profile",
                 "private_generation_diagnostics", "inference_backend", "native_backend_root", "native_backend_sha256",
-                "output_constraint", "output_constraint_tools"}
+                "output_constraint", "output_constraint_tools", "native_session"}
     require(type(value) is dict and required <= value.keys()
             and value.keys() <= required | optional, "INVALID_REQUEST_FIELDS")
     require(type(value["version"]) is int and value["version"] == VERSION, "UNSUPPORTED_VERSION")
@@ -274,6 +274,17 @@ def validate_request(value):
                 and profile_name == QWEN4B_MODEL_PROFILE and value["mode"] == "private_conversation"
                 and type(value["native_backend_sha256"]) is str
                 and re.fullmatch(r"[0-9a-f]{64}", value["native_backend_sha256"]), "INVALID_NATIVE_BACKEND_SCOPE")
+    if "native_session" in value:
+        selected = value["native_session"]
+        require(type(selected) is dict and selected.keys() == {"version", "turn"}
+                and type(selected["version"]) is int and selected["version"] == 1
+                and bounded_integer(selected["turn"], 1, 128)
+                and native_fields <= value.keys() and value.get("owner_control") is True,
+                "INVALID_NATIVE_SESSION")
+        turn = selected["turn"]
+        require(value["model_root"] == "/model" and value["native_backend_root"] == "/native-backend"
+                and value["dataset_path"] == f"/session/turn-{turn}/input.json"
+                and value["output_root"] == f"/session/turn-{turn}/output", "INVALID_NATIVE_SESSION_PATH")
     constraint_fields = {"output_constraint", "output_constraint_tools"}
     if constraint_fields & value.keys():
         aliases = value.get("output_constraint_tools")
@@ -2455,7 +2466,8 @@ def save_checkpoint(model, output_root, session):
     return adapter_root, artifacts
 
 
-def execute_job(request, session):
+def execute_job(request, session, *, native_session=None):
+    require((native_session is not None) == ("native_session" in request), "INVALID_NATIVE_SESSION")
     profile_name = request.get("model_profile", DEFAULT_MODEL_PROFILE)
     profile = model_profile(profile_name)
     session.private_progress("owner_gate", "begin")
@@ -2487,15 +2499,17 @@ def execute_job(request, session):
     configure_offline()
     session.check()
     session.private_progress("backend_import", "begin")
-    torch, transformers, peft, versions = load_backend(request["threads"], session)
+    torch, transformers, peft, versions = (load_backend(request["threads"], session)
+        if native_session is None else native_session.backend(request["threads"], session))
     session.private_progress("backend_import", "complete")
     session.check()
     if cohort is not None:
         return execute_aggregation(request, session, torch, versions, output_root,
                                    data_identity, model_files, cohort)
     session.private_progress("tokenizer_load", "begin")
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
+    tokenizer = (transformers.AutoTokenizer.from_pretrained(
         str(model_root), local_files_only=True, trust_remote_code=False, use_fast=True)
+        if native_session is None else native_session.tokenizer(transformers, model_root))
     expected_pad, expected_eos = (151643, 151645) if profile_name in NATIVE_CONVERSATION_PROFILES else (2, 2)
     require(tokenizer.pad_token_id == expected_pad and tokenizer.eos_token_id == expected_eos,
             "MODEL_TOKENIZER_MISMATCH")
@@ -2504,9 +2518,10 @@ def execute_job(request, session):
     if request.get("inference_backend") == "llama_cpp_bf16_v1":
         native_backend = sys.modules.get("volparossa_llama_cpu")
         require(native_backend is not None, "NATIVE_BACKEND_MODULE_UNAVAILABLE")
+        warm = {} if native_session is None else {"retained": native_session.model}
         return native_backend.execute(request, session, tokenizer, torch, versions, model_root, output_root,
                                       dataset, data_identity, model_files, SimpleNamespace(**globals()),
-                                      initial_source_weights=initial_source.get("weights"))
+                                      initial_source_weights=initial_source.get("weights"), **warm)
     if request["mode"] == "plan_document":
         plan = plan_document(tokenizer, dataset, session, profile_name)
         raw = json.dumps(plan, ensure_ascii=True, allow_nan=False, sort_keys=True, separators=(",", ":")).encode("ascii")
@@ -2679,6 +2694,10 @@ def stop_requested(_signum, _frame):
     STOP_REQUESTED = True
 
 
+def is_stopping():
+    return STOP_REQUESTED
+
+
 def main():
     os.umask(0o077)
     signal.signal(signal.SIGTERM, stop_requested)
@@ -2694,6 +2713,10 @@ def main():
         if type(value) is dict and type(value.get("id")) is str and HEX32.fullmatch(value["id"]):
             request_id = value["id"]
         request = validate_request(value)
+        if "native_session" in request:
+            runtime = sys.modules.get("volparossa_native_session")
+            require(runtime is not None, "NATIVE_SESSION_MODULE_UNAVAILABLE")
+            return runtime.run(request, frames, SimpleNamespace(**globals()))
         session = Session(request, frames if controlled else None)
         # Third-party diagnostics may include local paths. Only our fixed, bounded protocol
         # uses the original stdout; no raw prompt, dataset or stack trace is logged.

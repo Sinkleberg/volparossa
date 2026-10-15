@@ -13,6 +13,8 @@ static int32_t abort_immediately(void * opaque) {
 int main() {
     assert(vp_llama_abi_v1() == 1);
     assert(vp_llama_output_constraint_abi_v1() == 1);
+    assert(vp_llama_native_session_abi_v1() == 1);
+    assert(vp_llama_begin_turn_v1(nullptr, 0, 0, 0, nullptr, nullptr) == VP_INVALID);
     assert(vp_llama_set_output_constraint_v1(nullptr, 1, 1) == VP_INVALID);
     assert(vp_llama_open_stage_v1() == VP_OPEN_NONE);
     assert(std::strcmp(vp_llama_source_v1(), "7fe450e19305b828c199d602c23a8337aaa1f03b") == 0);

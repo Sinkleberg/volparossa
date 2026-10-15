@@ -5,6 +5,7 @@ use clap::{CommandFactory as _, error::ErrorKind};
 
 use super::*;
 
+mod native_session;
 mod output_constraint;
 
 #[test]

@@ -2,6 +2,7 @@
 
 pub(super) mod diagnostic;
 mod lifetime;
+pub(super) mod native_session;
 
 use std::{
     collections::BTreeSet, fmt, fs::File, io::Read, os::unix::process::ExitStatusExt, path::Path,
@@ -441,6 +442,10 @@ fn check_result(value: &Value, request: &WorkerRequest, status: ExitStatus) -> R
     if value.get("status").and_then(Value::as_str) == Some("error") {
         return Err(worker_failure(value, &request.id, status));
     }
+    check_successful_result(value, request)
+}
+
+fn check_successful_result(value: &Value, request: &WorkerRequest) -> Result<()> {
     ensure!(
         value.get("status").and_then(Value::as_str) == Some("ok"),
         "compute_backend_failed"

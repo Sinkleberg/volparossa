@@ -262,6 +262,29 @@ pub(super) fn validate_mode_report(
     profile: ModelProfile,
     mode: Mode,
 ) -> Result<()> {
+    validate_mode_report_lifetime(report, raw, profile, mode, true)
+}
+
+pub(super) fn validate_native_session_report(
+    report: &Value,
+    raw: &[u8],
+    profile: ModelProfile,
+) -> Result<()> {
+    ensure!(
+        profile == ModelProfile::Qwen4bInstruct2507
+            && report["supervisor"]["native_session_version"] == 1,
+        "compute_native_session_result_scope"
+    );
+    validate_mode_report_lifetime(report, raw, profile, Mode::PrivateConversation, false)
+}
+
+fn validate_mode_report_lifetime(
+    report: &Value,
+    raw: &[u8],
+    profile: ModelProfile,
+    mode: Mode,
+    child_reaped: bool,
+) -> Result<()> {
     validate_profile_input(mode, raw, profile)?;
     let spec = profile.spec();
     ensure!(
@@ -271,7 +294,7 @@ pub(super) fn validate_mode_report(
             && report["private_data_supported"] == true
             && report["distributed_execution_claimed"] == false
             && report["private_training_claimed"] == false
-            && report["supervisor"]["child_reaped"] == true
+            && report["supervisor"]["child_reaped"] == child_reaped
             && report["supervisor"]["network_access"] == false
             && report["model_weights_loaded"] == true
             && report.get("baseline_evaluation").is_none()

@@ -70,6 +70,9 @@ if(VP_NATIVE_TESTS)
   add_executable(vp-native-abi-smoke abi-smoke.cpp)
   target_compile_options(vp-native-abi-smoke PRIVATE -UNDEBUG)
   target_link_libraries(vp-native-abi-smoke PRIVATE volparossa_llama_cpu)
+  # Real turn-state transitions with backend callbacks, no model or KV claims.
+  add_executable(vp-native-session session-tests.cpp)
+  target_compile_options(vp-native-session PRIVATE -UNDEBUG -Wall -Wextra -Werror)
   # The exact pinned grammar engine with synthetic token pieces; no model or inference.
   add_executable(vp-native-output-constraint output-constraint-tests.cpp output-constraint.cpp)
   target_include_directories(vp-native-output-constraint PRIVATE "${VP_LLAMA_SOURCE}/src")

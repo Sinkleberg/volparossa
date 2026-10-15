@@ -73,6 +73,8 @@ struct Manifest {
     build_manifest_sha256: String,
     #[serde(default, deserialize_with = "present_output_constraints")]
     output_constraints: Option<Vec<OutputConstraint>>,
+    #[serde(default, deserialize_with = "present_native_sessions")]
+    native_sessions: Option<Vec<String>>,
 }
 
 fn present_output_constraints<'de, D: serde::Deserializer<'de>>(
@@ -81,13 +83,24 @@ fn present_output_constraints<'de, D: serde::Deserializer<'de>>(
     Vec::<OutputConstraint>::deserialize(deserializer).map(Some)
 }
 
+fn present_native_sessions<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<Vec<String>>, D::Error> {
+    Vec::<String>::deserialize(deserializer).map(Some)
+}
+
 impl Manifest {
     fn validate(&self) -> Result<()> {
         ensure!(
             ((self.version == 1 && self.output_constraints.is_none())
-                || (self.version == 2
+                || ((self.version == 2 || self.version == 3)
                     && self.output_constraints.as_deref()
                         == Some(&[OutputConstraint::QwenTaggedToolJsonV1])))
+                && (if self.version == 3 {
+                    self.native_sessions.as_deref() == Some(&["connection_bound_v1".to_owned()])
+                } else {
+                    self.native_sessions.is_none()
+                })
                 && self.kind == KIND
                 && self.abi_version == 1
                 && self.source_commit == SOURCE
@@ -171,6 +184,11 @@ impl Options {
             .is_ok_and(|request| request.supported_output_constraint.is_some())
     }
 
+    pub(super) fn supports_native_session(&self, profile: ModelProfile) -> bool {
+        self.request(profile)
+            .is_ok_and(|request| request.supported_native_session)
+    }
+
     pub(super) fn request_for_dataset(
         &self,
         profile: ModelProfile,
@@ -232,6 +250,7 @@ impl Options {
                 .and_then(|values| values.first().copied()),
             output_constraint: None,
             output_constraint_tools: None,
+            supported_native_session: manifest.version == 3,
         })
     }
 }
@@ -252,6 +271,8 @@ pub(super) struct Request {
     expected_report: Option<Value>,
     #[serde(skip)]
     supported_output_constraint: Option<OutputConstraint>,
+    #[serde(skip)]
+    supported_native_session: bool,
 }
 
 impl Request {
@@ -322,6 +343,37 @@ impl Request {
             );
         }
         Ok(())
+    }
+}
+
+/// Preserve the existing post-supervisor advisories, once after the whole
+/// connection-owned process has joined, never after a still-resident turn.
+pub(super) struct SessionHints {
+    gguf: Binding,
+    source: source_weight_cache::Binding,
+    profile: ModelProfile,
+    diagnostic: bool,
+}
+
+impl SessionHints {
+    pub(super) fn bind(request: &Request, options: &super::Options) -> Self {
+        Self {
+            gguf: request.cache_hint_observed(&options.native_backend, options.model_profile),
+            source: source_weight_cache::Binding::bind(
+                request,
+                &options.native_backend,
+                options.model_profile,
+                &options.model_root,
+            ),
+            profile: options.model_profile,
+            diagnostic: true,
+        }
+    }
+
+    pub(super) fn finish(self, result: &Result<Value>) {
+        self.gguf
+            .after_supervisor(result, self.profile, self.diagnostic);
+        self.source.after_supervisor(result, self.diagnostic);
     }
 }
 

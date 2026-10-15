@@ -18,6 +18,24 @@ Last updated: 2026-10-15
 
 ### Explicit native CPU inference candidate
 
+#### Connection-bound model reuse candidate
+
+Actual Code trial `38742699743` on core `3327115e` / Code `8b21775e`
+completes two native reads, then reaches the third request's compute deadline.
+No edit or test passes. The next slice retains one model and exact processed
+prompt prefixes within a single owner connection, with the normal full toolset.
+The new [versioned session contract](../crates/volparossa/src/compute/private_conversation/WIRE.md#connection-bound-native-sessions)
+separates per-request file removal from final worker/private-state cleanup.
+No state is shared across owners or projects; failed admitted requests are not
+replayed. The 600-second request ceiling and pressure/memory guards remain;
+the resident worker has a separate 2,400-second task lifetime and cumulative CPU
+ceiling, with 300-second idle closure and at most 128 requests.
+
+Python and synthetic Unix/HTTP contracts have targeted coverage. New Rust and
+native ABI tests still require hosted execution, followed by the same normal
+read/edit/test task with the paired Code candidate. This is in development, not
+demonstrated acceleration, complete coding execution or confidential peer work.
+
 #### Source verification lifecycle candidate
 
 [Actual trial `38726624377`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38726624377)

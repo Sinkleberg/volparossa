@@ -27,9 +27,9 @@ HERE = Path(__file__).resolve().parent
 LIBRARY = "libvolparossa_llama_cpu.so"
 ALLOWED_NEEDED = {"libc.so.6", "libm.so.6", "libpthread.so.0", "libdl.so.2", "ld-linux-x86-64.so.2"}
 CHECK_TARGETS = ("vp-native-abi-smoke", "vp-native-loader-validation", "vp-native-bf16-tensors",
-                 "vp-native-output-constraint", "vp-upstream-tensor-tests")
+                 "vp-native-output-constraint", "vp-native-session", "vp-upstream-tensor-tests")
 WRAPPER_FILES = ("CMakeLists.txt", "adapter.h", "adapter.cpp", "bounded-tensor-validation.patch",
-                 "output-constraint.h", "output-constraint.cpp")
+                 "output-constraint.h", "output-constraint.cpp", "session-state.h")
 
 
 def require(condition, code):
@@ -169,6 +169,7 @@ def build(source, output, execute=False, checks=False, sanitize=False):
     patched_loader(source)
     plan = {"kind": KIND, "source_commit": SOURCE, "source_tree": tree,
             "output_constraints": [native.OUTPUT_CONSTRAINT],
+            "native_sessions": [native.NATIVE_SESSION],
             "sanitizers": sanitize, "provisionable": not sanitize,
             "source_overlay": native.loader_provenance(),
             "jobs": 2, "models_loaded": False, "downloads": False, "install": False}
@@ -252,7 +253,7 @@ def build(source, output, execute=False, checks=False, sanitize=False):
     require(runtime_notice.is_file(), "NATIVE_TOOLCHAIN_NOTICE")
     shutil.copyfile(runtime_notice, licenses / "GCC-runtime-copyright")
     (licenses / "GCC-runtime-copyright").chmod(0o444)
-    report = dict(plan, version=3, abi_version=1, library={"path": LIBRARY, **digest(library)},
+    report = dict(plan, version=4, abi_version=1, library={"path": LIBRARY, **digest(library)},
                   upstream_original_unchanged=True, loader_compile_source_verified=True,
                   dynamic_dependencies=needed, cpu="avx2_fma_f16c", quantization=False,
                   checks=list(CHECK_TARGETS) if checks else [],

@@ -28,13 +28,18 @@ WEIGHTS_BYTES = 8044982000
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 ABORT = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p)
 OUTPUT_CONSTRAINT = "qwen_tagged_tool_json_v1"
+NATIVE_SESSION = "connection_bound_v1"
 
 
 def validate_constraints(value, legacy_version, require, version_error="NATIVE_OUTPUT_CONSTRAINT_VERSION"):
     """Versioned capability, not a request to enable it or executable grammar."""
     version = value.get("version") if type(value) is dict else None
-    require(type(version) is int and version in (legacy_version, legacy_version + 1),
+    require(type(version) is int and version in (legacy_version, legacy_version + 1, legacy_version + 2),
             version_error)
+    if version == legacy_version + 2:
+        require(value.get("native_sessions") == [NATIVE_SESSION], "NATIVE_SESSION_BINDING")
+    else:
+        require("native_sessions" not in value, "NATIVE_SESSION_BINDING")
     if version == legacy_version:
         require("output_constraints" not in value, "NATIVE_OUTPUT_CONSTRAINT_BINDING")
         return []
@@ -74,7 +79,8 @@ def validate_manifest(value, require):
     fields = {"version", "kind", "abi_version", "source_commit",
             "model_profile", "source_weights_sha256", "source_weights_bytes", "library", "gguf",
             "verification", "build_manifest_sha256"}
-    require(value.keys() == fields | ({"output_constraints"} if constraints else set()), "NATIVE_MANIFEST_FIELDS")
+    require(value.keys() == fields | ({"output_constraints"} if constraints else set())
+            | ({"native_sessions"} if value["version"] == 3 else set()), "NATIVE_MANIFEST_FIELDS")
     require(type(value["abi_version"]) is int and value["abi_version"] == 1
             and value["kind"] == KIND and value["source_commit"] == SOURCE
             and value["model_profile"] == PROFILE and value["source_weights_sha256"] == WEIGHTS_SHA
@@ -118,8 +124,11 @@ def verified_bundle(request, worker, tokenizer, session):
     provenance = worker.parse_json(build)
     validate_build_provenance(provenance, require)
     require(provenance["version"] == value["version"] + 1
-            and provenance.get("output_constraints") == value.get("output_constraints"),
+            and provenance.get("output_constraints") == value.get("output_constraints")
+            and provenance.get("native_sessions") == value.get("native_sessions"),
             "NATIVE_OUTPUT_CONSTRAINT_BINDING")
+    if "native_session" in request:
+        require(value.get("native_sessions") == [NATIVE_SESSION], "NATIVE_SESSION_UNSUPPORTED")
     if "output_constraint" in request:
         require(request["output_constraint"] == OUTPUT_CONSTRAINT
                 and value.get("output_constraints") == [OUTPUT_CONSTRAINT],
@@ -197,7 +206,7 @@ class OwnerProbe:
 
 class NativeModel:
     def __init__(self, root, capacity, threads, probe, require, *, output_constraints=None,
-                 output_constraint=None, output_constraint_tools=None):
+                 output_constraint=None, output_constraint_tools=None, native_session=False):
         self.handle = ctypes.c_void_p()
         self.require, self.probe = require, probe
         # The caller checked owner-authorized digest before this executable load.
@@ -238,6 +247,16 @@ class NativeModel:
                     and type(output_constraint_tools) is list and 1 <= len(output_constraint_tools) <= 32
                     and output_constraint_tools == [f"vp_{index}" for index in range(len(output_constraint_tools))],
                     "NATIVE_OUTPUT_CONSTRAINT_BINDING")
+        if native_session:
+            for name, result, arguments in (
+                    ("vp_llama_native_session_abi_v1", ctypes.c_uint32, []),
+                    ("vp_llama_begin_turn_v1", ctypes.c_int32,
+                     [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ABORT, ctypes.c_void_p])):
+                require(hasattr(self.lib, name), "NATIVE_SESSION_ABI_MISMATCH")
+                function = getattr(self.lib, name)
+                function.restype, function.argtypes = result, arguments
+            extension = self.lib.vp_llama_native_session_abi_v1()
+            require(type(extension) is int and extension == 1, "NATIVE_SESSION_ABI_MISMATCH")
         try:
             status = self.lib.vp_llama_open_v1(str(root / "model.gguf").encode(), capacity, threads,
                                              probe.callback, None, ctypes.byref(self.handle))
@@ -273,20 +292,40 @@ class NativeModel:
         self.require(status == 0 and 0 <= token.value < 151936, "NATIVE_SAMPLE_FAILED")
         return token.value
 
+    def begin_turn(self, retained_tokens, probe, constraint, aliases):
+        self.require(type(retained_tokens) is int and 0 <= retained_tokens < 12288,
+                     "NATIVE_SESSION_PREFIX_BOUND")
+        self.require((constraint is None and aliases is None) or
+                     (constraint == OUTPUT_CONSTRAINT and type(aliases) is list
+                      and 1 <= len(aliases) <= 32
+                      and aliases == [f"vp_{index}" for index in range(len(aliases))]),
+                     "NATIVE_OUTPUT_CONSTRAINT_BINDING")
+        # The old callback remains alive until the synchronous ABI handover has
+        # returned. No native work or callback may outlive this one execution thread.
+        previous = self.probe
+        status = self.lib.vp_llama_begin_turn_v1(self.handle, retained_tokens,
+                    0 if constraint is None else 1, 0 if aliases is None else len(aliases), probe.callback, None)
+        self.probe = probe
+        probe.joined()
+        self.require(status == 0, "NATIVE_SESSION_PREFIX_RESET_FAILED")
+        del previous
+
     def close(self):
         if self.handle.value is not None:
             self.lib.vp_llama_close_v1(self.handle)
             self.handle = ctypes.c_void_p()
 
 
-def generate(model, prompt, tokenizer, profile, session, worker, observation=None):
+def generate(model, prompt, tokenizer, profile, session, worker, observation=None, *, retained_tokens=0,
+             decoded_tokens=None):
     worker.require(type(prompt) is list and 1 <= len(prompt) <= profile["prompt_tokens"]
                    and all(type(token) is int and 0 <= token < 151936 for token in prompt), "NATIVE_PROMPT_BOUND")
     if observation is not None:
         observation.forward_begin(None, None)
     # This is the complete original HF-rendered prompt in bounded prefill batches,
     # not truncation, sliding context, a second prompt or a hidden warmup.
-    for start in range(0, len(prompt), 128):
+    worker.require(type(retained_tokens) is int and 0 <= retained_tokens < len(prompt), "NATIVE_SESSION_PREFIX_BOUND")
+    for start in range(retained_tokens, len(prompt), 128):
         session.check()
         model.decode(prompt[start:start + 128])
     if observation is not None:
@@ -310,12 +349,16 @@ def generate(model, prompt, tokenizer, profile, session, worker, observation=Non
         text = text[:-1]
     if observation is not None:
         observation.complete()
+    if decoded_tokens is not None:
+        # The final sampled token was not decoded (EOS or generation bound).
+        # Prefix reuse can only name positions actually present in this handle.
+        decoded_tokens[:] = prompt + generated[:-1]
     return {"sample_index": 0, "text": text, "generated_tokens": len(generated),
             "text_truncated": text != raw, "generation": metadata}
 
 
 def execute(request, session, tokenizer, torch, versions, model_root, output_root,
-            dataset, data_identity, model_files, worker, *, initial_source_weights):
+            dataset, data_identity, model_files, worker, *, initial_source_weights, retained=None):
     worker.require(worker.conversation_module().generation_policy(dataset, PROFILE) == "greedy_v1",
                    "NATIVE_GREEDY_POLICY_REQUIRED")
     constraint = worker.conversation_constraint_binding(request, dataset, PROFILE)
@@ -343,18 +386,25 @@ def execute(request, session, tokenizer, torch, versions, model_root, output_roo
     session.check()
     probe = OwnerProbe(session, worker)
     session.private_progress("model_load", "begin")
-    model = NativeModel(root, len(prompt) + profile["new_tokens"], request["threads"], probe, worker.require,
-                        **constraint_options)
+    worker.require((retained is not None) == ("native_session" in request), "NATIVE_SESSION_BINDING")
+    prefix, decoded = 0, []
+    if retained is None:
+        model = NativeModel(root, len(prompt) + profile["new_tokens"], request["threads"], probe, worker.require,
+                            **constraint_options)
+    else:
+        model, prefix = retained.begin(root, manifest, identity, request, prompt, probe, worker)
     try:
         session.private_progress("model_load", "complete")
         session.progress("baseline")
         session.private_progress("generation", "begin")
         observation = (worker.PrivateGenerationObservation(session, torch, len(prompt))
                        if request.get("private_generation_diagnostics") is True else None)
-        output = generate(model, prompt, tokenizer, profile, session, worker, observation)
+        output = generate(model, prompt, tokenizer, profile, session, worker, observation,
+                          retained_tokens=prefix, decoded_tokens=decoded if retained is not None else None)
         session.private_progress("generation", "complete")
     finally:
-        model.close()
+        if retained is None:
+            model.close()
     session.private_progress("verify_after", "begin")
     worker.require(worker.file_hash(root / "model.gguf", expected_size=manifest["gguf"]["bytes"], session=session)["sha256"]
                    == manifest["gguf"]["sha256"], "NATIVE_GGUF_CHANGED")
@@ -375,4 +425,39 @@ def execute(request, session, tokenizer, torch, versions, model_root, output_roo
     session.private_progress("result", "begin")
     result = worker.finish_result(result, output_root, session)
     session.private_progress("result", "complete")
+    if retained is not None:
+        retained.tokens = decoded
     return result
+
+
+class RetainedModel:
+    """One interpreter/connection's private RAM; never global or serializable."""
+    def __init__(self):
+        self.model, self.binding, self.tokens = None, None, []
+
+    def begin(self, root, manifest, identity, request, prompt, probe, worker):
+        worker.require(manifest.get("native_sessions") == [NATIVE_SESSION], "NATIVE_SESSION_UNSUPPORTED")
+        binding = (str(root), json.dumps(identity, sort_keys=True), request["threads"])
+        worker.require(self.binding is None or self.binding == binding, "NATIVE_SESSION_MODEL_CHANGED")
+        constraint, aliases = request.get("output_constraint"), request.get("output_constraint_tools")
+        prefix = 0
+        if self.model is None:
+            self.model = NativeModel(root, 12288 + 1024, request["threads"], probe, worker.require,
+                                     output_constraints=manifest["output_constraints"], native_session=True)
+            self.binding = binding
+        else:
+            for old, new in zip(self.tokens, prompt[:-1]):
+                if old != new:
+                    break
+                prefix += 1
+        self.model.begin_turn(prefix, probe, constraint, aliases)
+        # A failed turn can never authorize reuse, even if its partial decode ran.
+        self.tokens = []
+        return self.model, prefix
+
+    def close(self):
+        try:
+            if self.model is not None:
+                self.model.close()
+        finally:
+            self.model, self.binding, self.tokens = None, None, []

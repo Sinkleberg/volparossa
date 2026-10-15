@@ -192,6 +192,35 @@ void finite_selection_and_cancel() {
         [&] { return inspected != 0; }, chosen) == vp::selection::cancelled);
     assert(inspected == 1 && chosen == -1); // Cancellation also during candidate rejection.
 }
+
+void independent_turn_grammars() {
+    auto value = std::make_unique<vp::tool_constraint>(nullptr, 1);
+    feed(*value, call);
+    value->accept("", true);
+    assert(!value->permits(call, false));
+    // The native begin-turn path constructs a fresh grammar, not a clone of
+    // the previous tool call's ended state or its old offered alias set.
+    value = std::make_unique<vp::tool_constraint>(nullptr, 2);
+    const std::string second = "<tool_call>{\"name\":\"vp_1\",\"arguments\":{}}</tool_call>";
+    feed(*value, second);
+    value->accept("", true);
+    value = std::make_unique<vp::tool_constraint>(nullptr, 1);
+    assert(!value->permits(second, false));
+    feed(*value, "A fresh ordinary answer remains permitted.");
+    assert(value->permits("", true));
+    value->accept("", true);
+    value = std::make_unique<vp::tool_constraint>(nullptr, 1);
+    feed(*value, "<tool_");
+    value = std::make_unique<vp::tool_constraint>(nullptr, 1);
+    feed(*value, call); // No unfinished marker from the old turn.
+    assert(value->permits("", true));
+    value = std::make_unique<vp::tool_constraint>(nullptr, 1);
+    feed(*value, "plain \xc3");
+    assert(!value->permits("", true));
+    value = std::make_unique<vp::tool_constraint>(nullptr, 1);
+    feed(*value, call); // No incomplete UTF-8 state from the old turn.
+    assert(value->permits("", true));
+}
 }
 
 int main() {
@@ -202,4 +231,5 @@ int main() {
     depth_and_wire_bounds();
     json_values_and_incomplete_suffix();
     finite_selection_and_cancel();
+    independent_turn_grammars();
 }

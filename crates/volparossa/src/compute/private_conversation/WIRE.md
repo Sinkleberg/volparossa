@@ -146,6 +146,48 @@ These events observe report validation,
 not model attempts: validating the same bound report again may repeat its code
 without another execution. Request/result counters track actual attempts.
 
+## Connection-bound native sessions
+
+The explicit Qwen4B native backend can retain its model and decoded prompt
+prefix within one authenticated owner connection. Negotiate
+`native_session_version:1` together with `generation_policy_version:1` in
+`conversation_capabilities`. Only that handshake adds `native_session_version:1`
+and `native_session` to the capabilities. The latter is either null (unsupported)
+or exactly `{version:1,max_task_seconds:2400,max_idle_seconds:300,max_requests:128}`.
+Support requires the owner-bound backend v3/build v4 manifest with
+`native_sessions:["connection_bound_v1"]`. This is not a bearer session identifier
+or permission to share private state with another connection.
+
+Send `{type:"open_native_session"}` after negotiation. The core reserves the
+shared execution slot and returns `native_session_opened` with the open ID;
+model preparation starts only after the first admitted `submit_conversation`.
+Submissions retain their ordinary input, tool, generation-policy and output-
+constraint validation. A successful inner result has `version:2` and replaces
+only the legacy cleanup member with
+`{version:2,request_files_removed:true,session_closed:false,session_private_state_retained:true}`.
+The envelope stays version 1. This result proves neither worker exit nor final
+private-state removal. Legacy clients cannot interpret it as a v1 result.
+
+Send `{type:"close_native_session"}` to end the owner task. Only after joined
+worker/descendant cleanup and private staging removal does the core return
+`native_session_closed` with the close ID and
+`cleanup:{version:1,child_reaped:true,private_state_removed:true}`, followed by EOF.
+Automatic idle or lifetime closure uses the original open ID. Terminal native
+errors carry `session_cleanup` with the same confirmed record or null when
+cleanup is uncertain. They correlate to the pending request, requested close or
+original open, respectively. Cancellation uses the existing task ID; its immediate
+acknowledgement is not a cleanup receipt. Uncertain cleanup quarantines the slot.
+
+The core keeps the 600-second request ceiling, including preparation, generation
+and the internal end-of-turn handshake. It caps the owner lifetime at 2,400 seconds,
+idle time at 300 seconds and submissions at 128. Each request retains its CPU
+allowance; the resident process has a separate cumulative task ceiling. Memory,
+pressure and owner-activity checks continue while resident, including idle time.
+Exact matching decoded tokens may be reused, with the final prompt token
+recomputed; no prompt truncation, model substitution or shared KV cache is added.
+Final cleanup is process/staging cleanup, not a claim of forensic RAM erasure.
+Real acceleration and a complete coding task still require actual-model evidence.
+
 ## Explicit limits
 
 Capabilities contain the same model/limits facts as result `limits`, plus
@@ -246,7 +288,9 @@ source provenance, not the weights read by native inference. The worker carries
 the actual complete initial shard/aggregate measurement into `model.weights`;
 it does not reconstruct that measurement from expected constants or claim a
 second source-shard verification at the end. The owner-bound converted GGUF is
-fully hashed both before native loading and after the native handle is closed.
+fully hashed before and after each native generation. A one-shot execution closes
+its handle before the final hash; a connection-bound session retains that handle
+until session cleanup and still performs the complete per-request hashes.
 Converter tensor-value equality, original model identity, native complete tensor
 validation and library/build/manifest authorization remain required.
 
@@ -259,7 +303,7 @@ changes the internal native verification contract, not the public conversation
 schema. It does not attest continuous filesystem immutability against the local
 owner, successful inference, or private execution on other nodes.
 
-Candidate resources are CPU BF16/SDPA, at most two threads, 600 seconds per task,
+Candidate resources are CPU BF16/SDPA, at most two threads, 600 seconds per request,
 10GiB observed RSS, 24GiB address space and 10.5GiB known spare memory before
 launch. These are admission/stop limits, not measured adequacy or a no-impact
 guarantee. The planned disposable comparison uses a 12GiB guest with an 11GiB

@@ -4,6 +4,7 @@
 use super::*;
 use tokio::io::AsyncWriteExt as _;
 
+mod native_session;
 mod output_constraint;
 mod task_diagnostic;
 
