@@ -57,15 +57,42 @@ private_storage_replicas_serve relay4 "$3"
     def test_current_consumer_explicitly_selects_matching_profile_at_all_boundaries(self):
         runner = (HERE / 'run-alpha-topology-vm.sh').read_text()
         guest = (HERE / 'kvm-alpha-topology.sh').read_text()
-        self.assertIn('storage-consumer-maintenance-provision.py provision --download --profile-version 7', runner)
-        self.assertIn('storage-consumer-maintenance-smoke.py" "$@" --profile-version 7', TEXT)
-        self.assertIn('evidence-v7 "$WORK" "$WORK/storage-consumer-evidence.json"', TEXT)
+        self.assertIn('storage-consumer-maintenance-provision.py provision --download --profile-version 8', runner)
+        self.assertIn('consumer_profile_version=${storage_consumer_profile_version-7}', TEXT)
+        self.assertIn('storage-consumer-maintenance-smoke.py" "$@" --profile-version "$consumer_profile_version"', TEXT)
+        self.assertIn('"evidence-v$consumer_profile_version" "$WORK" "$WORK/storage-consumer-evidence.json"', TEXT)
         for name in ('storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json',
                 'storage-consumer-maintenance-pins-v3.json', 'storage-consumer-maintenance-pins-v4.json',
                 'storage-consumer-maintenance-pins-v5.json', 'storage-consumer-maintenance-pins-v6.json',
-                'storage-consumer-maintenance-pins-v7.json'):
+                'storage-consumer-maintenance-pins-v7.json', 'storage-consumer-maintenance-pins-v8.json'):
             self.assertIn(f'"$source_directory/tests/integration/{name}"', guest)
             self.assertIn(f'"$WORK/bin/{name}"', guest)
+
+    def test_explicit_profile_eight_reaches_same_privilege_and_deadline_command_without_default_change(self):
+        script = '''
+. "$1"
+WORK=/synthetic/fixture
+WORKER_UID=123
+WORKER_GID=124
+custody_control_gid=125
+fail() { printf '%s\\n' "$1" >&2; return 1; }
+timeout() { printf '%s\\n' "$@"; }
+if [ "$2" != unset ]; then storage_consumer_profile_version=$2; fi
+private_storage_consumer_private publish /synthetic/owner
+'''
+        for profile in ('unset', '7', '8', '1', '9', 'true', '', '8 --untrusted'):
+            result = subprocess.run(['sh', '-eu', '-c', script, 'inert', str(SCRIPT), profile],
+                capture_output=True, text=True, timeout=5)
+            if profile in ('unset', '7', '8'):
+                self.assertEqual(result.returncode, 0, result.stderr)
+                args = result.stdout.splitlines()
+                self.assertEqual(args[:4], ['--signal=TERM', '--kill-after=30s', '2400s', 'setpriv'])
+                self.assertEqual(args[-4:], ['--profile-version', '8' if profile == '8' else '7', '--network-version', '2'])
+                self.assertEqual(args.count('--profile-version'), 1)
+            else:
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, '')
+                self.assertEqual(result.stderr.strip(), 'CONSUMER_PROFILE_INVALID')
 
     def test_each_consumer_phase_gets_its_own_actual_network_observation(self):
         phase = TEXT.split('private_storage_consumer_phase() {', 1)[1].split('\n}', 1)[0]

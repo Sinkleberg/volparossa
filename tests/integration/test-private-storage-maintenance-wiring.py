@@ -236,7 +236,7 @@ private_storage_fragments_run() {
         start = workflow.index('      - name: Require actual owner-private storage maintenance')
         gate = workflow[start:workflow.index('\n      - name:', start + 1)]
         self.assertIn('test "$TOPOLOGY_EXIT_CODE" = 0', gate)
-        self.assertIn('private-storage-maintenance-smoke.py report-consumer-v7 "$report" "$GITHUB_SHA"', gate)
+        self.assertIn('private-storage-maintenance-smoke.py report-consumer-v8 "$report" "$GITHUB_SHA"', gate)
         self.assertIn('host-state-before.json', gate)
         self.assertIn('host-state-after.json', gate)
 
@@ -925,13 +925,13 @@ umask 077
 . "$source_directory/tests/integration/private-storage-maintenance-smoke.sh"
 optional_json_evidence() { printf 'null\n'; }
 python3() {
-    if [ "$3" = route-diagnostic ] && [ "$TEST_DIAGNOSTIC_FAILURE" = yes ]; then return 77; fi
+    if { [ "$3" = route-diagnostic ] || [ "$3" = route-diagnostic-v3 ]; } && [ "$TEST_DIAGNOSTIC_FAILURE" = yes ]; then return 77; fi
     command python3 "$@"
 }
 private_storage_maintenance_finalize_report 7
 '''
-        for diagnostic_failure in (False, True):
-            with self.subTest(diagnostic_failure=diagnostic_failure), tempfile.TemporaryDirectory() as temporary:
+        for profile, diagnostic_failure in ((7, False), (7, True), (8, False), (8, True)):
+            with self.subTest(profile=profile, diagnostic_failure=diagnostic_failure), tempfile.TemporaryDirectory() as temporary:
                 work = Path(temporary)
                 output = work / 'output'
                 output.mkdir()
@@ -947,9 +947,11 @@ private_storage_maintenance_finalize_report 7
                         output_directory=str(output), OUTPUT_UID=str(os.getuid()), OUTPUT_GID=str(os.getgid()),
                         expected_commit='1' * 40, RUN_ID='inert', PHASE='private-storage-fragments-prepare',
                         OBSERVED_BLOCKER='FRAGMENTS_ROUTE_UNAVAILABLE', CLEANUP_COMPLETE='true',
-                        REMAINING_OWNED_OBJECTS='0', TEST_DIAGNOSTIC_FAILURE='yes' if diagnostic_failure else 'no'))
+                        REMAINING_OWNED_OBJECTS='0', TEST_DIAGNOSTIC_FAILURE='yes' if diagnostic_failure else 'no',
+                        storage_consumer_profile_version=str(profile)))
                 self.assertEqual(result.returncode, 1)
                 report = json.loads((output / 'private-storage-maintenance-smoke.json').read_text())
+                self.assertEqual(report['schema_version'], profile - 1)
                 self.assertEqual(report['runner_exit_status'], 7)
                 self.assertEqual(report['observed_blocker'], 'FRAGMENTS_ROUTE_UNAVAILABLE')
                 self.assertFalse(report['success'])
@@ -962,6 +964,9 @@ private_storage_maintenance_finalize_report 7
                     self.assertEqual(value['route'], route)
                     self.assertFalse(value['acceptance_evidence'])
                     self.assertEqual(exported.stat().st_mode & 0o777, 0o600)
+                    provider = json.loads((output / M['PROVIDER_EVENTS_NAME']).read_text())
+                    M['validate_provider_events'](provider)
+                    self.assertEqual(provider['version'], 3 if profile == 8 else 2)
                 self.assertFalse((output / raw.name).exists())
 
     def test_provider_snapshot_reuses_exact_cleanup_query_and_never_changes_exit(self):

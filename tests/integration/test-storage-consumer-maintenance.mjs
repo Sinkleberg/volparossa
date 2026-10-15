@@ -9,7 +9,7 @@ import { performance } from 'node:perf_hooks';
 import test from 'node:test';
 import { boundedFile, fixtureBytes, ForegroundObservation, MAX_CIPHER, PHASES, PLAIN_BYTES,
   consumerFailureReport, depositDiagnostic, parseProcStat, replacementReady, requirePublishComplete, retainedSnapshot,
-  retentionAdvanced, validateCheckpoint, validateStorage } from './storage-consumer-maintenance.mjs';
+  retentionAdvanced, validateAppendProfile, validateCheckpoint, validateStorage } from './storage-consumer-maintenance.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const keys = [1, 2, 3].map(v => Buffer.alloc(32, v).toString('hex'));
@@ -61,6 +61,93 @@ const challengeDiagnostics = () => ({ version: 6, omitted_failures: 0,
     deadline_scope: 'operation', tls_failure: null, stream_failure: null,
     challenge: { phase: 'challenge_read_verify', before_challenge: '90_to_120s', in_challenge: '1_to_5s' } },
   agent_outcome: null }] });
+
+const appendDiagnostics = () => ({ version: 7, omitted_failures: 0, failures: [{
+  ...transferFailure(), operation: 'append', stage: 'wire_receipt', category: 'timeout', agent_detail: null,
+  agent_outcome: { status: 'observed', detail: { phase: 'remote_receipt_read', category: 'timeout', deadline_scope: 'operation' },
+    append_timing: { before_payload: '90_to_120s', in_payload_write_flush: 'under_1s', in_receipt_read: '5_to_15s' } },
+}] });
+
+test('only explicit profile8 configuration requests timing while old fixture configs remain absent', () => {
+  for (const profile of [1, 2, 3, 4, 5, 6, 7]) {
+    assert.doesNotThrow(() => validateAppendProfile({}, profile));
+    for (const value of [true, false, null, 1, 'true', {}, []]) {
+      assert.throws(() => validateAppendProfile({ appendDiagnosticsV7: value }, profile), /configuration/u);
+    }
+  }
+  assert.doesNotThrow(() => validateAppendProfile({ appendDiagnosticsV7: true }, 8));
+  assert.throws(() => validateAppendProfile({}, 8), /configuration/u);
+  for (const value of [false, null, 1, 'true', {}, []]) {
+    assert.throws(() => validateAppendProfile({ appendDiagnosticsV7: value }, 8), /configuration/u);
+  }
+  for (const profile of [0, 9, null, true, '8']) {
+    assert.throws(() => validateAppendProfile({ appendDiagnosticsV7: true }, profile), /configuration/u);
+  }
+});
+
+test('profile8 preserves failed publish and finite timing without upgrading historical profiles', () => {
+  const buckets = ['under_1s', '1_to_5s', '5_to_15s', '15_to_30s', '30_to_60s', '60_to_90s', '90_to_120s', 'at_least_120s'];
+  for (const phase of ['remote_payload_write', 'remote_receipt_read']) {
+    for (const before_payload of buckets) for (const in_payload_write_flush of buckets) {
+      for (const in_receipt_read of phase === 'remote_payload_write' ? [null] : buckets) {
+        const d = appendDiagnostics();
+        d.failures[0].agent_outcome.detail.phase = phase;
+        d.failures[0].agent_outcome.append_timing = { before_payload, in_payload_write_flush, in_receipt_read };
+        assert.deepEqual(depositDiagnostic(d, 7), d);
+      }
+    }
+  }
+  for (const app of ['image', 'cloud']) {
+    const diagnostic = appendDiagnostics();
+    const value = { status: 'incomplete', code: 'retained_operation_incomplete', local_process_joined: true,
+      storage: { operation_complete: false, deposit_diagnostics: diagnostic, raw: 'PRIVATE' } };
+    const report = publishFailure(value, app, 'deposit', false, 8);
+    assert.equal(report.version, 9); assert.equal(report.publish_observation.version, 8);
+    assert.equal(report.passed, false); assert.equal(report.cleanup_confirmed, false);
+    assert.deepEqual(report.publish_observation.deposit_diagnostics, diagnostic);
+    assert.doesNotMatch(JSON.stringify(report), /PRIVATE|raw/u);
+    for (const old of [2, 3, 4, 5, 6, 7]) assert.equal(publishFailure(value, app, 'deposit', false, old)
+      .publish_observation.deposit_diagnostics_state, 'invalid');
+    const complete = { status: 'complete', local_process_joined: true,
+      storage: { operation_complete: true, deposit_diagnostics: { version: 7, failures: [], omitted_failures: 0 } } };
+    assert.doesNotThrow(() => requirePublishComplete(complete, app, 'deposit', 8));
+    complete.storage.deposit_diagnostics.version = 6;
+    assert.equal(publishFailure(complete, app, 'deposit', false, 8).publish_observation.deposit_diagnostics_state, 'invalid');
+  }
+});
+
+test('append timing closes fields and uses original agent phase without inventing receipt entry', () => {
+  const mutations = [f => { f.operation = 'finalize'; },
+    f => { f.agent_outcome.detail.phase = 'remote_receipt_verify'; },
+    f => { f.agent_outcome.detail.phase = 'remote_payload_write'; },
+    f => { delete f.agent_outcome.append_timing; },
+    f => { f.agent_outcome.append_timing.phase = 'remote_receipt_read'; },
+    f => { f.agent_outcome.append_timing.raw = '/private/canary'; },
+    ...['before_payload', 'in_payload_write_flush', 'in_receipt_read'].flatMap(key => [
+      f => { delete f.agent_outcome.append_timing[key]; },
+      ...[null, 0, true, {}, [], 'PRIVATE', 'unobserved'].map(value => f => { f.agent_outcome.append_timing[key] = value; }),
+    ])];
+  for (const mutate of mutations) {
+    const d = appendDiagnostics(); mutate(d.failures[0]);
+    assert.throws(() => depositDiagnostic(d, 7), /deposit_diagnostics/u);
+  }
+  for (const status of ['observed', 'missing', 'pending', 'expired', 'query_failed', 'query_timeout']) {
+    const d = appendDiagnostics(), outcome = d.failures[0].agent_outcome;
+    outcome.status = status;
+    if (status !== 'observed') {
+      outcome.detail = null;
+      assert.throws(() => depositDiagnostic(d, 7), /deposit_diagnostics/u);
+    }
+    outcome.append_timing = null;
+    assert.deepEqual(depositDiagnostic(d, 7), d);
+  }
+  for (const version of [4, 5, 6]) {
+    const d = appendDiagnostics(); d.version = version;
+    assert.throws(() => depositDiagnostic(d, version), /deposit_diagnostics/u);
+    d.failures[0].agent_outcome.append_timing = null;
+    assert.throws(() => depositDiagnostic(d, version), /deposit_diagnostics/u);
+  }
+});
 
 test('profile7 observes finite challenge progress without reinterpreting prior profiles', () => {
   const buckets = ['under_1s', '1_to_5s', '5_to_15s', '15_to_30s', '30_to_60s', '60_to_90s', '90_to_120s', 'at_least_120s'];

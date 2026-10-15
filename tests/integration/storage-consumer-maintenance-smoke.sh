@@ -5,6 +5,8 @@
 # shellcheck disable=SC2154,SC2034
 
 private_storage_consumer_private() {
+    consumer_profile_version=${storage_consumer_profile_version-7}
+    case $consumer_profile_version in 7|8) ;; *) fail CONSUMER_PROFILE_INVALID; return 1 ;; esac
     STORAGE_PROOF_BASELINE_MS=${provider_baseline_ms:-0} \
       STORAGE_PROOF_ROUTE_SCOPE=${storage_route_scope:-} \
       STORAGE_PROOF_ROUTE_POLICY=${consumer_route_policy:-} \
@@ -12,7 +14,7 @@ private_storage_consumer_private() {
       timeout --signal=TERM --kill-after=30s 2400s setpriv \
         --reuid="$WORKER_UID" --regid="$WORKER_GID" --groups="$custody_control_gid" \
         --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs \
-        -- python3 -B "$WORK/bin/storage-consumer-maintenance-smoke.py" "$@" --profile-version 7 --network-version 2
+        -- python3 -B "$WORK/bin/storage-consumer-maintenance-smoke.py" "$@" --profile-version "$consumer_profile_version" --network-version 2
 }
 
 private_storage_consumer_phase() {
@@ -123,7 +125,9 @@ private_storage_consumer_run() {
         all_usage_snapshots_with_services_stopped:true,all_three_store_inodes_preserved:true}' \
         >"$WORK/storage-consumer-withdrawal.json"
     private_storage_consumer_cleanup || fail CONSUMER_PRIVATE_CLEANUP_FAILED
+    consumer_profile_version=${storage_consumer_profile_version-7}
+    case $consumer_profile_version in 7|8) ;; *) fail CONSUMER_PROFILE_INVALID; return 1 ;; esac
     python3 -B "$source_directory/tests/integration/storage-consumer-maintenance-evidence.py" \
-        evidence-v7 "$WORK" "$WORK/storage-consumer-evidence.json" \
+        "evidence-v$consumer_profile_version" "$WORK" "$WORK/storage-consumer-evidence.json" \
         || fail CONSUMER_EVIDENCE_INVALID
 }
