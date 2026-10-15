@@ -10,7 +10,7 @@ use std::time::Duration;
 use ed25519_dalek::SigningKey;
 use sha2::{Digest as _, Sha256};
 use tokio::{
-    io::{AsyncWriteExt as _, DuplexStream},
+    io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream},
     sync::Semaphore,
     task::JoinHandle,
     time::timeout,
@@ -164,6 +164,20 @@ async fn joined(task: JoinHandle<Result<TransferProgress, ProviderError>>) -> bo
         .is_ok()
 }
 
+async fn close_tls<S>(stream: &mut S)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    // Keep both in-memory endpoints alive until each peer's close_notify arrives.
+    // Dropping the provider immediately after its write races the client's close.
+    timeout(Duration::from_secs(5), async {
+        stream.shutdown().await.unwrap();
+        assert_eq!(stream.read(&mut [0; 1]).await.unwrap(), 0);
+    })
+    .await
+    .unwrap();
+}
+
 fn software_prepared<'a>(pending: PendingSession<'a>, offer: Offer) -> PreparedConfirmation<'a> {
     let live = synthetic_confirmation_lifetime(pending, *offer.response().unwrap().public_key());
     PreparedConfirmation::from_live(live, offer).unwrap()
@@ -291,7 +305,7 @@ async fn signed_software_confirmation_runs_over_tls13_without_network_or_hardwar
             .await
             .unwrap();
         let result = serve_publication(&mut stream, &registry, TransferLimits::default()).await;
-        stream.shutdown().await.unwrap();
+        close_tls(&mut stream).await;
         result
     });
     let connector = tokio_rustls::TlsConnector::from(Arc::new(client_config));
@@ -316,7 +330,7 @@ async fn signed_software_confirmation_runs_over_tls13_without_network_or_hardwar
         .await
         .unwrap();
     let confirmed = prepared.confirm(reply).unwrap();
-    stream.shutdown().await.unwrap();
+    close_tls(&mut stream).await;
     assert!(joined(serving).await);
     assert_eq!(confirmed.finish().unwrap().outstanding_appraisal().len(), 4);
     fixture.stop().await;
