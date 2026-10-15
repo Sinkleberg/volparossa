@@ -786,13 +786,122 @@ def plain_path(value, directory):
     return path, metadata
 
 
-def file_hash(path, expected_size=None, maximum=None, aggregate=None, *, session=None):
+class NativeSourceCache:
+    """One bounded hint for already verified, no-longer-consumed source shards.
+
+    Keep the actual hashing descriptors, not reopened lookalikes. This is neither
+    a memory measurement nor admission credit, and emits no additional records.
+    """
+    SHARDS = tuple(f"model-{index:05d}-of-00003.safetensors" for index in range(1, 4))
+
+    def __init__(self, request):
+        require(request.get("inference_backend") == "llama_cpp_bf16_v1"
+                and request.get("model_profile") == QWEN4B_MODEL_PROFILE
+                and request.get("mode") == "private_conversation", "NATIVE_SOURCE_PROVENANCE")
+        self.root = Path(request["model_root"])
+        profile = model_profile(QWEN4B_MODEL_PROFILE)
+        self.files = dict(profile["files"])
+        self.parent, self.identity, self.shards = None, None, []
+        self.used, self.prepared = False, False
+        self.valid = tuple(profile["weight_shards"]) == self.SHARDS
+
+    @staticmethod
+    def identity_of(info):
+        return (info.st_dev, info.st_ino, info.st_uid, info.st_mode, info.st_nlink,
+                info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+    def __enter__(self):
+        try:
+            if self.valid and self.root.is_absolute() and self.root.resolve(strict=True) == self.root:
+                self.parent = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                                      | os.O_NONBLOCK | os.O_CLOEXEC)
+                info = os.fstat(self.parent)
+                self.identity = self.identity_of(info)
+                self.valid = (stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid()
+                              and stat.S_IMODE(info.st_mode) == 0o700 and self.parent_unchanged())
+            else:
+                self.valid = False
+        except OSError:
+            self.valid = False
+        return self
+
+    def __exit__(self, *_error):
+        descriptors = [entry[0] for entry in self.shards]
+        if self.parent is not None:
+            descriptors.append(self.parent)
+        self.shards, self.parent, self.valid = [], None, False
+        for descriptor in descriptors:
+            # Never retry close: even a failed close may have released this FD.
+            with contextlib.suppress(OSError):
+                os.close(descriptor)
+
+    def parent_unchanged(self):
+        return (self.parent is not None and self.root.resolve(strict=True) == self.root
+                and self.identity_of(os.fstat(self.parent)) == self.identity
+                and self.identity_of(self.root.lstat()) == self.identity
+                and set(os.listdir(self.parent)) == set(self.files))
+
+    def retain(self, path, descriptor, before):
+        try:
+            index = len(self.shards)
+            after = os.fstat(descriptor)
+            identity = self.identity_of(after)
+            if (not self.valid or index >= 3 or path != self.root / self.SHARDS[index]
+                    or not self.parent_unchanged() or not stat.S_ISREG(after.st_mode)
+                    or after.st_uid != os.geteuid() or stat.S_IMODE(after.st_mode) & 0o077
+                    or after.st_nlink != 1 or after.st_size != self.files[self.SHARDS[index]]
+                    or not 0 < after.st_size <= 4 * 1024 ** 3
+                    or self.identity_of(before) != identity or self.identity_of(path.lstat()) != identity):
+                self.valid = False
+                return
+            # dup retains the exact file description used for hashing; no content
+            # is reread, and Python creates the duplicate non-inheritable.
+            self.shards.append((os.dup(descriptor), self.SHARDS[index], identity))
+        except OSError:
+            self.valid = False
+
+    def unchanged(self, entry):
+        descriptor, name, identity = entry
+        return (self.parent_unchanged() and self.identity_of(os.fstat(descriptor)) == identity
+                and self.identity_of((self.root / name).lstat()) == identity)
+
+    def advise(self, session):
+        if self.used:
+            return
+        self.used = True
+        # Owner control/deadline exceptions must propagate, never be mistaken for
+        # an unavailable best-effort advisory. No pause or deadline is reset.
+        session.check()
+        try:
+            if (not self.valid or not self.prepared or len(self.shards) != 3
+                    or not all(map(self.unchanged, self.shards))):
+                return
+        except OSError:
+            return
+        for entry in self.shards:
+            session.check()
+            try:
+                if not self.unchanged(entry):
+                    return
+                os.posix_fadvise(entry[0], 0, entry[2][5], os.POSIX_FADV_DONTNEED)
+                if not self.unchanged(entry):
+                    return
+            except (OSError, AttributeError):
+                # Unsupported/failed advice is not verification failure or proof
+                # of reclaim. Each descriptor receives at most one attempt.
+                continue
+
+
+def file_hash(path, expected_size=None, maximum=None, aggregate=None, *, session=None, source_cache=None):
     # Hash every original byte, but service owner controls on this execution
     # thread between bounded reads. A pause is never acknowledged while a read
     # or digest update is running, and does not reset the original job deadline.
     if session is not None:
         session.check()
-    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    flags = os.O_RDONLY | os.O_NOFOLLOW
+    if source_cache is not None:
+        flags |= os.O_NONBLOCK | os.O_CLOEXEC
+    descriptor = os.open(path, flags)
     with os.fdopen(descriptor, "rb") as source:
         metadata = os.fstat(source.fileno())
         require(stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1, "INVALID_ARTIFACT_FILE")
@@ -813,6 +922,8 @@ def file_hash(path, expected_size=None, maximum=None, aggregate=None, *, session
         if session is not None:
             session.check()
         require(length == metadata.st_size, "ARTIFACT_CHANGED")
+        if source_cache is not None:
+            source_cache.retain(path, source.fileno(), metadata)
         return {"bytes": length, "sha256": digest.hexdigest()}
 
 
@@ -825,7 +936,7 @@ def read_bounded(path, maximum):
         return value
 
 
-def verify_sharded_weights(model_root, profile, verified_files=None, *, session=None):
+def verify_sharded_weights(model_root, profile, verified_files=None, *, session=None, source_cache=None):
     """Hash the original shard bytes in pinned order, never the index as weights.
 
     The existing identity wire field remains a SHA256 over actual weight bytes.
@@ -843,7 +954,8 @@ def verify_sharded_weights(model_root, profile, verified_files=None, *, session=
             and set(index["weight_map"].values()) == set(shards), "INVALID_WEIGHT_SHARD_INDEX")
     aggregate, total = hashlib.sha256(), 0
     for name in shards:
-        checked = file_hash(model_root / name, profile["files"][name], aggregate=aggregate, session=session)
+        checked = file_hash(model_root / name, profile["files"][name], aggregate=aggregate, session=session,
+                            **({"source_cache": source_cache} if source_cache is not None else {}))
         require(checked["sha256"] == profile["hashes"][name], "MODEL_WEIGHTS_CHANGED_ON_DISK")
         if verified_files is not None:
             verified_files[name] = checked
@@ -854,7 +966,7 @@ def verify_sharded_weights(model_root, profile, verified_files=None, *, session=
     return identity
 
 
-def prepare_files(request, session=None, *, initial_source=None):
+def prepare_files(request, session=None, *, initial_source=None, source_cache=None):
     # Native inference consumes a converted GGUF, not these source shards. Keep
     # their actually measured initial identity without changing the existing
     # five-value API or the ordinary PyTorch before/after verification path.
@@ -863,6 +975,8 @@ def prepare_files(request, session=None, *, initial_source=None):
                 and request.get("inference_backend") == "llama_cpp_bf16_v1"
                 and request.get("model_profile") == QWEN4B_MODEL_PROFILE
                 and request.get("mode") == "private_conversation", "NATIVE_SOURCE_PROVENANCE")
+    require(source_cache is None or (initial_source is not None and type(source_cache) is NativeSourceCache),
+            "NATIVE_SOURCE_PROVENANCE")
     profile_name = request.get("model_profile", DEFAULT_MODEL_PROFILE)
     profile = model_profile(profile_name)
     model_root, model_metadata = plain_path(request["model_root"], True)
@@ -881,7 +995,8 @@ def prepare_files(request, session=None, *, initial_source=None):
     files = {name: file_hash(model_root / name, expected_size=size, session=session)
              for name, size in profile["files"].items() if name not in sharded}
     if sharded:
-        measured_weights = verify_sharded_weights(model_root, profile, files, session=session)
+        measured_weights = verify_sharded_weights(model_root, profile, files, session=session,
+                            **({"source_cache": source_cache} if source_cache is not None else {}))
         if initial_source is not None:
             initial_source["weights"] = dict(measured_weights, files=list(measured_weights["files"]))
     require(all(files[name]["sha256"] == expected for name, expected in profile["hashes"].items()),
@@ -898,6 +1013,8 @@ def prepare_files(request, session=None, *, initial_source=None):
     if request["mode"] in ("private_infer", "private_conversation"):
         identity = {"sha256": hashlib.sha256(raw_dataset).hexdigest(), "bytes": len(raw_dataset),
                     "visibility": "private_local"}
+        if source_cache is not None:
+            source_cache.prepared = True
         return model_root, output_root, dataset, identity, files
     identity = {
         "sha256": hashlib.sha256(raw_dataset).hexdigest(), "bytes": len(raw_dataset),
@@ -2346,13 +2463,18 @@ def execute_job(request, session):
     session.private_progress("owner_gate", "complete")
     session.private_progress("verify_files", "begin")
     initial_source = {}
-    preparation = ({"initial_source": initial_source}
-                   if request.get("inference_backend") == "llama_cpp_bf16_v1" else {})
-    model_root, output_root, dataset, data_identity, model_files = prepare_files(request, session=session, **preparation)
-    if request["mode"] == "private_conversation":
-        conversation_constraint_binding(request, dataset, profile_name)
-    session.private_progress("verify_files", "complete")
-    session.check()
+    with contextlib.ExitStack() as source_lifetime:
+        source_cache = (source_lifetime.enter_context(NativeSourceCache(request))
+                        if request.get("inference_backend") == "llama_cpp_bf16_v1" else None)
+        preparation = ({"initial_source": initial_source, "source_cache": source_cache}
+                       if source_cache is not None else {})
+        model_root, output_root, dataset, data_identity, model_files = prepare_files(request, session=session, **preparation)
+        if request["mode"] == "private_conversation":
+            conversation_constraint_binding(request, dataset, profile_name)
+        session.private_progress("verify_files", "complete")
+        session.check()
+        if source_cache is not None:
+            source_cache.advise(session)
     cohort = None
     if request["mode"] == "aggregate_adapter":
         root, metadata = plain_path(request["adapter_root"], True)

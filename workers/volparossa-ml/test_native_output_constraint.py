@@ -320,7 +320,8 @@ class ConstraintResultTests(unittest.TestCase):
             (root / "model.gguf").write_bytes(model_raw)
             value = dict(manifest(), version=2, output_constraints=[native.OUTPUT_CONSTRAINT])
             value["gguf"].update(bytes=len(model_raw), sha256=hashlib.sha256(model_raw).hexdigest())
-            def prepared(_request, *, session, initial_source):
+            def prepared(_request, *, session, initial_source, source_cache):
+                self.assertIsInstance(source_cache, WORKER.NativeSourceCache)
                 initial_source["weights"] = profile["weights"]
                 parsed = WORKER.validate_dataset(WORKER.parse_json(raw), "private_conversation", native.PROFILE)
                 return root, root, parsed, identity, files

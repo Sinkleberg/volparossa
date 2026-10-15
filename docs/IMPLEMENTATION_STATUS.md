@@ -18,7 +18,28 @@ Last updated: 2026-10-15
 
 ### Explicit native CPU inference candidate
 
-#### Current memory-admission follow-up
+#### Source verification lifecycle candidate
+
+[Actual trial `38726624377`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38726624377)
+on Code `4fc36928` / core `2dd38983` remains incomplete: one completed read,
+a second admitted execution cancelled by the unchanged memory guard, then five
+memory-admission refusals, with no edit or test. Its last observed substage is
+`tokenizer_load/complete`; no later `prompt_encode` record is retained. Runtime,
+project, guest and VM cleanup are confirmed; protected peer execution and general
+coding quality remain unproved. The [original audit](https://github.com/VOLPAROSSA/volparossa-code/pull/11#issuecomment-6191437311)
+retains the source bindings and artifact digest. Aggregate file-cache counters do
+not identify individual files or prove reclaimability.
+
+The new candidate retains only the three source-shard descriptors used by the
+complete hash verification. After successful source, configuration and dataset
+checks and an owner-control check, it attempts at most three file-bound cache
+advisories before GGUF preparation. Metadata binds those descriptors; it does not
+replace content hashes. Existing post-supervisor hints and all resource guards
+remain unchanged. Twelve inert cases exercise the real small-file hash and
+descriptor sequence, failure rejection and cleanup; they do not prove reclaimed
+memory or a completed model trial.
+
+#### Earlier memory-admission follow-up
 
 [Actual Code trial `38695131367`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38695131367)
 on Code `7f451e67` / core `3630ff79` completes one native OpenCode read, then
