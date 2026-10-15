@@ -7,6 +7,8 @@
 # Ownership is established by this invocation, never inherited from a caller.
 WEATHER_CLIENT_HOME_CREATED=no
 WEATHER_CLIENT_HOME_IDENTITY=
+WEATHER_AGENT_PROFILE_VERSION=
+WEATHER_ANDROID_CACHE_IDENTITY=
 
 weather_client_private() {
     setpriv --reuid="$WORKER_UID" --regid="$site_control_gid" --clear-groups \
@@ -109,6 +111,28 @@ weather_client_runtime_profile() {
     fi
 }
 
+weather_client_agent_cache_prepare() {
+    # Agent mount permissions are fixed at service start, before publication and
+    # the later app dispatcher. Select from the fully checked archive, not from
+    # an inherited profile variable. Empty staging is not a product prefetch.
+    weather_agent_profile=$(weather_client_runtime_profile) || return 1
+    WEATHER_AGENT_PROFILE_VERSION=$(printf '%s\n' "$weather_agent_profile" | \
+        jq -er '.bundle_version | select(type == "number" and (. == 1 or . == 2 or . == 3 or . == 4 or . == 5 or . == 6))') \
+        || return 1
+    [ "$WEATHER_AGENT_PROFILE_VERSION" = 6 ] || return 0
+    [ "$(id -u)" -eq 0 ] && [ "$(systemd-detect-virt)" = kvm ] \
+        && [ "$WORKER_UID" = 985 ] && [ "$AGENT_UID" != "$WORKER_UID" ] || return 1
+    weather_agent_control_gid=$(getent group volparossa-users | cut -d: -f3) || return 1
+    case $weather_agent_control_gid in ''|*[!0-9]*) return 1 ;; esac
+    [ "$weather_agent_control_gid" -gt 0 ] && [ "$weather_agent_control_gid" -le 65535 ] \
+        && [ "$weather_agent_control_gid" != "$AGENT_GID" ] || return 1
+    weather_agent_cache=$WORK/weather-android-cache
+    [ ! -e "$weather_agent_cache" ] && [ ! -L "$weather_agent_cache" ] || return 1
+    install -d -o "$AGENT_UID" -g "$weather_agent_control_gid" -m 0710 "$weather_agent_cache" || return 1
+    WEATHER_ANDROID_CACHE_IDENTITY=$(stat -Lc '%d:%i:%u:%g:%a' "$weather_agent_cache") || return 1
+    [ "$(stat -Lc '%u:%g:%a' "$weather_agent_cache")" = "$AGENT_UID:$weather_agent_control_gid:710" ]
+}
+
 weather_client_delivery_run() {
     PHASE=weather-client-delivery-profile
     if [ -z "${weather_client_bundle:-}" ] || [ -z "${weather_client_manifest_sha256:-}" ]; then
@@ -118,11 +142,11 @@ weather_client_delivery_run() {
     # legacy profile must keep its original driver and evidence contract.
     weather_profile=$(weather_client_runtime_profile) || fail WEATHER_CLIENT_PROFILE_INVALID
     weather_profile_version=$(printf '%s\n' "$weather_profile" | \
-        jq -er '.bundle_version | select(type == "number" and (. == 1 or . == 2 or . == 3 or . == 4 or . == 5))') \
+        jq -er '.bundle_version | select(type == "number" and (. == 1 or . == 2 or . == 3 or . == 4 or . == 5 or . == 6))') \
         || fail WEATHER_CLIENT_PROFILE_INVALID
     case $weather_profile_version in
         1) ;;
-        2|3|4|5)
+        2|3|4|5|6)
             . "$source_directory/tests/integration/weather-products-delivery.sh"
             weather_products_delivery_run
             return ;;

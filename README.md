@@ -51,8 +51,10 @@ access and explicitly chosen system-wide operation remain separate permissions.
   publication, including retrieval while an original publisher is offline.
 - Real weather, precipitation and particulate forecasts delivered through protected peers
   into the Drizz.li and Overmorrow web clients, with initial display and refresh checks.
-  These trials retrieve the first products before opening the UI; app-initiated cold
-  retrieval is the next step. Installed Android lifecycle trials use synthetic products.
+  These web trials retrieve the first products before opening the UI.
+- The installed Overmorrow Android app fetching real forecasts on demand through the core
+  in an emulator, with initial data, tap-refresh and background/resume checks. Expiry with
+  real products, physical phones and iOS remain open.
 - Private fragment storage and provider-loss recovery, including native Signal backup
   export/import, encrypted Image snapshots and OpenCloud file recovery.
 - Actual adapter training and reuse, public tasks on peer workers, and selected
@@ -64,7 +66,8 @@ access and explicitly chosen system-wide operation remain separate permissions.
 tasks on other people's devices, dependable AI reasoning, automatic reciprocal storage
 maintenance, the complete immune system and authorized automatic software updates.
 Current integration work concentrates on shared storage maintenance with Image/Cloud,
-Android-to-core Weather delivery and the prerequisites for confidential peer computation.
+actual coding-agent execution and the prerequisites for confidential peer computation.
+Android expiry and broader device support remain part of the integration work.
 
 These results belong to their recorded revisions and test conditions. The original
 [A01–A15 transport acceptance run](https://github.com/VOLPAROSSA/volparossa/actions/runs/34047766913)

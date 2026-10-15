@@ -358,7 +358,7 @@ processes. The [implementation ledger](../IMPLEMENTATION_STATUS.md#guest-owned-p
 retains the artifact hashes and earlier failed attempts; neither software success
 nor a compiled firmware call proves execution inside an approved confidential guest.
 
-The candidate below connects an authorized caller to this module over the existing
+The integrated quote-only service below connects an authorized caller to this module over the existing
 protected provider stream. An approved guest image and model/runtime assets, full
 report appraisal and protected task-input/output handling remain required. The
 guest module itself installs no daemon, changes no host configuration and starts
@@ -369,17 +369,15 @@ and the [Linux SEV guest interface](https://www.kernel.org/doc/html/latest/virt/
 
 ## Authorized quote exchange candidate
 
-The `feature/protected-compute-quote-exchange` candidate adds an explicit
-quote-only service and CLI. It does not admit a worker or send a private task.
-Original hosted run `38511031734` on `85a01382` passes all 52 appraisal tests,
-16 guest tests and twelve quote tests, plus targeted content Clippy. Independent
-reconstruction and root replay bind those executed results to the original
-artifacts, source and unchanged lockfile. Workspace Quality stops at one CLI
-naming lint; the private-type rename is reviewed but still needs hosted
-acceptance. The eight agent/control/CLI tests have not yet executed, and CodeQL
-remains pending. The earlier failed attempts and passing guest runs retain their
-own revision-specific evidence in the implementation ledger. No suitable
-confidential-computing hardware is currently available.
+The quote-only service and CLI are integrated through
+[PR247](https://github.com/VOLPAROSSA/volparossa/pull/247), merged as `17afa3f0`.
+They do not admit a worker or send a private task. On corrected source `09b0d3cc`,
+targeted run `38512217556` passes all 52 appraisal, 16 guest and twelve quote
+tests; Quality `38512223814` passes the eight agent/control/CLI cases, and
+CodeQL `38512218075` passes. Earlier failures retain their revision-specific
+evidence in the implementation ledger. These are software checks, not proof of
+a working production quote route or confidential hardware. Suitable hardware
+is still unavailable for the required protected-execution trial.
 
 ### Operator authority and cancellation
 
@@ -425,13 +423,13 @@ Reference verification keeps `complete_appraisal`, `worker_admission` and
 `private_input_released` false. The receiving authorized requester necessarily
 processes the report in memory; this exchange is not anonymous quote disclosure.
 
-### Evidence required for integration
+### Software evidence and remaining route proof
 
 Twelve content regressions cover message separation, exact authorization,
 bounded framing, retained-key expiry, delivery failure, cancellation during
 firmware work, late results, policy loss and finite attempts. These twelve tests
-pass in the hosted run above. Eight more tests cover the agent, local control
-messages and CLI policy/output; their workspace execution is still pending.
+pass in the hosted run above. Eight more passing tests cover the agent, local
+control messages and CLI policy/output.
 Synthetic firmware is test-only and cannot be selected by production configuration.
 
 The separate quote software receipt requires the original source and lock binding,
@@ -439,7 +437,9 @@ The separate quote software receipt requires the original source and lock bindin
 twelve quote results. It does not treat these tests as proof of production-route
 execution, confidential hardware, complete appraisal or private-task execution.
 The [implementation ledger](../IMPLEMENTATION_STATUS.md#authorized-quote-exchange-candidate)
-tracks this candidate separately from the integrated guest module.
+tracks software integration separately from the outstanding route and hardware
+proofs. A follow-up signed device-refusal candidate does not turn lack of
+attestation into permission to run a private task.
 
 ## What is still needed before private tasks can run remotely
 

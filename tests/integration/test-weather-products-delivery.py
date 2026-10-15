@@ -67,7 +67,8 @@ def selected():
 
 def acquisition(version=2):
     selection = selected()
-    return dict(schema=4 if version in (4, 5) else 2, success=True, origin_https=True, acquisition_outside_overlay=True,
+    return dict(schema=6 if version == 6 else 4 if version in (4, 5) else 2,
+        success=True, origin_https=True, acquisition_outside_overlay=True,
         upstream_signature_attested=False, synthetic_weather=False, synthetic_air_quality=False,
         independent_product_runs=True, decoder_sha256=A["B"]["decoder_sha"](version), products={
             key: dict(forecast_sha256=selection["products"][key]["publication"]["sha256"],
@@ -234,6 +235,24 @@ class Products(unittest.TestCase):
             bad = acquisition(4); bad["schema"] = schema
             with self.subTest(schema=schema), self.assertRaises(ValueError): A["validate_acquisition"](bad)
 
+    def test_android_acquisition_is_separate_from_old_schema_and_browser_authority(self):
+        good = acquisition(6)
+        A["validate_acquisition"](good, 6)
+        A["validate_acquisition"](good)
+        for version in (1, 2, 3, 4, 5, True, "6"):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                A["validate_acquisition"](good, version)
+        for version in (2, 3, 4, 5):
+            with self.subTest(old=version), self.assertRaises(ValueError):
+                A["validate_acquisition"](acquisition(version), 6)
+        with self.assertRaises(ValueError): A["ui_profile"](6)
+        for version in (2, 3, 4, 5):
+            bad = report(version); bad["schema"] = 6
+            with self.assertRaises(ValueError): A["closed_report"](bad)
+        for flag in ("synthetic_weather", "synthetic_air_quality", "upstream_signature_attested"):
+            bad = copy.deepcopy(good); bad[flag] = True
+            with self.assertRaises(ValueError): A["validate_acquisition"](bad, 6)
+
     def test_v4_full_join_binds_new_decoder_original_ui_proof_and_actual_products(self):
         for mutation in (None, "acquisition-schema", "acquisition-decoder", "cold-schema",
                 "cold-decoder", "browser-schema", "proof-hash", "proof-driver", "proof-core",
@@ -263,6 +282,22 @@ class Products(unittest.TestCase):
                         self.assertFalse(proof["scope"]["browser_triggered_cold_fetch"])
                         bad = copy.deepcopy(proof); bad["schema"] = 2
                         with self.assertRaises(ValueError): A["validate_evidence_export"](bad)
+
+    def test_android_schema_cannot_relabel_historical_cold_evidence(self):
+        for version in (2, 3, 4, 5):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary)
+                joined_fixture(work, version)
+                good = A["read"](A["artifact"](work, "cold-evidence"))
+                A["validate_cold_export"](good)
+                A["validate_export"]("cold-evidence", good)
+                for schema in (6, "6", True):
+                    bad = copy.deepcopy(good); bad["schema"] = schema
+                    with self.assertRaises(ValueError): A["validate_cold_export"](bad)
+                    with self.assertRaises(ValueError): A["validate_export"]("cold-evidence", bad)
+        # Reject the unsupported consumer before reading any synthetic receipts.
+        with self.assertRaises(ValueError):
+            A["cold_summary"](selected(), acquisition(6), {}, SHA, SHA, 6)
 
     def test_v5_full_join_binds_both_original_proofs_without_upgrading_synthetic_scope(self):
         mutations = [(None, (), None),
@@ -307,6 +342,12 @@ class Products(unittest.TestCase):
                             with self.assertRaises(ValueError): A["validate_evidence_export"](bad)
 
     def test_v5_acquisition_keeps_public_decoder_schema_four_and_independent_deadline(self):
+        self.check_acquisition(5)
+
+    def test_v6_acquisition_runs_only_sources_with_its_own_schema_and_shared_deadline(self):
+        self.check_acquisition(6)
+
+    def check_acquisition(self, version):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary); root = base / "weather-publisher"; root.mkdir(mode=0o700)
             source = base / "inputs"; source.mkdir(mode=0o700)
@@ -316,15 +357,15 @@ class Products(unittest.TestCase):
                 calls.append((command, timeout))
                 if command[-1] == "-V": return b"ecCodes Version 2.44.0\n"
                 key = "weather" if command[4].endswith("/forecast.mjs") else "air_quality"
-                self.assertEqual(command[command.index("--decoder-sha256")+1], A["B"]["decoder_sha"](5))
-                return json.dumps(forecast(key, command[command.index("--run")+1], version=5)).encode()
+                self.assertEqual(command[command.index("--decoder-sha256")+1], A["B"]["decoder_sha"](version))
+                return json.dumps(forecast(key, command[command.index("--run")+1], version=version)).encode()
             with patch.dict(A["acquisition"].__globals__, run=execute, boundary=lambda *args: None), \
-                    patch.dict(A["B"], verify_tree=lambda *args: None, manifest=lambda *args: {"version": 5}), \
+                    patch.dict(A["B"], verify_tree=lambda *args: None, manifest=lambda *args: {"version": version}), \
                     patch.object(A["time"], "time", return_value=CLOCK/1000), \
                     patch.object(A["time"], "monotonic", side_effect=[100, 120, 480]):
                 value = A["acquisition"](source, SHA, root, "net:[1]", "net:[2]", 1000)
-            A["validate_acquisition"](value, 5)
-            self.assertEqual(value["schema"], 4)
+            A["validate_acquisition"](value, version)
+            self.assertEqual(value["schema"], 6 if version == 6 else 4)
             self.assertEqual([timeout for _, timeout in calls], [10, 360, 340])
             self.assertNotEqual(value["products"]["weather"]["forecast_sha256"], value["products"]["air_quality"]["forecast_sha256"])
 

@@ -1,6 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
-# Version 2 only: two independently published and cold-fetched public products.
+# Two independently published public products; each admitted client keeps its
+# own cold-fetch and evidence contract. Profile 6 never enters the browser loop.
 # Sourced after the enclosing runner verifies the selected input archive.
 # Reuses the v1 guest/home/CLI utilities; sourcing this file performs no I/O.
 # shellcheck disable=SC2154,SC2034
@@ -107,10 +108,19 @@ weather_products_delivery_run() {
     case ${weather_profile_version:-} in
         2|4) weather_products_driver=integrations/drizzli/smoke_core_browser.py ;;
         3|5) weather_products_driver=integrations/overmorrow/smoke_core_browser.py ;;
+        6)
+            # Sourcing only defines ownership/cleanup. The API starts after both
+            # publications and removal of their original publisher files.
+            . "$source_directory/tests/integration/weather-android-delivery.sh"
+            weather_products_driver= ;;
         *) fail WEATHER_CLIENT_PROFILE_INVALID ;;
     esac
     PHASE=weather-products-delivery-prepare
-    printf '%s\n' 'Weather two-product trial: acquire public ECMWF precipitation/weather and NOAA particulate fields in the disposable guest; publish separately to two existing peers, remove both originals and publisher identity, cold-fetch each product with independent captures, then check both products and refresh in the exact bundled isolated client. No host network or user-data changes.'
+    if [ "$weather_profile_version" = 6 ]; then
+        printf '%s\n' 'Weather Android trial: acquire and publish the two real public products, remove publisher originals, then use a common capture window for Android-triggered cold fetch and two refreshes. No prewarm, no extra fetch on resume, no host network or user-data changes.'
+    else
+        printf '%s\n' 'Weather two-product trial: acquire public ECMWF precipitation/weather and NOAA particulate fields in the disposable guest; publish separately to two existing peers, remove both originals and publisher identity, cold-fetch each product with independent captures, then check both products and refresh in the exact bundled isolated client. No host network or user-data changes.'
+    fi
     [ "$WORKER_UID" = 985 ] && [ "$site_control_gid" != "$AGENT_GID" ] \
         || fail WEATHER_PRODUCTS_USER_INVALID
     weather_client_directory=$WORK/client-fixtures/weather-client-source
@@ -133,6 +143,13 @@ weather_products_delivery_run() {
         install -o root -g root -m 0555 "$source_directory/tests/integration/weather-public-overmorrow-v5.json" \
             "$WORK/bin/weather-public-overmorrow-v5.json" || fail WEATHER_PRODUCTS_DRIVER_UNAVAILABLE
     fi
+    if [ "$weather_profile_version" = 6 ]; then
+        for weather_android_script in weather-public-android-v6.json weather-android-delivery.py \
+            weather-android-api.py weather-android-control.py weather-android-evidence.py; do
+            install -o root -g root -m 0555 "$source_directory/tests/integration/$weather_android_script" \
+                "$WORK/bin/$weather_android_script" || fail WEATHER_PRODUCTS_DRIVER_UNAVAILABLE
+        done
+    fi
     install -o root -g root -m 0600 "$weather_client_bundle" "$WORK/weather-client-inputs.tar" \
         || fail WEATHER_PRODUCTS_ARCHIVE_COPY_FAILED
     python3 -B "$WORK/bin/weather-client-bundle.py" unpack "$WORK/weather-client-inputs.tar" \
@@ -144,7 +161,9 @@ weather_products_delivery_run() {
     install -d -o "$WORKER_UID" -g "$site_control_gid" -m 0700 "$weather_publisher" "$weather_viewer" \
         || fail WEATHER_PRODUCTS_PRIVATE_DIRECTORY_FAILED
     weather_client_verify_tree >"$WORK/weather-products-delivery-tree-before.json" || fail WEATHER_PRODUCTS_SOURCE_CHANGED
-    weather_client_home_prepare || fail WEATHER_PRODUCTS_HOME_UNSAFE
+    if [ "$weather_profile_version" != 6 ]; then
+        weather_client_home_prepare || fail WEATHER_PRODUCTS_HOME_UNSAFE
+    fi
     weather_core_sha256=$(sha256sum "$binary_directory/volparossa" | awk '{print $1}')
     weather_products_private init "$weather_publisher" >"$WORK/weather-products-delivery-assets.json" \
         || fail WEATHER_PRODUCTS_INPUT_FAILED
@@ -243,6 +262,13 @@ weather_products_delivery_run() {
     weather_products_private publisher-cleanup "$weather_publisher" \
         >"$WORK/weather-products-delivery-publisher-cleanup.json" || fail WEATHER_PRODUCTS_PUBLISHER_CLEANUP_FAILED
     [ ! -e "$weather_publisher" ] && [ ! -L "$weather_publisher" ] || fail WEATHER_PRODUCTS_PUBLISHER_FILES_REMAIN
+    if [ "$weather_profile_version" = 6 ]; then
+        # The installed Android application's first real GET must create the
+        # client cache and fetch its bytes. No cold CLI, browser preparation or
+        # prefetched forecast may run on this branch.
+        weather_android_delivery_run
+        return
+    fi
     for weather_kind in weather air_quality; do
         weather_products_select "$weather_kind" || fail WEATHER_PRODUCTS_KIND_INVALID
         PHASE=weather-products-delivery-cold-$weather_product_path
