@@ -76,7 +76,7 @@ def diagnostic_failure(profile_version=2):
             deposit_diagnostics_state='observed', deposit_diagnostics=dict(version=1, omitted_failures=0,
                 failures=[dict(fragment_index=2, copy_index=1, operation='reserve', stage='agent_terminal',
                     category='io', agent_code=None)])))
-    if profile_version in (3, 4, 5, 6, 7, 8):
+    if profile_version in (3, 4, 5, 6, 7, 8, 9):
         value['version'] = profile_version + 1
         observed = value['publish_observation']
         observed['version'] = profile_version
@@ -106,10 +106,119 @@ def diagnostic_failure(profile_version=2):
                 agent_outcome=dict(status='observed', detail=dict(phase='remote_receipt_read',
                     category='timeout', deadline_scope='operation'), append_timing=dict(
                         before_payload='90_to_120s', in_payload_write_flush='under_1s', in_receipt_read='5_to_15s')))
+        if profile_version == 9:
+            boundary = dict(stage='helper_acquire', reason='helper_io')
+            observed['deposit_diagnostics']['failures'][0].update(agent_outcome=None,
+                agent_detail=dict(stage='stream_open', deadline_scope='none', tls_failure=None,
+                    stream_failure='flow_acquire', challenge=None,
+                    flow_acquire=dict(rounds=1, first=dict(boundary), last=dict(boundary))))
     return value
 
 
 class ConsumerReceipts(unittest.TestCase):
+    def test_profile9_closed_flow_matrix_all_rounds_and_scope(self):
+        helper = {'helper_kernel', 'helper_capacity', 'helper_unavailable', 'helper_not_found',
+            'helper_cleanup_incomplete', 'helper_other_rejection', 'helper_timeout', 'helper_io',
+            'helper_validation', 'helper_authority', 'helper_correlation', 'helper_runtime_changed'}
+        expected = {'source_port': {'entropy'},
+            'retirement_drain': {'unconfirmed', 'io'} | (helper - {'helper_not_found'}),
+            'material': {'metadata', 'topology'},
+            'slot_reservation': {'unconfirmed', 'local_capacity', 'local_unavailable'},
+            'helper_acquire': helper, 'descriptor_clone': {'io'},
+            'descriptor_adoption': {'metadata', 'io'}, 'flow_metadata': {'metadata'}}
+        self.assertEqual(sum(map(len, expected.values())), 35)
+        reasons = set().union(*expected.values(), {'unobserved', 'PRIVATE'})
+        for stage in (*expected, 'unobserved', 'PRIVATE'):
+            for reason in reasons:
+                for rounds in (1, 2, 8):
+                    value = diagnostic_failure(9)
+                    flow = value['publish_observation']['deposit_diagnostics']['failures'][0]['agent_detail']['flow_acquire']
+                    flow.update(rounds=rounds, first=dict(stage=stage, reason=reason), last=dict(stage=stage, reason=reason))
+                    if reason in expected.get(stage, ()):
+                        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=9), value)
+                    else:
+                        with self.assertRaises(ValueError): M['validate_node_report'](value, 'publish', PROVISION, profile_version=9)
+        value = diagnostic_failure(9)
+        flow = value['publish_observation']['deposit_diagnostics']['failures'][0]['agent_detail']['flow_acquire']
+        flow['last'] = dict(stage='source_port', reason='entropy')
+        with self.assertRaises(ValueError): M['validate_node_report'](value, 'publish', PROVISION, profile_version=9)
+        for rounds in range(2, 9):
+            flow['rounds'] = rounds
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=9)
+
+    def test_profile9_flow_rejects_malformed_scope_and_preserves_append_shape(self):
+        mutations = [lambda f: f['agent_detail'].pop('flow_acquire'),
+            lambda f: f['agent_detail']['flow_acquire'].update(raw='/private/canary'),
+            *(lambda f, x=x: f['agent_detail']['flow_acquire'].update(rounds=x)
+                for x in (0, 9, True, None, 1.0, '1')),
+            *(lambda f, k=k: f['agent_detail']['flow_acquire'].pop(k) for k in ('rounds', 'first', 'last')),
+            *(lambda f, k=k: f['agent_detail']['flow_acquire'].update({k: None}) for k in ('first', 'last')),
+            lambda f: f['agent_detail']['flow_acquire']['first'].update(path='/private/canary'),
+            *(lambda f, k=k, x=x: f['agent_detail']['flow_acquire']['first'].update({k: x})
+                for k in ('stage', 'reason') for x in (None, True, 1, [], {}, 'PRIVATE')),
+            *(lambda f, x=x: f['agent_detail'].update(stage=x) for x in ('tls_handshake', 'challenge', 'route_connect')),
+            *(lambda f, x=x: f['agent_detail'].update(deadline_scope=x) for x in ('operation', 'exchange')),
+            *(lambda f, x=x: f['agent_detail'].update(stream_failure=x) for x in (None, 'policy', 'route_material')),
+            lambda f: f['agent_detail'].update(tls_failure='io'),
+            lambda f: f['agent_detail'].update(challenge=dict(phase='challenge_read_verify', before_challenge='under_1s', in_challenge='under_1s')),
+            *(lambda f, x=x: f.update(agent_code=x) for x in ('CONTENT_INVALID', 'CONTENT_BUSY', 'CONTENT_POLICY', 'unknown')),
+            lambda f: f.update(stage='wire_receipt'), lambda f: f.update(category='io', agent_code=None)]
+        for mutate in mutations:
+            value = diagnostic_failure(9); mutate(value['publish_observation']['deposit_diagnostics']['failures'][0])
+            with self.assertRaises(ValueError): M['validate_node_report'](value, 'publish', PROVISION, profile_version=9)
+        value = diagnostic_failure(9)
+        value['publish_observation']['deposit_diagnostics']['failures'][0]['agent_detail']['flow_acquire'] = None
+        M['validate_node_report'](value, 'publish', PROVISION, profile_version=9)
+        for version in range(1, 8):
+            value['publish_observation']['deposit_diagnostics']['version'] = version
+            with self.assertRaises(ValueError): M['validate_deposit_diagnostics'](value['publish_observation']['deposit_diagnostics'], version)
+        appended = diagnostic_failure(8)['publish_observation']['deposit_diagnostics']
+        appended['version'] = 8
+        M['validate_deposit_diagnostics'](appended, 8)
+        appended['failures'][0]['agent_outcome'].pop('append_timing')
+        with self.assertRaises(ValueError): M['validate_deposit_diagnostics'](appended, 8)
+
+    def test_profile9_failed_child_is_exact_and_never_historical_acceptance(self):
+        value = diagnostic_failure(9)
+        self.assertEqual(value['version'], 10)
+        for old in range(1, 9):
+            with self.assertRaises(ValueError): M['validate_node_report'](value, 'publish', PROVISION, profile_version=old)
+        for phase in ('prepare', 'publish', 'exercise', 'finish'):
+            success = prepared() if phase == 'prepare' else report(phase)
+            M['validate_node_report'](success, phase, PROVISION, prepared(), profile_version=9)
+            self.assertEqual(success['version'], 1)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            calls = []
+            def child(command, _):
+                calls.append(command)
+                return 1, raw, b'PRIVATE-RAW-STDERR'
+            with patch.dict(G, run_child=child, PROFILE_VERSION=9):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(calls[0][-2:], ['--profile-version', '9'])
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertEqual(caught.exception.report['node_report_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+
+    def test_profile9_lifecycle11_requires_matching_observation_and_keeps_cleanup_false(self):
+        value = diagnostic_failure(9)
+        value.update(version=11, publish_cleanup=dict(app='cloud', state='complete'))
+        for state in ('complete', 'failed'):
+            value['publish_cleanup']['state'] = state
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=9)
+        for mutate in (lambda v: v.update(version=10), lambda v: v.update(cleanup_confirmed=True),
+                lambda v: v['publish_observation'].update(version=8), lambda v: v['publish_cleanup'].update(app='image')):
+            invalid = copy.deepcopy(value); mutate(invalid)
+            with self.assertRaises(ValueError): M['validate_node_report'](invalid, 'publish', PROVISION, profile_version=9)
+        for old in range(1, 9):
+            with self.assertRaises(ValueError): M['validate_node_report'](value, 'publish', PROVISION, profile_version=old)
+        value.pop('publish_observation')
+        value.update(stage='cloud_catalog_create', code='catalog_materialization_failed')
+        M['validate_node_report'](value, 'publish', PROVISION, profile_version=9)
+
     def test_profile8_publish_lifecycle_is_closed_and_keeps_historical_versions_strict(self):
         original = dict(version=10, kind='storage-consumer-maintenance', phase='publish', passed=False,
             provision_sha256=PROVISION, stage='cloud_catalog_create', code='catalog_materialization_failed',
@@ -883,7 +992,8 @@ class ConsumerOrchestration(unittest.TestCase):
             'storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json',
             'storage-consumer-maintenance-pins-v3.json', 'storage-consumer-maintenance-pins-v4.json',
             'storage-consumer-maintenance-pins-v5.json', 'storage-consumer-maintenance-pins-v6.json',
-            'storage-consumer-maintenance-pins-v7.json', 'storage-consumer-maintenance-pins-v8.json', 'image-snapshot-provision.py',
+            'storage-consumer-maintenance-pins-v7.json', 'storage-consumer-maintenance-pins-v8.json',
+            'storage-consumer-maintenance-pins-v9.json', 'image-snapshot-provision.py',
             'agent-private-task-code.py', 'agent-private-task-code-pins.json',
             'private-storage-fragments-smoke.py', 'private-storage-replicas-smoke.py',
             'private-storage-peer-smoke.py', 'content-provider-https-smoke.py',
@@ -903,6 +1013,7 @@ class ConsumerOrchestration(unittest.TestCase):
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](6), M['PROVISIONER']['load_pins'](6))
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](7), M['PROVISIONER']['load_pins'](7))
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](8), M['PROVISIONER']['load_pins'](8))
+                self.assertEqual(loaded['PROVISIONER']['load_pins'](9), M['PROVISIONER']['load_pins'](9))
                 self.assertEqual(loaded['FLOW_MINIMUM'], M['FLOW_MINIMUM'])
                 for absent in ('image-snapshot-provision.py', 'agent-private-task-code.py', 'agent-private-task-code-pins.json'):
                     (root / absent).unlink()
@@ -918,13 +1029,13 @@ class ConsumerOrchestration(unittest.TestCase):
         import io
         from contextlib import redirect_stdout
         with redirect_stdout(io.StringIO()):
-            for profile in (2, 3, 4, 5, 6, 7, 8):
+            for profile in (2, 3, 4, 5, 6, 7, 8, 9):
                 M['main'](['flow-minimum', 'publish', '--profile-version', str(profile)])
                 self.assertEqual(G['PROFILE_VERSION'], profile)
             M['main'](['flow-minimum', 'publish'])
             self.assertEqual(G['PROFILE_VERSION'], 1)
         with self.assertRaises(ValueError):
-            M['main'](['flow-minimum', 'publish', '--profile-version', '9'])
+            M['main'](['flow-minimum', 'publish', '--profile-version', '10'])
 
     def test_preparation_creates_only_original_finite_authority_from_exact_cipher_size(self):
         self.assert_preparation(1)
@@ -932,6 +1043,9 @@ class ConsumerOrchestration(unittest.TestCase):
     def test_preparation_enables_append_diagnostics_only_in_explicit_profile_eight(self):
         self.assert_preparation(8)
         self.assert_preparation(7)
+
+    def test_preparation_enables_only_flow_opt_in_for_explicit_profile_nine(self):
+        self.assert_preparation(9)
 
     def assert_preparation(self, profile):
         original, calls, owners = prepared(), [], iter(('4' * 64, '5' * 64))
@@ -972,6 +1086,10 @@ class ConsumerOrchestration(unittest.TestCase):
                     self.assertIs(config.pop('appendDiagnosticsV7'), True)
                 else:
                     self.assertNotIn('appendDiagnosticsV7', config)
+                if profile == 9:
+                    self.assertIs(config.pop('flowAcquireDiagnosticsV8'), True)
+                else:
+                    self.assertNotIn('flowAcquireDiagnosticsV8', config)
                 policy = M['private_json'](root / name / 'maintenance-policy.json')
                 self.assertEqual(config['fragmentBytes'], (size + 3) // 4)
                 self.assertEqual((config['lifetimeSeconds'], config['deadlineMs']), (1800, 1800000))
@@ -1070,7 +1188,7 @@ class ConsumerOrchestration(unittest.TestCase):
         return events
 
     def test_current_phase_joins_activity_after_flow_cleanup_without_replacing_owner_failure(self):
-        for profile in (7, 8):
+        for profile in (7, 8, 9):
             with self.subTest(profile=profile):
                 self.assertEqual(self.phase_activity_failure(profile, 2),
                     ['activity_start', 'flow_start', 'node', 'flow_join', 'activity_join'])
@@ -1078,7 +1196,7 @@ class ConsumerOrchestration(unittest.TestCase):
     def test_activity_remains_absent_outside_explicit_profiles_and_network(self):
         for profile in range(10):
             for network in (1, 2):
-                if profile in (7, 8) and network == 2:
+                if profile in (7, 8, 9) and network == 2:
                     continue
                 with self.subTest(profile=profile, network=network):
                     self.assertEqual(self.phase_activity_failure(profile, network),

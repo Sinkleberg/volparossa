@@ -1509,22 +1509,48 @@ class MaintenanceEvidence(unittest.TestCase):
         original = fixture()
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'report.json'
-            for profile in (1, 3, 4, 5, 6, 7, 8):
+            for profile in (1, 3, 4, 5, 6, 7, 8, 9):
                 consumers = (CONSUMER_FIXTURE['fixture']() if profile == 1 else network['fixture'](profile))
-                combined = dict(report(original), schema_version=7 if profile == 8 else 6 if profile == 7 else 5 if profile == 6 else 4, consumers=consumers)
-                for command in ('report', 'report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6', 'report-consumer-v7', 'report-consumer-v8'):
+                combined = dict(report(original), schema_version=8 if profile == 9 else 7 if profile == 8 else 6 if profile == 7 else 5 if profile == 6 else 4, consumers=consumers)
+                for command in ('report', 'report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6', 'report-consumer-v7', 'report-consumer-v8', 'report-consumer-v9'):
                     with self.subTest(profile=profile, command=command):
                         path.write_text(json.dumps(combined))
                         path.chmod(0o600)
                         result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
                             command, str(path), '1' * 40], capture_output=True, timeout=10)
-                        self.assertEqual(result.returncode == 0, (command == 'report' and profile not in (6, 7, 8))
+                        self.assertEqual(result.returncode == 0, (command == 'report' and profile not in (6, 7, 8, 9))
                             or (command == 'report-consumer-v4' and profile == 4)
                             or (command == 'report-consumer-v5' and profile == 5)
                             or (command == 'report-consumer-v6' and profile == 6)
                             or (command == 'report-consumer-v7' and profile == 7)
-                            or (command == 'report-consumer-v8' and profile == 8),
+                            or (command == 'report-consumer-v8' and profile == 8)
+                            or (command == 'report-consumer-v9' and profile == 9),
                             result.stdout + result.stderr)
+
+    def test_consumer_v9_flow_profile_preserves_network_custody_and_cleanup_gates(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        original = dict(report(fixture()), schema_version=8, consumers=network['fixture'](9))
+        CHECK['validate_report'](original, '1' * 40, flow_profile=True)
+        for options in ({}, dict(append_profile=True), dict(challenge_profile=True),
+                dict(stream_profile=True), dict(flow_profile=True, append_profile=True),
+                dict(flow_profile=True, challenge_profile=True), dict(flow_profile=True, stream_profile=True),
+                dict(flow_profile=True, historical=True), dict(flow_profile=True, previous=True),
+                dict(flow_profile=1), dict(flow_profile='true')):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                CHECK['validate_report'](original, '1' * 40, **options)
+        mutations = (
+            lambda v: v.update(schema_version=7), lambda v: v.update(schema_version=8.0),
+            lambda v: v.update(source_revision='2' * 40), lambda v: v['cleanup'].update(complete=False),
+            lambda v: v['consumers'].update(schema_version=9.0),
+            lambda v: v['consumers']['provision'].update(version=8),
+            lambda v: v['consumers']['provision'].update(pins=CHECK['CONSUMERS']['PROVISIONER']['load_pins'](8)),
+            lambda v: v['consumers']['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+            lambda v: v['consumers']['deleted_usage'][0].update(leases=1),
+        )
+        for mutate in mutations:
+            value = copy.deepcopy(original); mutate(value)
+            with self.assertRaises(ValueError):
+                CHECK['validate_report'](value, '1' * 40, flow_profile=True)
 
     def test_consumer_v8_is_explicit_and_keeps_network_custody_and_cleanup_gates(self):
         network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))

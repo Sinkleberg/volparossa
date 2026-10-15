@@ -71,6 +71,113 @@ const appendDiagnostics = () => ({ version: 7, omitted_failures: 0, failures: [{
     append_timing: { before_payload: '90_to_120s', in_payload_write_flush: 'under_1s', in_receipt_read: '5_to_15s' } },
 }] });
 
+const flowDiagnostics = () => ({ version: 8, omitted_failures: 0, failures: [{
+  ...detailedFailure('stream_open'), agent_outcome: null,
+  agent_detail: { stage: 'stream_open', deadline_scope: 'none', tls_failure: null,
+    stream_failure: 'flow_acquire', challenge: null, flow_acquire: { rounds: 1,
+      first: { stage: 'helper_acquire', reason: 'helper_io' }, last: { stage: 'helper_acquire', reason: 'helper_io' } } },
+}] });
+
+test('profile9 alone selects flow diagnostics and never combines opt-ins', () => {
+  assert.doesNotThrow(() => validateAppendProfile({ flowAcquireDiagnosticsV8: true }, 9));
+  for (const value of [false, null, 1, 'true', {}, []]) {
+    assert.throws(() => validateAppendProfile({ flowAcquireDiagnosticsV8: value }, 9), /configuration/u);
+  }
+  assert.throws(() => validateAppendProfile({}, 9), /configuration/u);
+  assert.throws(() => validateAppendProfile({ flowAcquireDiagnosticsV8: true, appendDiagnosticsV7: true }, 9), /configuration/u);
+  for (let profile = 1; profile <= 8; profile++) {
+    for (const value of [true, false, null]) assert.throws(() => validateAppendProfile({
+      ...(profile === 8 ? { appendDiagnosticsV7: true } : {}), flowAcquireDiagnosticsV8: value }, profile), /configuration/u);
+  }
+});
+
+test('flow diagnostic accepts exactly35 stage/reason pairs with bounded original loop rounds', () => {
+  const helper = ['helper_kernel', 'helper_capacity', 'helper_unavailable', 'helper_not_found',
+    'helper_cleanup_incomplete', 'helper_other_rejection', 'helper_timeout', 'helper_io',
+    'helper_validation', 'helper_authority', 'helper_correlation', 'helper_runtime_changed'];
+  const expected = { source_port: ['entropy'],
+    retirement_drain: ['unconfirmed', 'io', ...helper.filter(r => r !== 'helper_not_found')],
+    material: ['metadata', 'topology'], slot_reservation: ['unconfirmed', 'local_capacity', 'local_unavailable'],
+    helper_acquire: helper, descriptor_clone: ['io'], descriptor_adoption: ['metadata', 'io'], flow_metadata: ['metadata'] };
+  assert.equal(Object.values(expected).flat().length, 35);
+  const reasons = new Set([...Object.values(expected).flat(), 'unobserved', 'PRIVATE']);
+  for (const stage of [...Object.keys(expected), 'unobserved', 'PRIVATE']) for (const reason of reasons) {
+    for (const rounds of [1, 2, 8]) {
+      const d = flowDiagnostics();
+      d.failures[0].agent_detail.flow_acquire = { rounds, first: { stage, reason }, last: { stage, reason } };
+      if (expected[stage]?.includes(reason)) assert.deepEqual(depositDiagnostic(d, 8), d);
+      else assert.throws(() => depositDiagnostic(d, 8), /deposit_diagnostics/u);
+    }
+  }
+  const d = flowDiagnostics(), flow = d.failures[0].agent_detail.flow_acquire;
+  flow.last = { stage: 'source_port', reason: 'entropy' };
+  assert.throws(() => depositDiagnostic(d, 8), /deposit_diagnostics/u);
+  for (let rounds = 2; rounds <= 8; rounds++) {
+    flow.rounds = rounds; assert.deepEqual(depositDiagnostic(d, 8), d);
+  }
+});
+
+test('flow diagnostic rejects missing nullable keys, raw data, scope errors and version relabeling', () => {
+  const mutations = [f => { delete f.agent_detail.flow_acquire; },
+    f => { f.agent_detail.flow_acquire.raw = '/private/canary'; },
+    ...[0, 9, true, null, '1'].map(v => f => { f.agent_detail.flow_acquire.rounds = v; }),
+    ...['rounds', 'first', 'last'].map(k => f => { delete f.agent_detail.flow_acquire[k]; }),
+    ...['first', 'last'].map(k => f => { f.agent_detail.flow_acquire[k] = null; }),
+    ...['stage', 'reason'].flatMap(k => [f => { delete f.agent_detail.flow_acquire.first[k]; },
+      ...[null, true, 1, [], {}, 'PRIVATE'].map(v => f => { f.agent_detail.flow_acquire.first[k] = v; })]),
+    ...['route_connect', 'challenge', 'tls_handshake'].map(v => f => { f.agent_detail.stage = v; }),
+    ...['operation', 'exchange'].map(v => f => { f.agent_detail.deadline_scope = v; }),
+    ...[null, 'policy', 'route_material'].map(v => f => { f.agent_detail.stream_failure = v; }),
+    ...['CONTENT_INVALID', 'CONTENT_POLICY', 'CONTENT_BUSY', 'unknown'].map(v => f => { f.agent_code = v; }),
+    f => { f.agent_detail.tls_failure = 'io'; }, f => { f.agent_detail.challenge = challengeDiagnostics().failures[0].agent_detail.challenge; },
+    f => { f.stage = 'wire_receipt'; }, f => { f.category = 'io'; f.agent_code = null; }];
+  for (const mutate of mutations) {
+    const d = flowDiagnostics(); mutate(d.failures[0]);
+    assert.throws(() => depositDiagnostic(d, 8), /deposit_diagnostics/u);
+  }
+  const nullable = flowDiagnostics(); nullable.failures[0].agent_detail.flow_acquire = null;
+  assert.deepEqual(depositDiagnostic(nullable, 8), nullable);
+  for (let version = 1; version <= 7; version++) {
+    const d = structuredClone(nullable); d.version = version;
+    assert.throws(() => depositDiagnostic(d, version), /deposit_diagnostics/u);
+  }
+  const appended = appendDiagnostics(); appended.version = 8;
+  assert.deepEqual(depositDiagnostic(appended, 8), appended);
+  delete appended.failures[0].agent_outcome.append_timing;
+  assert.throws(() => depositDiagnostic(appended, 8), /deposit_diagnostics/u);
+});
+
+test('profile9 publish preserves closed diagnostic8 with failed node10 and lifecycle11', async () => {
+  for (const app of ['image', 'cloud']) {
+    const diagnostic = flowDiagnostics(), value = { status: 'incomplete', code: 'retained_operation_incomplete',
+      local_process_joined: true, storage: { operation_complete: false, deposit_diagnostics: diagnostic, raw: 'PRIVATE' } };
+    const report = publishFailure(value, app, 'deposit', false, 9);
+    assert.equal(report.version, 10); assert.equal(report.publish_observation.version, 9);
+    assert.deepEqual(report.publish_observation.deposit_diagnostics, diagnostic);
+    assert.equal(report.passed, false); assert.equal(report.cleanup_confirmed, false);
+    assert.doesNotMatch(JSON.stringify(report), /PRIVATE|raw/u);
+    for (let old = 2; old <= 8; old++) assert.equal(publishFailure(value, app, 'deposit', false, old)
+      .publish_observation.deposit_diagnostics_state, 'invalid');
+    const complete = { status: 'complete', local_process_joined: true, storage: { operation_complete: true,
+      deposit_diagnostics: { version: 8, failures: [], omitted_failures: 0 } } };
+    assert.doesNotThrow(() => requirePublishComplete(complete, app, 'deposit', 9));
+    complete.storage.deposit_diagnostics.version = 7;
+    assert.equal(publishFailure(complete, app, 'deposit', false, 9).publish_observation.deposit_diagnostics_state, 'invalid');
+    for (const closeFails of [false, true]) {
+      const ctx = { profileVersion: 9, provision: 'a'.repeat(64), stage: `${app}_publish`, signal: { aborted: false } };
+      let closes = 0, failure;
+      try { await withPublishCore(ctx, app, { async close() { closes++; if (closeFails) throw Error('PRIVATE'); } },
+        async () => requirePublishComplete(value, app, 'deposit', 9)); }
+      catch (error) { failure = consumerFailureReport(ctx, 'publish', error); }
+      assert.equal(closes, 1); assert.equal(failure.version, 11);
+      assert.deepEqual(failure.publish_cleanup, { app, state: closeFails ? 'failed' : 'complete' });
+      assert.deepEqual(failure.publish_observation.deposit_diagnostics, diagnostic);
+      assert.equal(failure.cleanup_confirmed, false);
+      assert.doesNotMatch(JSON.stringify(failure), /PRIVATE|raw/u);
+    }
+  }
+});
+
 test('only explicit profile8 configuration requests timing while old fixture configs remain absent', () => {
   for (const profile of [1, 2, 3, 4, 5, 6, 7]) {
     assert.doesNotThrow(() => validateAppendProfile({}, profile));
@@ -558,8 +665,8 @@ const publishContext = (profileVersion = 8) => ({ profileVersion, provision: 'a'
 class CatalogFixtureError extends Error {
   constructor(code) { super('PRIVATE-EXCEPTION-CANARY'); this.code = code; }
 }
-async function lifecycleFailure(ctx, operation, close = async () => {}) {
-  try { await withPublishCore(ctx, 'cloud', { close }, operation); assert.fail('expected failure'); }
+async function lifecycleFailure(ctx, operation, close = async () => {}, app = 'cloud') {
+  try { await withPublishCore(ctx, app, { close }, operation); assert.fail('expected failure'); }
   catch (error) { return { error, report: consumerFailureReport(ctx, 'publish', error) }; }
 }
 
@@ -673,34 +780,41 @@ test('profiles1 through7 preserve original finally precedence and legacy failure
 });
 
 test('real publish driver distinguishes missing policy read and still closes once', async () => {
+  for (const profileVersion of [8, 9]) {
   const root = await mkdtemp(join(tmpdir(), 'vp-publish-'));
   try {
     await mkdir(join(root, 'image'), { mode: 0o700 });
     await mkdir(join(root, 'image/bundle'), { mode: 0o700 });
     const c = { version: 1, stateDirectory: join(root, 'image/archive'), deadlineMs: 100,
-      providers: keys.map(key => ({ key })), fragmentBytes: 25, appendDiagnosticsV7: true };
+      providers: keys.map(key => ({ key })), fragmentBytes: 25,
+      ...(profileVersion === 9 ? { flowAcquireDiagnosticsV8: true } : { appendDiagnosticsV7: true }) };
     await writeFile(join(root, 'image/storage.json'), JSON.stringify(c), { mode: 0o600 });
     await writeFile(join(root, 'image/bundle/receipt.json'), JSON.stringify({ cipher_bytes: 100,
       cipher_sha256: 'a'.repeat(64), cipher_file: 'snapshot.pgp' }), { mode: 0o600 });
-    const ctx = { ...publishContext(), root }, calls = [];
-    const modules = { CoreStorage: { open: async () => ({ close: async () => { calls.push('close'); } }) },
+    const ctx = { ...publishContext(profileVersion), root }, calls = [];
+    const modules = { CoreStorage: { open: async configPath => {
+      assert.equal(configPath, join(root, 'image/storage.json'));
+      assert.deepEqual(JSON.parse(await readFile(configPath, 'utf8')), c);
+      return { close: async () => { calls.push('close'); } };
+    } },
       runSnapshotStorage: async ({ operation }) => {
         calls.push(operation);
         const value = storage();
         Object.assign(value.storage, { uncertain_payload_bytes: 0, physical_payload_charge_upper_bound: 200,
-          deposit_diagnostics: { version: 7, failures: [], omitted_failures: 0 } });
+          deposit_diagnostics: { version: profileVersion - 1, failures: [], omitted_failures: 0 } });
         return value;
       } };
     let failed;
     try { await publish(ctx, modules); } catch (error) { failed = error; }
     assert.ok(failed);
     const report = consumerFailureReport(ctx, 'publish', failed);
-    assert.equal(report.version, 10); assert.equal(report.stage, 'image_policy_read');
+    assert.equal(report.version, profileVersion + 2); assert.equal(report.stage, 'image_policy_read');
     assert.equal(report.code, 'application_failed');
     assert.deepEqual(report.publish_cleanup, { app: 'image', state: 'complete' });
     assert.deepEqual(calls, ['create', 'deposit', 'close']);
     assert.doesNotMatch(JSON.stringify(report), /ENOENT|vp-publish|maintenance-policy/u);
   } finally { await rm(root, { recursive: true, force: true }); }
+  }
 });
 
 test('actual JS v10 failures pass the unchanged Python orchestration entry boundary', async () => {
@@ -721,6 +835,33 @@ test('actual JS v10 failures pass the unchanged Python orchestration entry bound
     'm = runpy.run_path(sys.argv[1])\n' +
     'for v in json.load(sys.stdin):\n' +
     '    assert m["validate_node_report"](v, "publish", "a" * 64, profile_version=8) == v\n';
+  const child = spawnSync('/usr/bin/python3', ['-I', '-B', '-c', source,
+    fileURLToPath(new URL('./storage-consumer-maintenance-smoke.py', import.meta.url))], {
+    input: JSON.stringify(records), encoding: 'utf8', timeout: 10000, maxBuffer: 16384,
+  });
+  assert.equal(child.status, 0, child.stderr); assert.equal(child.stdout, '');
+});
+
+test('actual profile9 JS node10 and lifecycle11 pass Python only with exact profile9 binding', async () => {
+  const records = [];
+  for (const app of ['image', 'cloud']) {
+    const value = { status: 'incomplete', code: 'retained_operation_incomplete', local_process_joined: true,
+      storage: { operation_complete: false, deposit_diagnostics: flowDiagnostics() } };
+    records.push(publishFailure(value, app, 'deposit', false, 9));
+    for (const closeFailed of [false, true]) {
+      const ctx = { ...publishContext(9), stage: `${app}_publish` };
+      records.push((await lifecycleFailure(ctx, () => requirePublishComplete(value, app, 'deposit', 9),
+        async () => { if (closeFailed) throw new Error('PRIVATE'); }, app)).report);
+    }
+  }
+  const source = 'import json, runpy, sys\n' +
+    'm = runpy.run_path(sys.argv[1])\n' +
+    'for v in json.load(sys.stdin):\n' +
+    '    assert m["validate_node_report"](v, "publish", "a" * 64, profile_version=9) == v\n' +
+    '    for old in range(1, 9):\n' +
+    '        try: m["validate_node_report"](v, "publish", "a" * 64, profile_version=old)\n' +
+    '        except ValueError: pass\n' +
+    '        else: raise AssertionError("historical profile accepted new failure")\n';
   const child = spawnSync('/usr/bin/python3', ['-I', '-B', '-c', source,
     fileURLToPath(new URL('./storage-consumer-maintenance-smoke.py', import.meta.url))], {
     input: JSON.stringify(records), encoding: 'utf8', timeout: 10000, maxBuffer: 16384,
