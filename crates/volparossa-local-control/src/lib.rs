@@ -323,11 +323,12 @@ pub mod control_response {
 
     use super::{
         BrowserGatewayGranted, ComputeDiscovered, ComputeReady, ComputeTranscript,
-        ContentCustodyDiscovered, ContentCustodyReady, ContentPolicyReceipt, ContentProviderActivity,
-        ContentReceipt, ContentTransferReady, Empty, HttpsContentTransferReady, LogList, MailboxReady,
-        NamedContentTransferReady, PathList, PeerList, PolicySnapshot, PrivateStorageAdmission,
-        PrivateStorageGrant, PrivateStorageMaintenanceReady, PrivateStorageOutcome,
-        PrivateStorageReady, QuoteReady, RoleSnapshot, SessionList, StatusSnapshot,
+        ContentCustodyDiscovered, ContentCustodyReady, ContentPolicyReceipt,
+        ContentProviderActivity, ContentReceipt, ContentTransferReady, Empty,
+        HttpsContentTransferReady, LogList, MailboxReady, NamedContentTransferReady, PathList,
+        PeerList, PolicySnapshot, PrivateStorageAdmission, PrivateStorageGrant,
+        PrivateStorageMaintenanceReady, PrivateStorageOutcome, PrivateStorageReady, QuoteReady,
+        RoleSnapshot, SessionList, StatusSnapshot,
     };
 
     /// Exactly one response body.

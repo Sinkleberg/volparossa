@@ -15,7 +15,8 @@ pub(super) async fn run(socket: &Path) -> Result<()> {
 }
 
 async fn query(socket: &Path) -> Result<Value> {
-    let response = crate::control::request(socket, Operation::ContentProviderActivity(Empty {})).await?;
+    let response =
+        crate::control::request(socket, Operation::ContentProviderActivity(Empty {})).await?;
     let Some(Payload::ContentProviderActivity(snapshot)) = response.payload else {
         bail!("agent returned no provider activity snapshot");
     };
@@ -143,8 +144,12 @@ mod tests {
                         protocol_version: CONTROL_PROTOCOL_VERSION,
                         request_id: request.request_id,
                         result: ControlResult::Ok as i32,
-                        diagnostic_code: if expected { "CONTENT_PROVIDER_ACTIVITY" } else { "OK" }
-                            .into(),
+                        diagnostic_code: if expected {
+                            "CONTENT_PROVIDER_ACTIVITY"
+                        } else {
+                            "OK"
+                        }
+                        .into(),
                         private_storage_remote_detail: None,
                         payload: Some(if expected {
                             Payload::ContentProviderActivity(ContentProviderActivity::unavailable())

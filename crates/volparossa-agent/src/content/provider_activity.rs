@@ -46,9 +46,10 @@ impl Activity {
     /// Allocate before spawning the session, so even an unpolled future owns its guard.
     pub(super) fn begin(self: &Arc<Self>) -> Session {
         self.writers.fetch_add(1, SeqCst);
-        let index = self.slots.iter().position(|slot| {
-            slot.revision.compare_exchange(0, 1, SeqCst, SeqCst).is_ok()
-        });
+        let index = self
+            .slots
+            .iter()
+            .position(|slot| slot.revision.compare_exchange(0, 1, SeqCst, SeqCst).is_ok());
         if let Some(index) = index {
             self.write(index, Stage::TlsHandshake);
         } else {
@@ -346,7 +347,9 @@ mod tests {
         activity.writers.fetch_add(1, SeqCst);
         assert_eq!(activity.snapshot(), ContentProviderActivity::unavailable());
         activity.writers.fetch_sub(1, SeqCst);
-        activity.slots[session.index.unwrap()].stage.store(99, SeqCst);
+        activity.slots[session.index.unwrap()]
+            .stage
+            .store(99, SeqCst);
         assert_eq!(activity.snapshot(), ContentProviderActivity::unavailable());
         session.enter(Stage::SelectorRead);
         activity.revision.store(u64::MAX, SeqCst);

@@ -212,7 +212,10 @@ async fn provider_activity_failed_flush_preserves_wire_failure_and_never_enters_
     assert!(matches!(task.await.unwrap(), Err(WireError::Io(_))));
     assert_eq!(
         *trace.history.lock().unwrap(),
-        vec![Stage::StorageGrantReadVerify, Stage::StorageChallengeWriteFlush]
+        vec![
+            Stage::StorageGrantReadVerify,
+            Stage::StorageChallengeWriteFlush
+        ]
     );
     assert_eq!(fixture.usage(), before);
 }
