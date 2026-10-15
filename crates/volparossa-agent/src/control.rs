@@ -507,6 +507,12 @@ async fn handle_request(request: ControlRequest, context: &ControlContext) -> Co
         control_request::Operation::ContentStatus(_) => {
             content_response(request_id, context.content.status(context).await)
         }
+        control_request::Operation::ContentProviderActivity(_) => response(
+            request_id,
+            ControlResult::Ok,
+            "CONTENT_PROVIDER_ACTIVITY",
+            control_response::Payload::ContentProviderActivity(context.content.provider_activity()),
+        ),
         control_request::Operation::Status(_) => {
             let status = context.state.read().await.status();
             response(

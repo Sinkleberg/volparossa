@@ -100,7 +100,10 @@ private_storage_replicas_serve relay4 "$3"
         self.assertIn('consumer_private_cleanup_complete:-no', cleanup)
         self.assertIn('private_storage_consumer_private cleanup "$consumer_user"', cleanup)
         self.assertIn('rmdir "$WORK/u" || return 1', cleanup)
-        self.assertNotIn('rm -', TEXT)
+        cleanup = TEXT.split('private_storage_consumer_cleanup() {', 1)[1].split('\n}', 1)[0]
+        self.assertNotIn('rm -', cleanup)
+        self.assertEqual([line.strip() for line in TEXT.splitlines() if 'rm -' in line],
+            ['rm -f -- "$WORK/provider-activity.part" || true'])
         self.assertNotIn('consumer-binding.json', TEXT)
         self.assertNotIn('remote_cleanup_confirmed:true', TEXT)
 

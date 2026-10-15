@@ -23,9 +23,21 @@ private_storage_consumer_phase() {
     case $consumer_minimum in ''|*[!0-9]*) fail CONSUMER_FLOW_MINIMUM_INVALID ;; esac
     PHASE=storage-consumer-$consumer_phase
     storage_consumer_phase_start || fail CONSUMER_NETWORK_START_FAILED
+    consumer_status=0
     private_storage_consumer_private "$consumer_phase" "$consumer_user" \
         "$WORK/runtime-exit/control/agent.sock" "$storage_user" \
-        >"$WORK/storage-consumer-$consumer_phase.json" || fail CONSUMER_APPLICATION_FAILED
+        >"$WORK/storage-consumer-$consumer_phase.json" || consumer_status=$?
+    # The independent observer is already stopped/joined before this command
+    # returns. Project only its closed, phase-bound private record, also on an
+    # application failure. Missing/rejected diagnostics never replace that result.
+    if (umask 077; python3 -B "$WORK/bin/storage-provider-activity-sampler.py" \
+        "$consumer_user/private-storage-provider-activity-$consumer_phase.json" \
+        "$consumer_phase" "$WORKER_UID" >"$WORK/provider-activity.part") 2>/dev/null; then
+        mv -- "$WORK/provider-activity.part" "$WORK/private-storage-provider-activity.json" || true
+    else
+        rm -f -- "$WORK/provider-activity.part" || true
+    fi
+    [ "$consumer_status" -eq 0 ] || fail CONSUMER_APPLICATION_FAILED
     # These are independent actual route, packet/control and completion checks,
     # not an inference from the application's successful process exit.
     storage_consumer_phase_finish "$consumer_minimum" || fail CONSUMER_NETWORK_FINISH_FAILED

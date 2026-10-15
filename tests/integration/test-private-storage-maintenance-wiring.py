@@ -113,7 +113,7 @@ class Wiring(unittest.TestCase):
         start = guest.index('if [ "$private_storage_maintenance" = yes ]; then\n    for maintenance_fixture')
         block = guest[start:guest.index('\nfi', start) + 3]
         names = ('private-storage-maintenance-smoke.sh', 'private-storage-maintenance-smoke.py',
-            'private-storage-log-sampler.py', 'content-provider-readiness.py',
+            'private-storage-log-sampler.py', 'content-provider-readiness.py', 'storage-provider-activity-sampler.py',
             'storage-consumer-maintenance-smoke.sh', 'storage-consumer-maintenance-smoke.py',
             'storage-consumer-maintenance.mjs', 'storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json',
             'storage-consumer-maintenance-pins-v3.json', 'storage-consumer-maintenance-pins-v4.json',

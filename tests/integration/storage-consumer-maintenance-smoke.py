@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """New Image/Cloud maintenance profile, solely in the disposable protected VM."""
 import base64
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -19,6 +20,7 @@ import time
 HERE = Path(__file__).resolve().parent
 BASE = runpy.run_path(str(HERE / 'private-storage-fragments-smoke.py'))
 SAMPLER = runpy.run_path(str(HERE / 'private-storage-log-sampler.py'))
+ACTIVITY = runpy.run_path(str(HERE / 'storage-provider-activity-sampler.py'))
 PROVISIONER = runpy.run_path(str(HERE / 'storage-consumer-maintenance-provision.py'))
 NODE = Path('/opt/volparossa-node/bin/node')
 PROVISION = Path('/opt/volparossa-storage-consumers/provision.json')
@@ -570,8 +572,11 @@ def phase(root, selected, exit_socket, flow_root, provision, deadline):
     require(0 < baseline <= int(time.time() * 1000), 'flow_baseline')
     minimum, diagnostic = FLOW_MINIMUM[selected], {}
     sampler_failure = sampler['SamplerFailure'] if NETWORK_VERSION == 1 else sampler['OLD']['SamplerFailure']
+    activity = ACTIVITY['capture'](binary, root.parents[1], root, selected) if (
+        PROFILE_VERSION == 7 and NETWORK_VERSION == 2) else nullcontext()
     try:
-        with sampler['capture'](binary, Path(exit_socket), baseline, minimum, client=client,
+        with activity, sampler['capture'](
+                binary, Path(exit_socket), baseline, minimum, client=client,
                 **{('scope' if NETWORK_VERSION == 1 else 'policy'): scope}, diagnostic=diagnostic) as coverage:
             value, report_hash = node_phase(root, selected, provision, deadline)
     except sampler_failure:
@@ -622,7 +627,8 @@ def cleanup_tree(root):
     """
     files, directories, total = [], [], 0
     original = private_directory(root)
-    top_files = {'consumer-binding.json', *(f'storage-consumer-{p}.json' for p in PHASES)}
+    top_files = {'consumer-binding.json', *(f'storage-consumer-{p}.json' for p in PHASES),
+        *(ACTIVITY['private_name'](phase) for phase in ACTIVITY['PHASES'])}
 
     def visit(path, depth):
         nonlocal total

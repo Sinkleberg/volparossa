@@ -1098,6 +1098,7 @@ MAINTENANCE_NAMES = (FRAGMENTS_NAMES - {"private-storage-fragments-smoke.json", 
     "private-storage-maintenance-lifecycle-failure.json",
     "private-storage-maintenance-route-diagnostic.json",
     "private-storage-maintenance-provider-events.json",
+    "private-storage-provider-activity.json",
     "private-storage-maintenance-inventory.json",
     "private-storage-maintenance-supervisor.json",
     "private-storage-maintenance-control-transition.json",
@@ -1136,7 +1137,8 @@ MAINTENANCE_PRIORITY_NAMES = {
     name for name in MAINTENANCE_NAMES if name not in CONSUMER_CONTROL_NAMES and (
     name.startswith("storage-consumer-") or name.startswith("private-storage-maintenance-")
     or name.endswith("_usage.json") or name.endswith("private_cleanup.json"))
-} | {"host-state-before.json", "host-state-after.json", "guest-exit-status", "current-phase"}
+} | {"host-state-before.json", "host-state-after.json", "guest-exit-status", "current-phase",
+     "private-storage-provider-activity.json"}
 
 SIGNAL_FRAGMENT_NAMES = {"a01-expected-peers.json", "signal-backup-provision.json",
     "signal-backup-private_cleanup.json", "host-state-before.json", "host-state-after.json",

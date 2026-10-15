@@ -738,7 +738,7 @@ class ConsumerOrchestration(unittest.TestCase):
             'agent-private-task-code.py', 'agent-private-task-code-pins.json',
             'private-storage-fragments-smoke.py', 'private-storage-replicas-smoke.py',
             'private-storage-peer-smoke.py', 'content-provider-https-smoke.py',
-            'content-network-smoke.py', 'private-storage-log-sampler.py')
+            'content-network-smoke.py', 'private-storage-log-sampler.py', 'storage-provider-activity-sampler.py')
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             for name in names:
@@ -864,6 +864,42 @@ class ConsumerOrchestration(unittest.TestCase):
                 'flow-minimum', phase], capture_output=True, timeout=5, check=True)
             self.assertEqual(run.stdout, f'{minimum}\n'.encode())
             self.assertEqual(run.stderr, b'')
+
+    def test_current_phase_joins_activity_after_flow_cleanup_without_replacing_owner_failure(self):
+        events = []
+        root = Path('/opt/va.' + 'a' * 32 + '.abcdef/u/m')
+        work = root.parents[1]
+        @contextmanager
+        def activity(binary, selected_work, selected_root, phase):
+            self.assertEqual((selected_work, selected_root, phase), (work, root, 'publish'))
+            events.append('activity_start')
+            try: yield
+            finally: events.append('activity_join')
+        @contextmanager
+        def flow(*args, **kwargs):
+            self.assertEqual(args[3], 56)
+            events.append('flow_start')
+            try: yield None
+            finally: events.append('flow_join')
+        def node(*_):
+            events.append('node')
+            raise ValueError('original_node_failure')
+        real_runpy = runpy.run_path
+        def load(path):
+            module = real_runpy(path)
+            if str(path).endswith('storage-consumer-route-sampler.py'):
+                module.update(capture=flow, validate_policy=lambda *_: None)
+            return module
+        with patch.dict(os.environ, STORAGE_PROOF_BASELINE_MS='1', STORAGE_PROOF_ROUTE_POLICY='{}',
+                STORAGE_PROOF_UNDERLAY_SHA256='a' * 64), patch.object(G['runpy'], 'run_path', load), \
+                patch.dict(G, PROFILE_VERSION=7, NETWORK_VERSION=2, ACTIVITY=dict(M['ACTIVITY'], capture=activity),
+                    private_json=lambda *_: dict(coreBinary='/fixed/core', controlSocket='/fixed/client'),
+                    validate_locations=lambda *_: (Path('/fixed/core'), Path('/fixed/client')),
+                    private_directory=lambda *_: None, node_phase=node):
+            with self.assertRaisesRegex(ValueError, 'original_node_failure'):
+                M['phase'](root, 'publish', work / 'runtime-exit/control/agent.sock',
+                    work / 'client-fixtures/private-storage-user', PROVISION, time.monotonic() + 1)
+        self.assertEqual(events, ['activity_start', 'flow_start', 'node', 'flow_join', 'activity_join'])
 
     def test_network_two_actual_sampler_and_original_node_failure_keep_separate_boundaries(self):
         # Real new sampler; only its core RPC replies and the Node phase are

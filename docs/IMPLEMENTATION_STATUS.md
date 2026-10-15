@@ -92,6 +92,38 @@ The original artifact contains 76 files. ZIP SHA-256:
 log ZIP SHA-256:
 `2f646356c8fd0a3468cd5f220f7857a7152239456fd92a0caefc5d6048c391e1`.
 
+### Receiving provider activity candidate
+
+The next diagnostic observes the receiving side while the exchange is still
+active. Four fixed process-local slots report only aggregate protocol phases,
+coarse time spent in the current phase and counts. Session cancellation releases
+its slot even before the task's first poll. The independent snapshot does not
+wait for publication, disk or service locks; an inconsistent observation is
+explicitly unavailable. Request-read is reported only after the existing signed
+challenge write and flush have returned, not as proof of client receipt.
+
+`content provider-activity` uses the existing protected local operator socket.
+Its additive control tags and version-1 payload do not change storage frames,
+authorization, retries or the four-session and existing timeout limits. No peer,
+request, archive or account identity appears in its JSON.
+
+The current consumer trial samples only its three provider operator sockets,
+at most one round per five seconds and for at most 512 rounds. Each CLI query is
+bounded and joined. An optional, at-most-8-KiB sidecar retains the latest snapshot
+and longest observed wait per provider role before cleanup removes active
+connections. A failed observation never replaces the application's result or
+counts as custody, cleanup or causal evidence. Historical consumer profiles and
+acceptance receipts retain their existing contracts.
+
+Independent Rust and Python/shell source review is complete. The 190 targeted
+inert Python checks pass, including cancellation, finite/private output,
+historical orchestration, helper staging and projection before an application
+failure. Review corrections make uncertain query cleanup explicitly unconfirmed
+and prioritize this small sidecar within the unchanged emergency-export budget.
+Eighteen new Rust tests cover the slot lifecycle, signed challenge flush, closed
+wire domains and real Unix control/CLI binding; their hosted compilation and
+execution remain pending. No new actual storage trial has been started.
+
 ### Storage challenge progress and earlier hosted evidence
 
 PR232 now adds request-local progress within the provider challenge exchange:

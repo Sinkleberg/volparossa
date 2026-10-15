@@ -41,6 +41,7 @@ EXPORT_NAMES = tuple(name for name in F['EXPORT_NAMES'] if name not in
     'private-storage-maintenance-lifecycle-failure.json',
     'private-storage-maintenance-route-diagnostic.json',
     'private-storage-maintenance-provider-events.json',
+    'private-storage-provider-activity.json',
     'private-storage-maintenance-inventory.json',
     'private-storage-maintenance-supervisor.json',
     'private-storage-fragments-lifecycle-live-selection.json',
@@ -2104,6 +2105,13 @@ def main(args):
             provider_events_file(Path(args[1]) / PROVIDER_EVENTS_NAME)
         except BaseException:
             names.remove(PROVIDER_EVENTS_NAME)
+        try:
+            activity = runpy.run_path(str(HERE / 'storage-provider-activity-sampler.py'))
+            path = Path(args[1]) / activity['NAME']
+            value = activity['decode'](closed_diagnostic_text(path, activity['MAX_BYTES']).encode(), activity['MAX_BYTES'])
+            activity['validate'](value)
+        except Exception:
+            names.remove('private-storage-provider-activity.json')
         print('\n'.join(names)); return
     if len(args) == 2 and args[0] == 'preselection-diagnostic':
         work = Path(args[1])
