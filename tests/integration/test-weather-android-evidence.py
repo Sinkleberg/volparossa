@@ -8,7 +8,9 @@ import os
 from pathlib import Path
 import runpy
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
 
 E = runpy.run_path(str(Path(__file__).with_name("weather-android-evidence.py")))
 WORK = Path("/opt/va." + "a" * 32 + ".ABC123")
@@ -257,6 +259,88 @@ class PrivateProofTests(unittest.TestCase):
         (self.path / "weather-3.receipt.json").write_bytes(raw)
         (self.path / "weather-3.observation.json").write_bytes(encoded(observation(raw, "weather", 3)))
         with self.assertRaises(ValueError): self.verify()
+
+
+class GuestInputBytesTests(unittest.TestCase):
+    """Enter the real guest join with owned inert files, never a live guest.
+
+    Reuse the preparation fixture's explicit identity/source-pin seams. File
+    modes, inode stability, bounded reads, hashes, canonical configuration and
+    lifecycle validation remain real. No fixture executable or namespace runs.
+    """
+    def setUp(self):
+        here = Path(__file__).resolve().parent
+        fixture_module = runpy.run_path(str(here / "test-weather-android-delivery.py"))
+        self.fixture = fixture_module["AndroidPreparation"](
+            "test_only_configuration_and_private_empty_directories_are_created")
+        self.fixture.setUp(); self.addCleanup(self.fixture.doCleanups)
+        self.prepared = self.fixture.run_prepare()
+        self.work, self.layout = self.fixture.work, self.fixture.layout
+        self.encode = fixture_module["B"]["encode"]
+        self.fixture.save(self.work / "weather-products-delivery-manifest.json",
+            (self.layout["source"] / "INPUTS.json").read_bytes(), 0o400)
+        self.fixture.save(self.work / "weather-products-delivery-input.json", self.fixture.selection_raw)
+        self.save_prepared()
+        # The first invalid lifecycle schema is intentional: reaching its real
+        # validator proves both preceding raw-byte comparisons succeeded, not
+        # that any API, delivery or cleanup has been accepted.
+        self.lifecycle = dict(schema=True, profile=E["PROFILE"])
+        self.fixture.save(self.work / "weather-android-delivery-api.jsonl",
+            encoded(self.lifecycle) + b"\n{}\n")
+        api = runpy.run_path(str(here / "weather-android-api.py"))
+        self.validate_record = Mock(wraps=api["validate_record"])
+        prepared_module = dict(fixture_module["A"])
+        prepared_module.update(fixture_module["G"])
+        api.update(D=prepared_module, P=prepared_module["P"], B=prepared_module["B"],
+            validate_record=self.validate_record)
+        original_reader = E["private_bytes"]
+        def fixture_reader(path, limit, uid, mode=0o600):
+            self.assertIn(uid, (0, 985))
+            return original_reader(path, limit, os.getuid(), mode)
+        def load_api(path):
+            self.assertEqual(Path(path).resolve(), here / "weather-android-api.py")
+            return api
+        seams = patch.dict(E["guest"].__globals__, private_bytes=fixture_reader,
+            runpy=SimpleNamespace(run_path=load_api),
+            os=SimpleNamespace(**(vars(os) | {"geteuid": lambda: 0})))
+        seams.start(); self.addCleanup(seams.stop)
+
+    def save_prepared(self):
+        self.prepared_raw = self.encode(self.prepared)
+        self.prepared_sha = E["digest"](self.prepared_raw)
+        self.fixture.save(self.work / "weather-android-delivery-prepared.json", self.prepared_raw)
+        self.fixture.save(self.layout["viewer"] / "prepared.json", self.prepared_raw, 0o400)
+
+    def invoke(self):
+        return E["guest"](self.work, self.fixture.digest, self.prepared["core_sha256"], self.prepared_sha)
+
+    def test_identical_prepared_and_config_bytes_reach_real_lifecycle_validation(self):
+        with self.assertRaises(ValueError): self.invoke()
+        self.validate_record.assert_called_once_with(self.lifecycle)
+
+    def test_prepared_bytes_must_match_even_for_equivalent_json(self):
+        self.fixture.save(self.layout["viewer"] / "prepared.json", self.prepared_raw + b"\n", 0o400)
+        with self.assertRaises(ValueError): self.invoke()
+        self.validate_record.assert_not_called()
+
+    def test_config_bytes_must_match_canonical_encoding_even_with_matching_hash(self):
+        raw = self.layout["config"].read_bytes() + b"\n"
+        self.fixture.save(self.layout["config"], raw)
+        self.prepared["config_sha256"] = E["digest"](raw)
+        self.save_prepared()
+        with self.assertRaises(ValueError): self.invoke()
+        self.validate_record.assert_not_called()
+
+    def test_config_hash_is_still_checked_before_canonical_bytes(self):
+        self.fixture.save(self.layout["config"], self.layout["config"].read_bytes() + b"\n")
+        with self.assertRaises(ValueError): self.invoke()
+        self.validate_record.assert_not_called()
+
+    def test_strict_json_equality_still_rejects_boolean_integer_substitution(self):
+        E["same"]({"schema": 1}, {"schema": 1})
+        for actual, expected in ((True, 1), (1, True), ({"schema": True}, {"schema": 1}),
+                ({"counts": [False]}, {"counts": [0]})):
+            with self.subTest(actual=actual), self.assertRaises(ValueError): E["same"](actual, expected)
 
 
 class GuestExportTests(unittest.TestCase):

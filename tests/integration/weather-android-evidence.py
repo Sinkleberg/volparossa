@@ -309,7 +309,7 @@ def guest(work, manifest_sha, core_sha, prepared_sha):
     same(B["fingerprint"](layout["binary"], 256 * 1024**2, normalized=0o555)["sha256"], core_sha)
     prepared_raw = private_bytes(work / f"{PREFIX}-prepared.json", 8192, 0)
     same(digest(prepared_raw), prepared_sha)
-    same(private_bytes(layout["viewer"] / "prepared.json", 8192, 985, 0o400), prepared_raw)
+    require(private_bytes(layout["viewer"] / "prepared.json", 8192, 985, 0o400) == prepared_raw)
     prepared = decode(prepared_raw, 8192); D["validate_prepared"](prepared)
     same(prepared["manifest_sha256"], manifest_sha); same(prepared["core_sha256"], core_sha)
     selected_raw = private_bytes(layout["viewer"] / "selection.json", 16384, 985, 0o400)
@@ -318,7 +318,7 @@ def guest(work, manifest_sha, core_sha, prepared_sha):
     same(root_document("weather-products-delivery-input.json"), selected)
     config_raw = private_bytes(layout["config"], 16384, 985)
     same(digest(config_raw), prepared["config_sha256"])
-    same(config_raw, B["encode"](D["configuration"](layout, selected)))
+    require(config_raw == B["encode"](D["configuration"](layout, selected)))
     lifecycle_raw = private_bytes(work / f"{PREFIX}-api.jsonl", 16384, 0)
     lines = lifecycle_raw.splitlines(); require(len(lines) == 2)
     ready, final = [decode(line, 8192) for line in lines]
