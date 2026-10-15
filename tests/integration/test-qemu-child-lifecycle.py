@@ -255,6 +255,8 @@ class ShellShutdownWiring(unittest.TestCase):
         script = '\n'.join([
             'set -eu', 'HERE=/inert', 'RUN_DIRECTORY_PARENT=$1', 'RUN_DIRECTORY_PREFIX=qemu',
             'RUN_DIRECTORY=$1/qemu.ABCdef', 'output_directory=$1', 'FINISHED=no',
+            'WEATHER_ANDROID_OWNER_PID=', 'weather_client_version=',
+            'QEMU_STARTED=' + ('yes' if started else 'no'), 'QEMU_JOINED=no',
             'QEMU_PID=' + ('123' if started else ''), 'QEMU_BIRTH=456', 'QEMU_STOP_ATTEMPTED=no',
             'timeout() { printf "probe\\n" >>"$output_directory/probes"; return ' + ('0' if confirmed else '1') + '; }',
             'wait() { printf "reap\\n" >>"$output_directory/reaps"; return 7; }',

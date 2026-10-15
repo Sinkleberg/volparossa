@@ -31,11 +31,15 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa`, `volparossa-weather` | Complete actual core delivery through Android's initial, refresh and background/resume lifecycle; then verify expiry behavior with real products. | The installed-app lifecycle, including expiry, passes with synthetic products (Weather PR19). The latest completed actual trial still fails guest-evidence verification after the installed-app trial reports success. PR248 now distinguishes the failing verification group without weakening acceptance; its 388 contract tests and full Quality pass. Joined delivery, actual expiry, physical devices and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized maintenance after restart, then publish, repair and restore through actual consumers after provider replacement. | The base lifecycle passes, but the latest Cloud publication fails while awaiting an APPEND receipt. Receiving-side activity is retained without request correlation. Separately, the hosted job reaches its 150-minute limit after guest evidence retrieval; bounded VM shutdown is being corrected before another full trial. Consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
+| Native Overmorrow — `volparossa`, `volparossa-weather` | Complete actual core delivery through Android's initial, refresh and background/resume lifecycle; then verify expiry behavior with real products. | The installed-app lifecycle, including expiry, passes with synthetic products (Weather PR19). Actual run `38705213351` narrows the guest rejection to source verification. PR248 corrects the root verifier's incompatibility with the fixed worker-owned source and incorporates the bounded VM shutdown from main; targeted inert tests pass, but the updated candidate still needs hosted checks and actual joined acceptance. Actual expiry, physical devices and iOS remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized maintenance after restart, then publish, repair and restore through actual consumers after provider replacement. | The base lifecycle passes, but the latest Cloud publication fails while awaiting an APPEND receipt. Receiving-side activity is retained without request correlation. PR255 integrates bounded VM shutdown after the separate 150-minute hosted overrun. A signed nested-TLS receipt test passes; closed APPEND timing and receiving-side read diagnostics are the next step. Consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | The latest trial still completes only one read before six memory-admission refusals; it does not show whether cache advice ran or which headroom input caused refusal. PR212 adds closed observations of the unchanged admission sample and advisory outcome. Its targeted tests pass; two lint corrections still require full Quality. Code PR11 passes its updated source checks. Model, task and memory limits remain unchanged. This development executor is not confidential peer execution or completion of the shared-brain requirement. |
+| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Core PR212 and Code PR11 pass their source gates. Actual run `38709341304` still completes one read and refuses six later requests. The new observations identify the service's own cgroup headroom as the limiting input, even after model-cache advice succeeds. Review the remaining charged file cache and lifecycle before changing the candidate; do not lower the admission requirement or enlarge the trial. This development executor is not confidential peer execution or completion of the shared-brain requirement. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify quote exchange on the production route, then execute a private task on another node with verified protection. | PR246 and PR247 are merged. The quote-only slice passes appraisal, guest, agent/control/CLI and quote software checks. Production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is still unavailable; local coding and storage integration continue without substituting for this requirement. |
+
+Detailed earlier Android and storage checkpoints remain in the
+[pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
+The latest completed outcomes are summarized below.
 
 ### Latest completed integration evidence — 15 October
 
@@ -53,7 +57,21 @@ The immediate milestones build on the retained candidates and evidence below:
   passes its 388 inert Android checks, formatting, Clippy and workspace gates
   on the exact candidate tree. Explicit namespace and optional-test skips remain
   skips. [Actual follow-up `38705213351`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38705213351)
-  uses the unchanged Weather source and input admission; it is not yet accepted.
+  on that core and unchanged Weather source fails with `android-evidence-source`
+  during final guest verification. The installed-app trial still reports success;
+  owner children and QEMU are joined, private guest state is removed and the exact
+  KVM ACL is restored. Original artifact ZIP SHA-256:
+  `16b637e010230f91abfeedb5bb0bec4ad6c4f509b76e673bc13e607552666c7c`.
+  The source group includes a verifier that permits root/current-caller ownership,
+  while the admitted Android tree is deliberately owned by fixed worker UID 985.
+  Correction `2125c41d` adds a root-only, exact-worker verifier with manifest hashes,
+  modes, complete file/directory inventory, no-follow descriptors and identity
+  rechecks; the old caller verifier is unchanged. All 164 relevant inert checks
+  pass, including 57 in the two changed suites independently rerun. They reproduce
+  the ownership incompatibility, not the deleted private inputs of the failed run.
+  The merge with bounded VM shutdown passes 18 Android wiring, 25 lifecycle and
+  four VM diagnostic checks. Updated hosted checks and actual joined delivery
+  remain required; these software results do not prove actual expiry.
 - **Storage publication and hosted shutdown have separate failures.**
   [Trial `38688661444`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38688661444)
   on `b7e63589` retains a passing base restart/resume, replacement, two-restore
@@ -65,11 +83,21 @@ The immediate milestones build on the retained candidates and evidence below:
   correlation and do not identify the cause. Guest namespace and local fixture
   cleanup pass; remote consumer cleanup and provider usage remain unconfirmed.
   The job later exceeds its 150-minute limit after guest results are retrieved.
-  Hosted QEMU exit, join and scratch removal are therefore unproven. The wrapper
-  still permits a 40-minute poweroff SSH command followed by an unbounded child
-  wait; correcting that test lifecycle does not fix the APPEND failure. Original
+  Hosted QEMU exit, join and scratch removal are therefore unproven for that run.
+  Its wrapper permits a 40-minute poweroff SSH command followed by an unbounded
+  child wait; PR255 subsequently corrects that lifecycle, not the APPEND failure. Original
   artifact ZIP SHA-256:
   `5396980d373740b36a99e263c7b9af2d6fb0761d6403598b87c72a1fef39cde3`.
+  A separate signed nested-TLS regression on `b2f699e8` passes
+  [run `38709817601`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38709817601):
+  reserve, two APPENDs, finalize and read-back over the production proxy/TLS path
+  return verified receipts before stream closure, with small duplex buffers.
+  The one test, formatting and Clippy pass; production code is unchanged from
+  `b7e63589`. Artifact ZIP SHA-256:
+  `fae5bc388563ef197169139df27006754bca6df0cc6af59e3b0a644fdcbe607d`.
+  This component regression is not a live MPTCP/Cloud proof or a cause for the
+  failed APPEND. The next diagnostic slice separates time before payload, local
+  write/flush and receipt read, alongside bounded provider read-failure codes.
 - **OpenCode reaches one real read, then refuses memory admission.**
   [Trial `38695131367`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38695131367)
   on Code `7f451e67` / core `3630ff79` passes native build, conversion and
@@ -84,19 +112,28 @@ The immediate milestones build on the retained candidates and evidence below:
   owned-runner cleanup complete.
   Original artifact ZIP SHA-256:
   `f194f9d173436c95818ea2bcdca2327c35bea8a2d3896c65329c563508e1d5c1`.
-  The next candidate records those closed observations while preserving the
-  admission guard, cleanup rules and memory limits. Its 42 targeted Rust cases
-  pass, but the initial full Quality stops at two Clippy findings. The narrow
-  correction is core `60a7386b`; Code `0c28e818` pins it and passes 410 source
-  checks with four explicit skips. Full core Quality remains required before
-  another model trial.
+  Core `60a7386b` subsequently passes full Quality `38705500842` and CodeQL
+  `38705495404`, including the 42 targeted Rust cases. Code `0c28e818` pins it
+  and passes 410 source checks with four explicit skips. The following actual
+  [trial `38709341304`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38709341304)
+  again completes one read and refuses six requests, with no edit or test.
+  The first refusal's original sample reports self-cgroup headroom 9,844,887,552
+  bytes below the unchanged 11,274,289,152-byte requirement; host availability is
+  11,650,129,920 bytes. The single bound model-cache advisory succeeds, but the
+  subsequent sample still charges about 1.94 GB as file cache to that cgroup.
+  This establishes the admission input, not which files remain charged or that
+  all those pages can safely be reclaimed. No OOM kill occurs; reported runtime,
+  project, VM and owned-runner cleanup complete. Original artifact ZIP SHA-256:
+  `364b548f95fa0ca9db0d65757698ec67f8b581fb6e000eecc6e5783cc44f654f`.
+  Model, task, CPU and memory limits are unchanged; the remaining cache/lifecycle
+  cause needs investigation rather than a weaker admission guard.
 
 See the follow-up results in [Storage PR232](https://github.com/VOLPAROSSA/volparossa/pull/232),
 [Android PR248](https://github.com/VOLPAROSSA/volparossa/pull/248) and
 [Code PR11](https://github.com/VOLPAROSSA/volparossa-code/pull/11).
 Starting a follow-up does not supersede the last completed outcome above.
 
-### Bounded QEMU shutdown candidate
+### Bounded QEMU shutdown integrated
 
 The shared VM wrapper now limits its poweroff SSH command to 15 seconds with a
 10-second forced-stop allowance. Its normal shutdown and EXIT trap share one
@@ -119,11 +156,23 @@ exec, identity changes, TERM/KILL and the actual shell/helper/reap boundary.
 Four existing VM-diagnostic tests, shell syntax and ShellCheck also pass; the
 focused suites pass an independent rerun. Quality runs the new checks before
 the Rust build, and the existing non-mutating VM contract includes them. No
-QEMU or model is launched by these checks. Hosted validation and a subsequent
-actual VM cleanup proof remain necessary; this does not repair or explain
-Cloud's APPEND failure.
+QEMU or model is launched by these checks. Full Quality `38708178755` and CodeQL
+`38708173947` pass on the exact candidate tree. PR255 is merged into main as
+`2491b8ca`. A subsequent actual VM cleanup proof remains necessary; this does not
+repair or explain Cloud's APPEND failure.
 
 Earlier 15 October checkpoints remain retained: Android
+[`38684878727`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38684878727)
+preceded the two reproduced prepared/config byte-comparison corrections;
+Code [`38681471469`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38681471469)
+already showed one completed read and six memory-admission refusals before the
+cache-advice candidate. Their original records remain in the
+[earlier ledger](https://github.com/VOLPAROSSA/volparossa/blob/75da4143e06b220c68c3b32d6e9929bba3ad5d48/docs/IMPLEMENTATION_STATUS.md#latest-completed-integration-evidence--15-october).
+Storage run `38682910244` on `db50e01f` preceded the APPEND failure: its Cloud
+RESERVE operations failed at TLS handshake and flow acquisition, and an exporter
+bug hid provider activity. The correction `b7e63589` and original evidence remain
+in the [pre-correction ledger](https://github.com/VOLPAROSSA/volparossa/blob/8967006e5dfc15de72bc80d5ac11de6f232d0961/docs/IMPLEMENTATION_STATUS.md#latest-completed-integration-evidence--15-october).
+Android
 [`38674805209`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38674805209)
 stopped at refresh observation (`observation_deadline`); Code
 [`38675278393`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38675278393)
@@ -195,7 +244,13 @@ ZIP SHA-256:
 
 This establishes the shared-descriptor lifetime correction, not the cause of
 the earlier native-core [Quality failure `38688104130`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38688104130)
-or distributed consumer acceptance. Full integration checks remain required.
+or distributed consumer acceptance. [Quality `38697903143`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38697903143)
+passes on the exact reviewed tree, including all three regressions and the legacy
+lifecycle in the full workspace suite, formatting, dependency checks and strict
+Clippy. CodeQL also passes; PR254 is merged. Seven intentionally ignored tests,
+three namespace checks skipped before entry and one optional harness skip are
+not live datapath evidence. Original Quality log ZIP SHA-256:
+`b60f561852fad9fcb6bd13ac9d0692718ac042e26060f8d9f855ec572fa91f54`.
 The first [targeted attempt `38695362871`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38695362871)
 stopped at incorrect temporary-directory permissions and formatting; the
 successful comparison corrects those test fixtures without relaxing production
@@ -375,9 +430,11 @@ Its original log ZIP is
 `73cd058d0f2d9554d0676dd48bb809aaea88c44e63bcaa05edf6b5265ba5bf99`.
 Renaming that private type to `PublicExpectations` leaves the JSON
 `public_policy_id` field, strict schema, policy criteria and CLI options unchanged.
-Independent review confirms the narrow correction. Corrected workspace acceptance
-is still required; CodeQL `38511032900` on `85a01382` is also pending. No local
-Rust tool was run.
+Independent review confirms the narrow correction. Corrected source `09b0d3cc`
+passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`;
+PR247 is merged as `17afa3f0`. The Quality result includes execution of all eight
+new agent/control/CLI tests. Namespace-dependent checks skipped by runner policy
+are not production-route evidence. No local Rust tool was run.
 
 ### Guest-owned protected-compute session candidate
 

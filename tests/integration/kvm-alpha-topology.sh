@@ -4054,6 +4054,17 @@ launch_agent() {
             relay5) set -- "--property=InaccessiblePaths=$WORK/state-client $WORK/state-relay3 $WORK/state-relay4" ;;
         esac
     fi
+    agent_write_paths=$WORK/state-$node
+    if [ "$scenario" = content-provider ] && [ "$node" = client ] && [ -n "$weather_client_bundle" ] \
+        && [ "${WEATHER_AGENT_PROFILE_VERSION:-}" = 6 ]; then
+        # Only this app's public cache gets an additional writable mount. Keep
+        # agent state private and all other fixture/service paths read-only.
+        [ -n "${WEATHER_ANDROID_CACHE_IDENTITY:-}" ] \
+            && [ -d "$WORK/weather-android-cache" ] && [ ! -L "$WORK/weather-android-cache" ] \
+            && [ "$(stat -Lc '%d:%i:%u:%g:%a' "$WORK/weather-android-cache")" = "$WEATHER_ANDROID_CACHE_IDENTITY" ] \
+            || fail WEATHER_ANDROID_CACHE_PARENT_CHANGED
+        agent_write_paths="$agent_write_paths $WORK/weather-android-cache"
+    fi
     systemd-run --no-block --unit="$agent_unit" --slice=system.slice \
         --description="VOLPAROSSA disposable alpha agent $node" \
         --service-type=exec \
@@ -4088,7 +4099,7 @@ launch_agent() {
         --property=SystemCallErrorNumber=EPERM \
         --property='RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK' \
         --property="BindPaths=$WORK/runtime-$node:/run/volparossa" \
-        --property="ReadWritePaths=$WORK/state-$node" \
+        --property="ReadWritePaths=$agent_write_paths" \
         --property="Environment=VOLPAROSSA_CONFIG=$WORK/config-$node.yaml" \
         --property="Environment=VOLPAROSSA_STATE_DIRECTORY=$WORK/state-$node" \
         --property=Environment=VOLPAROSSA_CONTROL_SOCKET=/run/volparossa/control/agent.sock \
@@ -4111,6 +4122,9 @@ if [ "$agent_jobs_peer_recovery" = yes ]; then
     agent_jobs_peer_recovery_filter || fail PEER_RECOVERY_CONTROL_FILTER_FAILED
 fi
 if [ "$wifi_link" = yes ]; then wifi_link_observe_start; fi
+if [ -n "$weather_client_bundle" ]; then
+    weather_client_agent_cache_prepare || fail WEATHER_CLIENT_AGENT_CACHE_PREPARE_FAILED
+fi
 launch_agent client "$CLIENT"
 if [ "$wifi_link" != yes ]; then
     launch_agent bootstrap1 "$B1"
@@ -6237,6 +6251,8 @@ start_privacy_observers() {
             [ "$scenario" = content-https ] || return 1 ;;
         weather-products-delivery-weather-privacy|weather-products-delivery-air-quality-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;
+        weather-android-delivery-privacy)
+            [ "$scenario" = content-provider ] && [ "${weather_profile_version:-}" = 6 ] || return 1 ;;
         content-provider-late-recovery-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;
         content-provider-pressure-privacy)
