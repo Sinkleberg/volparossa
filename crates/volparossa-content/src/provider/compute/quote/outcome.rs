@@ -30,7 +30,10 @@ struct Refusal {
     request_sha256: Vec<u8>,
 }
 
-pub(super) fn encode(outcome: &QuoteOutcome, request: &QuoteRequest) -> Result<Vec<u8>, QuoteError> {
+pub(super) fn encode(
+    outcome: &QuoteOutcome,
+    request: &QuoteRequest,
+) -> Result<Vec<u8>, QuoteError> {
     match outcome {
         QuoteOutcome::Evidence(response) => {
             let bytes = response.encode();

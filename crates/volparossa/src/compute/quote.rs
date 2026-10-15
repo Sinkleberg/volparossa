@@ -282,8 +282,7 @@ fn check_terminal(
         wire::QuoteOutcome::DeviceUnavailable => "QUOTE_DEVICE_UNAVAILABLE",
     };
     ensure!(
-        finished.diagnostic_code == expected
-            && matches!(finished.payload, Some(Payload::Ack(_))),
+        finished.diagnostic_code == expected && matches!(finished.payload, Some(Payload::Ack(_))),
         "quote_final_handoff"
     );
     Ok(())

@@ -309,18 +309,15 @@ async fn signed_refusal_rejects_outer_substitution_signature_purpose_and_time() 
             let _: crate::provider::Selector =
                 crate::provider::read_frame(&mut server).await.unwrap();
             let now = protocol::now().unwrap();
-            let challenge =
-                Record::challenge_for(&provider, now - 2, Purpose::QuoteV1).unwrap();
+            let challenge = Record::challenge_for(&provider, now - 2, Purpose::QuoteV1).unwrap();
             protocol::write(&mut server, &challenge.encode(), FRAME_OVERHEAD)
                 .await
                 .unwrap();
-            let raw =
-                protocol::read(&mut server, guest::MAX_QUOTE_REQUEST_BYTES + FRAME_OVERHEAD)
-                    .await
-                    .unwrap();
+            let raw = protocol::read(&mut server, guest::MAX_QUOTE_REQUEST_BYTES + FRAME_OVERHEAD)
+                .await
+                .unwrap();
             let now = protocol::now().unwrap();
-            let signed =
-                Record::decode_for(&raw, Kind::Request, now, Purpose::QuoteV1).unwrap();
+            let signed = Record::decode_for(&raw, Kind::Request, now, Purpose::QuoteV1).unwrap();
             let alternate = if mutation == 2 {
                 Record::challenge(&provider, now).unwrap()
             } else {
@@ -434,7 +431,11 @@ async fn other_collection_errors_do_not_become_device_refusals() {
         let (service, _, firmware) = fixture(1);
         let supervisor = start(&service);
         *service.source.lock().unwrap() = Some(Box::new(move |_| Err(error)));
-        assert!(roundtrip(&service, &requester(), &request(), false).await.is_err());
+        assert!(
+            roundtrip(&service, &requester(), &request(), false)
+                .await
+                .is_err()
+        );
         assert_eq!(firmware.available_permits(), 1);
         assert!(service.retained.lock().unwrap().is_none());
         stop(&service, supervisor).await;
@@ -447,9 +448,14 @@ async fn wrong_requester_cannot_probe_device_or_consume_attempt() {
     let supervisor = start(&service);
     let calls = unavailable(&service);
     assert!(
-        roundtrip(&service, &SigningKey::from_bytes(&[9; 32]), &request(), false)
-            .await
-            .is_err()
+        roundtrip(
+            &service,
+            &SigningKey::from_bytes(&[9; 32]),
+            &request(),
+            false
+        )
+        .await
+        .is_err()
     );
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert!(matches!(
@@ -468,7 +474,11 @@ async fn authority_revoked_during_collection_prevents_refusal() {
         authority.0.store(false, Ordering::SeqCst);
         Err(GuestError::DeviceUnavailable)
     }));
-    assert!(roundtrip(&service, &requester(), &request(), false).await.is_err());
+    assert!(
+        roundtrip(&service, &requester(), &request(), false)
+            .await
+            .is_err()
+    );
     assert_eq!(firmware.available_permits(), 1);
     assert!(service.retained.lock().unwrap().is_none());
     stop(&service, supervisor).await;
