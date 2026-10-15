@@ -222,7 +222,7 @@ impl ContentRuntime {
         detail: &mut Option<PrivateStorageRemoteDetail>,
     ) -> Result<(), ContentError> {
         *detail = None;
-        let observation = observation::Observation::default();
+        let observation = observation::Observation::new(request.include_flow_acquire_detail);
         let uid = local.peer_cred().map_err(|_| ContentError::Invalid)?.uid();
         let outcome = self.storage_outcomes.begin(uid, request_id)?;
         let turn = request.maintenance_turn.clone();
@@ -523,6 +523,7 @@ async fn exchange(
                 .await
                 .map_err(|failure| {
                     observation.record_stream_failure(observation::stream_failure(failure.cause()));
+                    observation.record_flow_acquire(failure.flow_acquire());
                     ContentError::Unavailable
                 })
         }),

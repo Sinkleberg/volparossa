@@ -32,16 +32,22 @@ pub(crate) enum Command {
     /// Retain explicit independently pinned provider copies, with non-consuming restore failover.
     Replicas {
         /// Opt in to coarse local APPEND timing in diagnostic reports (version 7).
-        #[arg(long, global = true)]
+        #[arg(long, global = true, conflicts_with = "flow_acquire_diagnostics_v8")]
         append_diagnostics_v7: bool,
+        /// Opt in to closed local flow-acquisition detail and v7 APPEND timing (version 8).
+        #[arg(long, global = true, conflicts_with = "append_diagnostics_v7")]
+        flow_acquire_diagnostics_v8: bool,
         #[command(subcommand)]
         command: Box<peer::replicas::Command>,
     },
     /// Split already encrypted archives across explicit providers with per-fragment copies.
     Fragments {
         /// Opt in to coarse local APPEND timing in diagnostic reports (version 7).
-        #[arg(long, global = true)]
+        #[arg(long, global = true, conflicts_with = "flow_acquire_diagnostics_v8")]
         append_diagnostics_v7: bool,
+        /// Opt in to closed local flow-acquisition detail and v7 APPEND timing (version 8).
+        #[arg(long, global = true, conflicts_with = "append_diagnostics_v7")]
+        flow_acquire_diagnostics_v8: bool,
         #[command(subcommand)]
         command: Box<peer::replicas::fragments::Command>,
     },
@@ -122,9 +128,11 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
         Command::Replicas {
             command,
             append_diagnostics_v7,
+            flow_acquire_diagnostics_v8,
         } => {
-            return Box::pin(peer::with_append_diagnostics(
+            return Box::pin(peer::with_diagnostics(
                 append_diagnostics_v7,
+                flow_acquire_diagnostics_v8,
                 peer::replicas::run(*command, socket),
             ))
             .await;
@@ -132,9 +140,11 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
         Command::Fragments {
             command,
             append_diagnostics_v7,
+            flow_acquire_diagnostics_v8,
         } => {
-            return Box::pin(peer::with_append_diagnostics(
+            return Box::pin(peer::with_diagnostics(
                 append_diagnostics_v7,
+                flow_acquire_diagnostics_v8,
                 peer::replicas::fragments::run(*command, socket),
             ))
             .await;

@@ -427,6 +427,7 @@ pub(super) async fn remote(
                 "owner operation is not granted"
             );
             let request = PrivateStorageRemoteRequest {
+                include_flow_acquire_detail: super::diagnostics::flow_acquire_enabled(),
                 provider_key: grant.provider_key().to_bytes().to_vec(),
                 grant: grant.signed().encode(),
                 maintenance_turn: MAINTENANCE_TURN.try_with(Clone::clone).unwrap_or_default(),

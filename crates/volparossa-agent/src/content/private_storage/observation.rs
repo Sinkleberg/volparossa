@@ -21,6 +21,7 @@ use super::{ContentError, until_requester_closed};
 use crate::route_setup::ContentStreamOpenCause;
 
 mod challenge;
+mod flow_acquire;
 
 pub(super) const fn stream_failure(cause: ContentStreamOpenCause) -> PrivateStorageStreamFailure {
     match cause {
@@ -48,9 +49,17 @@ pub(super) struct Observation {
     tls_failure: AtomicI32,
     stream_failure: AtomicI32,
     challenge: challenge::Progress,
+    flow_acquire: flow_acquire::Progress,
 }
 
 impl Observation {
+    pub(super) fn new(include_flow_acquire_detail: bool) -> Self {
+        Self {
+            flow_acquire: flow_acquire::Progress::new(include_flow_acquire_detail),
+            ..Self::default()
+        }
+    }
+
     pub(super) fn operation_started(&self) -> Option<Instant> {
         self.challenge.operation_started()
     }
@@ -61,6 +70,7 @@ impl Observation {
 
     pub(super) fn reset(&self) {
         self.challenge.reset();
+        self.flow_acquire.reset();
         self.stage
             .store(Stage::Unobserved as i32, Ordering::Relaxed);
         self.deadline
@@ -93,6 +103,19 @@ impl Observation {
         }
     }
 
+    pub(super) fn record_flow_acquire(
+        &self,
+        summary: Option<crate::mptcp_transport::acquire_diagnostic::Summary>,
+    ) {
+        if self.stage.load(Ordering::Relaxed) == Stage::StreamOpen as i32
+            && self.deadline.load(Ordering::Relaxed) == Deadline::None as i32
+            && self.stream_failure.load(Ordering::Relaxed)
+                == PrivateStorageStreamFailure::FlowAcquire as i32
+        {
+            self.flow_acquire.record(summary);
+        }
+    }
+
     pub(super) fn detail(&self) -> Option<PrivateStorageRemoteDetail> {
         let stage = self.stage.load(Ordering::Relaxed);
         let deadline_scope = self.deadline.load(Ordering::Relaxed);
@@ -106,6 +129,7 @@ impl Observation {
             stream_failure: (stream_failure != PrivateStorageStreamFailure::Unobserved as i32)
                 .then_some(stream_failure),
             challenge: self.challenge.detail(),
+            flow_acquire: self.flow_acquire.detail(),
         };
         // No observation for policy/resource/cancel, or an inner deadline while
         // awaiting an uninstrumented policy recheck. Never invent that boundary.
@@ -173,6 +197,7 @@ impl Observation {
                 result
             } else {
                 self.challenge.fail();
+                self.flow_acquire.reset();
                 self.tls_failure.store(
                     PrivateStorageTlsFailure::Unobserved as i32,
                     Ordering::Relaxed,

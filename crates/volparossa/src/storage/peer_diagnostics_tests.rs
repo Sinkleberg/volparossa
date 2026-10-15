@@ -239,6 +239,7 @@ fn diagnostic_v2_detail_is_closed_and_bound_to_agent_ready_rejection() {
 async fn correlated_agent_detail_reaches_only_the_bounded_ready_failure_projection() {
     correlated_projection_case(
         PrivateStorageRemoteDetail {
+            flow_acquire: None,
             stage: PrivateStorageRemoteStage::TlsHandshake as i32,
             deadline_scope: PrivateStorageDeadlineScope::None as i32,
             tls_failure: Some(PrivateStorageTlsFailure::Io as i32),
@@ -253,6 +254,7 @@ async fn correlated_agent_detail_reaches_only_the_bounded_ready_failure_projecti
         let failure = PrivateStorageStreamFailure::try_from(code).unwrap();
         correlated_projection_case(
             PrivateStorageRemoteDetail {
+                flow_acquire: None,
                 stage: PrivateStorageRemoteStage::StreamOpen as i32,
                 deadline_scope: PrivateStorageDeadlineScope::None as i32,
                 tls_failure: None,
@@ -297,6 +299,7 @@ async fn correlated_projection_case(
     let error = crate::control::begin_request(
         &socket,
         control_request::Operation::PrivateStorageRemote(PrivateStorageRemoteRequest {
+            include_flow_acquire_detail: false,
             provider_key: ed25519_dalek::SigningKey::from_bytes(&[7; 32])
                 .verifying_key()
                 .to_bytes()
