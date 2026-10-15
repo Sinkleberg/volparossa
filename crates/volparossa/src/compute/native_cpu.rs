@@ -16,7 +16,7 @@ use sha2::{Digest as _, Sha256};
 use super::{Mode, ModelProfile};
 
 mod cache_hint;
-pub(super) use cache_hint::CacheHint;
+use cache_hint::{Binding, CacheHint};
 
 pub(super) const KIND: &str = "llama_cpp_bf16_v1";
 const SOURCE: &str = "7fe450e19305b828c199d602c23a8337aaa1f03b";
@@ -254,16 +254,36 @@ pub(super) struct Request {
 }
 
 impl Request {
+    #[cfg(test)]
     pub(super) fn cache_hint(&self, options: &Options, profile: ModelProfile) -> Option<CacheHint> {
+        self.cache_hint_observed(options, profile).hint
+    }
+
+    pub(super) fn cache_hint_observed(&self, options: &Options, profile: ModelProfile) -> Binding {
         if profile != ModelProfile::Qwen4bInstruct2507
             || self.inference_backend != Some(KIND)
             || self.native_backend_sha256 != options.native_backend_sha256
         {
-            return None;
+            return Binding::unavailable("not_applicable");
         }
-        let root = options.native_backend_root.as_ref()?;
-        let bytes = self.expected_report.as_ref()?.get("gguf_bytes")?.as_u64()?;
-        CacheHint::bind(root, bytes)
+        let Some(root) = options.native_backend_root.as_ref() else {
+            return Binding::unavailable("not_applicable");
+        };
+        let Some(bytes) = self
+            .expected_report
+            .as_ref()
+            .and_then(|report| report.get("gguf_bytes"))
+            .and_then(Value::as_u64)
+        else {
+            return Binding::unavailable("not_applicable");
+        };
+        match CacheHint::bind_observed(root, bytes) {
+            Ok(hint) => Binding {
+                hint: Some(hint),
+                reason: "bound",
+            },
+            Err(reason) => Binding::unavailable(reason),
+        }
     }
 
     fn select_constraint(&mut self, input: &super::private_conversation::Input) -> Result<()> {

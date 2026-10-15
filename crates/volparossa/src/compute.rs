@@ -239,7 +239,10 @@ async fn execute(options: &Options, activity: watch::Receiver<bool>) -> Result<V
         "compute_unprivileged_user_required"
     );
     let _lease = runtime_lease(&options.runtime_root)?;
-    resources::admission(options.model_profile)?;
+    let memory_diagnostic = options.mode == Mode::PrivateConversation
+        && options.model_profile == ModelProfile::Qwen4bInstruct2507
+        && options.native_backend.enabled();
+    resources::admission(options.model_profile, memory_diagnostic)?;
     if options.spare_capacity {
         let mut capacity = spare_capacity::Budget::new();
         ensure!(
@@ -282,18 +285,16 @@ async fn execute(options: &Options, activity: watch::Receiver<bool>) -> Result<V
     };
     let cache_hint = request
         .native_backend
-        .cache_hint(&options.native_backend, options.model_profile);
+        .cache_hint_observed(&options.native_backend, options.model_profile);
     let child = sandbox::command(options)
         .spawn()
         .context("compute_sandbox_spawn")?;
     // Failure does not publish partial adapters or delete diagnostic job artifacts.
     // A later job must use a new output directory, never silently overwrite them.
     let result = supervise::run(child, &request, options, activity).await;
-    if let Some(hint) = cache_hint {
-        // Only a successful supervisor return proves cleanup and result validation.
-        // Keep the advisory syscall inside this runtime lease; never detach it.
-        hint.after_supervisor(&result, options.model_profile);
-    }
+    // Only a successful supervisor return proves cleanup and result validation.
+    // Keep the advisory syscall inside this runtime lease; never detach it.
+    cache_hint.after_supervisor(&result, options.model_profile, memory_diagnostic);
     result
 }
 

@@ -278,3 +278,207 @@ fn missing_or_sufficient_headroom_never_hints() {
         );
     }
 }
+
+fn observed(options: &Options) -> Binding {
+    options
+        .request(PROFILE)
+        .unwrap()
+        .cache_hint_observed(options, PROFILE)
+}
+
+fn collect(records: &[Value]) {
+    use std::io::Write as _;
+    let mut log = tempfile::NamedTempFile::new().unwrap();
+    for record in records {
+        let line = format!("private_memory_diagnostic {record}\n");
+        assert!(line.len() <= 4096);
+        assert!(!line.contains("CANARY"));
+        log.write_all(line.as_bytes()).unwrap();
+    }
+    let script = r"
+import json, runpy, sys
+from pathlib import Path
+module = runpy.run_path(sys.argv[1])
+path = Path(sys.argv[2])
+original = [json.loads(line.split(' ', 1)[1]) for line in path.read_text().splitlines()]
+legacy = module['service_diagnostic'](path)
+assert legacy == dict(version=1, truncated=False, unrecognized_record=False, events=[])
+current = module['service_diagnostic'](path, memory_enabled=True)
+assert current == dict(version=2, truncated=False, unrecognized_record=False,
+                       events=[], memory=original)
+";
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/integration/agent-private-conversation.py");
+    let parsed = std::process::Command::new("python3")
+        .args(["-B", "-c", script])
+        .arg(fixture)
+        .arg(log.path())
+        .output()
+        .unwrap();
+    assert!(parsed.status.success());
+    assert!(parsed.stdout.is_empty() && parsed.stderr.is_empty());
+}
+
+#[test]
+fn cache_observation_preserves_cleanup_and_cancel_priority_without_private_error_text() {
+    let (_root, options) = fixture();
+    let mut records = Vec::new();
+    for error in [
+        anyhow::Error::new(crate::compute::private_task::CleanupUnconfirmed),
+        anyhow::anyhow!("compute_cancelled"),
+        anyhow::anyhow!("PRIVATE_CACHE_CANARY /private/path"),
+    ] {
+        let original = error.to_string();
+        let result: Result<()> = Err(error);
+        let record = observed(&options).observe_with(
+            &result,
+            PROFILE,
+            true,
+            |_| panic!("sample before confirmed cleanup"),
+            |_, _| panic!("hint before confirmed cleanup"),
+        );
+        assert_eq!(result.unwrap_err().to_string(), original);
+        assert_eq!(record["outcome"], "supervisor_error");
+        assert_eq!(record["supervisor_ok"], false);
+        records.push(record);
+    }
+    collect(&records);
+}
+
+#[test]
+fn unavailable_hint_and_unknown_or_sufficient_headroom_remain_non_authoritative() {
+    let (_root, options) = fixture();
+    let mut records = Vec::new();
+    for reason in [
+        "not_applicable",
+        "root_invalid",
+        "open_failed",
+        "file_invalid",
+        "path_changed",
+    ] {
+        let record = Binding::unavailable(reason).observe_with(
+            &Ok(()),
+            PROFILE,
+            true,
+            |_| panic!("unbound sample"),
+            |_, _| panic!("unbound advice"),
+        );
+        assert_eq!(record["outcome"], "not_bound");
+        records.push(record);
+    }
+    for (available, outcome) in [
+        (None, "headroom_unknown"),
+        (
+            resources::limits(PROFILE).admission_headroom,
+            "headroom_sufficient",
+        ),
+        (Some(u64::MAX), "headroom_sufficient"),
+    ] {
+        let calls = Cell::new(0);
+        let record = observed(&options).observe_with(
+            &Ok(()),
+            PROFILE,
+            true,
+            |stats| {
+                assert!(stats);
+                calls.set(calls.get() + 1);
+                memory::Sample::for_test(available)
+            },
+            |_, _| panic!("unproven shortage"),
+        );
+        assert_eq!(calls.get(), 1);
+        assert_eq!(record["outcome"], outcome);
+        records.push(record);
+    }
+    collect(&records);
+}
+
+#[test]
+fn advice_observation_reports_one_syscall_and_closed_errno_without_reclaim_claim() {
+    let (_root, options) = fixture();
+    let mut records = Vec::new();
+    for (advice, expected) in [
+        (Ok(()), None),
+        (Err(nix::errno::Errno::EBADF), Some("bad_fd")),
+        (Err(nix::errno::Errno::EINVAL), Some("invalid")),
+        (Err(nix::errno::Errno::ENOSYS), Some("unsupported")),
+        (Err(nix::errno::Errno::EOPNOTSUPP), Some("unsupported")),
+        (Err(nix::errno::Errno::EINTR), Some("interrupted")),
+        (Err(nix::errno::Errno::EIO), Some("other")),
+    ] {
+        let samples = Cell::new(0);
+        let calls = Cell::new(0);
+        let original = Ok("original result");
+        let record = observed(&options).observe_with(
+            &original,
+            PROFILE,
+            true,
+            |stats| {
+                assert!(stats);
+                samples.set(samples.get() + 1);
+                memory::Sample::for_test(if samples.get() == 1 {
+                    Some(0)
+                } else {
+                    None
+                })
+            },
+            |_, bytes| {
+                assert_eq!(bytes, 1);
+                assert_eq!(samples.get(), 1);
+                calls.set(calls.get() + 1);
+                advice
+            },
+        );
+        assert_eq!(samples.get(), 2);
+        assert_eq!(calls.get(), 1);
+        assert!(matches!(original, Ok("original result")));
+        assert_eq!(
+            record["outcome"],
+            if expected.is_some() { "error" } else { "advised" }
+        );
+        assert_eq!(record["syscall_error"], json!(expected));
+        assert_eq!(record["after"]["missing_stage"], "meminfo");
+        records.push(record);
+    }
+    collect(&records);
+}
+
+#[test]
+fn changed_hint_identity_is_observed_without_advice_or_second_sample() {
+    let (root, options) = fixture();
+    let binding = observed(&options);
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    let calls = Cell::new(0);
+    let record = binding.observe_with(
+        &Ok(()),
+        PROFILE,
+        true,
+        |_| {
+            calls.set(calls.get() + 1);
+            memory::Sample::for_test(Some(0))
+        },
+        |_, _| panic!("changed identity"),
+    );
+    assert_eq!(record["outcome"], "identity_changed");
+    assert_eq!(calls.get(), 1);
+    collect(&[record]);
+}
+
+#[test]
+fn opt_out_does_not_read_stats_or_add_an_after_hint_sample() {
+    let (_root, options) = fixture();
+    let samples = Cell::new(0);
+    let record = observed(&options).observe_with(
+        &Ok(()),
+        PROFILE,
+        false,
+        |stats| {
+            assert!(!stats);
+            samples.set(samples.get() + 1);
+            memory::Sample::for_test(Some(0))
+        },
+        |_, _| Ok(()),
+    );
+    assert_eq!(samples.get(), 1);
+    assert!(record["before"].is_null() && record["after"].is_null());
+}

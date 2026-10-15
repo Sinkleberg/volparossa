@@ -96,6 +96,15 @@ SERVICE_IO_KINDS = {'none', 'not_found', 'permission_denied', 'unexpected_eof', 
                     'interrupted', 'invalid_data', 'other'}
 SERVICE_STDERR_CLASSES = {None, 'none', 'bubblewrap', 'user_namespace', 'proc_mount', 'exec_denied',
                           'python_startup', 'other'}
+MEMORY_MARKER = b'private_memory_diagnostic '
+MEMORY_RECORD_BYTES = 4096
+MEMORY_JSON_MAX = 2**53 - 1
+MEMORY_REQUIRED_BYTES = 11274289152
+MEMORY_COUNTERS = {'headroom_bytes', 'host_available_bytes', 'self_headroom_bytes',
+    'ancestor_headroom_bytes', 'self_current_bytes', 'self_max_bytes',
+    'ancestor_current_bytes', 'ancestor_max_bytes'}
+MEMORY_STAT_COUNTERS = {'anon_bytes', 'file_bytes', 'shmem_bytes', 'inactive_file_bytes',
+    'active_file_bytes', 'kernel_bytes'}
 EXPORT_NAMES = {'agent-private-conversation-smoke.json', 'host-state-before.json', 'host-state-after.json',
                 'current-phase', 'guest-exit-status', 'runner.stdout', 'runner.stderr'}
 
@@ -401,8 +410,111 @@ def execution_state(value):
     return value
 
 
-def service_diagnostic(path):
+def memory_snapshot(value):
+    """Closed, sequential observations; no reservation or cache-reclaim claim."""
+    require(type(value) is dict and set(value) == MEMORY_COUNTERS | {'limiting_scope',
+        'missing_stage', 'io_kind', 'numeric_overflow', 'self_stat', 'ancestor_stat'}, 'memory snapshot keys')
+    for key in MEMORY_COUNTERS:
+        require(value[key] is None or (type(value[key]) is int and 0 <= value[key] <= MEMORY_JSON_MAX),
+                'memory snapshot counter')
+    for key, domain in (
+            ('limiting_scope', {'host', 'self', 'ancestor', 'multiple', 'unknown'}),
+            ('missing_stage', {'none', 'meminfo', 'cgroup_path', 'max', 'current', 'controller'}),
+            ('io_kind', {'none', 'not_found', 'permission', 'invalid_data', 'other'})):
+        require(type(value[key]) is str and value[key] in domain, 'memory snapshot vocabulary')
+    require(type(value['numeric_overflow']) is bool, 'memory overflow flag')
+    for key in ('self_stat', 'ancestor_stat'):
+        detail = value[key]
+        require(type(detail) is dict and set(detail) == MEMORY_STAT_COUNTERS | {'state'}
+                and type(detail['state']) is str and detail['state'] in {
+                    'unobserved', 'observed', 'unavailable', 'invalid', 'unrepresentable'}, 'memory stat shape')
+        for name in MEMORY_STAT_COUNTERS:
+            require((type(detail[name]) is int and 0 <= detail[name] <= MEMORY_JSON_MAX)
+                    if detail['state'] == 'observed' else detail[name] is None, 'memory stat counter')
+    if value['missing_stage'] != 'none':
+        require(value['headroom_bytes'] is None and value['limiting_scope'] == 'unknown',
+                'missing memory observation')
+    else:
+        require(value['io_kind'] == 'none', 'complete memory observation IO')
+        if not value['numeric_overflow']:
+            candidates = {name: value[key] for name, key in (
+                ('host', 'host_available_bytes'), ('self', 'self_headroom_bytes'),
+                ('ancestor', 'ancestor_headroom_bytes')) if value[key] is not None}
+            require('host' in candidates and value['headroom_bytes'] == min(candidates.values()),
+                    'memory headroom minimum')
+            limiting = [name for name, count in candidates.items() if count == value['headroom_bytes']]
+            require(value['limiting_scope'] == (limiting[0] if len(limiting) == 1 else 'multiple'),
+                    'memory limiting scope')
+    return value
+
+
+def memory_diagnostic(value):
+    require(type(value) is dict and type(value.get('version')) is int and value['version'] == 1,
+            'memory diagnostic version')
+    if value.get('phase') == 'admission':
+        require(set(value) == {'version', 'phase', 'required_bytes', 'admitted', 'sample'}
+                and type(value['required_bytes']) is int and value['required_bytes'] == MEMORY_REQUIRED_BYTES
+                and type(value['admitted']) is bool, 'memory admission shape')
+        sample = memory_snapshot(value['sample'])
+        if sample['headroom_bytes'] is not None:
+            require(value['admitted'] == (sample['headroom_bytes'] >= value['required_bytes']),
+                    'memory admission decision')
+        elif sample['missing_stage'] != 'none' or not sample['numeric_overflow']:
+            require(value['admitted'] is False, 'unknown memory admission')
+        return value
+    require(set(value) == {'version', 'phase', 'binding', 'outcome', 'supervisor_ok',
+        'before', 'after', 'syscall_error'} and value.get('phase') == 'cache_hint', 'memory cache shape')
+    require(type(value['binding']) is str and value['binding'] in {
+        'bound', 'not_applicable', 'root_invalid', 'open_failed', 'file_invalid', 'path_changed'}
+        and type(value['outcome']) is str and value['outcome'] in {
+            'supervisor_error', 'not_bound', 'headroom_unknown', 'headroom_sufficient',
+            'identity_changed', 'range_invalid', 'advised', 'error'}
+        and type(value['supervisor_ok']) is bool, 'memory cache vocabulary')
+    outcome = value['outcome']
+    if outcome in {'supervisor_error', 'not_bound'}:
+        require(value['supervisor_ok'] == (outcome == 'not_bound')
+                and (outcome != 'not_bound' or value['binding'] != 'bound')
+                and value['before'] is None and value['after'] is None and value['syscall_error'] is None,
+                'memory cache unattempted')
+        return value
+    require(value['supervisor_ok'] is True and value['binding'] == 'bound', 'memory cache scope')
+    before = memory_snapshot(value['before'])
+    headroom = before['headroom_bytes']
+    if outcome == 'headroom_unknown':
+        require(headroom is None and before['missing_stage'] != 'none', 'unknown cache headroom')
+    elif outcome == 'headroom_sufficient':
+        require(before['missing_stage'] == 'none' and ((headroom is not None and headroom >= MEMORY_REQUIRED_BYTES)
+                or (headroom is None and before['numeric_overflow'])), 'sufficient cache headroom')
+    else:
+        require(before['missing_stage'] == 'none' and headroom is not None and headroom < MEMORY_REQUIRED_BYTES,
+                'cache hint requires known low headroom')
+    if outcome in {'advised', 'error'}:
+        memory_snapshot(value['after'])
+        require(value['syscall_error'] is None if outcome == 'advised' else
+                type(value['syscall_error']) is str and value['syscall_error'] in {
+                    'bad_fd', 'invalid', 'unsupported', 'interrupted', 'other'}, 'cache syscall result')
+    else:
+        require(value['after'] is None and value['syscall_error'] is None, 'skipped cache hint')
+    return value
+
+
+def memory_json(raw):
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            require(key not in value, 'duplicate memory field')
+            value[key] = item
+        return value
+
+    def invalid_constant(_):
+        raise ValueError('non-finite memory number')
+
+    return json.loads(raw, object_pairs_hook=unique, parse_constant=invalid_constant)
+
+
+def service_diagnostic(path, *, memory_enabled=False):
     """Local observations only; fixed vocabulary, no raw log, prompt, path or request ID."""
+    require(type(memory_enabled) is bool, 'explicit memory diagnostic opt-in')
     if not path.exists():
         return None
     with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), 'rb') as stream:
@@ -415,9 +527,23 @@ def service_diagnostic(path):
     if truncated:
         lines = lines[:-1]  # Never accept a partial final record.
     events, states, state_seen, unknown = [], [], False, False
+    memory = []
     marker = b'private_execution_diagnostic '
     state_marker = b'private_execution_state '
     for line in lines:
+        if memory_enabled and MEMORY_MARKER in line:
+            try:
+                require(line.count(MEMORY_MARKER) == 1, 'ambiguous memory marker')
+                payload = line.split(MEMORY_MARKER, 1)[1]
+                require(len(MEMORY_MARKER) + len(payload) + 1 <= MEMORY_RECORD_BYTES, 'memory record bound')
+                observation = memory_diagnostic(memory_json(payload))
+                if len(memory) < 16:
+                    memory.append(observation)
+                else:
+                    truncated = True
+            except (ValueError, KeyError, TypeError, RecursionError):
+                unknown = True
+            continue
         if state_marker in line:
             state_seen = True
             try:
@@ -452,6 +578,8 @@ def service_diagnostic(path):
     result = dict(version=1, events=events, truncated=truncated, unrecognized_record=unknown)
     if state_seen:
         result['states'] = states
+    if memory_enabled:
+        result.update(version=2, memory=memory)
     return result
 
 

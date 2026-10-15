@@ -9,8 +9,9 @@ use std::{
 
 use anyhow::Result;
 use nix::fcntl::{PosixFadviseAdvice, posix_fadvise};
+use serde_json::{Value, json};
 
-use super::super::{ModelProfile, private_directory, resources, spare_capacity};
+use super::super::{ModelProfile, private_directory, resources, spare_capacity::memory};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Identity {
@@ -55,19 +56,111 @@ pub(in crate::compute) struct CacheHint {
     identity: Identity,
 }
 
+pub(in crate::compute) struct Binding {
+    pub(super) hint: Option<CacheHint>,
+    pub(super) reason: &'static str,
+}
+
+impl Binding {
+    pub(super) fn unavailable(reason: &'static str) -> Self {
+        Self { hint: None, reason }
+    }
+
+    pub(in crate::compute) fn after_supervisor<T>(
+        self,
+        result: &Result<T>,
+        profile: ModelProfile,
+        diagnostic: bool,
+    ) {
+        let observe = diagnostic && memory::enabled();
+        let record = self.observe_with(
+            result,
+            profile,
+            observe,
+            memory::sample,
+            |file, bytes| posix_fadvise(file, 0, bytes, PosixFadviseAdvice::POSIX_FADV_DONTNEED),
+        );
+        if observe {
+            memory::emit(&record);
+        }
+    }
+
+    fn observe_with<T>(
+        self,
+        result: &Result<T>,
+        profile: ModelProfile,
+        observe: bool,
+        mut sample: impl FnMut(bool) -> memory::Sample,
+        advise: impl FnOnce(&File, libc::off_t) -> nix::Result<()>,
+    ) -> Value {
+        let mut record = json!({"version":1,"phase":"cache_hint","binding":self.reason,
+            "outcome":"supervisor_error","supervisor_ok":result.is_ok(),
+            "before":null,"after":null,"syscall_error":null});
+        if result.is_err() {
+            return record;
+        }
+        let Some(hint) = self.hint else {
+            record["outcome"] = json!("not_bound");
+            return record;
+        };
+        let before = sample(observe);
+        if observe {
+            record["before"] = before.snapshot();
+        }
+        let outcome = if before.headroom.is_none() {
+            "headroom_unknown"
+        } else if !needs_hint(profile, before.headroom) {
+            "headroom_sufficient"
+        } else if !hint.unchanged() {
+            "identity_changed"
+        } else if let Ok(bytes) = libc::off_t::try_from(hint.identity.bytes) {
+            // Preserve one synchronous, unchanged-file advice call under the lease.
+            // The following observation is not proof that this hint freed memory.
+            let advice = advise(&hint.file, bytes);
+            if observe {
+                record["after"] = sample(true).snapshot();
+            }
+            if let Err(error) = advice {
+                record["syscall_error"] = json!(match error {
+                    nix::errno::Errno::EBADF => "bad_fd",
+                    nix::errno::Errno::EINVAL => "invalid",
+                    nix::errno::Errno::ENOSYS | nix::errno::Errno::EOPNOTSUPP => "unsupported",
+                    nix::errno::Errno::EINTR => "interrupted",
+                    _ => "other",
+                });
+                "error"
+            } else {
+                "advised"
+            }
+        } else {
+            "range_invalid"
+        };
+        record["outcome"] = json!(outcome);
+        record
+    }
+}
+
 impl CacheHint {
     // Called only from a request already bound to the owner's manifest digest.
+    #[cfg(test)]
     pub(super) fn bind(root: &Path, expected_bytes: u64) -> Option<Self> {
-        private_directory(root).ok()?;
-        let directory = fs::symlink_metadata(root).ok()?;
+        Self::bind_observed(root, expected_bytes).ok()
+    }
+
+    pub(super) fn bind_observed(
+        root: &Path,
+        expected_bytes: u64,
+    ) -> std::result::Result<Self, &'static str> {
+        private_directory(root).map_err(|_| "root_invalid")?;
+        let directory = fs::symlink_metadata(root).map_err(|_| "root_invalid")?;
         let file = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
             .open(root.join("model.gguf"))
-            .ok()?;
-        let identity = Identity::read(&file.metadata().ok()?);
+            .map_err(|_| "open_failed")?;
+        let identity = Identity::read(&file.metadata().map_err(|_| "file_invalid")?);
         if !identity.valid(expected_bytes) {
-            return None;
+            return Err("file_invalid");
         }
         let hint = Self {
             file,
@@ -75,7 +168,11 @@ impl CacheHint {
             root_identity: (directory.dev(), directory.ino()),
             identity,
         };
-        hint.unchanged().then_some(hint)
+        if hint.unchanged() {
+            Ok(hint)
+        } else {
+            Err("path_changed")
+        }
     }
 
     fn unchanged(&self) -> bool {
@@ -94,15 +191,7 @@ impl CacheHint {
         check() == Some(true)
     }
 
-    pub(in crate::compute) fn after_supervisor<T>(self, result: &Result<T>, profile: ModelProfile) {
-        self.after_supervisor_with(
-            result,
-            profile,
-            spare_capacity::memory_headroom,
-            |file, bytes| posix_fadvise(file, 0, bytes, PosixFadviseAdvice::POSIX_FADV_DONTNEED),
-        );
-    }
-
+    #[cfg(test)]
     fn after_supervisor_with<T>(
         self,
         result: &Result<T>,
@@ -110,15 +199,18 @@ impl CacheHint {
         headroom: impl FnOnce() -> Option<u64>,
         advise: impl FnOnce(&File, libc::off_t) -> nix::Result<()>,
     ) {
-        if result.is_err() || !needs_hint(profile, headroom()) || !self.unchanged() {
-            return;
+        let mut headroom = Some(headroom);
+        Binding {
+            hint: Some(self),
+            reason: "bound",
         }
-        if let Ok(bytes) = libc::off_t::try_from(self.identity.bytes) {
-            // One bounded file range, no retries, reads, rehash, or global reclaim.
-            // Advisory success does not prove freed memory. The syscall may take
-            // time; keep it synchronous under the existing runtime lease.
-            let _ = advise(&self.file, bytes);
-        }
+        .observe_with(
+            result,
+            profile,
+            false,
+            |_| memory::Sample::for_test(headroom.take().expect("one sample")()),
+            advise,
+        );
     }
 }
 
