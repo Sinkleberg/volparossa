@@ -144,7 +144,12 @@ async fn flow_acquire_observation_retains_original_failure_and_legacy_bytes() {
             Some(PrivateStorageStreamFailure::FlowAcquire as i32)
         );
         assert_eq!(detail.deadline_scope, Deadline::None as i32);
-        if !enabled {
+        if enabled {
+            let flow = detail.flow_acquire.unwrap();
+            assert_eq!(flow.rounds, 2);
+            assert_eq!(flow.first, Some(failure(summary().first)));
+            assert_eq!(flow.last, Some(failure(summary().last)));
+        } else {
             let response = ControlResponse {
                 protocol_version: CONTROL_PROTOCOL_VERSION,
                 request_id: vec![7; 16],
@@ -161,11 +166,6 @@ async fn flow_acquire_observation_retains_original_failure_and_legacy_bytes() {
             expected.extend_from_slice(&[42, 4, 8, 6, 32, 4, 82, 0]);
             assert_eq!(encode_response(&response).unwrap(), expected);
             assert_eq!(decode_response(&expected).unwrap(), response);
-        } else {
-            let flow = detail.flow_acquire.unwrap();
-            assert_eq!(flow.rounds, 2);
-            assert_eq!(flow.first, Some(failure(summary().first)));
-            assert_eq!(flow.last, Some(failure(summary().last)));
         }
         observation.reset(); // Same reset used by the existing maintenance-cancel path.
         assert_eq!(observation.detail(), None);
