@@ -94,11 +94,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> RelayConnection<'_, S> {
             .deadline
             .min(Instant::now() + Duration::from_secs(request.expires_at() - now));
         timeout_at(self.deadline, async {
-            let signed =
+            let envelope =
                 Record::request(signer, &self.challenge, request.encode(), protocol::now()?)?;
             protocol::write(
                 self.stream,
-                &signed.encode(),
+                &envelope.encode(),
                 MAX_QUOTE_REQUEST_BYTES + FRAME_OVERHEAD,
             )
             .await?;
@@ -109,13 +109,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> RelayConnection<'_, S> {
                 Purpose::QuoteConfirmationV1,
             )?;
             let offer = Offer::decode(
-                &Offer::encode_records(&self.challenge, &signed, &reply),
+                &Offer::encode_records(&self.challenge, &envelope, &reply),
                 &self.challenge.sender(),
                 &signer.verifying_key().to_bytes(),
                 request,
             )?;
             if !offer.is_device_unavailable() {
-                self.binding = Some((offer.context()?, signed.sender()));
+                self.binding = Some((offer.context()?, envelope.sender()));
             }
             self.deadline = self.deadline.min(offer.deadline());
             Ok(offer)

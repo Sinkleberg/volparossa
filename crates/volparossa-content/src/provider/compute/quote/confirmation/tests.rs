@@ -617,7 +617,7 @@ async fn provider_signature_without_the_correct_random_echo_is_not_possession() 
     )
     .unwrap();
     let mut echo = wire::Echo::decode(original.payload()).unwrap();
-    echo.echo[0] ^= 1;
+    echo.value[0] ^= 1;
     reply.reply = Record::reply(
         &SigningKey::from_bytes(&[1; 32]),
         &challenge,

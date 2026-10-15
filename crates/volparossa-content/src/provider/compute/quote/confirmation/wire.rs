@@ -283,7 +283,7 @@ pub(super) struct Echo {
     #[prost(bytes = "vec", tag = "3")]
     pub(super) probe_sha256: Vec<u8>,
     #[prost(bytes = "vec", tag = "4")]
-    pub(super) echo: Vec<u8>,
+    pub(super) value: Vec<u8>,
 }
 
 #[derive(Clone, PartialEq, Message)]

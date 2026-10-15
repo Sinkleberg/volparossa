@@ -37,8 +37,7 @@ impl Purpose {
     const fn response_bound(self) -> usize {
         match self {
             Self::ComputeV1 => MAX_RESPONSE_BYTES,
-            Self::QuoteV1 => super::guest::MAX_QUOTE_RESPONSE_BYTES,
-            Self::QuoteConfirmationV1 => super::guest::MAX_QUOTE_RESPONSE_BYTES,
+            Self::QuoteV1 | Self::QuoteConfirmationV1 => super::guest::MAX_QUOTE_RESPONSE_BYTES,
         }
     }
 }

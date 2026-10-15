@@ -53,12 +53,12 @@ impl<'a> PendingSession<'a> {
                 vendor_crl_der,
                 *response.public_key(),
             )
-            .map_err(evidence_error)?;
+            .map_err(|error| evidence_error(&error))?;
         PreparedConfirmation::from_live(live, offer)
     }
 }
 
-fn evidence_error(error: EvidenceError) -> QuoteError {
+fn evidence_error(error: &EvidenceError) -> QuoteError {
     match error {
         EvidenceError::Expired => QuoteError::Expired,
         EvidenceError::Unavailable => QuoteError::Unavailable,
@@ -74,10 +74,10 @@ impl<'a> PreparedConfirmation<'a> {
     }
 
     pub(super) fn from_live(mut live: LiveSession<'a>, offer: Offer) -> Result<Self, QuoteError> {
-        live.check().map_err(evidence_error)?;
+        live.check().map_err(|error| evidence_error(&error))?;
         offer.check()?;
         live.constrain(offer.expires_at(), offer.deadline().into_std())
-            .map_err(evidence_error)?;
+            .map_err(|error| evidence_error(&error))?;
         if live.evidence().proposed_session_key() != offer.response()?.public_key()
             || *live.evidence().challenge_sha256()
                 != QuoteRequest::decode(offer.request.payload())?.sha256()
@@ -88,7 +88,7 @@ impl<'a> PreparedConfirmation<'a> {
         let sealed =
             crate::private_message::confirmation::seal(offer.response()?.public_key(), &context)
                 .map_err(|_| QuoteError::Unavailable)?;
-        live.check().map_err(evidence_error)?;
+        live.check().map_err(|error| evidence_error(&error))?;
         Ok(Self {
             live,
             offer,
@@ -105,7 +105,7 @@ impl<'a> PreparedConfirmation<'a> {
     /// # Errors
     /// Rejects cancellation, original expiry or stale original signed records.
     pub fn probe(&self) -> Result<&Probe, QuoteError> {
-        self.live.check().map_err(evidence_error)?;
+        self.live.check().map_err(|error| evidence_error(&error))?;
         self.offer.check()?;
         Ok(&self.probe)
     }
@@ -117,21 +117,25 @@ impl<'a> PreparedConfirmation<'a> {
     pub fn confirm(self, reply: ConfirmationReply) -> Result<ConfirmedSession<'a>, QuoteError> {
         self.probe()?;
         let now = protocol::now()?;
+        let ConfirmationReply {
+            request: request_bytes,
+            reply: reply_bytes,
+        } = reply;
         let request = Record::decode_for(
-            &reply.request,
+            &request_bytes,
             Kind::Request,
             now,
             Purpose::QuoteConfirmationV1,
         )?;
         let response =
-            Record::decode_for(&reply.reply, Kind::Reply, now, Purpose::QuoteConfirmationV1)?;
+            Record::decode_for(&reply_bytes, Kind::Reply, now, Purpose::QuoteConfirmationV1)?;
         request.matches_challenge(&self.offer.challenge)?;
         response.matches_challenge(&self.offer.challenge)?;
         if request.sender() != self.offer.request.sender()
             || request.payload() != self.probe.encode()
             || request.created() < self.offer.reply.created()
             || response.sender() != self.offer.challenge.sender()
-            || response.request_hash() != Sha256::digest(&reply.request).as_slice()
+            || response.request_hash() != Sha256::digest(&request_bytes).as_slice()
             || response.created() < request.created()
         {
             return Err(QuoteError::Unauthorized);
@@ -141,7 +145,7 @@ impl<'a> PreparedConfirmation<'a> {
             || echo.encode_to_vec() != response.payload()
             || echo.context.as_slice() != self.probe.context
             || echo.probe_sha256.as_slice() != Sha256::digest(self.probe.encode()).as_slice()
-            || !bool::from(echo.echo.as_slice().ct_eq(self.expected.as_slice()))
+            || !bool::from(echo.value.as_slice().ct_eq(self.expected.as_slice()))
         {
             return Err(QuoteError::Unauthorized);
         }
@@ -167,6 +171,6 @@ impl ConfirmedSession<'_> {
     /// Rejects cancellation, grant/challenge expiry or a late terminal handoff.
     pub fn finish(self) -> Result<BoundSessionEvidence, QuoteError> {
         self.offer.check()?;
-        self.live.finish().map_err(evidence_error)
+        self.live.finish().map_err(|error| evidence_error(&error))
     }
 }

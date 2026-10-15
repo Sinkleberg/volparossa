@@ -141,7 +141,7 @@ impl QuoteService {
             version: 1,
             context: context.to_vec(),
             probe_sha256: Sha256::digest(probe.encode()).to_vec(),
-            echo: echoed.to_vec(),
+            value: echoed.to_vec(),
         };
         self.authorize(requester).await?;
         quote.response()?;
