@@ -351,13 +351,12 @@ impl Live {
             .stderr
             .take()
             .context("compute_native_session_stderr")?;
-        let drained = match tokio::time::timeout_at(deadline, &mut stderr).await {
-            Ok(Ok(Ok(_))) => true,
-            _ => {
-                stderr.abort();
-                let _ = stderr.await;
-                false
-            }
+        let drained = if let Ok(Ok(Ok(_))) = tokio::time::timeout_at(deadline, &mut stderr).await {
+            true
+        } else {
+            stderr.abort();
+            let _ = stderr.await;
+            false
         };
         ensure!(
             closed && drained,

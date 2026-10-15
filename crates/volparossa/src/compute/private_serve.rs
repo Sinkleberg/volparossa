@@ -249,6 +249,20 @@ fn capabilities(config: &private_task::ExecutionConfig, gate: &Semaphore) -> Val
     })
 }
 
+fn capabilities_response(
+    id: &str,
+    config: &private_task::ExecutionConfig,
+    gate: &Semaphore,
+) -> Value {
+    let mut response = wire::response(id, "capabilities");
+    response["capabilities"] = capabilities(config, gate);
+    if config.native_backend.enabled() {
+        response["capabilities"]["qa_supported"] = false.into();
+        response["capabilities"]["inference_backend"] = super::native_cpu::KIND.into();
+    }
+    response
+}
+
 enum Incoming {
     Request(wire::Request),
     Invalid,
@@ -327,13 +341,7 @@ fn respond(
     match request.operation {
         wire::Operation::Capabilities {} => {
             handshakes.qa = true;
-            let mut response = wire::response(&request.id, "capabilities");
-            response["capabilities"] = capabilities(config, gate);
-            if config.native_backend.enabled() {
-                response["capabilities"]["qa_supported"] = false.into();
-                response["capabilities"]["inference_backend"] = super::native_cpu::KIND.into();
-            }
-            response
+            capabilities_response(&request.id, config, gate)
         }
         wire::Operation::ConversationCapabilities {
             generation_policy_version,
@@ -685,12 +693,10 @@ impl NativeSession {
             let mut reply = wire::error(Some(id), code);
             reply["session_cleanup"] = cleanup.clone().unwrap_or(Value::Null);
             let mut replies = vec![reply];
-            if self.pending.is_some()
-                && self.close_id.is_some()
-                && cleanup.is_some()
-                && !gate.is_closed()
-            {
-                replies.push(self.closed(cleanup.expect("checked cleanup")));
+            if let Some(cleanup) = cleanup.filter(|_| {
+                self.pending.is_some() && self.close_id.is_some() && !gate.is_closed()
+            }) {
+                replies.push(self.closed(cleanup));
             }
             return replies;
         }
