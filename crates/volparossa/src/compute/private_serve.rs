@@ -486,9 +486,14 @@ impl NativeSession {
         slot: ExecutionSlot,
         handshakes: Handshakes,
     ) -> Self {
-        Self::spawn(open_id, slot, handshakes, move |commands, events, activity| {
-            super::supervise::native_session::run(config, commands, events, activity)
-        })
+        Self::spawn(
+            open_id,
+            slot,
+            handshakes,
+            move |commands, events, activity| {
+                super::supervise::native_session::run(config, commands, events, activity)
+            },
+        )
     }
 
     fn spawn<F, Fut>(

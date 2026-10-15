@@ -33,7 +33,10 @@ impl Frames {
         // silently lose a prefix or splice two differently correlated records.
         loop {
             let available = self.stream.fill_buf().await?;
-            ensure!(!available.is_empty(), "compute_native_session_stdout_closed");
+            ensure!(
+                !available.is_empty(),
+                "compute_native_session_stdout_closed"
+            );
             let newline = available.iter().position(|byte| *byte == b'\n');
             let count = newline.unwrap_or(available.len());
             ensure!(
@@ -177,8 +180,9 @@ impl Live {
         self.tracker()?.refresh()?;
         let before = self.tracker()?.cpu_ticks()?;
         let controls = Controls::default();
-        let progress =
-            supervisor::diagnostic::Progress::with_generation(request.private_generation_diagnostics);
+        let progress = supervisor::diagnostic::Progress::with_generation(
+            request.private_generation_diagnostics,
+        );
         let mut value = serde_json::to_value(request)?;
         value["dataset_path"] = json!(format!("/session/turn-{turn}/input.json"));
         value["output_root"] = json!(format!("/session/turn-{turn}/output"));
@@ -346,7 +350,10 @@ impl Live {
             Ok(tracker) => tracker.wait_closed(deadline).await.is_ok(),
             Err(_) => false,
         };
-        let mut stderr = self.stderr.take().context("compute_native_session_stderr")?;
+        let mut stderr = self
+            .stderr
+            .take()
+            .context("compute_native_session_stderr")?;
         let drained = match tokio::time::timeout_at(deadline, &mut stderr).await {
             Ok(Ok(Ok(_))) => true,
             _ => {

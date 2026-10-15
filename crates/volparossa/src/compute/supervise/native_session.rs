@@ -191,10 +191,13 @@ impl Resident {
         task_deadline: Instant,
         activity: &mut watch::Receiver<bool>,
     ) -> Result<Value> {
-        ensure!(self.turn < MAX_REQUESTS, "compute_native_session_request_bound");
+        ensure!(
+            self.turn < MAX_REQUESTS,
+            "compute_native_session_request_bound"
+        );
         self.turn += 1;
-        let deadline =
-            (Instant::now() + Duration::from_secs(u64::from(config.max_seconds))).min(task_deadline);
+        let deadline = (Instant::now() + Duration::from_secs(u64::from(config.max_seconds)))
+            .min(task_deadline);
         let options = stage(config, root, self.turn, input)?;
         let request = request(&options, id)?;
         if self.worker.is_none() {

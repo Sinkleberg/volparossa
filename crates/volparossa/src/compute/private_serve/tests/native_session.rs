@@ -224,7 +224,9 @@ fn session_capability_requires_opt_in_and_exact_owner_manifest_and_legacy_caps_s
     );
     assert_eq!(
         extended.as_object_mut().unwrap().remove("native_session"),
-        Some(json!({"version":1,"max_task_seconds":2400,"max_idle_seconds":300,"max_requests":128}))
+        Some(
+            json!({"version":1,"max_task_seconds":2400,"max_idle_seconds":300,"max_requests":128})
+        )
     );
     assert_eq!(extended, original);
     config.native_backend.native_backend_sha256 = Some("0".repeat(64));
@@ -408,7 +410,10 @@ async fn session_slot_is_connection_exclusive_and_open_requires_its_own_handshak
     );
     negotiate(&mut second).await;
     send(&mut second, SECOND, json!({"type":"open_native_session"})).await;
-    assert_eq!(receive(&mut second).await, wire::error(Some(SECOND), "busy"));
+    assert_eq!(
+        receive(&mut second).await,
+        wire::error(Some(SECOND), "busy")
+    );
     assert_eq!(gate.available_permits(), 0);
     stop.send(true).unwrap();
     owner.await.unwrap();
