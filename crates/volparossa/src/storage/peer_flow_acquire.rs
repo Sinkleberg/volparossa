@@ -80,9 +80,8 @@ impl AgentDetail {
         let Some(flow) = self.flow_acquire else {
             return Ok(());
         };
-        let invalid = || {
-            <serde_json::Error as serde::de::Error>::custom("diagnostic flow acquisition scope")
-        };
+        let invalid =
+            || <serde_json::Error as serde::de::Error>::custom("diagnostic flow acquisition scope");
         if !matches!(code, Some(AgentCode::Unavailable)) {
             return Err(invalid());
         }

@@ -151,12 +151,15 @@ fn flow_acquire_wire_requires_stream_open_without_enclosing_deadline() {
         .tls_failure = Some(6);
     validity(&value, false);
     let mut value = response();
-    value.private_storage_remote_detail.as_mut().unwrap().challenge =
-        Some(PrivateStorageChallengeDetail {
-            phase: 1,
-            before_challenge: 1,
-            in_challenge: 1,
-        });
+    value
+        .private_storage_remote_detail
+        .as_mut()
+        .unwrap()
+        .challenge = Some(PrivateStorageChallengeDetail {
+        phase: 1,
+        before_challenge: 1,
+        in_challenge: 1,
+    });
     validity(&value, false);
 }
 
@@ -175,7 +178,10 @@ fn flow_acquire_wire_requires_original_unavailable_rejection_and_ack() {
         value.diagnostic_code = code.into();
         validity(&value, false);
     }
-    for payload in [None, Some(Payload::Status(crate::StatusSnapshot::default()))] {
+    for payload in [
+        None,
+        Some(Payload::Status(crate::StatusSnapshot::default())),
+    ] {
         let mut value = response();
         value.payload = payload;
         validity(&value, false);
@@ -211,7 +217,10 @@ fn flow_acquire_request_default_is_the_exact_historical_wire() {
         let mut selected = wire;
         selected.extend_from_slice(&[32, 1]); // bool tag4, true; no new operation.
         assert_eq!(request.encode_to_vec(), selected);
-        assert_eq!(PreviousRequest::decode(selected.as_slice()).unwrap(), original);
+        assert_eq!(
+            PreviousRequest::decode(selected.as_slice()).unwrap(),
+            original
+        );
         let envelope = ControlRequest {
             protocol_version: CONTROL_PROTOCOL_VERSION,
             request_id: vec![8; 16],
@@ -227,9 +236,9 @@ fn flow_acquire_request_default_is_the_exact_historical_wire() {
 #[test]
 fn flow_acquire_optional_tag_six_preserves_historical_detail_goldens() {
     for wire in [
-        vec![8, 3],                          // provider lookup.
-        vec![8, 7, 24, 6],                   // TLS I/O.
-        vec![8, 6, 32, 4],                   // Existing undifferentiated flow acquisition.
+        vec![8, 3],                            // provider lookup.
+        vec![8, 7, 24, 6],                     // TLS I/O.
+        vec![8, 6, 32, 4],                     // Existing undifferentiated flow acquisition.
         vec![8, 8, 42, 6, 8, 3, 16, 1, 24, 8], // Challenge with coarse buckets.
     ] {
         let detail = PrivateStorageRemoteDetail::decode(wire.as_slice()).unwrap();
@@ -238,7 +247,9 @@ fn flow_acquire_optional_tag_six_preserves_historical_detail_goldens() {
         assert_eq!(detail.encode_to_vec(), wire);
     }
     let detail = response().private_storage_remote_detail.unwrap();
-    let expected = vec![8, 6, 32, 4, 50, 14, 8, 1, 18, 4, 8, 5, 16, 9, 26, 4, 8, 5, 16, 9];
+    let expected = vec![
+        8, 6, 32, 4, 50, 14, 8, 1, 18, 4, 8, 5, 16, 9, 26, 4, 8, 5, 16, 9,
+    ];
     assert_eq!(detail.encode_to_vec(), expected);
     assert_eq!(
         PrivateStorageRemoteDetail::decode(expected.as_slice()).unwrap(),

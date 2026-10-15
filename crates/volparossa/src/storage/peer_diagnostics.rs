@@ -583,7 +583,9 @@ impl Serialize for Diagnostics {
                 .failures
                 .iter()
                 .enumerate()
-                .map(|(index, failure)| flow_acquire::Failure::new(failure, self.flow_acquire[index]))
+                .map(|(index, failure)| {
+                    flow_acquire::Failure::new(failure, self.flow_acquire[index])
+                })
                 .collect();
             value.serialize_field("failures", &current)?;
         } else {
@@ -753,7 +755,9 @@ impl Diagnostics {
                     detail
                         .validate_rejection(ControlResult::Unavailable, &rejected.diagnostic_code)
                         .ok()?;
-                    detail.flow_acquire.and_then(flow_acquire::Detail::from_wire)
+                    detail
+                        .flow_acquire
+                        .and_then(flow_acquire::Detail::from_wire)
                 });
         }
         self.failures.push(Failure {

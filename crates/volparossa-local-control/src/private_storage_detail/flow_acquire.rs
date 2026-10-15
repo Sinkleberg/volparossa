@@ -41,7 +41,7 @@ pub enum PrivateStorageFlowAcquireReason {
     Entropy = 1,
     /// Required local metadata was missing or invalid.
     Metadata = 2,
-    /// The original local semaphore returned NoPermits.
+    /// The original local semaphore returned `NoPermits`.
     LocalCapacity = 3,
     /// The original local semaphore was closed.
     LocalUnavailable = 4,
@@ -57,9 +57,9 @@ pub enum PrivateStorageFlowAcquireReason {
     HelperCapacity = 9,
     /// The helper returned its closed Unavailable result.
     HelperUnavailable = 10,
-    /// The helper returned NotFound; retirement consumes it as success instead.
+    /// The helper returned `NotFound`; retirement consumes it as success instead.
     HelperNotFound = 11,
-    /// The helper returned CleanupIncomplete; no cleanup success is implied.
+    /// The helper returned `CleanupIncomplete`; no cleanup success is implied.
     HelperCleanupIncomplete = 12,
     /// Another known closed helper rejection result.
     HelperOtherRejection = 13,
