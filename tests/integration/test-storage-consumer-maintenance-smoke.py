@@ -67,7 +67,509 @@ def write(path, data=b'{}'):
     path.chmod(0o600)
 
 
+def diagnostic_failure(profile_version=2):
+    value = dict(version=3, kind='storage-consumer-maintenance', phase='publish', passed=False,
+        provision_sha256=PROVISION, stage='cloud_publish', code='publish_operation', cleanup_confirmed=False,
+        publish_observation=dict(version=2, app='cloud', operation='deposit', status='incomplete',
+            code='retained_operation_incomplete', local_process_joined=True,
+            core_report_present=True, core_operation_complete=False,
+            deposit_diagnostics_state='observed', deposit_diagnostics=dict(version=1, omitted_failures=0,
+                failures=[dict(fragment_index=2, copy_index=1, operation='reserve', stage='agent_terminal',
+                    category='io', agent_code=None)])))
+    if profile_version in (3, 4, 5, 6, 7, 8):
+        value['version'] = profile_version + 1
+        observed = value['publish_observation']
+        observed['version'] = profile_version
+        observed['deposit_diagnostics']['version'] = profile_version - 1
+        observed['deposit_diagnostics']['failures'][0].update(stage='agent_ready', category='agent_rejected',
+            agent_code='CONTENT_UNAVAILABLE', agent_detail=dict(stage='route_connect', deadline_scope='none'))
+        if profile_version >= 4:
+            observed['deposit_diagnostics']['failures'][0]['agent_detail'].update(
+                stage='tls_handshake', tls_failure='authentication')
+        if profile_version == 5:
+            observed['deposit_diagnostics']['failures'][0].update(stage='wire_receipt', category='io',
+                operation='finalize', agent_code=None, agent_detail=None,
+                agent_outcome=dict(status='observed', detail=dict(phase='remote_receipt_read',
+                    category='timeout', deadline_scope='remote_wire')))
+        if profile_version == 6:
+            observed['deposit_diagnostics']['failures'][0].update(agent_outcome=None,
+                agent_detail=dict(stage='stream_open', deadline_scope='none', tls_failure=None,
+                    stream_failure='flow_acquire'))
+        if profile_version == 7:
+            observed['deposit_diagnostics']['failures'][0].update(agent_outcome=None,
+                agent_detail=dict(stage='challenge', deadline_scope='operation', tls_failure=None,
+                    stream_failure=None, challenge=dict(phase='challenge_read_verify',
+                        before_challenge='90_to_120s', in_challenge='1_to_5s')))
+        if profile_version == 8:
+            observed['deposit_diagnostics']['failures'][0].update(operation='append', stage='wire_receipt',
+                category='timeout', agent_code=None, agent_detail=None,
+                agent_outcome=dict(status='observed', detail=dict(phase='remote_receipt_read',
+                    category='timeout', deadline_scope='operation'), append_timing=dict(
+                        before_payload='90_to_120s', in_payload_write_flush='under_1s', in_receipt_read='5_to_15s')))
+    return value
+
+
 class ConsumerReceipts(unittest.TestCase):
+    def test_profile_eight_original_failed_child_and_only_closed_timing_survive(self):
+        value = diagnostic_failure(8)
+        self.assertEqual(value['version'], 9)
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=8), value)
+        for old in range(1, 8):
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=old)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            calls = []
+            def child(command, _):
+                calls.append(command)
+                return 1, raw, b'PRIVATE-STDERR-CANARY'
+            with patch.dict(G, run_child=child, PROFILE_VERSION=8):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(calls[0][-2:], ['--profile-version', '8'])
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+
+    def test_append_timing_uses_only_original_outcome_phase_and_exact_nullable_buckets(self):
+        buckets = ('under_1s', '1_to_5s', '5_to_15s', '15_to_30s',
+            '30_to_60s', '60_to_90s', '90_to_120s', 'at_least_120s')
+        for phase in ('remote_payload_write', 'remote_receipt_read'):
+            for before in buckets:
+                for payload in buckets:
+                    for receipt in ((None,) if phase == 'remote_payload_write' else buckets):
+                        value = diagnostic_failure(8)
+                        outcome = value['publish_observation']['deposit_diagnostics']['failures'][0]['agent_outcome']
+                        outcome['detail']['phase'] = phase
+                        outcome['append_timing'] = dict(before_payload=before, in_payload_write_flush=payload,
+                            in_receipt_read=receipt)
+                        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=8), value)
+        for status in ('observed', 'missing', 'pending', 'expired', 'query_failed', 'query_timeout'):
+            value = diagnostic_failure(8)
+            outcome = value['publish_observation']['deposit_diagnostics']['failures'][0]['agent_outcome']
+            outcome['status'] = status
+            if status != 'observed':
+                outcome['detail'] = None
+                with self.assertRaises(ValueError): M['validate_node_report'](value, 'publish', PROVISION, profile_version=8)
+            outcome['append_timing'] = None
+            self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=8), value)
+
+    def test_append_timing_rejects_scope_malformed_private_and_unsolicited_old_fields(self):
+        mutations = [
+            lambda f: f.update(operation='finalize'),
+            lambda f: f['agent_outcome']['detail'].update(phase='remote_receipt_verify'),
+            lambda f: f['agent_outcome']['detail'].update(phase='remote_payload_write'),
+            lambda f: f['agent_outcome'].pop('append_timing'),
+            lambda f: f['agent_outcome']['append_timing'].update(phase='remote_receipt_read'),
+            lambda f: f['agent_outcome']['append_timing'].update(raw='/private/canary'),
+        ]
+        for field in ('before_payload', 'in_payload_write_flush', 'in_receipt_read'):
+            mutations.append(lambda f, k=field: f['agent_outcome']['append_timing'].pop(k))
+            for invalid in (None, True, 1, {}, [], 'unobserved', '/private/canary'):
+                mutations.append(lambda f, k=field, v=invalid: f['agent_outcome']['append_timing'].update({k: v}))
+        for mutate in mutations:
+            value = diagnostic_failure(8)
+            mutate(value['publish_observation']['deposit_diagnostics']['failures'][0])
+            with self.assertRaises(ValueError): M['validate_node_report'](value, 'publish', PROVISION, profile_version=8)
+        for version in (4, 5, 6):
+            value = diagnostic_failure(8)['publish_observation']['deposit_diagnostics']
+            value['version'] = version
+            for timing in (None, value['failures'][0]['agent_outcome']['append_timing']):
+                value['failures'][0]['agent_outcome']['append_timing'] = timing
+                with self.assertRaises(ValueError): M['validate_deposit_diagnostics'](value, version)
+
+    def test_profile_seven_retains_original_failed_child_and_does_not_upgrade_history(self):
+        value = diagnostic_failure(7)
+        self.assertEqual(value['version'], 8)
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=7), value)
+        for old in range(1, 7):
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=old)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            calls = []
+            def child(command, _):
+                calls.append(command)
+                return 1, raw, b'PRIVATE-RAW-STDERR'
+            with patch.dict(G, run_child=child, PROFILE_VERSION=7):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(calls[0][-2:], ['--profile-version', '7'])
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertEqual(caught.exception.report['node_report_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+
+    def test_challenge_progress_is_finite_scoped_and_not_part_of_old_diagnostics(self):
+        original = diagnostic_failure(7)['publish_observation']['deposit_diagnostics']
+        buckets = ('under_1s', '1_to_5s', '5_to_15s', '15_to_30s',
+            '30_to_60s', '60_to_90s', '90_to_120s', 'at_least_120s')
+        for phase in ('selector_write_flush', 'grant_write_flush', 'challenge_read_verify'):
+            for before in buckets:
+                for within in buckets:
+                    for deadline in ('none', 'operation', 'exchange'):
+                        value = copy.deepcopy(original)
+                        value['failures'][0]['agent_detail'].update(deadline_scope=deadline,
+                            challenge=dict(phase=phase, before_challenge=before, in_challenge=within))
+                        M['validate_deposit_diagnostics'](value, 6)
+        nullable = copy.deepcopy(original); nullable['failures'][0]['agent_detail']['challenge'] = None
+        M['validate_deposit_diagnostics'](nullable, 6)
+        for old in range(1, 6):
+            value = copy.deepcopy(nullable); value['version'] = old
+            with self.assertRaises(ValueError): M['validate_deposit_diagnostics'](value, old)
+        mutations = [
+            lambda f: f['agent_detail'].pop('challenge'),
+            lambda f: f['agent_detail']['challenge'].update(raw='PRIVATE'),
+            *(lambda f, k=k: f['agent_detail']['challenge'].pop(k)
+                for k in ('phase', 'before_challenge', 'in_challenge')),
+            *(lambda f, k=k, v=v: f['agent_detail']['challenge'].update({k: v})
+                for k in ('phase', 'before_challenge', 'in_challenge') for v in (None, 0, True, {}, [], 'PRIVATE', 'unobserved')),
+            *(lambda f, v=v: f['agent_detail'].update(stage=v)
+                for v in ('stream_open', 'tls_handshake', 'route_connect')),
+            lambda f: f['agent_detail'].update(tls_failure='io'),
+            lambda f: f['agent_detail'].update(stream_failure='flow_acquire'),
+            *(lambda f, v=v: f.update(agent_code=v) for v in ('CONTENT_INVALID', 'CONTENT_BUSY', 'CONTENT_POLICY', 'unknown')),
+            lambda f: f.update(stage='wire_receipt'), lambda f: f.update(category='io', agent_code=None),
+        ]
+        for mutate in mutations:
+            value = copy.deepcopy(original); mutate(value['failures'][0])
+            with self.assertRaises(ValueError): M['validate_deposit_diagnostics'](value, 6)
+
+    def test_profile_six_keeps_exact_failed_child_and_rejects_older_profile_binding(self):
+        value = diagnostic_failure(6)
+        self.assertEqual(value['version'], 7)
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=6), value)
+        for old in (1, 2, 3, 4, 5):
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=old)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            calls = []
+            def child(command, _):
+                calls.append(command)
+                return 1, raw, b'PRIVATE-RAW-STDERR'
+            with patch.dict(G, run_child=child, PROFILE_VERSION=6):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(calls[0][-2:], ['--profile-version', '6'])
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertEqual(caught.exception.report['node_report_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+
+    def test_profile_six_stream_matrix_is_closed_and_old_details_are_not_widened(self):
+        original = diagnostic_failure(6)
+        def failure(value):
+            return value['publish_observation']['deposit_diagnostics']['failures'][0]
+        for name in (None, 'policy', 'route_state', 'route_material', 'flow_acquire',
+                'transport_certificate', 'transport_tls', 'initial_paths', 'open_tcp_write',
+                'subflow_readiness', 'stream_attachment'):
+            value = copy.deepcopy(original); failure(value)['agent_detail']['stream_failure'] = name
+            self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=6), value)
+        mutations = [
+            *(lambda f, k=k: f['agent_detail'].pop(k) for k in ('stage', 'deadline_scope', 'tls_failure', 'stream_failure')),
+            *(lambda f, v=v: f['agent_detail'].update(stream_failure=v) for v in ('PRIVATE', 'unknown', '', 1, False, {}, [])),
+            *(lambda f, v=v: f['agent_detail'].update(deadline_scope=v) for v in ('operation', 'exchange')),
+            *(lambda f, v=v: f['agent_detail'].update(stage=v) for v in ('route_connect', 'provider_lookup', 'tls_handshake', 'challenge')),
+            *(lambda f, v=v: f.update(agent_code=v) for v in ('CONTENT_INVALID', 'CONTENT_POLICY', 'CONTENT_BUSY', 'unknown')),
+            lambda f: f.update(stage='wire_receipt'), lambda f: f.update(category='io', agent_code=None),
+            lambda f: f['agent_detail'].update(tls_failure='io'), lambda f: f['agent_detail'].update(raw='PRIVATE'),
+            lambda f: f.pop('agent_outcome'), lambda f: f.update(agent_outcome=dict(status='missing', detail=None)),
+        ]
+        for mutate in mutations:
+            value = copy.deepcopy(original); mutate(failure(value))
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=6)
+        for version in (2, 3, 4):
+            value = copy.deepcopy(original['publish_observation']['deposit_diagnostics'])
+            value['version'] = version
+            value['failures'][0]['agent_detail']['stream_failure'] = None
+            if version < 4: value['failures'][0].pop('agent_outcome')
+            with self.assertRaises(ValueError): M['validate_deposit_diagnostics'](value, version)
+
+    def test_profile_five_keeps_exact_failed_child_receipt_and_does_not_upgrade_older_profiles(self):
+        value = diagnostic_failure(5)
+        self.assertEqual(value['version'], 6)
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=5), value)
+        for old in (1, 2, 3, 4):
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=old)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            calls = []
+            def child(command, _):
+                calls.append(command)
+                return 1, raw, b'PRIVATE-RAW-STDERR'
+            with patch.dict(G, run_child=child, PROFILE_VERSION=5):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(calls[0][-2:], ['--profile-version', '5'])
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertEqual(caught.exception.report['node_report_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+
+    def test_profile_five_outcome_matrix_requires_real_timeout_and_post_ready_scope(self):
+        phases = M['OUTCOME_PHASES']
+        for index, phase in enumerate(phases):
+            for category in ('io', 'auth', 'invalid', 'busy', 'store', 'expired', 'entropy', 'timeout', 'policy', 'unavailable', 'cancelled'):
+                for scope in ('none', 'operation', 'exchange', 'bridge', 'remote_wire'):
+                    value = diagnostic_failure(5)
+                    outcome = value['publish_observation']['deposit_diagnostics']['failures'][0]['agent_outcome']
+                    outcome['detail'] = dict(phase=phase, category=category, deadline_scope=scope)
+                    allowed = ((category == 'timeout') == (scope != 'none')) and (
+                        scope != 'bridge' or 1 <= index <= 14) and (scope != 'remote_wire' or 6 <= index <= 12)
+                    if allowed:
+                        M['validate_node_report'](value, 'publish', PROVISION, profile_version=5)
+                    else:
+                        with self.assertRaises(ValueError):
+                            M['validate_node_report'](value, 'publish', PROVISION, profile_version=5)
+
+    def test_profile_five_required_nullable_outcome_and_closed_status_fields(self):
+        for status in ('observed', 'missing', 'pending', 'expired', 'query_failed', 'query_timeout'):
+            for detail in (None, dict(phase='remote_receipt_read', category='io', deadline_scope='none')):
+                value = diagnostic_failure(5)
+                failure = value['publish_observation']['deposit_diagnostics']['failures'][0]
+                failure['agent_outcome'] = dict(status=status, detail=detail)
+                if (status == 'observed') == (detail is not None):
+                    M['validate_node_report'](value, 'publish', PROVISION, profile_version=5)
+                else:
+                    with self.assertRaises(ValueError):
+                        M['validate_node_report'](value, 'publish', PROVISION, profile_version=5)
+        mutations = [lambda f: f.pop('agent_outcome'), lambda f: f['agent_outcome'].pop('detail'),
+            lambda f: f['agent_outcome'].update(original_request_id='PRIVATE'),
+            lambda f: f['agent_outcome']['detail'].update(raw_error='PRIVATE'),
+            lambda f: f['agent_outcome']['detail'].update(phase='unobserved')]
+        mutations += [lambda f, stage=stage: f.update(stage=stage)
+            for stage in ('agent_ready', 'authorization', 'signed_request', 'accounting', 'unknown')]
+        for mutate in mutations:
+            value = diagnostic_failure(5)
+            mutate(value['publish_observation']['deposit_diagnostics']['failures'][0])
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=5)
+        value = diagnostic_failure(5)
+        value['publish_observation']['deposit_diagnostics']['failures'][0]['agent_outcome'] = None
+        M['validate_node_report'](value, 'publish', PROVISION, profile_version=5)
+
+    def test_profile_four_retains_original_child_tls_failure_and_rejects_downgrades(self):
+        value = diagnostic_failure(4)
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=4), value)
+        for old in (1, 2, 3):
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=old)
+        for old in (1, 2):
+            diagnostic = copy.deepcopy(value['publish_observation']['deposit_diagnostics'])
+            diagnostic['version'] = old
+            with self.assertRaises(ValueError):
+                M['validate_deposit_diagnostics'](diagnostic, old)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            calls = []
+            def child(command, _):
+                calls.append(command)
+                return 1, raw, b'PRIVATE-RAW-STDERR'
+            with patch.dict(G, run_child=child, PROFILE_VERSION=4):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(calls[0][-2:], ['--profile-version', '4'])
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertEqual(caught.exception.report['node_report_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+
+    def test_profile_four_enforces_tls_matrix_and_required_nullable_field(self):
+        for tls in ('offer', 'configuration', 'handshake_deadline', 'authentication', 'tls_other', 'io'):
+            for stage in ('tls_handshake', 'stream_open', 'challenge', 'unobserved'):
+                for scope in ('none', 'operation', 'exchange'):
+                    for code in ('CONTENT_UNAVAILABLE', 'CONTENT_INVALID', 'CONTENT_BUSY', 'CONTENT_POLICY', 'unknown'):
+                        value = diagnostic_failure(4)
+                        failure = value['publish_observation']['deposit_diagnostics']['failures'][0]
+                        failure.update(agent_code=code, agent_detail=dict(stage=stage, deadline_scope=scope, tls_failure=tls))
+                        if stage == 'tls_handshake' and scope == 'none' and code == 'CONTENT_UNAVAILABLE':
+                            M['validate_node_report'](value, 'publish', PROVISION, profile_version=4)
+                        else:
+                            with self.assertRaises(ValueError):
+                                M['validate_node_report'](value, 'publish', PROVISION, profile_version=4)
+        for absent in (None, dict(stage='tls_handshake', deadline_scope='none', tls_failure=None)):
+            value = diagnostic_failure(4)
+            value['publish_observation']['deposit_diagnostics']['failures'][0]['agent_detail'] = absent
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=4)
+
+    def test_profile_four_rejects_nonclosed_reserved_tls_and_keeps_missing_invalid_failures(self):
+        mutations = [lambda f: f['agent_detail'].pop('tls_failure'), lambda f: f['agent_detail'].update(raw='PRIVATE'),
+            lambda f: f.update(stage='agent_terminal'), lambda f: f.update(category='io', agent_code=None)]
+        mutations += [lambda f, v=v: f['agent_detail'].update(tls_failure=v)
+            for v in ('unobserved', 'PRIVATE', 0, 1, False, [], {})]
+        for mutate in mutations:
+            value = diagnostic_failure(4)
+            mutate(value['publish_observation']['deposit_diagnostics']['failures'][0])
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=4)
+        for state in ('missing', 'invalid'):
+            value = diagnostic_failure(4)
+            value['publish_observation'].update(status='complete', core_operation_complete=True,
+                deposit_diagnostics_state=state, deposit_diagnostics=None)
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=4)
+
+    def test_profile_three_binds_detail_version_exact_child_call_and_original_bytes(self):
+        value = diagnostic_failure(3)
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=3), value)
+        for profile, other in ((1, value), (2, value), (3, diagnostic_failure())):
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](other, 'publish', PROVISION, profile_version=profile)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            calls = []
+            def child(command, _):
+                calls.append(command)
+                return 1, raw, b'PRIVATE-RAW-STDERR'
+            with patch.dict(G, run_child=child, PROFILE_VERSION=3):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(calls[0][-2:], ['--profile-version', '3'])
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertEqual(caught.exception.report['node_report_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+
+    def test_profile_three_enforces_exact_detail_deadline_matrix(self):
+        stages = ('unobserved', 'route_connect', 'control_selection', 'provider_lookup',
+            'provider_cardinality', 'offer_validity', 'stream_open', 'tls_handshake', 'challenge')
+        for stage in stages:
+            for scope in ('none', 'operation', 'exchange'):
+                value = diagnostic_failure(3)
+                failure = value['publish_observation']['deposit_diagnostics']['failures'][0]
+                failure['agent_detail'] = dict(stage=stage, deadline_scope=scope)
+                allowed = (stage != 'unobserved' or scope == 'operation') and (
+                    scope != 'exchange' or stage in ('stream_open', 'tls_handshake', 'challenge'))
+                if allowed:
+                    M['validate_node_report'](value, 'publish', PROVISION, profile_version=3)
+                else:
+                    with self.assertRaises(ValueError):
+                        M['validate_node_report'](value, 'publish', PROVISION, profile_version=3)
+        for code in ('CONTENT_INVALID', 'CONTENT_UNAVAILABLE', 'CONTENT_BUSY', 'CONTENT_POLICY'):
+            value = diagnostic_failure(3)
+            failure = value['publish_observation']['deposit_diagnostics']['failures'][0]
+            failure['agent_code'] = code
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=3)
+            failure['agent_detail']['deadline_scope'] = 'operation'
+            if code == 'CONTENT_UNAVAILABLE':
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=3)
+            else:
+                with self.assertRaises(ValueError):
+                    M['validate_node_report'](value, 'publish', PROVISION, profile_version=3)
+
+    def test_profile_three_rejects_nonclosed_detail_and_preserves_null_and_missing_states(self):
+        mutations = [lambda f: f.pop('agent_detail'), lambda f: f.update(agent_detail='/PRIVATE'),
+            lambda f: f.update(agent_detail=[]), lambda f: f['agent_detail'].update(raw='PRIVATE'),
+            lambda f: f['agent_detail'].update(stage='PRIVATE'),
+            lambda f: f['agent_detail'].update(deadline_scope='PRIVATE'),
+            lambda f: f['agent_detail'].pop('stage'), lambda f: f.update(stage='agent_terminal'),
+            lambda f: f.update(category='io', agent_code=None), lambda f: f.update(agent_code='unknown')]
+        for mutate in mutations:
+            value = diagnostic_failure(3)
+            mutate(value['publish_observation']['deposit_diagnostics']['failures'][0])
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=3)
+        value = diagnostic_failure(3)
+        diagnostic = value['publish_observation']['deposit_diagnostics']
+        diagnostic['failures'][0].update(category='io', agent_code=None, agent_detail=None)
+        diagnostic['failures'] = [dict(diagnostic['failures'][0], fragment_index=i // 2, copy_index=i % 2) for i in range(8)]
+        M['validate_node_report'](value, 'publish', PROVISION, profile_version=3)
+        for state in ('missing', 'invalid'):
+            value = diagnostic_failure(3)
+            value['publish_observation'].update(status='complete', core_operation_complete=True,
+                deposit_diagnostics_state=state, deposit_diagnostics=None)
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=3)
+        for mutate in (lambda v: v.update(version=3), lambda v: v['publish_observation'].update(version=2),
+                lambda v: v['publish_observation']['deposit_diagnostics'].update(version=1)):
+            value = diagnostic_failure(3); mutate(value)
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=3)
+
+    def test_current_deposit_failure_survives_exact_child_call_and_retained_bytes(self):
+        value = diagnostic_failure()
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=2), value)
+        with self.assertRaises(ValueError):
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=1)
+        calls = []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            def child(command, _):
+                calls.append(command)
+                return 1, raw, b'PRIVATE-NOT-EXPORTED'
+            with patch.dict(G, run_child=child, PROFILE_VERSION=2):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(calls[0][-2:], ['--profile-version', '2'])
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertEqual(caught.exception.report['node_report_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+
+    def test_current_diagnostic_rejects_unbounded_unknown_private_or_duplicate_records(self):
+        mutations = [lambda d: d.update(version=True), lambda d: d.update(omitted_failures=1),
+            lambda d: d.update(failures=d['failures'] * 9), lambda d: d.update(failures=d['failures'] * 2),
+            lambda d: d.update(raw='PRIVATE'), lambda d: d['failures'][0].update(raw='PRIVATE'),
+            lambda d: d['failures'][0].update(fragment_index=4), lambda d: d['failures'][0].update(copy_index=2),
+            lambda d: d['failures'][0].update(fragment_index=True), lambda d: d['failures'][0].update(operation='PRIVATE'),
+            lambda d: d['failures'][0].update(stage='PRIVATE'), lambda d: d['failures'][0].update(category='PRIVATE'),
+            lambda d: d['failures'][0].update(agent_code='CONTENT_POLICY'),
+            lambda d: d['failures'][0].update(category='agent_rejected'),
+            lambda d: d['failures'][0].update(category='agent_rejected', agent_code='PRIVATE')]
+        for mutate in mutations:
+            value = diagnostic_failure()
+            mutate(value['publish_observation']['deposit_diagnostics'])
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+        value = diagnostic_failure()
+        d = value['publish_observation']['deposit_diagnostics']
+        d['failures'] = [dict(d['failures'][0], fragment_index=i // 2, copy_index=i % 2) for i in range(8)]
+        M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+        d['failures'][0].update(category='agent_rejected', agent_code='unknown')
+        M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+
+    def test_diagnostic_failure_versions_and_missing_invalid_states_do_not_downgrade(self):
+        for state in ('missing', 'invalid'):
+            value = diagnostic_failure()
+            value['publish_observation'].update(status='complete', code='ok', core_operation_complete=True,
+                deposit_diagnostics_state=state, deposit_diagnostics=None)
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+            value['publish_observation']['deposit_diagnostics'] = {'private': 'NO'}
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+        for mutate in (lambda v: v.update(version=2), lambda v: v.update(version=True),
+                lambda v: v['publish_observation'].update(version=1),
+                lambda v: v['publish_observation'].update(deposit_diagnostics_state='not_applicable'),
+                lambda v: v['publish_observation'].update(core_operation_complete=True),
+                lambda v: v['publish_observation'].update(core_operation_complete=1)):
+            value = diagnostic_failure()
+            mutate(value)
+            with self.assertRaises(ValueError):
+                M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+        value = diagnostic_failure()
+        value['version'] = 2
+        observed = value['publish_observation']
+        observed['version'] = 1
+        del observed['deposit_diagnostics_state'], observed['deposit_diagnostics']
+        M['validate_node_report'](value, 'publish', PROVISION, profile_version=1)
+        with self.assertRaises(ValueError):
+            M['validate_node_report'](value, 'publish', PROVISION, profile_version=2)
+
     def test_exact_phase_geometry_and_original_ciphertext_accounting(self):
         M['validate_node_report'](prepared(), 'prepare', PROVISION)
         for phase in ('publish', 'exercise', 'finish'):
@@ -146,6 +648,48 @@ class ConsumerReceipts(unittest.TestCase):
         self.assertEqual(value['phase'], 'exercise')
         self.assertNotIn('/private', json.dumps(value))
         self.assertEqual(M['failure_report'](['/private/key'])['phase'], 'invalid')
+
+    def test_closed_publish_observation_preserves_operation_without_exporting_raw_result(self):
+        value = dict(version=2, kind='storage-consumer-maintenance', phase='publish', passed=False,
+            provision_sha256=PROVISION, stage='cloud_publish', code='publish_operation', cleanup_confirmed=False,
+            publish_observation=dict(version=1, app='cloud', operation='deposit', status='incomplete',
+                code='retained_operation_incomplete', local_process_joined=True,
+                core_report_present=True, core_operation_complete=False))
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION), value)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            with patch.dict(G, run_child=lambda *_: (1, raw, b'PRIVATE-DO-NOT-EXPORT')):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            self.assertEqual(caught.exception.report['node'], value)
+            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+        cases = [lambda v: v.update(version=1), lambda v: v.update(stage='image_publish'),
+            lambda v: v.update(phase='exercise'), lambda v: v.update(code='application_failed'),
+            lambda v: v['publish_observation'].update(app='private-path'),
+            lambda v: v['publish_observation'].update(operation='restore'),
+            lambda v: v['publish_observation'].update(status='PRIVATE'),
+            lambda v: v['publish_observation'].update(code='PRIVATE'),
+            lambda v: v['publish_observation'].update(local_process_joined=1),
+            lambda v: v['publish_observation'].update(core_report_present=1),
+            lambda v: v['publish_observation'].update(core_operation_complete=1),
+            lambda v: v['publish_observation'].update(core_report_present=False),
+            lambda v: v['publish_observation'].update(status='complete'),
+            lambda v: v['publish_observation'].update(raw_storage={'path': 'PRIVATE'}),
+            lambda v: v['publish_observation'].update(version=True)]
+        for mutate in cases:
+            with self.subTest(mutate=mutate):
+                changed = copy.deepcopy(value)
+                mutate(changed)
+                with self.assertRaises(ValueError):
+                    M['validate_node_report'](changed, changed['phase'], PROVISION)
+        changed = copy.deepcopy(value)
+        changed['code'] = 'phase_deadline'
+        changed['publish_observation'].update(status='cancelled', code='cancelled',
+            core_report_present=False, core_operation_complete=None)
+        M['validate_node_report'](changed, 'publish', PROVISION)
 
 
 class ConsumerBoundaries(unittest.TestCase):
@@ -263,11 +807,14 @@ class ConsumerOrchestration(unittest.TestCase):
         # The guest stages individual files, not this whole checkout. Exercise
         # the actual runpy/load_pins closure in that same sparse arrangement.
         names = ('storage-consumer-maintenance-smoke.py', 'storage-consumer-maintenance-provision.py',
-            'storage-consumer-maintenance-pins.json', 'image-snapshot-provision.py',
+            'storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json',
+            'storage-consumer-maintenance-pins-v3.json', 'storage-consumer-maintenance-pins-v4.json',
+            'storage-consumer-maintenance-pins-v5.json', 'storage-consumer-maintenance-pins-v6.json',
+            'storage-consumer-maintenance-pins-v7.json', 'storage-consumer-maintenance-pins-v8.json', 'image-snapshot-provision.py',
             'agent-private-task-code.py', 'agent-private-task-code-pins.json',
             'private-storage-fragments-smoke.py', 'private-storage-replicas-smoke.py',
             'private-storage-peer-smoke.py', 'content-provider-https-smoke.py',
-            'content-network-smoke.py', 'private-storage-log-sampler.py')
+            'content-network-smoke.py', 'private-storage-log-sampler.py', 'storage-provider-activity-sampler.py')
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             for name in names:
@@ -276,6 +823,13 @@ class ConsumerOrchestration(unittest.TestCase):
                     patch.object(urllib.request, 'urlopen') as download:
                 loaded = runpy.run_path(str(root / names[0]))
                 self.assertEqual(loaded['PROVISIONER']['load_pins'](), M['PROVISIONER']['load_pins']())
+                self.assertEqual(loaded['PROVISIONER']['load_pins'](2), M['PROVISIONER']['load_pins'](2))
+                self.assertEqual(loaded['PROVISIONER']['load_pins'](3), M['PROVISIONER']['load_pins'](3))
+                self.assertEqual(loaded['PROVISIONER']['load_pins'](4), M['PROVISIONER']['load_pins'](4))
+                self.assertEqual(loaded['PROVISIONER']['load_pins'](5), M['PROVISIONER']['load_pins'](5))
+                self.assertEqual(loaded['PROVISIONER']['load_pins'](6), M['PROVISIONER']['load_pins'](6))
+                self.assertEqual(loaded['PROVISIONER']['load_pins'](7), M['PROVISIONER']['load_pins'](7))
+                self.assertEqual(loaded['PROVISIONER']['load_pins'](8), M['PROVISIONER']['load_pins'](8))
                 self.assertEqual(loaded['FLOW_MINIMUM'], M['FLOW_MINIMUM'])
                 for absent in ('image-snapshot-provision.py', 'agent-private-task-code.py', 'agent-private-task-code-pins.json'):
                     (root / absent).unlink()
@@ -287,7 +841,26 @@ class ConsumerOrchestration(unittest.TestCase):
                 execute.assert_not_called()
                 download.assert_not_called()
 
+    def test_profile_selection_is_explicit_and_reset_between_independent_cli_calls(self):
+        import io
+        from contextlib import redirect_stdout
+        with redirect_stdout(io.StringIO()):
+            for profile in (2, 3, 4, 5, 6, 7, 8):
+                M['main'](['flow-minimum', 'publish', '--profile-version', str(profile)])
+                self.assertEqual(G['PROFILE_VERSION'], profile)
+            M['main'](['flow-minimum', 'publish'])
+            self.assertEqual(G['PROFILE_VERSION'], 1)
+        with self.assertRaises(ValueError):
+            M['main'](['flow-minimum', 'publish', '--profile-version', '9'])
+
     def test_preparation_creates_only_original_finite_authority_from_exact_cipher_size(self):
+        self.assert_preparation(1)
+
+    def test_preparation_enables_append_diagnostics_only_in_explicit_profile_eight(self):
+        self.assert_preparation(8)
+        self.assert_preparation(7)
+
+    def assert_preparation(self, profile):
         original, calls, owners = prepared(), [], iter(('4' * 64, '5' * 64))
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -313,7 +886,8 @@ class ConsumerOrchestration(unittest.TestCase):
                     max_payload_bytes=selected['--max-payload-bytes'], max_leases=4,
                     expires_unix_seconds=int(time.time()) + 7200, reserved_bytes=0, network_contribution_credit=False)
 
-            with patch.dict(G, node_phase=node, core=core, validate_locations=lambda *_: (Path('/fixed/core'), Path('/fixed/client'))):
+            with patch.dict(G, PROFILE_VERSION=profile, node_phase=node, core=core,
+                    validate_locations=lambda *_: (Path('/fixed/core'), Path('/fixed/client'))):
                 result = M['prepare'](root, '/fixed/core', '/fixed/client', ['a', 'b', 'c'],
                     [str(i) * 64 for i in (1, 2, 3)], PROVISION, time.monotonic() + 5)
             self.assertEqual(len(calls), 10)
@@ -321,6 +895,10 @@ class ConsumerOrchestration(unittest.TestCase):
             for name in ('image', 'cloud'):
                 size = original[name]['cipher_bytes']
                 config = M['private_json'](root / name / 'storage.json')
+                if profile == 8:
+                    self.assertIs(config.pop('appendDiagnosticsV7'), True)
+                else:
+                    self.assertNotIn('appendDiagnosticsV7', config)
                 policy = M['private_json'](root / name / 'maintenance-policy.json')
                 self.assertEqual(config['fragmentBytes'], (size + 3) // 4)
                 self.assertEqual((config['lifetimeSeconds'], config['deadlineMs']), (1800, 1800000))
@@ -375,6 +953,90 @@ class ConsumerOrchestration(unittest.TestCase):
                 'flow-minimum', phase], capture_output=True, timeout=5, check=True)
             self.assertEqual(run.stdout, f'{minimum}\n'.encode())
             self.assertEqual(run.stderr, b'')
+
+    def test_current_phase_joins_activity_after_flow_cleanup_without_replacing_owner_failure(self):
+        events = []
+        root = Path('/opt/va.' + 'a' * 32 + '.abcdef/u/m')
+        work = root.parents[1]
+        @contextmanager
+        def activity(binary, selected_work, selected_root, phase):
+            self.assertEqual((selected_work, selected_root, phase), (work, root, 'publish'))
+            events.append('activity_start')
+            try: yield
+            finally: events.append('activity_join')
+        @contextmanager
+        def flow(*args, **kwargs):
+            self.assertEqual(args[3], 56)
+            events.append('flow_start')
+            try: yield None
+            finally: events.append('flow_join')
+        def node(*_):
+            events.append('node')
+            raise ValueError('original_node_failure')
+        real_runpy = runpy.run_path
+        def load(path):
+            module = real_runpy(path)
+            if str(path).endswith('storage-consumer-route-sampler.py'):
+                module.update(capture=flow, validate_policy=lambda *_: None)
+            return module
+        with patch.dict(os.environ, STORAGE_PROOF_BASELINE_MS='1', STORAGE_PROOF_ROUTE_POLICY='{}',
+                STORAGE_PROOF_UNDERLAY_SHA256='a' * 64), patch.object(G['runpy'], 'run_path', load), \
+                patch.dict(G, PROFILE_VERSION=7, NETWORK_VERSION=2, ACTIVITY=dict(M['ACTIVITY'], capture=activity),
+                    private_json=lambda *_: dict(coreBinary='/fixed/core', controlSocket='/fixed/client'),
+                    validate_locations=lambda *_: (Path('/fixed/core'), Path('/fixed/client')),
+                    private_directory=lambda *_: None, node_phase=node):
+            with self.assertRaisesRegex(ValueError, 'original_node_failure'):
+                M['phase'](root, 'publish', work / 'runtime-exit/control/agent.sock',
+                    work / 'client-fixtures/private-storage-user', PROVISION, time.monotonic() + 1)
+        self.assertEqual(events, ['activity_start', 'flow_start', 'node', 'flow_join', 'activity_join'])
+
+    def test_network_two_actual_sampler_and_original_node_failure_keep_separate_boundaries(self):
+        # Real new sampler; only its core RPC replies and the Node phase are
+        # synthetic. No runtime, socket or provider is used by this component test.
+        fixtures = runpy.run_path(str(HERE / 'test-storage-consumer-route-sampler.py'))
+        root = Path('/opt/va.' + 'a' * 32 + '.abcdef/u/m')
+        work, writes = root.parents[1], []
+        context = 'a' * 32
+        initial = fixtures['snapshot'](context, 0, fixtures['OLD']['event'](9))
+        final = fixtures['snapshot'](context, 0, fixtures['OLD']['event'](9) + b''.join(
+            fixtures['OLD']['event'](11 + i, context=context) for i in range(16)))
+        env = dict(STORAGE_PROOF_BASELINE_MS='10', STORAGE_PROOF_ROUTE_POLICY=json.dumps(fixtures['POLICY']),
+            STORAGE_PROOF_UNDERLAY_SHA256='d' * 64)
+        from types import SimpleNamespace
+        replies = [SimpleNamespace(stdout=raw) for raw in initial + final]
+        with patch.dict(os.environ, env), patch.dict(G, NETWORK_VERSION=2,
+                private_json=lambda *_: dict(coreBinary='/fixed/core', controlSocket='/fixed/client'),
+                validate_locations=lambda *_: (Path('/fixed/core'), Path('/fixed/client')),
+                private_directory=lambda *_: None, node_phase=lambda *_: (report('exercise'), 'b' * 64),
+                write_json=lambda path, value: writes.append((path, value))), \
+                patch.object(subprocess, 'run', side_effect=replies) as query:
+            result = M['phase'](root, 'exercise', work / 'runtime-exit/control/agent.sock',
+                work / 'client-fixtures/private-storage-user', PROVISION, time.monotonic() + 1)
+        self.assertEqual(query.call_count, 8)
+        self.assertEqual((result['version'], result['network_version'], result['control_underlay_sha256']), (2, 2, 'd' * 64))
+        self.assertEqual(writes[0][1]['exit_log_sampling_version'], 3)
+        self.assertTrue(writes[0][1]['exit_log_sampler_joined'])
+        original = M['NodePhaseFailure'](diagnostic_failure(3), 'b' * 64, PROVISION)
+        for owner_failure in (False, True):
+            writes.clear()
+            error = subprocess.CalledProcessError(1, ['PRIVATE'])
+            replies = [SimpleNamespace(stdout=raw) for raw in initial] + [error] if owner_failure else [error]
+            def node(*_): raise original
+            with patch.dict(os.environ, env), patch.dict(G, NETWORK_VERSION=2,
+                    private_json=lambda *_: dict(coreBinary='/fixed/core', controlSocket='/fixed/client'),
+                    validate_locations=lambda *_: (Path('/fixed/core'), Path('/fixed/client')),
+                    private_directory=lambda *_: None, node_phase=node,
+                    write_json=lambda *args: writes.append(args)), \
+                    patch.object(subprocess, 'run', side_effect=replies):
+                expected = M['NodePhaseFailure'] if owner_failure else M['NetworkPhaseFailure']
+                with self.assertRaises(expected) as caught:
+                    M['phase'](root, 'exercise', work / 'runtime-exit/control/agent.sock',
+                        work / 'client-fixtures/private-storage-user', PROVISION, time.monotonic() + 1)
+            if owner_failure: self.assertIs(caught.exception, original)
+            else:
+                self.assertEqual(caught.exception.report['sampler']['operation'], 'paths_before')
+                self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+            self.assertEqual(writes, [])
 
 
 if __name__ == '__main__':

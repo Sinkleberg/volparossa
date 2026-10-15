@@ -39,8 +39,14 @@ EXPORT_NAMES = tuple(name for name in F['EXPORT_NAMES'] if name not in
     'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json',
     'private-storage-maintenance-lifecycle.json',
     'private-storage-maintenance-lifecycle-failure.json',
+    'private-storage-maintenance-route-diagnostic.json',
+    'private-storage-maintenance-provider-events.json',
+    'private-storage-provider-activity.json',
+    'private-storage-maintenance-inventory.json',
+    'private-storage-maintenance-supervisor.json',
     'private-storage-fragments-lifecycle-live-selection.json',
     'private-storage-fragments-lifecycle-gates.json',
+    *(f'private-storage-fragments-{name}-layout.json' for name in ('upload', 'lifecycle', 'restore', 'finish')),
     'content-provider-adaptive-private-storage-fragments-lifecycle-control.json',
     *(f'private-storage-fragments-lifecycle-privacy-{role}.json' for role in F['ROLES']))
 EXPORT_NAMES = tuple(dict.fromkeys((*EXPORT_NAMES, *CONSUMERS['EXPORT_NAMES'])))
@@ -55,12 +61,21 @@ REPAIR_DIAGNOSTIC = None
 REPAIR_TURNS = []
 SAMPLER_DIAGNOSTIC = {}
 LIFECYCLE_DIAGNOSTIC = None
+UPLOAD_DIAGNOSTIC = None
+UPLOAD_OPERATIONS = ('create', 'deposit', 'progress', 'redeposit', 'renew', 'status', 'foreground_seed')
+SUPERVISOR_STAGES = ('bind_slots', 'control_query', 'control_match', 'broker_validated',
+    'control_snapshot', 'control_validate_before', 'control_rebind',
+    'control_verified', 'route_scope',
+    'start_observers', 'ready_payload', 'publish_ready', 'join_owner',
+    'lifecycle_receipt', 'finish_observers', 'coordinator_cleanup')
 LIFECYCLE_STAGES = ('checkpoint_before', 'spawn_owner', 'await_working', 'await_core_loss',
     'verify_retained', 'await_coordinator', 'validate_coordinator', 'start_sampler',
     'await_resumed_turn', 'stop_owner', 'verify_pause', 'fresh_owner_turn',
     'reconcile_progress', 'validate_flow_coverage', 'publish_result')
 CHECKPOINT_STAGES = ('enrolled', 'owner_locked', 'waiting_for_core', 'working', 'paused',
     'enrollment_expired', 'core_unavailable', 'core_turn_revoked', 'turn_completed', 'retry_pending')
+BASELINE_REASONS = ('pending_handoff', 'unconfirmed', 'expired', 'accounting', 'identity',
+    'geometry', 'scope', 'live_source_exhausted', 'malformed', 'unknown')
 FAILURE_CODES = {
     'maintenance checkpoint scope': 'checkpoint_scope',
     'core turn not observed': 'turn_not_observed',
@@ -85,6 +100,8 @@ FAILURE_CODES = {
     'core loss changed fragment count': 'lifecycle_fragment_count_changed',
     'core loss changed copy count': 'lifecycle_copy_count_changed',
     'core loss changed placement count': 'lifecycle_placement_count_changed',
+    'core loss retained intent invalid': 'lifecycle_retained_intent_invalid',
+    'retained intent changed after core restart': 'lifecycle_retained_intent_changed',
     'core loss changed enrollment': 'lifecycle_enrollment_changed',
     'invalid fixture coordinator reply': 'lifecycle_coordinator_invalid',
     'SIGTERM did not persist pause': 'lifecycle_pause_missing',
@@ -112,6 +129,363 @@ PRESELECTION_REASON_CODES = (
     'PRESELECTION_SAMPLE_INVALID_POLICY', 'PRESELECTION_SAMPLE_INVALID_SNAPSHOT',
     'PRESELECTION_SAMPLE_ENTROPY',
 )
+ROUTE_CONNECT_CODES = ('NOT_STARTED', 'CONNECTED', 'UNRECOGNIZED',
+    'CLIENT_ROLE_DISABLED', 'POLICY_UNAVAILABLE', 'CLIENT_ROUTE_PROFILE_INVALID',
+    'CONNECT_ALREADY_IN_PROGRESS', 'PRESELECTION_UNAVAILABLE', 'NO_ELIGIBLE_PATHS',
+    'NATIVE_PERMIT_UNAVAILABLE', 'NATIVE_RELAY_READY_UNAVAILABLE', 'NATIVE_HELPER_PREPARE_UNAVAILABLE',
+    'NATIVE_PROBE_AUTHORIZE_UNAVAILABLE', 'NATIVE_HELPER_ACTIVATE_UNAVAILABLE',
+    'NATIVE_PROBE_START_UNAVAILABLE', 'NATIVE_HELPER_COMMIT_UNAVAILABLE', 'NATIVE_PROBE_PROOF_UNAVAILABLE',
+    'NATIVE_SAMPLER_RETIREMENT_UNAVAILABLE', 'NATIVE_REMOTE_RETIREMENT_UNAVAILABLE',
+    'NATIVE_TRANSPORT_IDENTITY_UNAVAILABLE', 'ROUTE_ADMISSION_UNAVAILABLE',
+    'MPTCP_EXIT_LISTENER_SIGNAL_UNAVAILABLE', 'TRANSPORT_RUNTIME_UNAVAILABLE',
+    'UDP_EXIT_SESSION_SIGNAL_UNAVAILABLE', 'UDP_INGRESS_UNAVAILABLE')
+
+PROVIDER_EVENTS_NAME = 'private-storage-maintenance-provider-events.json'
+PROVIDER_EVENT_ROLES = {'client': 'client', **{f'control_relay{i}': f'relay{i}' for i in range(3)},
+    **{f'provider_relay{i}': f'relay{i}' for i in range(3, 6)}}
+# Existing closed product events only. Several events can describe one failed
+# exchange; these counts are never numbers of failed requests or causal proof.
+PROVIDER_EVENT_CODES = (
+    'CONTENT_PROVIDER_REGISTERED', 'CONTENT_PROVIDER_WITHDRAWN',
+    'CONTENT_PROVIDER_REGISTRATION_EXPIRED', 'CONTENT_PROVIDER_REGISTRATION_RETRY_PENDING',
+    'CONTENT_PROVIDER_REGISTRATION_RECOVERED', 'CONTENT_PROVIDER_REGISTRATION_FAILED',
+    'CONTENT_PROVIDER_REGISTRY_TIMEOUT', 'CONTENT_PROVIDER_SELECTOR_MISSING',
+    'CONTENT_PROVIDER_SELECTOR_UNAVAILABLE', 'CONTENT_PROVIDER_SELECTOR_IO',
+    'CONTENT_PROVIDER_SELECTOR_TIMEOUT', 'CONTENT_PROVIDER_SELECTOR_PROTOCOL', 'CONTENT_PROVIDER_REJECTED',
+    'CONTENT_DISCOVERY_COMMAND_RECEIVED', 'CONTENT_DISCOVERY_REQUEST_DISPATCHED',
+    'CONTENT_DISCOVERY_COMPLETED', 'CONTENT_DISCOVERY_RECEIVED_EMPTY', 'CONTENT_DISCOVERY_RECEIVED_OFFERS',
+    'CONTENT_DISCOVERY_CONTROL_CONNECTION_LOST', 'CONTENT_DISCOVERY_RESPONSE_AUTHORITY_REJECTED',
+    'CONTENT_DISCOVERY_RESPONSE_TARGETS_UNAVAILABLE', 'CONTENT_DISCOVERY_RESPONSE_OFFER_REJECTED',
+    'CONTENT_DISCOVERY_RESPONSE_REJECTED', 'CONTENT_DISCOVERY_DIAL_FAILED',
+    'CONTENT_DISCOVERY_RPC_TIMED_OUT', 'CONTENT_DISCOVERY_CONNECTION_CLOSED',
+    'CONTENT_DISCOVERY_PROTOCOL_UNSUPPORTED', 'CONTENT_DISCOVERY_RPC_IO_FAILED',
+    'CONTENT_DISCOVERY_RELAY_NONCE_INVALID', 'CONTENT_DISCOVERY_RELAY_SERVICE_UNAVAILABLE',
+    'CONTENT_DISCOVERY_RELAY_AUTHORITY_UNAVAILABLE', 'CONTENT_DISCOVERY_RELAY_SELF_REJECTED',
+    'CONTENT_DISCOVERY_RELAY_CONNECTION_INVALID', 'CONTENT_DISCOVERY_RELAY_QUEUE_FULL',
+    'CONTENT_DISCOVERY_RELAY_REPLAY_FULL', 'CONTENT_DISCOVERY_RELAY_REPLAY_REJECTED',
+    'CONTENT_DISCOVERY_RELAY_QUERY_REJECTED', 'CONTENT_DISCOVERY_LIMIT_INVALID',
+    'CONTENT_DISCOVERY_CALLER_CLOSED', 'CONTENT_DISCOVERY_CLIENT_ROLE_REJECTED',
+    'CONTENT_DISCOVERY_CLIENT_QUEUE_FULL', 'CONTENT_DISCOVERY_CONTROL_MISSING',
+    'CONTENT_DISCOVERY_CONTROL_SELF_REJECTED', 'CONTENT_DISCOVERY_CONTROL_EXPIRED',
+    'CONTENT_DISCOVERY_CONTROL_LIFETIME_SHORT', 'CONTENT_DISCOVERY_CONNECTION_REGISTRY_POISONED',
+    'CONTENT_DISCOVERY_CONNECTION_ABSENT', 'CONTENT_DISCOVERY_CONNECTION_NO_DIRECT',
+    'CONTENT_DISCOVERY_REQUEST_REJECTED', 'CONTENT_DISCOVERY_LOCAL_DEADLINE',
+    'CONTENT_EXACT_LOOKUP_STARTED', 'CONTENT_EXACT_LOOKUP_FINISHED',
+    'CONTENT_EXACT_ADDRESS_QUERY_STARTED', 'CONTENT_EXACT_ADDRESS_UNAVAILABLE',
+    'CONTENT_EXACT_RESOLVED_REQUEST_SENT',
+)
+PROVIDER_EVENT_PHASES = ('private-storage-fragments-upload', 'private-storage-maintenance-lifecycle',
+    'private-storage-fragments-restore', 'private-storage-fragments-finish',
+    'storage-consumer-publish', 'storage-consumer-exercise', 'storage-consumer-finish', 'unknown')
+STORAGE_FAILURE_PREFIX = 'CONTENT_PROVIDER_STORAGE_V1_'
+STORAGE_FAILURE_OPERATIONS = ('UNKNOWN', 'RESERVE', 'APPEND', 'PROGRESS', 'FINALIZE',
+    'READ_RANGE', 'RENEW', 'DELETE')
+STORAGE_FAILURE_PHASES = ('GRANT', 'CHALLENGE', 'REQUEST', 'PAYLOAD', 'DISK_ADMISSION',
+    'BACKEND', 'RECEIPT', 'RESPONSE_PAYLOAD')
+STORAGE_FAILURE_CATEGORIES = ('IO', 'AUTH', 'INVALID', 'BUSY', 'STORE', 'TIMEOUT',
+    'DATABASE', 'INTEGRITY', 'EXPIRED', 'OWNERSHIP', 'CONFLICT', 'DELETED', 'QUOTA',
+    'NOT_FOUND', 'NOT_COMMITTED', 'ENTROPY')
+MAX_STORAGE_FAILURE_TUPLES = 32
+APPEND_PAYLOAD_IO_PREFIX = 'CONTENT_PROVIDER_STORAGE_V2_APPEND__'
+APPEND_PAYLOAD_IO_BOUNDARIES = ('PAYLOAD_HEADER', 'PAYLOAD_BODY')
+APPEND_PAYLOAD_IO_KINDS = ('UNEXPECTED_EOF', 'TIMED_OUT', 'CONNECTION_RESET', 'BROKEN_PIPE',
+    'INVALID_DATA', 'INTERRUPTED', 'OTHER')
+MAX_APPEND_PAYLOAD_IO_TUPLES = len(APPEND_PAYLOAD_IO_BOUNDARIES) * len(APPEND_PAYLOAD_IO_KINDS)
+
+
+def append_payload_io_code(code):
+    if type(code) is not str or len(code) > 96 or not code.startswith(APPEND_PAYLOAD_IO_PREFIX):
+        return False
+    parts = code[len(APPEND_PAYLOAD_IO_PREFIX):].split('__')
+    return (len(parts) == 2 and parts[0] in APPEND_PAYLOAD_IO_BOUNDARIES
+        and parts[1] in APPEND_PAYLOAD_IO_KINDS)
+
+
+def storage_failure_code(code):
+    # One closed event preserves its tuple. Separate counts of operation, phase
+    # and category would invent correlations between unrelated exchanges.
+    if type(code) is not str or len(code) > 96 or not code.startswith(STORAGE_FAILURE_PREFIX):
+        return False
+    parts = code[len(STORAGE_FAILURE_PREFIX):].split('__')
+    if len(parts) != 3:
+        return False
+    operation, phase, category = parts
+    return (operation in STORAGE_FAILURE_OPERATIONS and phase in STORAGE_FAILURE_PHASES
+        and category in STORAGE_FAILURE_CATEGORIES
+        and (operation == 'UNKNOWN') == (phase in ('GRANT', 'CHALLENGE', 'REQUEST'))
+        and (phase != 'RESPONSE_PAYLOAD' or operation == 'READ_RANGE'))
+
+
+def validate_provider_events(value):
+    require(type(value) is dict and set(value) == {'version', 'kind', 'scope', 'acceptance_evidence',
+        'causal_attribution', 'event_absence_proven', 'phase', 'baseline_state', 'roles'}
+        and type(value['version']) is int and value['version'] in (1, 2, 3)
+        and value['kind'] == 'private-storage-maintenance-provider-events'
+        and value['scope'] == 'pre_agent_stop_snapshot_may_include_owner_cleanup'
+        and all(value[key] is False for key in ('acceptance_evidence', 'causal_attribution', 'event_absence_proven'))
+        and value['phase'] in PROVIDER_EVENT_PHASES and value['baseline_state'] in ('valid', 'absent', 'invalid')
+        and type(value['roles']) is dict and set(value['roles']) == set(PROVIDER_EVENT_ROLES), 'provider event shape')
+    counters = ('records', 'fresh_records', 'stale_records', 'unrecognized_event_records')
+    observations = (*counters, 'counts', 'window_covers_baseline', 'ring_at_capacity')
+    if value['version'] >= 2:
+        observations += ('storage_failures', 'omitted_storage_failure_records')
+    if value['version'] == 3:
+        observations += ('append_payload_io_failures',)
+    for row in value['roles'].values():
+        require(type(row) is dict and set(row) == {'state', 'query_exit_status', *observations}
+            and row['state'] in ('observed', 'unqueried', 'capture_invalid', 'query_failed',
+                'baseline_unavailable', 'absent', 'invalid', 'clock_invalid'), 'provider event role')
+        status = row['query_exit_status']
+        if row['state'] in ('unqueried', 'capture_invalid'):
+            require(status is None, 'provider event capture absent')
+        else:
+            require(type(status) is int and 0 <= status <= 255
+                and (status != 0) == (row['state'] == 'query_failed'), 'provider event capture status')
+        if status == 0:
+            require((value['baseline_state'] != 'valid') == (row['state'] == 'baseline_unavailable'),
+                'provider event baseline binding')
+        if row['state'] != 'observed':
+            require(all(row[key] is None for key in observations), 'provider event missing counts')
+            continue
+        require(value['baseline_state'] == 'valid'
+            and all(type(row[key]) is int and 0 <= row[key] <= 400 for key in counters)
+            and row['records'] == row['fresh_records'] + row['stale_records']
+            and type(row['counts']) is dict and set(row['counts']) == set(PROVIDER_EVENT_CODES)
+            and all(type(n) is int and 0 <= n <= 400 for n in row['counts'].values())
+            and sum(row['counts'].values()) + row['unrecognized_event_records'] <= row['fresh_records']
+            and type(row['window_covers_baseline']) is bool
+            and row['window_covers_baseline'] == (row['stale_records'] > 0)
+            and type(row['ring_at_capacity']) is bool
+            and row['ring_at_capacity'] == (row['records'] == 400), 'provider event bounds')
+        if value['version'] >= 2:
+            storage = row['storage_failures']
+            omitted = row['omitted_storage_failure_records']
+            require(type(storage) is dict and len(storage) <= MAX_STORAGE_FAILURE_TUPLES
+                and all(storage_failure_code(code) and type(n) is int and 1 <= n <= 400
+                    for code, n in storage.items())
+                and type(omitted) is int and 0 <= omitted <= 400
+                and (omitted == 0 or len(storage) == MAX_STORAGE_FAILURE_TUPLES)
+                and sum(row['counts'].values()) + row['unrecognized_event_records']
+                    + sum(storage.values()) + omitted <= row['fresh_records'], 'provider storage event bounds')
+        if value['version'] == 3:
+            payload = row['append_payload_io_failures']
+            require(type(payload) is dict and len(payload) <= MAX_APPEND_PAYLOAD_IO_TUPLES
+                and all(append_payload_io_code(code) and type(n) is int and 1 <= n <= 400
+                    for code, n in payload.items())
+                and sum(row['counts'].values()) + row['unrecognized_event_records']
+                    + sum(row['storage_failures'].values()) + row['omitted_storage_failure_records']
+                    + sum(payload.values()) <= row['fresh_records'], 'provider append payload io bounds')
+    return value
+
+
+def provider_events(work, phase, raw_baseline, *, version=2):
+    require(type(version) is int and version in (2, 3), 'provider event export version')
+    now_ms = time.time_ns() // 1_000_000
+    baseline = None
+    baseline_state = 'absent' if raw_baseline in ('', '0') else 'invalid'
+    if re.fullmatch(r'[1-9][0-9]{0,19}', raw_baseline) and int(raw_baseline) <= now_ms:
+        baseline, baseline_state = int(raw_baseline), 'valid'
+    roles = {}
+    for role, node in PROVIDER_EVENT_ROLES.items():
+        row = dict(state='unqueried', query_exit_status=None, records=None, fresh_records=None,
+            stale_records=None, unrecognized_event_records=None, counts=None,
+            window_covers_baseline=None, ring_at_capacity=None,
+            storage_failures=None, omitted_storage_failure_records=None)
+        if version == 3:
+            row['append_payload_io_failures'] = None
+        roles[role] = row
+        try:
+            raw = closed_diagnostic_text(work / f'logs-{node}-cleanup-status.private', 4)
+            require(re.fullmatch(r'(0|[1-9][0-9]{0,2})\n', raw) is not None
+                and int(raw) <= 255, 'provider event capture status')
+            row['query_exit_status'] = int(raw)
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError, UnicodeError):
+            row['state'] = 'capture_invalid'
+            continue
+        if row['query_exit_status'] != 0:
+            row['state'] = 'query_failed'
+            continue
+        if baseline is None:
+            row['state'] = 'baseline_unavailable'
+            continue
+        try:
+            lines = closed_diagnostic_text(work / f'logs-{node}.txt', 131072).splitlines()
+            require(len(lines) <= 400, 'provider event ring bound')
+            counts = dict.fromkeys(PROVIDER_EVENT_CODES, 0)
+            storage, omitted = {}, 0
+            payload = {}
+            stale, unknown, previous = 0, 0, 0
+            for line in lines:
+                match = re.fullmatch(r'([0-9]{1,20})\tlevel=([0-9])\tevent=([A-Z0-9_]{1,96})'
+                    r'\tsession=[0-9a-f]{0,64}\tpath=(?:-|[0-9]{1,10})', line)
+                require(match is not None, 'provider event record')
+                stamp = int(match[1])
+                if not 0 < stamp <= now_ms or stamp < previous:
+                    row['state'] = 'clock_invalid'
+                    break
+                previous = stamp
+                if stamp <= baseline:
+                    stale += 1
+                elif match[3] in counts:
+                    counts[match[3]] += 1
+                elif storage_failure_code(match[3]):
+                    code = match[3]
+                    if code in storage or len(storage) < MAX_STORAGE_FAILURE_TUPLES:
+                        storage[code] = storage.get(code, 0) + 1
+                    else:
+                        omitted += 1
+                elif version == 3 and append_payload_io_code(match[3]):
+                    code = match[3]
+                    payload[code] = payload.get(code, 0) + 1
+                elif match[3].startswith(('CONTENT_PROVIDER_', 'CONTENT_DISCOVERY_', 'CONTENT_EXACT_', 'CONTENT_LOOKUP_')):
+                    unknown += 1
+            else:
+                row.update(state='observed', records=len(lines), fresh_records=len(lines) - stale,
+                    stale_records=stale, unrecognized_event_records=unknown, counts=counts,
+                    window_covers_baseline=stale > 0, ring_at_capacity=len(lines) == 400,
+                    storage_failures=storage, omitted_storage_failure_records=omitted)
+                if version == 3:
+                    row['append_payload_io_failures'] = payload
+        except FileNotFoundError:
+            row['state'] = 'absent'
+        except (OSError, ValueError, UnicodeError):
+            row['state'] = 'invalid'
+    return validate_provider_events(dict(version=version, kind='private-storage-maintenance-provider-events',
+        scope='pre_agent_stop_snapshot_may_include_owner_cleanup', acceptance_evidence=False,
+        causal_attribution=False, event_absence_proven=False,
+        phase=phase if phase in PROVIDER_EVENT_PHASES else 'unknown', baseline_state=baseline_state, roles=roles))
+
+
+def provider_events_file(path):
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            require(key not in value, 'duplicate provider event key')
+            value[key] = item
+        return value
+    return validate_provider_events(json.loads(closed_diagnostic_text(path, 65536), object_pairs_hook=unique))
+
+
+def export_provider_events(work, phase, baseline, *, version=2):
+    # Optional sidecar in the existing diagnostic process. Never let even an
+    # unexpected projection/publication error replace the route or primary error.
+    target, part = work / PROVIDER_EVENTS_NAME, work / 'maintenance-provider-events.part'
+    try:
+        target.unlink(missing_ok=True)
+        value = provider_events(work, phase, baseline, version=version)
+        data = (json.dumps(value, sort_keys=True) + '\n').encode('ascii')
+        require(len(data) <= 65536, 'provider event output bound')
+        descriptor = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, 'wb') as stream:
+            stream.write(data)
+        os.replace(part, target)
+    except BaseException:
+        try:
+            part.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def validate_selection_route(value):
+    require(type(value) is dict and set(value) == {'schema_version', 'stage', 'reason',
+        'last_connect_reason', 'connect_exit_status', 'attempts', 'retries', 'redraws',
+        'path_polls', 'path_status'}, 'route diagnostic shape')
+    reasons = {'initialize': ('STARTED',),
+        'budget': ('DEADLINE_EXHAUSTED', 'DRAWS_EXHAUSTED', 'ATTEMPTS_EXHAUSTED'),
+        'paths': ('SELECTION_RECORD_FAILED', 'PATHS_EMPTY', 'PATHS_INVALID_OR_QUERY_FAILED'),
+        'complete': ('SELECTED',), 'disconnect': ('DISCONNECT_FAILED',),
+        'connect': ('CONNECT_TIMEOUT', 'CONNECT_REJECTED', 'CONNECT_TRANSIENT')}
+    require(type(value['schema_version']) is int and value['schema_version'] == 1
+        and type(value['stage']) is str and value['stage'] in reasons
+        and value['reason'] in reasons[value['stage']]
+        and value['last_connect_reason'] in ROUTE_CONNECT_CODES, 'route diagnostic category')
+    for name, maximum in (('attempts', 360), ('retries', 359), ('redraws', 32), ('path_polls', 100)):
+        require(type(value[name]) is int and 0 <= value[name] <= maximum, 'route diagnostic bound')
+    require(value['retries'] == max(0, value['attempts'] - 1), 'route diagnostic attempts')
+    for name in ('connect_exit_status', 'path_status'):
+        require(value[name] is None or type(value[name]) is int and 0 <= value[name] <= 255,
+            'route diagnostic process status')
+
+
+def validate_preselection_diagnostic(value):
+    counters = ('records', 'fresh_records', 'stale_records', 'later_records', 'unrecognized_reason_records')
+    require(type(value) is dict and set(value) == {'version', 'state', 'observed_reason',
+        'uncertainty', 'scope', 'limit', 'counts', 'window_covers_baseline', *counters}
+        and type(value['version']) is int and value['version'] == 1
+        and type(value['limit']) is int and value['limit'] == 400
+        and value['scope'] == 'selection_window_not_last_attempt_proof', 'preselection diagnostic shape')
+    if value['records'] is None:
+        require(all(value[name] is None for name in counters)
+            and value['counts'] is None and value['window_covers_baseline'] is None,
+            'preselection missing observation')
+    else:
+        require(all(type(value[name]) is int and 0 <= value[name] <= 400 for name in counters)
+            and type(value['counts']) is dict and set(value['counts']) == set(PRESELECTION_REASON_CODES)
+            and all(type(count) is int and 0 <= count <= 400 for count in value['counts'].values())
+            and type(value['window_covers_baseline']) is bool
+            and value['records'] == sum(value[name] for name in ('fresh_records', 'stale_records', 'later_records'))
+            and sum(value['counts'].values()) + value['unrecognized_reason_records'] <= value['fresh_records'],
+            'preselection diagnostic counts')
+    if value['state'] == 'known':
+        require(value['counts'] is not None and value['records'] < 400
+            and value['uncertainty'] is None and value['unrecognized_reason_records'] == 0
+            and [code for code, count in value['counts'].items() if count] == [value['observed_reason']],
+            'preselection known reason')
+    else:
+        require(value['state'] == 'unknown' and value['observed_reason'] == 'unknown'
+            and value['uncertainty'] in ('absent_baseline', 'invalid_baseline', 'absent_window_end',
+                'invalid_window_end', 'absent', 'clock_regression', 'ring_at_capacity', 'unrecognized',
+                'ambiguous', 'no_fresh_signal', 'invalid'), 'preselection uncertainty')
+
+
+def validate_route_diagnostic(value):
+    require(type(value) is dict and set(value) == {'version', 'kind', 'scope', 'route_state',
+        'route', 'preselection', 'acceptance_evidence', 'selection_phase'} and type(value['version']) is int
+        and value['version'] == 1 and value['kind'] == 'private-storage-maintenance-route-diagnostic'
+        and value['scope'] == 'last_selection_window_not_failure_cause'
+        and value['acceptance_evidence'] is False
+        and value['selection_phase'] in ('initial', 'reconnect', 'unknown'), 'maintenance route diagnostic shape')
+    if value['route_state'] == 'observed':
+        validate_selection_route(value['route'])
+    else:
+        require(value['route_state'] in ('absent', 'invalid') and value['route'] is None,
+            'maintenance route observation')
+    validate_preselection_diagnostic(value['preselection'])
+
+
+def route_diagnostic(work):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, 'duplicate route diagnostic key')
+            result[key] = value
+        return result
+
+    value = dict(version=1, kind='private-storage-maintenance-route-diagnostic',
+        scope='last_selection_window_not_failure_cause', acceptance_evidence=False,
+        selection_phase='unknown', route_state='absent', route=None,
+        preselection=closed_preselection_events(work / 'logs-client.txt',
+            work / 'private-storage-maintenance-selection-start.private',
+            work / 'private-storage-maintenance-selection-end.private'))
+    try:
+        phase = closed_diagnostic_text(work / 'private-storage-maintenance-selection-phase.private', 32)
+        if phase in ('initial\n', 'reconnect\n'):
+            value['selection_phase'] = phase.strip()
+    except (OSError, ValueError, UnicodeError):
+        pass
+    try:
+        route = json.loads(closed_diagnostic_text(
+            work / 'private-storage-maintenance-selection-route-diagnostic.json', 2048), object_pairs_hook=unique)
+        validate_selection_route(route)
+        value.update(route_state='observed', route=route)
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, UnicodeError, TypeError):
+        value['route_state'] = 'invalid'
+    validate_route_diagnostic(value)
+    return value
 
 
 def closed_diagnostic_text(path, maximum):
@@ -124,6 +498,51 @@ def closed_diagnostic_text(path, maximum):
         data = stream.read(maximum + 1)
         require(len(data) <= maximum, 'private diagnostic size')
     return data.decode('ascii')
+
+
+def inventory_file(path, status):
+    # Reuse the existing closed four-role inventory contract. This observation
+    # is neither Connect success nor protected-route acceptance evidence.
+    require(status in ('0', '1'), 'inventory command status')
+    helper = runpy.run_path(str(Path(__file__).with_name('content-provider-readiness.py')))
+    value = json.loads(closed_diagnostic_text(path, 8192), object_pairs_hook=helper['unique_pairs'])
+    helper['closed_record'](value)
+    require(value['ready'] == (status == '0'), 'inventory result differs from command status')
+    return value
+
+
+def validate_supervisor(value):
+    require(type(value) is dict and set(value) == {'version', 'kind', 'stage', 'outcome',
+        'exit_status', 'control_relay_relation', 'acceptance_evidence'}
+        and type(value['version']) is int and value['version'] == 1
+        and value['kind'] == 'private-storage-maintenance-supervisor'
+        and value['stage'] in SUPERVISOR_STAGES
+        and value['control_relay_relation'] in ('same', 'different', 'empty', 'unobserved')
+        and value['acceptance_evidence'] is False, 'invalid supervisor diagnostic')
+    status = value['exit_status']
+    require(value['outcome'] == 'pending' and status is None
+        or value['outcome'] == 'failed' and type(status) is int and 1 <= status <= 255
+        or value['outcome'] == 'complete' and type(status) is int and status == 0
+            and value['stage'] == 'coordinator_cleanup', 'invalid supervisor outcome')
+    return value
+
+
+def supervisor_record(stage, outcome, status, relation):
+    require(status == 'null' or re.fullmatch(r'0|[1-9][0-9]{0,2}', status) is not None,
+        'invalid supervisor exit status')
+    return validate_supervisor(dict(version=1, kind='private-storage-maintenance-supervisor',
+        stage=stage, outcome=outcome, exit_status=None if status == 'null' else int(status),
+        control_relay_relation=relation, acceptance_evidence=False))
+
+
+def supervisor_file(path):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, 'duplicate supervisor key')
+            result[key] = value
+        return result
+    return validate_supervisor(json.loads(closed_diagnostic_text(path, 1024), object_pairs_hook=unique))
 
 
 def closed_preselection_events(path, baseline_path, end_path):
@@ -207,8 +626,18 @@ def closed_preselection_events(path, baseline_path, end_path):
     return value
 
 
+class FixtureInterrupted(InterruptedError):
+    """The fixture's own TERM handler, not an arbitrary OS read/write failure."""
+
+
+def interrupted(_signal, _frame):
+    raise FixtureInterrupted('fixture interrupted')
+
+
 def failure_code(error):
     # Exact fixed messages only; never export arbitrary exception strings or CLI output.
+    if isinstance(error, FixtureInterrupted):
+        return 'termination_signal'
     if isinstance(error, subprocess.TimeoutExpired):
         return 'cli_timeout'
     if isinstance(error, subprocess.SubprocessError):
@@ -308,27 +737,89 @@ def retirement_turn(value, turn, *, target=None, maximum=4):
 
 def failure_receipt(error):
     if LIFECYCLE_DIAGNOSTIC is not None:
-        return dict(version=2, success=False, kind='private-storage-maintenance-lifecycle-failure',
+        return dict(version=3, success=False, kind='private-storage-maintenance-lifecycle-failure',
             code='sampler_failure' if isinstance(error, SAMPLER['SamplerFailure']) else failure_code(error),
             **LIFECYCLE_DIAGNOSTIC, sampler=SAMPLER_DIAGNOSTIC or None)
-    return dict(version=2, success=False, kind='private-storage-maintenance-failure', stage=STAGE,
+    upload = UPLOAD_DIAGNOSTIC if STAGE == 'upload' else None
+    return dict(version=3 if upload is not None else 2, success=False,
+        kind='private-storage-maintenance-failure', stage=STAGE,
         code='sampler_failure' if isinstance(error, SAMPLER['SamplerFailure']) else failure_code(error),
         turn=TURN_DIAGNOSTIC, retirement=RETIREMENT_DIAGNOSTIC,
         retirement_turns=RETIREMENT_TURNS, repair=REPAIR_DIAGNOSTIC, repair_turns=REPAIR_TURNS,
-        sampler=SAMPLER_DIAGNOSTIC or None)
+        sampler=SAMPLER_DIAGNOSTIC or None, **(dict(upload=upload) if upload is not None else {}))
+
+
+def upload_observation(operation, exit_status=None, stdout=None, stderr=None):
+    """Project only this failed call; never return raw reports, identities or errors."""
+    require(operation in UPLOAD_OPERATIONS, 'invalid upload operation')
+    applicable = operation in ('deposit', 'redeposit')
+    value = dict(operation=operation, exit_status=exit_status if type(exit_status) is int
+        and -128 <= exit_status <= 255 else None,
+        stdout_state='unavailable' if stdout is None else 'bounded' if len(stdout) <= 16384 else 'oversize',
+        stderr_state='unavailable' if stderr is None else 'bounded' if len(stderr) <= 16384 else 'oversize',
+        deposit_diagnostics_state='unavailable' if applicable else 'not_applicable',
+        deposit_diagnostics=None)
+    if not applicable or stdout is None:
+        return value
+    value['deposit_diagnostics_state'] = 'invalid'
+    if value['stdout_state'] != 'bounded' or value['stderr_state'] == 'oversize':
+        return value
+    try:
+        # Reject duplicate keys too: this is a diagnostic projection, not a
+        # second interpretation of ambiguous externally controlled JSON.
+        def unique(pairs):
+            result = {}
+            for key, child in pairs:
+                require(key not in result, 'duplicate upload field')
+                result[key] = child
+            return result
+
+        report = json.loads(stdout, object_pairs_hook=unique)
+        require(type(report) is dict
+            and report.get('operation') == 'private_storage_fragments_deposit'
+            and report.get('operation_complete') is False
+            and type(report.get('fragment_count')) is int and report['fragment_count'] == 4
+            and type(report.get('copies_per_fragment')) is int and report['copies_per_fragment'] == 2,
+            'upload report binding')
+        if 'deposit_diagnostics' not in report:
+            value['deposit_diagnostics_state'] = 'missing'
+            return value
+        diagnostic = report['deposit_diagnostics']
+        require(type(diagnostic) is dict, 'invalid deposit diagnostics')
+        CONSUMERS['APP']['validate_deposit_diagnostics'](diagnostic, diagnostic.get('version'))
+        value.update(deposit_diagnostics_state='observed', deposit_diagnostics=diagnostic)
+    except (ValueError, TypeError, KeyError, UnicodeError, RecursionError):
+        pass
+    return value
+
+
+def upload_invoke(operation, binary, socket, arguments, **options):
+    global UPLOAD_DIAGNOSTIC
+    # Assign before spawn/communicate, so timeout or local I/O cannot inherit
+    # the preceding call's label or receipt. Observer lifetime is one call.
+    UPLOAD_DIAGNOSTIC = upload_observation(operation)
+
+    def failed(status, stdout, stderr):
+        global UPLOAD_DIAGNOSTIC
+        UPLOAD_DIAGNOSTIC = upload_observation(operation, status, stdout, stderr)
+
+    return invoke(binary, socket, arguments, failure_observer=failed, **options)
 
 
 def validate_lifecycle_failure(value):
     """Reject rather than copy unknown fields from even fixture-owned output."""
     require(isinstance(value, dict) and type(value.get('version')) is int
-        and value['version'] in (1, 2), 'invalid lifecycle failure')
+        and value['version'] in (1, 2, 3), 'invalid lifecycle failure')
     fields = {'version', 'success', 'kind', 'code', 'stage',
         'cursor_before', 'cursor_last', 'checkpoint_stage', 'owner_exit_status', 'owner_joined',
         'cleanup_error', 'sampler'}
-    if value['version'] == 2:
+    if value['version'] >= 2:
         fields.add('retained_status')
+    if value['version'] == 3:
+        fields.update(('retained_status_scope', 'reconcile_status', 'fresh_turn_detail', 'baseline_reason'))
     require(set(value) == fields, 'invalid lifecycle failure')
-    codes = set(FAILURE_CODES.values()) | {'cli_timeout', 'cli_process', 'local_io', 'unclassified', 'sampler_failure'}
+    codes = set(FAILURE_CODES.values()) | {'cli_timeout', 'cli_process', 'local_io', 'unclassified',
+        'sampler_failure', 'termination_signal'}
     require(value['success'] is False
         and value['kind'] == 'private-storage-maintenance-lifecycle-failure'
         and value['stage'] in LIFECYCLE_STAGES and value['code'] in codes, 'invalid lifecycle failure')
@@ -341,8 +832,18 @@ def validate_lifecycle_failure(value):
         and -128 <= value['owner_exit_status'] <= 255, 'invalid lifecycle failure')
     require(type(value['owner_joined']) is bool and (value['cleanup_error'] is None
         or value['cleanup_error'] in codes), 'invalid lifecycle failure')
-    if value['version'] == 2 and value['retained_status'] is not None:
+    if value['version'] >= 2 and value['retained_status'] is not None:
         validate_retained_status(value['retained_status'])
+    if value['version'] == 3:
+        require(value['retained_status_scope'] == 'core_loss'
+            and (value['baseline_reason'] is None or type(value['baseline_reason']) is str
+                and value['baseline_reason'] in BASELINE_REASONS), 'invalid lifecycle reconciliation')
+        if value['reconcile_status'] is not None:
+            validate_reconcile_status(value['reconcile_status'])
+        if value['fresh_turn_detail'] is not None:
+            validate_fresh_turn_detail(value['fresh_turn_detail'])
+        require(len(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()) <= 8192,
+            'invalid lifecycle failure bound')
     sampler = value['sampler']
     if sampler is not None:
         fields = {'phase', 'operation', 'code', 'samples', 'completed', 'failed'}
@@ -673,7 +1174,66 @@ def validate_retained_status(value):
             and sum(detail.values()) == total, 'invalid retained status diagnostic')
 
 
+def reconcile_status_diagnostic(value, now):
+    """The later progress response, separate from the core-loss observation."""
+    value = value if type(value) is dict else {}
+    return dict(status=retained_status_diagnostic(value, now),
+        pending_retirements=bounded_count(value.get('pending_retirements'), 4096),
+        retained_copy_records=bounded_count(value.get('retained_copy_records'), 4096),
+        fully_redundant_from_retained_receipts=value.get('fully_redundant_from_retained_receipts')
+            if type(value.get('fully_redundant_from_retained_receipts')) is bool else None,
+        fragments_with_confirmed_unexpired_copy=bounded_count(value.get('fragments_with_confirmed_unexpired_copy'), 64))
+
+
+def validate_reconcile_status(value):
+    require(type(value) is dict and set(value) == {'status', 'pending_retirements', 'retained_copy_records',
+        'fully_redundant_from_retained_receipts', 'fragments_with_confirmed_unexpired_copy'},
+        'invalid lifecycle reconciliation')
+    validate_retained_status(value['status'])
+    for name, maximum in (('pending_retirements', 4096), ('retained_copy_records', 4096),
+            ('fragments_with_confirmed_unexpired_copy', 64)):
+        require(value[name] is None or type(value[name]) is int and 0 <= value[name] <= maximum,
+            'invalid lifecycle reconciliation')
+    require(value['fully_redundant_from_retained_receipts'] is None
+        or type(value['fully_redundant_from_retained_receipts']) is bool, 'invalid lifecycle reconciliation')
+
+
+def fresh_turn_diagnostic(value):
+    # Reuse the existing bounded turn projection; relative turn=1 is this one
+    # already completed fresh process, not another operation or retry.
+    rows = []
+    retirement_turn(value, 1, target=rows, maximum=1)
+    result = rows[0]
+    del result['turn']
+    stage = value.get('stage') if type(value) is dict else None
+    result['checkpoint_stage'] = stage if type(stage) is str and stage in CHECKPOINT_STAGES else None
+    return result
+
+
+def validate_fresh_turn_detail(value):
+    require(type(value) is dict and set(value) == {'cursor', 'checkpoint_stage', 'maintenance_stage',
+        'repair_stage', 'attempted_handoffs', 'freshly_verified_replacements', 'pending_retirements',
+        'physical_payload_charge_upper_bound', 'fragment_outcomes', 'refresh'}, 'invalid fresh lifecycle turn')
+    # Projection is idempotent only for the closed original domains/bounds.
+    reconstructed = dict(turns=value['cursor'], stage=value['checkpoint_stage'],
+        detail={key: item for key, item in value.items() if key not in ('cursor', 'checkpoint_stage')})
+    require(json.dumps(value, sort_keys=True, allow_nan=False)
+        == json.dumps(fresh_turn_diagnostic(reconstructed), sort_keys=True, allow_nan=False),
+        'invalid fresh lifecycle turn')
+
+
+def observe_lifecycle(name, projector, *arguments):
+    """Best effort over already available values; never mask a trial failure."""
+    if LIFECYCLE_DIAGNOSTIC is None:
+        return
+    try:
+        LIFECYCLE_DIAGNOSTIC[name] = projector(*arguments)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        LIFECYCLE_DIAGNOSTIC[name] = None
+
+
 def retained_during_core_loss(retained):
+    """Historical counter-only contract; current lifecycle uses the bound check below."""
     if LIFECYCLE_DIAGNOSTIC is not None:
         LIFECYCLE_DIAGNOSTIC['retained_status'] = retained_status_diagnostic(retained, int(time.time()))
     # Original placements have the unchanged v1 report shape: v2-only repair
@@ -684,11 +1244,139 @@ def retained_during_core_loss(retained):
     require(retained.get('placement_authorizations', 0) == 0, 'core loss changed placement count')
 
 
+RETAINED_INTENT_FILE = 'lifecycle-retained-intent.json'
+INTENT_IDENTITY_FIELDS = ('version', 'provider_key', 'owner_key', 'grant_hex', 'archive_id',
+    'ciphertext_bytes', 'sha256', 'requested_expiry')
+
+
+def retained_intent_binding(root, entry):
+    # Renew changes last_expiry, not requested_expiry. Rust's signed-placement
+    # open also requires the initial requested_expiry to remain byte-identical.
+    journal = private_json(root / 'fragment-set/fragment-0000/copy-2/archive.json', 16384)
+    initial = entry['handoff']['initial_journal']
+    require(all(journal[key] == initial[key] for key in INTENT_IDENTITY_FIELDS),
+        'retained intent changed after core restart')
+    return dict(authorization_sha256=identity_sha(entry),
+        initial_identity_sha256=identity_sha({key: journal[key] for key in INTENT_IDENTITY_FIELDS}))
+
+
+def retained_intent_continuity(root):
+    """Private hash continuity only; the preceding real CLI authenticates signed state."""
+    binding = private_json(root / RETAINED_INTENT_FILE, 2048)
+    require(set(binding) == {'version', 'pending'} and type(binding['version']) is int
+        and binding['version'] == 1, 'retained intent changed after core restart')
+    pending = binding['pending']
+    if pending is None:
+        return
+    require(type(pending) is dict and set(pending) == {'authorization_sha256', 'initial_identity_sha256'}
+        and all(type(digest) is str and re.fullmatch('[0-9a-f]{64}', digest) for digest in pending.values()),
+        'retained intent changed after core restart')
+    entries = private_json(root / 'fragment-set/placement-authorizations.json', 1048576)['authority']['placements']
+    require(type(entries) is list and 1 <= len(entries) <= 3
+        and sum(entry['fragment'] == 0 for entry in entries) == 1,
+        'retained intent changed after core restart')
+    entry = next(entry for entry in entries if entry['fragment'] == 0)
+    require(retained_intent_binding(root, entry) == pending, 'retained intent changed after core restart')
+
+
+def retained_current_during_core_loss(root, retained, keys, enrollment):
+    """Preserve all original custody; admit only the first signed, unattempted A→C intent.
+
+    Status opens and verifies the actual Rust signed root/placement/child binding;
+    this Python check narrows that authority to the unchanged fixture enrollment.
+    It does not implement signature verification or infer remote availability.
+    """
+    if LIFECYCLE_DIAGNOSTIC is not None:
+        LIFECYCLE_DIAGNOSTIC['retained_status'] = retained_status_diagnostic(retained, int(time.time()))
+    F['check_identity'](root)
+    require(closed_diagnostic_text(root / 'maintenance/enrollment.json', 32768).encode() == enrollment,
+        'core loss changed enrollment')
+    en = json.loads(enrollment)['enrollment']
+    original_raw = closed_diagnostic_text(root / 'fragment-set/fragments.json', 1048576).encode()
+    original = json.loads(original_raw)['manifest']
+    now = int(time.time())
+    grants = []
+    for label in 'bc':
+        path = root / f'grant-{label}.bin'
+        require(private_file(path).st_size <= 2048, 'core loss retained intent invalid')
+        grants.append(path.read_bytes().hex())
+    require(en['version'] == 1 and en['created'] <= now < en['expires']
+        and en['owner'] == original['owner_key'] and bytes(en['source']).hex() == keys[0]
+        and [bytes(key).hex() for key in en['providers']] == list(keys[1:]) and en['grants'] == grants
+        and bytes(en['root']).hex() == hashlib.sha256(original_raw).hexdigest()
+        and en['maximum_charged'] == MAX_CHARGE,
+        'core loss retained intent invalid')
+    require(retained['operation'] == 'private_storage_fragments_status'
+        and retained['owner_signature_verified'] is True
+        and retained['logical_ciphertext_bytes'] == BYTES and retained['copies_per_fragment'] == 2,
+        'core loss retained intent invalid')
+    require(len(retained['fragments']) == retained['fragment_count'] == 4, 'core loss changed fragment count')
+    pending = retained.get('placement_authorizations', 0)
+    require(type(pending) is int and pending in (0, 1), 'core loss changed placement count')
+    charges, providers = dict(committed=0, uncertain=0), [0, 0, 0]
+    for index, fragment in enumerate(retained['fragments']):
+        require(fragment['index'] == index and fragment['offset'] == sum(LENGTHS[:index])
+            and fragment['ciphertext_bytes'] == LENGTHS[index], 'core loss changed fragment count')
+        require(len(fragment['copies']) == 2 + (pending if index == 0 else 0), 'core loss changed copy count')
+        for copy_index, copy in enumerate(fragment['copies'][:2]):
+            provider = (index + copy_index) % 3
+            require(copy['provider_key'] == keys[provider] and copy['charge'] in charges
+                and copy['last_confirmed_state'] == 'Committed'
+                and copy['last_confirmed_stored_bytes'] == LENGTHS[index]
+                and copy['last_confirmed_expiry'] > now, 'core loss changed charged custody')
+            charges[copy['charge']] += LENGTHS[index]
+            providers[provider] += LENGTHS[index]
+    require(retained['reserved_payload_bytes'] == 0
+        and all(retained[name + '_payload_bytes'] == count for name, count in charges.items())
+        and retained['physical_payload_charge_upper_bound'] == sum(charges.values()) == 2 * BYTES
+        and retained['providers'] == [dict(provider_key=key, physical_payload_charge_upper_bound=count)
+            for key, count in zip(keys, providers)], 'core loss changed charged custody')
+    authority = root / 'fragment-set/placement-authorizations.json'
+    if not pending:
+        require(not authority.exists() and not authority.is_symlink(), 'core loss retained intent invalid')
+        return dict(version=1, pending=None)
+    require(retained.get('report_version') == 2 and retained.get('retained_copy_records') == 9
+        and retained.get('pending_retirements') == 1 and retained.get('desired_copies_per_fragment') == 2
+        and retained.get('replacement_overhead_included') is True, 'core loss retained intent invalid')
+    signed = private_json(authority, 1048576)
+    entries = signed['authority']['placements']
+    require(signed['authority']['root_sha256'] == en['root'] and type(entries) is list and len(entries) == 1,
+        'core loss retained intent invalid')
+    entry = entries[0]
+    intent = entry['handoff']
+    initial = intent['initial_journal']
+    child = private_json(root / 'fragment-set/fragment-0000/replicas.json')
+    journal = private_json(root / 'fragment-set/fragment-0000/copy-2/archive.json', 16384)
+    source = private_json(root / 'fragment-set/fragment-0000/copy-0/archive.json', 16384)
+    original_archives = [copy['archive_id'] for fragment in original['fragments'] for copy in fragment['copies']]
+    require(entry['fragment'] == 0 and intent['from'] == 0 and intent['to'] == 2
+        and intent['phase'] == 'copying' and child['handoff'] == intent
+        and len(child['copies']) == 3 and child['copies'][2] == dict(provider_key=initial['provider_key'],
+            archive_id=initial['archive_id'], grant_sha256=list(hashlib.sha256(bytes.fromhex(grants[1])).digest()),
+            charge='unattempted')
+        and journal == initial and initial['version'] == 1
+        and bytes(initial['provider_key']).hex() == keys[2] and initial['owner_key'] == en['owner']
+        and len(initial['archive_id']) == 32 and any(initial['archive_id'])
+        and initial['archive_id'] not in original_archives
+        and initial['grant_hex'] == grants[1] and initial['ciphertext_bytes'] == LENGTHS[0]
+        and initial['sha256'] == original['fragments'][0]['sha256']
+        and en['created'] < initial['requested_expiry'] <= en['expires']
+        and initial['requested_expiry'] >= max(source['requested_expiry'], source['last_expiry'])
+        and initial['lease'] is None and initial['last_state'] is None
+        and initial['last_stored_bytes'] == initial['last_expiry'] == 0,
+        'core loss retained intent invalid')
+    require(retained['fragments'][0]['copies'][2] == dict(provider_key=keys[2], charge='unattempted',
+        last_confirmed_state=None, last_confirmed_stored_bytes=0, last_confirmed_expiry=0),
+        'core loss retained intent invalid')
+    return dict(version=1, pending=retained_intent_binding(root, entry))
+
+
 def lifecycle(root, binary, client, keys):
     """A fixed external VM supervisor alone controls the core service."""
     global LIFECYCLE_DIAGNOSTIC
     LIFECYCLE_DIAGNOSTIC = dict(stage='checkpoint_before', cursor_before=None, cursor_last=None,
-        checkpoint_stage=None, owner_exit_status=None, owner_joined=False, cleanup_error=None, retained_status=None)
+        checkpoint_stage=None, owner_exit_status=None, owner_joined=False, cleanup_error=None, retained_status=None,
+        retained_status_scope='core_loss', reconcile_status=None, fresh_turn_detail=None, baseline_reason=None)
     enrollment = (root / 'maintenance/enrollment.json').read_bytes()
     budget = LifecycleBudget(json.loads(enrollment)['enrollment']['expires'])
 
@@ -719,7 +1407,8 @@ def lifecycle(root, binary, client, keys):
             and v['turns'] >= working['turns'] else None), budget=budget)
         LIFECYCLE_DIAGNOSTIC['stage'] = 'verify_retained'
         retained = status(root, binary, client, budget=budget)
-        retained_during_core_loss(retained)
+        binding = retained_current_during_core_loss(root, retained, keys, enrollment)
+        create(root / RETAINED_INTENT_FILE, json.dumps(binding, sort_keys=True).encode())
         F['check_identity'](root)
         require((root / 'maintenance/enrollment.json').read_bytes() == enrollment,
             'core loss changed enrollment')
@@ -757,12 +1446,19 @@ def lifecycle(root, binary, client, keys):
             # Fresh process reconciles the original journals; no new enrollment.
             LIFECYCLE_DIAGNOSTIC['stage'] = 'fresh_owner_turn'
             restarted = run_turn(root, binary, client, keys[1], budget=budget)
+            observe_lifecycle('fresh_turn_detail', fresh_turn_diagnostic, restarted)
             require(restarted['turns'] == paused['turns'] + 1, 'resume cursor changed')
             LIFECYCLE_DIAGNOSTIC['stage'] = 'reconcile_progress'
             current = invoke(binary, client, ['storage', 'fragments', 'progress', *existing(root)],
                 deadline=budget.remaining(180))
+            observe_lifecycle('reconcile_status', reconcile_status_diagnostic, current, int(time.time()))
             F['check_identity'](root)
-            baseline = pre_withdrawal(root, current, keys)
+            retained_intent_continuity(root)
+            try:
+                baseline = pre_withdrawal(root, current, keys)
+            except (ValueError, KeyError, TypeError) as error:
+                observe_lifecycle('baseline_reason', baseline_failure_reason, error)
+                raise
             LIFECYCLE_DIAGNOSTIC['stage'] = 'validate_flow_coverage'
         gates = coverage.report(joined=coverage.joined)
         SAMPLER['validate_summary'](gates, control['baseline'], 1)
@@ -829,16 +1525,18 @@ def prepare(root, binary, client, provider_a, provider_b, provider_c, key_a, key
 
 
 def upload(root, binary, client, keys):
-    global STAGE
+    global STAGE, UPLOAD_DIAGNOSTIC
     STAGE = 'upload'
+    UPLOAD_DIAGNOSTIC = None
     # Existing real foreground deposit/retry/renew/progress, immutable identity checks,
     # and deletion of the original local bytes. Grants reserve no extra physical bytes.
-    uploaded = F['upload'](root, binary, client, keys)
-    foreground = invoke(binary, client, ['storage', 'peer', 'deposit', *peer_args(root, keys[1]),
+    uploaded = F['upload'](root, binary, client, keys, invoke_operation=upload_invoke)
+    foreground = upload_invoke('foreground_seed', binary, client, ['storage', 'peer', 'deposit', *peer_args(root, keys[1]),
         '--grant', root / 'foreground-grant.bin', '--input', root / 'foreground.bin',
         '--sha256', hashlib.sha256(FG).hexdigest(), '--already-encrypted', '--lifetime-seconds', 5400])
     require(foreground['committed'] is True and foreground['stored_bytes'] == len(FG), 'foreground seed')
     (root / 'foreground.bin').unlink()
+    UPLOAD_DIAGNOSTIC = None
     STAGE = 'enroll'
     arguments = ['storage', 'fragments', 'maintenance', 'enroll', '--enrollment', root / 'maintenance',
         '--state', root / 'fragment-set', '--from-provider-key', keys[0], '--authorization-seconds', 6000,
@@ -954,42 +1652,76 @@ def custody_usage(retired, *, withdrawn):
     return result
 
 
+class CustodyFailure(ValueError):
+    """Same historical error text, with a closed failing-predicate category."""
+    def __init__(self, message, reason):
+        super().__init__(message)
+        self.reason = reason
+
+
+def baseline_failure_reason(error):
+    cause = error.__cause__ if error.__cause__ is not None else error
+    if isinstance(cause, CustodyFailure):
+        return cause.reason if cause.reason in BASELINE_REASONS else 'unknown'
+    if isinstance(cause, (KeyError, TypeError)):
+        return 'malformed'
+    return {'baseline_identity': 'identity', 'baseline_no_live_a': 'live_source_exhausted'}.get(
+        failure_code(error), 'unknown')
+
+
 def validate_custody(value, keys, retired, *, withdrawn):
     replacements = 3 if withdrawn else len(retired)
     uncertain_bytes = sum(LENGTHS[index] for index in (0, 2, 3) if index not in retired) if withdrawn else 0
     usage = custody_usage(retired, withdrawn=withdrawn)
-    require(value['owner_signature_verified'] is True and value.get('report_version', 2 if not replacements else None) == 2
-        and value['logical_ciphertext_bytes'] == BYTES and value['fragment_count'] == 4
-        and value['copies_per_fragment'] == value.get('desired_copies_per_fragment', 2 if not replacements else None) == 2
-        and value.get('placement_authorizations', 0) == replacements and value.get('retained_copy_records', 8) == 8 + replacements
-        and value.get('pending_retirements', 0) == (3 - len(retired) if withdrawn else 0)
-        and value.get('replacement_overhead_included', not replacements) is True
+    def check(condition, message, reason):
+        if not condition:
+            if reason == 'placement':
+                pending = value.get('pending_retirements', 0)
+                reason = ('pending_handoff' if type(pending) is int and pending > 0
+                    and pending != (3 - len(retired) if withdrawn else 0) else 'identity')
+            raise CustodyFailure(message, reason)
+
+    # Keep the original conjunct order, defaults, comparisons and error text.
+    # Splitting the guards only identifies which predicate actually rejected
+    # the retained report; it neither repairs nor reinterprets that report.
+    message = 'replacement custody or accounting incomplete'
+    check(value['owner_signature_verified'] is True and value.get('report_version', 2 if not replacements else None) == 2,
+        message, 'identity')
+    check(value['logical_ciphertext_bytes'] == BYTES and value['fragment_count'] == 4
+        and value['copies_per_fragment'] == value.get('desired_copies_per_fragment', 2 if not replacements else None) == 2,
+        message, 'geometry')
+    check(value.get('placement_authorizations', 0) == replacements and value.get('retained_copy_records', 8) == 8 + replacements
+        and value.get('pending_retirements', 0) == (3 - len(retired) if withdrawn else 0), message, 'placement')
+    check(value.get('replacement_overhead_included', not replacements) is True
         and value['uncertain_payload_bytes'] == uncertain_bytes and value['committed_payload_bytes'] == 2 * BYTES
-        and value['reserved_payload_bytes'] == 0 and value['physical_payload_charge_upper_bound'] == 2 * BYTES + uncertain_bytes
-        and value['fully_redundant_from_retained_receipts'] is True
-        and value['fragments_with_confirmed_unexpired_copy'] == 4
-        and value['providers'] == [dict(provider_key=key, physical_payload_charge_upper_bound=size)
+        and value['reserved_payload_bytes'] == 0 and value['physical_payload_charge_upper_bound'] == 2 * BYTES + uncertain_bytes,
+        message, 'accounting')
+    check(value['fully_redundant_from_retained_receipts'] is True
+        and value['fragments_with_confirmed_unexpired_copy'] == 4, message, 'unconfirmed')
+    check(value['providers'] == [dict(provider_key=key, physical_payload_charge_upper_bound=size)
             for key, size in zip(keys, (usage[0]['committed_bytes'], usage[1]['committed_bytes'] - len(FG),
-                usage[2]['committed_bytes']))], 'replacement custody or accounting incomplete')
-    require(all(value[key] is False for key in ('read_consumes_archive', 'metadata_overhead_measured',
+                usage[2]['committed_bytes']))], message, 'accounting')
+    check(all(value[key] is False for key in ('read_consumes_archive', 'metadata_overhead_measured',
         'current_remote_availability_proven', 'independent_failure_domains_proven',
-        'network_contribution_credit', 'erasure_coding')), 'replacement scope changed')
-    require(len(value['fragments']) == 4, 'fragment reconstruction geometry changed')
+        'network_contribution_credit', 'erasure_coding')), 'replacement scope changed', 'scope')
+    check(len(value['fragments']) == 4, 'fragment reconstruction geometry changed', 'geometry')
     for index, fragment in enumerate(value['fragments']):
-        require(fragment['index'] == index and fragment['offset'] == sum(LENGTHS[:index])
-            and fragment['ciphertext_bytes'] == LENGTHS[index] and fragment['confirmed_unexpired_copies'] == 2,
-            'fragment reconstruction geometry changed')
+        check(fragment['index'] == index and fragment['offset'] == sum(LENGTHS[:index])
+            and fragment['ciphertext_bytes'] == LENGTHS[index], 'fragment reconstruction geometry changed', 'geometry')
+        check(fragment['confirmed_unexpired_copies'] == 2, 'fragment reconstruction geometry changed', 'unconfirmed')
         providers = [(index + copy) % 3 for copy in range(2)]
         if index in retired or withdrawn and index != 1:
             providers.append(2 if index in (0, 3) else 1)
-        require(len(fragment['copies']) == len(providers), 'effective replacement placement')
+        check(len(fragment['copies']) == len(providers), 'effective replacement placement', 'geometry')
         for copy, provider in zip(fragment['copies'], providers):
             charge = ('deleted' if index in retired else 'uncertain' if withdrawn else 'committed') if provider == 0 else 'committed'
-            require(copy['provider_key'] == keys[provider] and copy['charge'] == charge
-                and copy['last_confirmed_state'] == ('Deleted' if charge == 'deleted' else 'Committed')
-                and copy['last_confirmed_stored_bytes'] == (0 if charge == 'deleted' else LENGTHS[index])
-                and (copy['last_confirmed_expiry'] == 0 if charge == 'deleted'
-                    else copy['last_confirmed_expiry'] > int(time.time())), 'effective replacement placement')
+            check(copy['provider_key'] == keys[provider], 'effective replacement placement', 'identity')
+            check(copy['charge'] == charge and copy['last_confirmed_state'] == ('Deleted' if charge == 'deleted' else 'Committed'),
+                'effective replacement placement', 'unconfirmed')
+            check(copy['last_confirmed_stored_bytes'] == (0 if charge == 'deleted' else LENGTHS[index]),
+                'effective replacement placement', 'accounting')
+            check(copy['last_confirmed_expiry'] == 0 if charge == 'deleted' else copy['last_confirmed_expiry'] > int(time.time()),
+                'effective replacement placement', 'expired')
 
 
 def pre_withdrawal(root, value, keys):
@@ -1075,6 +1807,7 @@ def restore(root, binary, client, keys):
         raise ValueError('bounded repair turns incomplete')
     require(fresh == set((0, 2, 3)) - set(retired), 'new replacement readbacks incomplete')
     identities = replacement_identities(root, value, keys, retired, withdrawn=True)
+    retained_intent_continuity(root)
     require(all(entry in identities for entry in baseline['replacement_identities']),
         'signed replacement identities changed after withdrawal')
     # A fresh CLI process reloads the same journals before each restore: no parent
@@ -1090,6 +1823,7 @@ def restore(root, binary, client, keys):
         require(private_file(path).st_size == BYTES and hashlib.sha256(path.read_bytes()).hexdigest() == SHA,
             'restored bytes differ')
         F['check_identity'](root)
+        retained_intent_continuity(root)
         require(replacement_identities(root, value, keys, retired, withdrawn=True) == identities,
             'signed replacement identities changed after withdrawal')
     invoke(binary, client, ['storage', 'fragments', 'restore', *existing(root), '--output', root / 'restore-1.bin'], expected=1)
@@ -1122,6 +1856,7 @@ def finish(root, binary, client, keys):
     RETIREMENT_TURNS = []
     turns = 0
     before = status(root, binary, client)
+    retained_intent_continuity(root)
     retirement_counts(before, 0)
     require(before['placement_authorizations'] == 3 and before['retained_copy_records'] == 11,
         'replacement set incomplete before retirement')
@@ -1150,6 +1885,7 @@ def finish(root, binary, client, keys):
             and all(copy['charge'] == 'deleted' for fragment in deleted['fragments'] for copy in fragment['copies']),
             'all retained copies must be explicitly deleted')
         F['check_identity'](root)
+        retained_intent_continuity(root)
     foreground = invoke(binary, client, ['storage', 'peer', 'delete', *peer_args(root, keys[1])])
     require(foreground['state'] == 'Deleted', 'foreground copy not deleted')
     staged_files_absent(root)
@@ -1184,7 +1920,7 @@ def cleanup(path):
                     allowed = ((depth == 0 and child.name in F['FILES'] | {'foreground.bin', 'foreground-grant.bin',
                             'flow-upload.json', 'flow-restore.json', 'flow-finish.json', 'flow-lifecycle.json',
                             'flow-consumer-publish.json', 'flow-consumer-exercise.json', 'flow-consumer-finish.json',
-                            'lifecycle-working.json', 'lifecycle-unavailable.json', 'lifecycle-result.json'})
+                            'lifecycle-working.json', 'lifecycle-unavailable.json', 'lifecycle-result.json', RETAINED_INTENT_FILE})
                         or (depth == 1 and child.name in ('fragments.json', 'placement-authorizations.json',
                             'enrollment.json', 'checkpoint.json', 'archive.json'))
                         or (depth == 2 and child.name in ('replicas.json', 'restored-fragment'))
@@ -1232,7 +1968,8 @@ def validate_lifecycle(value, *, historical=False):
         and value['physical_payload_charge'] == 2 * BYTES, 'lifecycle evidence incomplete')
 
 
-def validate_evidence(value, *, historical=False):
+def validate_evidence(value, *, historical=False, previous=False):
+    require(not (historical and previous), 'ambiguous historical profile')
     require(value['success'] is True and all(value[key] is False for key in SCOPE_FALSE), 'scope overstated')
     require(value['prepare'] == dict(synthetic_opaque_bytes=True, ciphertext_bytes=BYTES, fragment_lengths=list(LENGTHS),
         providers=3, copies_per_fragment=2, grant_payload_bytes=[BYTES] * 3, grant_max_leases=[4] * 3,
@@ -1293,8 +2030,23 @@ def validate_evidence(value, *, historical=False):
             'all_provider_keys_match_independent_fixture_peers', 'three_provider_namespaces_distinct')),
         'private owner/provider isolation missing')
     require(set(value['network']) == {*F['PHASES'], 'lifecycle'}, 'network phase missing')
+    current_layout, transition_sha = value['layout'], None
+    if not (historical or previous):
+        current_layout = CONSUMERS['validate_control_transition'](value['control_transition'],
+            value['expected_peers'], value['layout'])
+        transition_sha = hashlib.sha256(CONSUMERS['canonical'](value['control_transition'])).hexdigest()
+    else:
+        require('control_transition' not in value, 'historical transition not admitted')
     for name, phase in value['network'].items():
-        layout = dict(value['layout'])
+        layout = dict(value['layout'] if name == 'upload' else current_layout)
+        if transition_sha is not None:
+            CONSUMERS['keys'](phase['layout'], ('route_scope',) if name == 'upload'
+                else ('route_scope', 'control_transition_sha256'))
+            if name != 'upload':
+                require(phase['layout']['control_transition_sha256'] == transition_sha,
+                    'maintenance phase transition differs')
+            require(phase['layout']['route_scope'] == phase['gates']['exit_route_scope'],
+                'maintenance phase scope differs')
         if name != 'upload':
             layout['route_scope'] = phase['gates']['exit_route_scope']
         F['validate_network'](phase, value['expected_peers'], layout, name,
@@ -1309,7 +2061,9 @@ def evidence(work):
         value[name] = F['read_usage'](work / f'private-storage-fragments-{name}.json')
     value.update(success=True, expected_peers=read(work / 'a01-expected-peers.json'), **dict.fromkeys(SCOPE_FALSE, False))
     value['lifecycle'] = read(work / 'private-storage-maintenance-lifecycle.json')
-    value['network'] = {name: dict(selected_route=read(work / f'private-storage-fragments-{name}-live-selection.json'),
+    value['control_transition'] = CONSUMERS['read_control_transition'](work)
+    value['network'] = {name: dict(layout=read(work / f'private-storage-fragments-{name}-layout.json'),
+        selected_route=read(work / f'private-storage-fragments-{name}-live-selection.json'),
         privacy={role: read(work / f'private-storage-fragments-{name}-privacy-{role}.json') for role in F['ROLES']},
         control_privacy=read(work / f'content-provider-adaptive-private-storage-fragments-{name}-control.json'),
         gates=read(work / f'private-storage-fragments-{name}-gates.json')) for name in (*F['PHASES'], 'lifecycle')}
@@ -1317,26 +2071,60 @@ def evidence(work):
     return value
 
 
-def validate_report(report, revision, *, historical=False):
+def validate_report(report, revision, *, historical=False, previous=False, stream_profile=False,
+        challenge_profile=False, append_profile=False):
     # Historical v2 reports describe only the original opaque fixture. They
     # remain inspectable, but never satisfy the current combined CLI gate.
-    require(re.fullmatch('[0-9a-f]{40}', revision) and report['source_revision'] == revision
-        and report['schema_version'] == (2 if historical else 3)
+    require(type(append_profile) is bool
+        and not (append_profile and (historical or previous or stream_profile or challenge_profile))
+        and type(challenge_profile) is bool and not (challenge_profile and (historical or previous or stream_profile))
+        and type(stream_profile) is bool and not (stream_profile and (historical or previous))
+        and not (historical and previous) and re.fullmatch('[0-9a-f]{40}', revision) and report['source_revision'] == revision
+        and type(report['schema_version']) is int
+        and report['schema_version'] == (7 if append_profile else 2 if historical else 3 if previous else 6 if challenge_profile else 5 if stream_profile else 4)
         and report['report_kind'] == 'volparossa-private-storage-maintenance'
         and report['success'] is True and report['runner_exit_status'] == 0
         and report['phase'] == 'private-storage-maintenance-complete' and report['observed_blocker'] is None
         and report['cleanup'] == dict(complete=True, remaining_owned_objects=0)
         and report['host_state']['unchanged'] is True, 'source-bound cleanup missing')
-    validate_evidence(report['maintenance'], historical=historical)
+    validate_evidence(report['maintenance'], historical=historical, previous=previous)
     if not historical:
-        CONSUMERS['validate_evidence'](report['consumers'])
+        CONSUMERS['validate_evidence'](report['consumers'], previous=previous)
+        require((report['consumers']['schema_version'] == 6) == stream_profile
+            and (report['consumers']['provision']['version'] == 6) == stream_profile,
+            'consumer_stream_source_profile')
+        require((report['consumers']['schema_version'] == 7) == challenge_profile
+            and (report['consumers']['provision']['version'] == 7) == challenge_profile,
+            'consumer_challenge_source_profile')
+        require((report['consumers']['schema_version'] == 8) == append_profile
+            and (report['consumers']['provision']['version'] == 8) == append_profile,
+            'consumer_append_source_profile')
         require(all(report['maintenance'][name] == report['consumers'][name]
-            for name in ('expected_peers', 'layout', 'isolation'))
+            for name in ('expected_peers', 'layout', 'isolation', *(() if previous else ('control_transition',))))
             and report['maintenance']['deleted_usage'] == report['consumers']['initial_usage'],
             'consumer continuation does not match original topology')
 
 
 def main(args):
+    if len(args) == 4 and args[0] == 'control-transition-check':
+        CONSUMERS['read_control_transition'](Path(args[1]), path=Path(args[2]), stage=args[3]); return
+    if len(args) == 5 and args[0] == 'supervisor-record':
+        print(json.dumps(supervisor_record(*args[1:]), sort_keys=True)); return
+    if len(args) == 2 and args[0] == 'supervisor-check':
+        supervisor_file(Path(args[1])); return
+    if len(args) == 3 and args[0] == 'inventory-check':
+        inventory_file(Path(args[1]), args[2]); return
+    if len(args) in (2, 4) and args[0] == 'route-diagnostic':
+        if len(args) == 4:
+            export_provider_events(Path(args[1]), args[2], args[3])
+        print(json.dumps(route_diagnostic(Path(args[1])), sort_keys=True)); return
+    if len(args) == 4 and args[0] == 'route-diagnostic-v3':
+        export_provider_events(Path(args[1]), args[2], args[3], version=3)
+        print(json.dumps(route_diagnostic(Path(args[1])), sort_keys=True)); return
+    if len(args) == 2 and args[0] == 'route-diagnostic-check':
+        validate_route_diagnostic(read(Path(args[1]))); return
+    if len(args) == 2 and args[0] == 'provider-events-check':
+        provider_events_file(Path(args[1])); return
     if args == ['owner-test-output']:
         print(json.dumps(owner_test_output(sys.stdin.buffer, sys.stderr.buffer), sort_keys=True))
         return
@@ -1351,14 +2139,39 @@ def main(args):
         return
     if args == ['export-names']:
         print('\n'.join(EXPORT_NAMES)); return
+    if len(args) == 2 and args[0] == 'export-names':
+        names = list(EXPORT_NAMES)
+        try:
+            provider_events_file(Path(args[1]) / PROVIDER_EVENTS_NAME)
+        except BaseException:
+            names.remove(PROVIDER_EVENTS_NAME)
+        try:
+            activity = runpy.run_path(str(Path(__file__).with_name('storage-provider-activity-sampler.py')))
+            path = Path(args[1]) / activity['NAME']
+            value = activity['decode'](closed_diagnostic_text(path, activity['MAX_BYTES']).encode(), activity['MAX_BYTES'])
+            activity['validate'](value)
+        except Exception:
+            names.remove('private-storage-provider-activity.json')
+        print('\n'.join(names)); return
     if len(args) == 2 and args[0] == 'preselection-diagnostic':
         work = Path(args[1])
         print(json.dumps(closed_preselection_events(work / 'logs-client.txt',
             work / 'private-storage-maintenance-selection-start.private',
             work / 'private-storage-maintenance-selection-end.private'), sort_keys=True))
         return
-    if len(args) == 3 and args[0] == 'report':
-        validate_report(read(Path(args[1])), args[2]); return
+    if len(args) == 3 and args[0] in ('report', 'report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6', 'report-consumer-v7', 'report-consumer-v8'):
+        report = read(Path(args[1]))
+        validate_report(report, args[2], stream_profile=args[0] == 'report-consumer-v6',
+            challenge_profile=args[0] == 'report-consumer-v7', append_profile=args[0] == 'report-consumer-v8')
+        if args[0] in ('report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6', 'report-consumer-v7', 'report-consumer-v8'):
+            # Current hosted acceptance is generation-specific; keep the
+            # original report command available for exact historical replay.
+            consumer = report['consumers']
+            version = {'report-consumer-v4': 4, 'report-consumer-v5': 5, 'report-consumer-v6': 6, 'report-consumer-v7': 7, 'report-consumer-v8': 8}[args[0]]
+            require(type(consumer['schema_version']) is int and consumer['schema_version'] == version
+                and type(consumer['provision']['version']) is int and consumer['provision']['version'] == version,
+                'consumer_current_source_profile')
+        return
     if len(args) == 3 and args[0] == 'evidence':
         result = evidence(Path(args[1]))
         Path(args[2]).write_text(json.dumps(result, sort_keys=True) + '\n')
@@ -1390,8 +2203,6 @@ def main(args):
 
 
 if __name__ == '__main__':
-    def interrupted(_signal, _frame):
-        raise InterruptedError('fixture interrupted')
     signal.signal(signal.SIGTERM, interrupted)
     try:
         main(sys.argv[1:])

@@ -3,6 +3,9 @@
 #![forbid(unsafe_code)]
 
 #[cfg(test)]
+mod resolver;
+
+#[cfg(test)]
 mod tests {
     use futures::{
         io::{self, AsyncRead, AsyncWrite, Cursor},

@@ -12,7 +12,7 @@ The ambition goes beyond a VPN: people contribute the connectivity, storage and 
 they can spare, and benefit from the network they build together. The device owner's activity
 comes first.
 
-[Explore the layers](#four-layers-one-network) ·
+[Explore the layers](#five-layers-in-one-network) ·
 [Applications](#one-core-multiple-applications) ·
 [7 Virtues](#governed-by-7-virtues) ·
 [Development status](#development-status) ·
@@ -49,14 +49,25 @@ access and explicitly chosen system-wide operation remain separate permissions.
   later trials also carry data on three parallel paths.
 - Verified peer-content retrieval, selected HTTPS sharing, DNS-cache sharing and public
   publication, including retrieval while an original publisher is offline.
+- Real weather, precipitation and particulate forecasts delivered through protected peers
+  into the Drizz.li and Overmorrow web clients, with initial display and refresh checks.
+  These web trials retrieve the first products before opening the UI.
+- The installed Overmorrow Android app fetching real forecasts on demand through the core
+  in an emulator, with initial data, tap-refresh and background/resume checks. Expiry with
+  real products, physical phones and iOS remain open.
 - Private fragment storage and provider-loss recovery, including native Signal backup
   export/import, encrypted Image snapshots and OpenCloud file recovery.
 - Actual adapter training and reuse, public tasks on peer workers, and selected
   model-review and signed policy-enforcement flows.
+- Signed TEST-unit transfers in a separate four-validator transaction trial, including
+  conflicting-spend rejection, partitions, rejoining and replay after a committed transfer.
 
 **Still in development:** complete application integrations, protected execution of private
 tasks on other people's devices, dependable AI reasoning, automatic reciprocal storage
 maintenance, the complete immune system and authorized automatic software updates.
+Current integration work concentrates on shared storage maintenance with Image/Cloud,
+actual coding-agent execution and the prerequisites for confidential peer computation.
+Android expiry and broader device support remain part of the integration work.
 
 These results belong to their recorded revisions and test conditions. The original
 [A01–A15 transport acceptance run](https://github.com/VOLPAROSSA/volparossa/actions/runs/34047766913)
@@ -65,7 +76,9 @@ is a historical checkpoint, not certification of every later change.
 failed trials and remaining work together. An open feature branch is not automatically
 part of `main`.
 
-## Four layers, one network
+<a id="four-layers-one-network"></a>
+
+## Five layers in one network
 
 The layers serve different purposes. **Public caching, private storage and message delivery
 are not interchangeable**, and private data is not automatically training material.
@@ -76,9 +89,10 @@ are not interchangeable**, and private data is not automatically training materi
 | Cache | Reuse authorized content instead of repeatedly fetching the same bytes. |
 | Storage | Retain encrypted private files with recovery copies and reciprocal capacity. |
 | Compute | Share suitable work, models and learning across participating devices. |
+| Transaction | Authorize and record transfers, distinguish settlement states and support accountable corrections. |
 
-A fifth **Transaction-layer is being developed with fictitious test value**, separately from these services.
-It is not yet an operational payment or banking facility.
+The **Transaction-layer currently operates only with fictitious test value**. It is separate
+from reciprocal network participation and is not an operational payment or banking service.
 
 <a id="one-network-many-paths"></a>
 
@@ -228,6 +242,11 @@ compute, communication costs and the owner's activity. Suitable cache content ca
 training, but missing authorized sources must remain fetchable: cache availability must
 not decide which knowledge counts.
 
+The agreed scope includes image and audio understanding, speech recognition and generation,
+and natural spoken interaction through the same shared compute service. Agents should be
+able to use permitted Internet sources for tasks, research, learning and maintenance, within
+access rights and resource budgets. These are development goals, not completed capabilities.
+
 Real development milestones include local adapter training, signed exchange and reuse,
 public peer tasks and selected model-review/recovery loops. **Successful execution is not
 the same as sound reasoning**; current small models still make factual errors.
@@ -238,29 +257,37 @@ experiments use explicitly authorized public data; local private inference is a 
 not completion of private network collaboration. Private prompts, files and results must
 not silently enter shared models or public caches.
 
-The longer-term scope includes maintaining the project's repositories and distributing
-authorized client updates, with independent review and controlled installation rights.
-These are not powers automatically granted to model output.
+The scope also includes maintaining the project's repositories and automatically distributing
+and installing authorized client updates. Independent review, release verification, staged
+rollout and recovery remain required. Model output does not grant publication or installation
+authority.
 
 [Training, peer tasks and model profiles](docs/services/DECENTRALIZED_AGENTS.md) ·
 [Software maintenance and updates](docs/services/REPOSITORY_MAINTENANCE.md)
 
 ## Transaction-layer: Ownership, payments and settlement
 
-The new [VOLPAROSSA Bank](https://github.com/VOLPAROSSA/volparossa-bank) research
-application proposes participant-owned portfolios weighted by nonnegative
-`ROIC × FCF-yield`, internal payments and connections to existing financial systems.
+[VOLPAROSSA Bank](https://github.com/VOLPAROSSA/volparossa-bank) proposes
+participant-owned portfolios, internal payments and connections to existing financial
+systems. Portfolio weights use `ROIC × FCF-yield`, with both inputs nonnegative.
 Reusable authorization, reservations, settlement status and dispute handling
 belong in the core; investment methodology and presentation belong in Bank.
 
-Research and test-value implementations are the first steps toward a working
-core service, not the final deliverable. There is no live bank, trading service
-or financial gateway. The first durable core module supports signed test-unit
-reservations, transfers and cancellation with safe retries after restart; it is
-not yet distributed settlement. The immune system
-should help detect abuse without exposing everyone's finances, but cannot
-guarantee lawful transactions or recover money after every external transfer.
-Financial participation remains separate from contributing network resources.
+Implementation now includes durable signed TEST-unit reservations, transfers and cancellation,
+with safe retries after restart. Bank connects recoverable payment intents to this owner-local
+API. A separate core trial runs the Rust transaction application with four CometBFT validators:
+conflicting spends are rejected and supply is conserved. A 3–1 split permits majority progress;
+a 2–2 split halts new commits. Replay after a committed transfer does not debit twice.
+
+That trial uses fixed membership and fictitious assets, not private financial processing,
+independently verified client finality or a working Bank-to-distributed-ledger integration.
+External settlement, decentralized price discovery and authorized financial recovery remain
+unfinished. There is no live bank, securities trading service or financial gateway.
+
+The immune system should help detect abuse without exposing everyone's finances. Corrections
+must preserve the original record and have explicit authority; recovery cannot be guaranteed
+after assets leave the system's control. Financial participation remains separate from
+contributing network resources.
 
 [Transaction-layer design and limits](docs/services/TRANSACTION_LAYER.md)
 
@@ -278,9 +305,9 @@ and compute coordination belongs in the core.
 | [Code](https://github.com/VOLPAROSSA/volparossa-code) | OpenCode | Coding agents using core-managed models and collaboration. |
 | [Image](https://github.com/VOLPAROSSA/volparossa-image) | Immich | Private photo/video libraries and recoverable state. |
 | [Map](https://github.com/VOLPAROSSA/volparossa-map) | Organic Maps | Offline maps, shared distribution and traffic information. |
-| [Weather](https://github.com/VOLPAROSSA/volparossa-weather) | Direct public model data | Shared weather processing and measured forecast improvement. |
+| [Weather](https://github.com/VOLPAROSSA/volparossa-weather) | Direct ECMWF/NOAA data; Drizz.li + Overmorrow clients | Shared forecasts, client delivery and measured forecast improvement. |
 | [Cloud](https://github.com/VOLPAROSSA/volparossa-cloud) | OpenCloud | Private files, synchronization and server-independent access. |
-| [Bank](https://github.com/VOLPAROSSA/volparossa-bank) | Financial protocol research | Participant-owned portfolios, payments and auditable corrections; no real-money service. |
+| [Bank](https://github.com/VOLPAROSSA/volparossa-bank) | Core Transaction-layer | Participant-owned portfolios, payments and auditable corrections; fictitious-value implementation first. |
 | [Citizen](https://github.com/VOLPAROSSA/volparossa-citizen) | Participation and voting research | Proposals and referenda alongside existing institutions; synthetic procedure simulation first. |
 
 [Application scope and current boundaries](docs/applications/APPLICATIONS.md)
@@ -324,7 +351,7 @@ it or define a person's moral worth.
 
 Agents should examine one another's work, compare evidence, detect conflicting judgments
 and help correct or quarantine problematic artifacts. This extends across **network, cache,
-storage, compute and software maintenance**.
+storage, compute, transactions, application integrations and software maintenance**.
 
 The same principles guide agent behavior and the intended automatic whitelist/blacklist
 decisions. Decisions need a defined subject, authority and scope; disagreement alone is
@@ -338,6 +365,7 @@ flowchart TB
     D --> C["Cache<br/>eligible public content"]
     D --> S["Storage<br/>private custody and abuse controls"]
     D --> A["Compute<br/>accepted models and agent work"]
+    D --> T["Transactions<br/>authorized review and correction"]
 ```
 
 *Intended cross-layer oversight, not a claim that this entire loop is complete.*
@@ -388,9 +416,11 @@ correlate low-latency traffic; colluding peers and local root remain important t
 More nodes do not automatically guarantee more speed, better AI or continuous availability.
 [Threat model](docs/privacy/THREAT_MODEL.md) · [Privacy](docs/privacy/PRIVACY.md) · [FAQ](docs/FAQ.md)
 
-The core is headless. There is no payment system, token or blockchain. Public-content
+The core is headless. Network participation requires no payment, token or blockchain;
+the separate Transaction-layer experiments do not change that rule. Public-content
 replication is distinct from transport-level packet duplication; the v1 transports do not
-add cover traffic, artificial delay or FEC.
+add cover traffic, artificial delay or FEC. The separate Storage-layer may adopt recovery
+codes under its common redundancy policy when their benefits are demonstrated.
 
 Original code is **GPL-3.0-only**. Third-party components retain their licenses and notices:
 [LICENSE](LICENSE) · [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

@@ -415,6 +415,7 @@ mod tests {
                 request_id: vec![7; 16],
                 result: ControlResult::Ok as i32,
                 diagnostic_code: "PRIVATE_STORAGE_READY".into(),
+                private_storage_remote_detail: None,
                 payload: Some(payload),
             };
             assert_eq!(

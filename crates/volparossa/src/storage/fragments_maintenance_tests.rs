@@ -323,6 +323,210 @@ async fn owner_maintenance_renews_repairs_one_copy_and_retains_uncertain_charge_
 #[tokio::test]
 #[allow(
     clippy::too_many_lines,
+    reason = "One real-provider retention counterexample binds the signed pending intent, two incomplete turns and the later safe retirement without sleeps."
+)]
+async fn pending_handoff_retention_waits_for_its_fragment_renewal_rotation() {
+    Box::pin(transfer::with_maintenance_turn(vec![8; 32], async {
+        let temp = tempfile::tempdir().unwrap();
+        let (owner, mut providers, mut grants) = keys_and_grants(16);
+        let (replacement, grant) = candidate(&owner);
+        providers.push(replacement);
+        grants.push(grant);
+        let now = crate::storage::now().unwrap();
+        let bytes = vec![31; 3 * CHUNK_BYTES + 9];
+        let length = bytes.len() as u64;
+        let source = temp.path().join("ciphertext");
+        fs::write(&source, &bytes).unwrap();
+        let (mut input, _) = transfer::checked_input(&source, plan(&bytes).sha256).unwrap();
+        let archive = temp.path().join("fragments");
+        // Existing signed-authority caps fix expiry ordering across second boundaries;
+        // no mocked clock, sleeps, edited journals or invented provider receipts.
+        let mut set = transfer::with_maintenance_expiry(now + 600, async {
+            LockedFragments::create(
+                &archive,
+                &owner,
+                &mut input,
+                plan(&bytes),
+                &grants[..3],
+                600,
+            )
+        })
+        .await
+        .unwrap();
+        let peers = LocalProviders::start(temp.path(), &providers, &grants, true);
+        assert_eq!(
+            operations::deposit(&set, &peers.socket, &owner, &mut input)
+                .await
+                .unwrap()["operation_complete"],
+            true
+        );
+        let (from, survivor) = {
+            let fragment = set.fragment(0).unwrap();
+            let survivor = providers
+                .iter()
+                .position(|key| {
+                    key.verifying_key().to_bytes() == fragment.data.copies[1].provider_key
+                })
+                .unwrap();
+            (
+                VerifyingKey::from_bytes(&fragment.data.copies[0].provider_key).unwrap(),
+                survivor,
+            )
+        };
+        peers.online[survivor].store(false, Ordering::SeqCst);
+        let pending = transfer::with_maintenance_expiry(now + 900, async {
+            placement::replace(&mut set, &peers.socket, &owner, 0, from, &grants[3], 900).await
+        })
+        .await
+        .unwrap();
+        assert_eq!(pending["handoff_stage"], "survivor_unavailable");
+        assert_eq!(pending["operation_complete"], false);
+        let intent = {
+            let fragment = set.fragment(0).unwrap();
+            let intent = fragment.data.handoff.as_ref().unwrap().clone();
+            assert_eq!(intent.phase, HandoffPhase::Copying);
+            assert_eq!(intent.initial_journal.requested_expiry, now + 900);
+            assert!(fragment.copy(intent.to).unwrap().journal.lease.is_none());
+            assert_eq!(fragment.data.copies[intent.to].charge, Charge::Unattempted);
+            assert_eq!(
+                fragment.copy(intent.from).unwrap().journal.last_expiry,
+                now + 600
+            );
+            intent
+        };
+        let immutable = fs::read(archive.join("fragments.json")).unwrap();
+        let signed_placement = fs::read(archive.join("placement-authorizations.json")).unwrap();
+        let mut enrollment = enrollment(&set, archive.clone(), &owner, &providers, &grants[3]);
+        enrollment.source = from.to_bytes();
+        enrollment.expires = now + 1800;
+        enrollment.lifetime = 1800;
+        enrollment.renew_before = 7200;
+        let directory = temp.path().join("maintenance");
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
+        let directory = state::directory(&directory).unwrap();
+        let signature = hex::encode(owner.sign(&signing(&enrollment).unwrap()).to_bytes());
+        save(
+            &directory,
+            "enrollment.json",
+            &SignedEnrollment {
+                enrollment,
+                signature,
+            },
+        )
+        .unwrap();
+        let enrollment = load(&directory).unwrap();
+        drop((directory, set, input));
+        fs::remove_file(source).unwrap();
+        peers.online[survivor].store(true, Ordering::SeqCst);
+
+        // Scan 4 (turn 5) renews fragment 0 before repairing its lease-less target.
+        // Scan 5 (turn 6) rotates to fragment 1, leaving that target's shorter lease.
+        for scan in [4, 5] {
+            let result = maintain(&enrollment, &peers.socket, &owner, scan)
+                .await
+                .unwrap();
+            assert_eq!(result["maintenance_stage"], "maintained", "{result}");
+            assert_eq!(result["repair_stage"], "pending_handoff", "{result}");
+            assert_eq!(result["refresh"]["fragment_index"], scan % 4);
+            assert_eq!(result["refresh"]["renewal"], true);
+            assert_eq!(result["refresh"]["operation_complete"], scan != 4);
+            assert_eq!(result["attempted_handoffs"], 1);
+            assert_eq!(result["freshly_verified_replacements"], 0);
+            assert_eq!(result["pending_retirements"], 1);
+            assert_eq!(
+                result["fragment_outcomes"],
+                serde_json::json!([{"index":0,"resumed_signed_intent":true,
+                    "operation_complete":false,"handoff_stage":"replacement_retention_insufficient",
+                    "replacement_verified_this_pass":false}])
+            );
+            if scan == 4 {
+                assert_eq!(
+                    result["refresh"]["copy_outcomes"],
+                    serde_json::json!([
+                        "confirmed",
+                        "confirmed",
+                        "unknown_reservation_use_deposit_retry"
+                    ])
+                );
+            }
+            let set = LockedFragments::open(&archive).unwrap();
+            let status = set.report("status").unwrap();
+            assert_eq!(status["pending_retirements"], 1);
+            assert_eq!(status["placement_authorizations"], 1);
+            assert_eq!(
+                status["physical_payload_charge_upper_bound"],
+                2 * length + CHUNK_BYTES as u64
+            );
+            let fragment = set.fragment(0).unwrap();
+            let retained = fragment.data.handoff.as_ref().unwrap();
+            assert!(retained.same_identity(&intent));
+            assert_eq!(retained.phase, HandoffPhase::Copying);
+            assert_eq!(fragment.data.copies[intent.from].charge, Charge::Committed);
+            assert_eq!(
+                fragment.copy(intent.from).unwrap().journal.last_expiry,
+                enrollment.expires
+            );
+            let target = fragment.copy(intent.to).unwrap();
+            assert!(target.journal.lease.is_some());
+            assert_eq!(target.journal.archive_id, intent.initial_journal.archive_id);
+            assert_eq!(target.journal.requested_expiry, now + 900);
+            assert_eq!(target.journal.last_expiry, now + 900);
+        }
+
+        // Explicitly select the next fragment-0 rotation. This only completes that
+        // pending handoff, not every remaining source copy or a live overlay trial.
+        let finished = maintain(&enrollment, &peers.socket, &owner, 8)
+            .await
+            .unwrap();
+        assert_eq!(finished["refresh"]["fragment_index"], 0);
+        assert_eq!(finished["refresh"]["operation_complete"], true);
+        assert_eq!(finished["freshly_verified_replacements"], 1);
+        assert_eq!(finished["pending_retirements"], 0);
+        assert_eq!(finished["fragment_outcomes"][0]["index"], 0);
+        assert_eq!(finished["fragment_outcomes"][0]["operation_complete"], true);
+        assert_eq!(
+            finished["fragment_outcomes"][0]["handoff_stage"],
+            "complete"
+        );
+        let set = LockedFragments::open(&archive).unwrap();
+        {
+            let fragment = set.fragment(0).unwrap();
+            let retained = fragment.data.handoff.as_ref().unwrap();
+            assert!(retained.same_identity(&intent));
+            assert_eq!(retained.phase, HandoffPhase::Complete);
+            assert_eq!(fragment.data.copies[intent.from].charge, Charge::Deleted);
+            let target = fragment.copy(intent.to).unwrap();
+            assert_eq!(target.journal.archive_id, intent.initial_journal.archive_id);
+            assert_eq!(target.journal.requested_expiry, now + 900);
+            assert_eq!(target.journal.last_expiry, enrollment.expires);
+        }
+        assert_eq!(
+            set.report("status").unwrap()["physical_payload_charge_upper_bound"],
+            2 * length
+        );
+        assert_eq!(fs::read(archive.join("fragments.json")).unwrap(), immutable);
+        assert_eq!(
+            fs::read(archive.join("placement-authorizations.json")).unwrap(),
+            signed_placement
+        );
+        assert_eq!(
+            operations::delete(&set, &peers.socket, &owner)
+                .await
+                .unwrap()["physical_payload_charge_upper_bound"],
+            0
+        );
+        drop(set);
+        peers.stop().await;
+    }))
+    .await;
+}
+
+#[tokio::test]
+#[allow(
+    clippy::too_many_lines,
     reason = "One three-provider local lifecycle isolates the actual overlay fixture's retained retirement geometry without claiming route recovery."
 )]
 async fn three_provider_maintenance_retires_all_originals_with_exact_candidate_grants() {

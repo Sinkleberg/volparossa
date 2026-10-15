@@ -426,20 +426,26 @@ def staged_files_absent(root):
             "temporary ciphertext staging remains")
 
 
-def upload(root, binary, client, keys):
+def upload(root, binary, client, keys, *, invoke_operation=None):
+    def call(operation, arguments, **options):
+        if invoke_operation is None:
+            return invoke(binary, client, arguments, **options)
+        return invoke_operation(operation, binary, client, arguments, **options)
+
     command = ["storage", "fragments", "create", *existing(root), "--input", root / "input.bin",
         "--sha256", SHA, "--already-encrypted", "--copies", 2, "--fragment-bytes", CHUNK, "--lifetime-seconds", 1800]
     for label, key in zip("abc", keys):
         command.extend(["--provider-key", key, "--grant", root / f"grant-{label}.bin"])
-    validate_cli(invoke(binary, client, command), "create", keys, "created")
+    validate_cli(call("create", command), "create", keys, "created")
     deposit = ["storage", "fragments", "deposit", *existing(root), "--input", root / "input.bin", "--already-encrypted"]
-    validate_cli(invoke(binary, client, deposit, deadline=900), "deposit", keys, "committed")
+    validate_cli(call("deposit", deposit, deadline=900), "deposit", keys, "committed")
     create(root / "identities.sha256", identity_digest(root))
     for operation, arguments in (("progress", ["storage", "fragments", "progress", *existing(root)]),
             ("deposit", deposit), ("renew", ["storage", "fragments", "renew", *existing(root), "--lifetime-seconds", 3600])):
-        validate_cli(invoke(binary, client, arguments, deadline=900), operation, keys, "committed")
+        label = "redeposit" if operation == "deposit" else operation
+        validate_cli(call(label, arguments, deadline=900), operation, keys, "committed")
         check_identity(root)
-    validate_cli(invoke(binary, client, ["storage", "fragments", "status", "--state", root / "fragment-set"]),
+    validate_cli(call("status", ["storage", "fragments", "status", "--state", root / "fragment-set"]),
         "status", keys, "committed")
     staged_files_absent(root)
     private_file(root / "input.bin")

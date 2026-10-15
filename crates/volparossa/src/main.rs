@@ -675,6 +675,7 @@ fn print_response(response: ControlResponse) -> Result<()> {
         | Payload::MailboxReady(_)
         | Payload::ContentCustodyReady(_)
         | Payload::ComputeReady(_)
+        | Payload::QuoteReady(_)
         | Payload::ComputeTranscript(_) => {
             anyhow::bail!("unexpected content stream handoff outside an explicit transfer")
         }
@@ -683,6 +684,9 @@ fn print_response(response: ControlResponse) -> Result<()> {
         }
         Payload::ContentCustodyDiscovered(_) => {
             anyhow::bail!("unexpected custody selection outside an explicit retention workflow")
+        }
+        Payload::ContentProviderActivity(_) => {
+            anyhow::bail!("provider activity requires its scoped content command")
         }
         Payload::Content(receipt) => println!(
             "{}",
@@ -756,6 +760,7 @@ fn print_response(response: ControlResponse) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&receipt)?);
         }
         Payload::PrivateStorageReady(_)
+        | Payload::PrivateStorageOutcome(_)
         | Payload::PrivateStorageMaintenanceReady(_)
         | Payload::PrivateStorageGrant(_)
         | Payload::PrivateStorageAdmission(_) => {

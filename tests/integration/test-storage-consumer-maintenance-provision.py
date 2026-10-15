@@ -17,6 +17,186 @@ M = runpy.run_path(str(HERE / 'storage-consumer-maintenance-provision.py'))
 
 
 class ConsumerProvision(unittest.TestCase):
+    def test_profile_eight_pins_exact_opt_in_adapter_without_changing_historical_runtime_or_scope(self):
+        previous, current = M['load_pins'](7), M['load_pins'](8)
+        self.assertEqual(current['version'], 8)
+        self.assertEqual(current['runtime'], previous['runtime'])
+        self.assertEqual(len({M['pins_path'](v) for v in range(1, 9)}), 8)
+        node = (HERE / 'storage-consumer-maintenance.mjs').read_text()
+        for name in ('image', 'cloud'):
+            self.assertEqual(current['sources'][name]['revision'], M['APPEND_REVISIONS'][name])
+            self.assertNotEqual(current['sources'][name]['revision'], previous['sources'][name]['revision'])
+            self.assertIn(current['sources'][name]['revision'], node)
+            self.assertEqual(set(current['sources'][name]['files']), set(previous['sources'][name]['files']))
+            changed = {path for path, record in current['sources'][name]['files'].items()
+                if record != previous['sources'][name]['files'][path]}
+            self.assertEqual(changed, {'src/core-storage.mjs'} if name == 'image' else {
+                'vendor/volparossa-image/core-storage.mjs', 'third_party/volparossa-image-source.json', 'THIRD_PARTY_LICENSES.md'})
+        for original, vendored in M['VENDORED'].items():
+            self.assertEqual(current['sources']['image']['files'][original], current['sources']['cloud']['files'][vendored])
+        for old in range(1, 8):
+            for invalid in (M['load_pins'](old), dict(current, version=old)):
+                with tempfile.TemporaryDirectory() as temporary:
+                    path = Path(temporary) / 'pins.json'; path.write_text(json.dumps(invalid))
+                    with patch.dict(M['load_pins'].__globals__, PINS_V8=path), self.assertRaises(ValueError):
+                        M['load_pins'](8)
+        for app in ('image', 'cloud'):
+            invalid = copy.deepcopy(current)
+            invalid['sources'][app]['revision'] = previous['sources'][app]['revision']
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / 'pins.json'; path.write_text(json.dumps(invalid))
+                with patch.dict(M['load_pins'].__globals__, PINS_V8=path), self.assertRaises(ValueError):
+                    M['load_pins'](8)
+
+    def test_profile_seven_adds_only_challenge_adapters_and_retains_old_pins(self):
+        previous, current = M['load_pins'](6), M['load_pins'](7)
+        self.assertEqual(current['version'], 7)
+        self.assertEqual(current['runtime'], previous['runtime'])
+        self.assertEqual(len({M['pins_path'](v) for v in range(1, 8)}), 7)
+        node = (HERE / 'storage-consumer-maintenance.mjs').read_text()
+        for name in ('image', 'cloud'):
+            self.assertEqual(current['sources'][name]['revision'], M['CHALLENGE_REVISIONS'][name])
+            self.assertNotEqual(current['sources'][name]['revision'], previous['sources'][name]['revision'])
+            self.assertIn(current['sources'][name]['revision'], node)
+            self.assertEqual(set(current['sources'][name]['files']), set(previous['sources'][name]['files']))
+            changed = {path for path, record in current['sources'][name]['files'].items()
+                if record != previous['sources'][name]['files'][path]}
+            self.assertEqual(changed, {'src/core-storage.mjs'} if name == 'image' else {
+                'vendor/volparossa-image/core-storage.mjs', 'third_party/volparossa-image-source.json', 'THIRD_PARTY_LICENSES.md'})
+        for original, vendored in M['VENDORED'].items():
+            self.assertEqual(current['sources']['image']['files'][original], current['sources']['cloud']['files'][vendored])
+        changed = copy.deepcopy(current); changed['sources']['image']['revision'] = previous['sources']['image']['revision']
+        vendor = copy.deepcopy(current)
+        vendor['sources']['cloud']['files']['vendor/volparossa-image/core-storage.mjs']['sha256'] = '0' * 64
+        for invalid in (previous, dict(current, version=6), changed, vendor):
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / 'pins.json'; path.write_text(json.dumps(invalid))
+                with patch.dict(M['load_pins'].__globals__, PINS_V7=path), self.assertRaises(ValueError):
+                    M['load_pins'](7)
+
+    def test_profile_six_pins_only_new_stream_adapters_and_preserves_all_historical_sources(self):
+        previous, current = M['load_pins'](5), M['load_pins'](6)
+        self.assertEqual(current['version'], 6)
+        self.assertEqual(current['runtime'], previous['runtime'])
+        self.assertEqual(len({M['pins_path'](v) for v in (1, 2, 3, 4, 5, 6)}), 6)
+        node = (HERE / 'storage-consumer-maintenance.mjs').read_text()
+        for name in ('image', 'cloud'):
+            self.assertEqual(current['sources'][name]['revision'], M['STREAM_REVISIONS'][name])
+            self.assertNotEqual(current['sources'][name]['revision'], previous['sources'][name]['revision'])
+            self.assertIn(current['sources'][name]['revision'], node)
+            self.assertEqual(set(current['sources'][name]['files']), set(previous['sources'][name]['files']))
+            changed = {path for path, record in current['sources'][name]['files'].items()
+                if record != previous['sources'][name]['files'][path]}
+            self.assertEqual(changed, {'src/core-storage.mjs'} if name == 'image' else {
+                'vendor/volparossa-image/core-storage.mjs', 'third_party/volparossa-image-source.json', 'THIRD_PARTY_LICENSES.md'})
+        for original, vendored in M['VENDORED'].items():
+            self.assertEqual(current['sources']['image']['files'][original], current['sources']['cloud']['files'][vendored])
+        changed = copy.deepcopy(current); changed['sources']['image']['revision'] = previous['sources']['image']['revision']
+        vendor = copy.deepcopy(current)
+        vendor['sources']['cloud']['files']['vendor/volparossa-image/core-storage.mjs']['sha256'] = '0' * 64
+        for invalid in (previous, dict(current, version=5), changed, vendor):
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / 'pins.json'; path.write_text(json.dumps(invalid))
+                with patch.dict(M['load_pins'].__globals__, PINS_V6=path), self.assertRaises(ValueError):
+                    M['load_pins'](6)
+
+    def test_profile_five_adds_exact_outcome_sources_without_expanding_runtime_or_old_pins(self):
+        previous, current = M['load_pins'](4), M['load_pins'](5)
+        self.assertEqual(current['version'], 5)
+        self.assertEqual(current['runtime'], previous['runtime'])
+        self.assertEqual(len({M['pins_path'](v) for v in (1, 2, 3, 4, 5)}), 5)
+        node = (HERE / 'storage-consumer-maintenance.mjs').read_text()
+        for name in ('image', 'cloud'):
+            self.assertEqual(current['sources'][name]['revision'], M['OUTCOME_REVISIONS'][name])
+            self.assertNotEqual(current['sources'][name]['revision'], previous['sources'][name]['revision'])
+            self.assertIn(current['sources'][name]['revision'], node)
+            self.assertEqual(set(current['sources'][name]['files']), set(previous['sources'][name]['files']))
+            self.assertEqual(current['sources'][name]['files']['LICENSE'], previous['sources'][name]['files']['LICENSE'])
+        for original, vendored in M['VENDORED'].items():
+            self.assertEqual(current['sources']['image']['files'][original], current['sources']['cloud']['files'][vendored])
+        changed = copy.deepcopy(current); changed['sources']['image']['revision'] = previous['sources']['image']['revision']
+        vendor = copy.deepcopy(current)
+        vendor['sources']['cloud']['files']['vendor/volparossa-image/core-storage.mjs']['sha256'] = '0' * 64
+        for invalid in (previous, dict(current, version=4), changed, vendor):
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / 'pins.json'; path.write_text(json.dumps(invalid))
+                with patch.dict(M['load_pins'].__globals__, PINS_V5=path), self.assertRaises(ValueError):
+                    M['load_pins'](5)
+
+    def test_explicit_profile_two_keeps_historical_pins_and_adds_only_required_import(self):
+        old, current = M['load_pins'](), M['load_pins'](2)
+        self.assertEqual(current['version'], 2)
+        self.assertEqual(current['runtime'], old['runtime'])
+        self.assertEqual(current['sources']['image']['revision'], 'fa0438747b79bf29e49a2fe65116cb166ebe10df')
+        self.assertEqual(current['sources']['cloud']['revision'], 'f51b49b84af404cc8dd6e377e0545e2ca1ea4569')
+        self.assertEqual(set(current['sources']['cloud']['files']) - set(old['sources']['cloud']['files']),
+            {'src/storage-upload-maintenance.mjs'})
+        self.assertEqual(set(old['sources']['cloud']['files']) - set(current['sources']['cloud']['files']), set())
+        self.assertEqual(set(current['sources']['image']['files']), set(old['sources']['image']['files']))
+        self.assertNotEqual(M['pins_path'](), M['pins_path'](2))
+        for version in (True, 0, 9, '2'):
+            with self.assertRaises(ValueError):
+                M['load_pins'](version)
+        for changed in (old, dict(current, version=1)):
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / 'pins.json'
+                path.write_text(json.dumps(changed))
+                with patch.dict(M['load_pins'].__globals__, PINS_V2=path), self.assertRaises(ValueError):
+                    M['load_pins'](2)
+
+    def test_profile_three_has_distinct_pins_but_no_new_runtime_or_source_scope(self):
+        old, diagnostic, detailed = (M['load_pins'](version) for version in (1, 2, 3))
+        self.assertEqual(detailed['version'], 3)
+        self.assertEqual(old['runtime'], detailed['runtime'])
+        self.assertEqual(diagnostic['runtime'], detailed['runtime'])
+        self.assertEqual(len({M['pins_path'](version) for version in (1, 2, 3)}), 3)
+        node = (HERE / 'storage-consumer-maintenance.mjs').read_text()
+        for name in ('image', 'cloud'):
+            self.assertNotEqual(detailed['sources'][name]['revision'], diagnostic['sources'][name]['revision'])
+            self.assertEqual(set(detailed['sources'][name]['files']), set(diagnostic['sources'][name]['files']))
+            self.assertIn(detailed['sources'][name]['revision'], node)
+            self.assertEqual(detailed['sources'][name]['files']['LICENSE'], diagnostic['sources'][name]['files']['LICENSE'])
+        for original, vendored in M['VENDORED'].items():
+            self.assertEqual(detailed['sources']['image']['files'][original], detailed['sources']['cloud']['files'][vendored])
+        cases = [diagnostic, dict(detailed, version=2)]
+        changed = copy.deepcopy(detailed)
+        changed['sources']['image']['revision'] = diagnostic['sources']['image']['revision']
+        cases.append(changed)
+        changed = copy.deepcopy(detailed)
+        changed['sources']['cloud']['files']['vendor/volparossa-image/core-storage.mjs']['sha256'] = '0' * 64
+        cases.append(changed)
+        for changed in cases:
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / 'pins.json'
+                path.write_text(json.dumps(changed))
+                with patch.dict(M['load_pins'].__globals__, PINS_V3=path), self.assertRaises(ValueError):
+                    M['load_pins'](3)
+
+    def test_profile_four_pins_the_tls_bridges_without_replacing_older_sources_or_runtime(self):
+        previous, current = M['load_pins'](3), M['load_pins'](4)
+        self.assertEqual(current['version'], 4)
+        self.assertEqual(current['runtime'], previous['runtime'])
+        self.assertEqual(len({M['pins_path'](v) for v in (1, 2, 3, 4)}), 4)
+        node = (HERE / 'storage-consumer-maintenance.mjs').read_text()
+        for name in ('image', 'cloud'):
+            self.assertEqual(current['sources'][name]['revision'], M['TLS_REVISIONS'][name])
+            self.assertNotEqual(current['sources'][name]['revision'], previous['sources'][name]['revision'])
+            self.assertIn(current['sources'][name]['revision'], node)
+            self.assertEqual(set(current['sources'][name]['files']), set(previous['sources'][name]['files']))
+            self.assertEqual(current['sources'][name]['files']['LICENSE'], previous['sources'][name]['files']['LICENSE'])
+        for original, vendored in M['VENDORED'].items():
+            self.assertEqual(current['sources']['image']['files'][original], current['sources']['cloud']['files'][vendored])
+        changed = copy.deepcopy(current)
+        changed['sources']['image']['revision'] = previous['sources']['image']['revision']
+        vendor = copy.deepcopy(current)
+        vendor['sources']['cloud']['files']['vendor/volparossa-image/core-storage.mjs']['sha256'] = '0' * 64
+        for invalid in (previous, dict(current, version=3), changed, vendor):
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / 'pins.json'
+                path.write_text(json.dumps(invalid))
+                with patch.dict(M['load_pins'].__globals__, PINS_V4=path), self.assertRaises(ValueError):
+                    M['load_pins'](4)
+
     def test_exact_sources_runtime_licenses_and_same_adapter(self):
         pins = M['load_pins']()
         self.assertEqual(set(pins['sources']), {'image', 'cloud'})

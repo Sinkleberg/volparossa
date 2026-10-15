@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """New Image/Cloud maintenance profile, solely in the disposable protected VM."""
 import base64
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -19,6 +20,7 @@ import time
 HERE = Path(__file__).resolve().parent
 BASE = runpy.run_path(str(HERE / 'private-storage-fragments-smoke.py'))
 SAMPLER = runpy.run_path(str(HERE / 'private-storage-log-sampler.py'))
+ACTIVITY = runpy.run_path(str(HERE / 'storage-provider-activity-sampler.py'))
 PROVISIONER = runpy.run_path(str(HERE / 'storage-consumer-maintenance-provision.py'))
 NODE = Path('/opt/volparossa-node/bin/node')
 PROVISION = Path('/opt/volparossa-storage-consumers/provision.json')
@@ -48,6 +50,8 @@ FAILURE_CODES = {'phase_deadline', 'authority_expired', 'authority_changed', 're
     'fragment_geometry', 'catalog_creation', 'configuration', 'input_changed', 'private_file', 'private_directory',
     'application_failed'}
 CANCELLED = False
+PROFILE_VERSION = 1
+NETWORK_VERSION = 1
 
 
 class NodePhaseFailure(ValueError):
@@ -57,6 +61,16 @@ class NodePhaseFailure(ValueError):
         self.report = dict(version=1, kind='storage-consumer-maintenance-orchestration',
             phase=value['phase'], passed=False, code='node_phase_failed', cleanup_confirmed=False,
             node=value, node_report_sha256=report_hash, provision_sha256=provision, node_joined=True)
+
+
+class NetworkPhaseFailure(ValueError):
+    def __init__(self, phase, diagnostic):
+        sampler = runpy.run_path(str(HERE / 'storage-consumer-route-sampler.py'))
+        sampler['validate_diagnostic'](diagnostic)
+        super().__init__('network_observation_failed')
+        self.report = dict(version=2, kind='storage-consumer-maintenance-orchestration', phase=phase,
+            passed=False, code='network_observation_failed', cleanup_confirmed=False,
+            network_version=2, sampler=dict(diagnostic))
 
 
 def require(value, code='consumer_contract'):
@@ -140,12 +154,13 @@ def digest_public(path, record):
 
 
 def tools():
-    pins = PROVISIONER['load_pins']()
+    pins = PROVISIONER['load_pins'](PROFILE_VERSION)
     raw = file_bytes(PROVISION, 65536, public=True)
     value = json.loads(raw)
-    require(value['version'] == 1 and value['kind'] == 'storage-consumer-maintenance-runtime-provision'
+    require(type(value['version']) is int and value['version'] == PROFILE_VERSION
+        and value['kind'] == 'storage-consumer-maintenance-runtime-provision'
         and value['success'] is True and value['pins'] == pins
-        and value['pins_sha256'] == hashlib.sha256((HERE / 'storage-consumer-maintenance-pins.json').read_bytes()).hexdigest()
+        and value['pins_sha256'] == hashlib.sha256(PROVISIONER['pins_path'](PROFILE_VERSION).read_bytes()).hexdigest()
         and all(value[key] is True for key in ('guest_only', 'source_files_verified', 'runtime_files_verified',
             'shared_adapter_verified', 'original_licenses_retained'))
         and all(value[key] is False for key in ('storage_enrollment_created', 'peer_storage_proven',
@@ -186,16 +201,151 @@ LIFECYCLE = {'observed_old_owner_absent_while_foreground_active', 'observed_paus
     'confirmed_copy_retentions_advanced', 'completed_turn_observed'}
 
 
-def validate_node_report(value, phase, provision, prepared=None):
+OUTCOME_PHASES = ('ready_write', 'local_request_read', 'local_request_verify', 'local_payload_read',
+    'local_payload_verify', 'admission', 'remote_request_verify', 'remote_request_write', 'remote_payload_write',
+    'remote_receipt_read', 'remote_receipt_verify', 'remote_payload_read', 'remote_payload_verify',
+    'local_receipt_write', 'local_payload_write', 'provider_tls_close', 'transport_tls_close',
+    'final_route_check', 'final_grant_check', 'final_lifetime_check', 'terminal_write')
+
+
+def validate_agent_outcome(value, stage, version=4, operation=None):
+    if value is None:
+        return
+    keys(value, ('status', 'detail', *(('append_timing',) if version == 7 else ())))
+    require(stage in ('wire_receipt', 'agent_terminal', 'deadline')
+        and value['status'] in ('observed', 'missing', 'pending', 'expired', 'query_failed', 'query_timeout'), 'deposit_diagnostics')
+    if value['status'] != 'observed':
+        require(value['detail'] is None, 'deposit_diagnostics')
+        if version == 7:
+            require(value['append_timing'] is None, 'deposit_diagnostics')
+        return
+    detail = value['detail']
+    keys(detail, ('phase', 'category', 'deadline_scope'))
+    require(detail['phase'] in OUTCOME_PHASES
+        and detail['category'] in ('io', 'auth', 'invalid', 'busy', 'store', 'expired', 'entropy', 'timeout', 'policy', 'unavailable', 'cancelled')
+        and detail['deadline_scope'] in ('none', 'operation', 'exchange', 'bridge', 'remote_wire')
+        and ((detail['category'] == 'timeout') == (detail['deadline_scope'] != 'none'))
+        and (detail['deadline_scope'] != 'bridge' or detail['phase'] in OUTCOME_PHASES[1:15])
+        and (detail['deadline_scope'] != 'remote_wire' or detail['phase'] in OUTCOME_PHASES[6:13]), 'deposit_diagnostics')
+    if version == 7 and value['append_timing'] is not None:
+        timing = value['append_timing']
+        keys(timing, ('before_payload', 'in_payload_write_flush', 'in_receipt_read'))
+        buckets = ('under_1s', '1_to_5s', '5_to_15s', '15_to_30s',
+            '30_to_60s', '60_to_90s', '90_to_120s', 'at_least_120s')
+        require(operation == 'append' and detail['phase'] in ('remote_payload_write', 'remote_receipt_read')
+            and timing['before_payload'] in buckets and timing['in_payload_write_flush'] in buckets
+            and (timing['in_receipt_read'] is None if detail['phase'] == 'remote_payload_write'
+                else timing['in_receipt_read'] in buckets), 'deposit_diagnostics')
+
+
+def validate_deposit_diagnostics(value, version=1):
+    require(type(version) is int and version in (1, 2, 3, 4, 5, 6, 7), 'deposit_diagnostics')
+    keys(value, ('version', 'failures', 'omitted_failures'))
+    require(type(value['version']) is int and value['version'] == version
+        and type(value['omitted_failures']) is int and value['omitted_failures'] == 0
+        and type(value['failures']) is list and len(value['failures']) <= 8, 'deposit_diagnostics')
+    seen = set()
+    for failure in value['failures']:
+        keys(failure, ('fragment_index', 'copy_index', 'operation', 'stage', 'category', 'agent_code',
+            *(('agent_detail',) if version >= 2 else ()), *(('agent_outcome',) if version >= 4 else ())))
+        require(count(failure['fragment_index'], 0, 3) and count(failure['copy_index'], 0, 1)
+            and failure['operation'] in ('prepare', 'reserve', 'progress', 'append', 'finalize', 'renew', 'read_range', 'delete')
+            and failure['stage'] in ('journal_open', 'authorization', 'agent_ready', 'challenge', 'signed_request',
+                'wire_receipt', 'agent_terminal', 'accounting', 'local_input', 'receipt_validation', 'journal_save', 'deadline', 'unknown')
+            and failure['category'] in ('io', 'timeout', 'protocol', 'agent_rejected', 'invalid', 'busy', 'store', 'unknown')
+            and (failure['agent_code'] in ('CONTENT_INVALID', 'CONTENT_UNAVAILABLE', 'CONTENT_BUSY', 'CONTENT_POLICY', 'unknown')
+                if failure['category'] == 'agent_rejected' else failure['agent_code'] is None), 'deposit_diagnostics')
+        if version >= 2 and failure['agent_detail'] is not None:
+            detail = failure['agent_detail']
+            keys(detail, ('stage', 'deadline_scope', *(('tls_failure',) if version >= 3 else ()),
+                *(('stream_failure',) if version >= 5 else ()), *(('challenge',) if version >= 6 else ())))
+            require(failure['stage'] == 'agent_ready' and failure['category'] == 'agent_rejected'
+                and failure['agent_code'] in ('CONTENT_INVALID', 'CONTENT_UNAVAILABLE', 'CONTENT_BUSY', 'CONTENT_POLICY')
+                and detail['stage'] in ('unobserved', 'route_connect', 'control_selection', 'provider_lookup',
+                    'provider_cardinality', 'offer_validity', 'stream_open', 'tls_handshake', 'challenge')
+                and detail['deadline_scope'] in ('none', 'operation', 'exchange')
+                and (detail['stage'] != 'unobserved' or detail['deadline_scope'] == 'operation')
+                and (detail['deadline_scope'] != 'exchange' or detail['stage'] in ('stream_open', 'tls_handshake', 'challenge'))
+                and (detail['deadline_scope'] == 'none' or failure['agent_code'] == 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics')
+            if version >= 3:
+                require(detail['tls_failure'] is None or (
+                    detail['tls_failure'] in ('offer', 'configuration', 'handshake_deadline', 'authentication', 'tls_other', 'io')
+                    and detail['stage'] == 'tls_handshake' and detail['deadline_scope'] == 'none'
+                    and failure['agent_code'] == 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics')
+            if version >= 5:
+                require(detail['stream_failure'] is None or (
+                    detail['stream_failure'] in ('policy', 'route_state', 'route_material', 'flow_acquire',
+                        'transport_certificate', 'transport_tls', 'initial_paths', 'open_tcp_write',
+                        'subflow_readiness', 'stream_attachment')
+                    and detail['stage'] == 'stream_open' and detail['deadline_scope'] == 'none'
+                    and detail['tls_failure'] is None and failure['agent_code'] == 'CONTENT_UNAVAILABLE'),
+                    'deposit_diagnostics')
+            if version >= 6 and detail['challenge'] is not None:
+                challenge = detail['challenge']
+                keys(challenge, ('phase', 'before_challenge', 'in_challenge'))
+                buckets = ('under_1s', '1_to_5s', '5_to_15s', '15_to_30s',
+                    '30_to_60s', '60_to_90s', '90_to_120s', 'at_least_120s')
+                require(challenge['phase'] in ('selector_write_flush', 'grant_write_flush', 'challenge_read_verify')
+                    and challenge['before_challenge'] in buckets and challenge['in_challenge'] in buckets
+                    and detail['stage'] == 'challenge' and detail['tls_failure'] is None
+                    and detail['stream_failure'] is None and failure['agent_code'] == 'CONTENT_UNAVAILABLE',
+                    'deposit_diagnostics')
+        if version >= 4:
+            validate_agent_outcome(failure['agent_outcome'], failure['stage'], version, failure['operation'])
+        identity = (failure['fragment_index'], failure['copy_index'])
+        require(identity not in seen, 'deposit_diagnostics')
+        seen.add(identity)
+
+
+def validate_node_report(value, phase, provision, prepared=None, *, profile_version=None):
     require(phase in PHASES and type(value) is dict and type(value.get('passed')) is bool, 'node_report')
+    expected_version = 1
     if not value['passed']:
-        keys(value, ('version', 'kind', 'phase', 'passed', 'provision_sha256', 'stage', 'code', 'cleanup_confirmed'))
+        fields = ('version', 'kind', 'phase', 'passed', 'provision_sha256', 'stage', 'code', 'cleanup_confirmed')
+        if 'publish_observation' in value:
+            fields += ('publish_observation',)
+            observed = value['publish_observation']
+            require(type(observed) is dict and type(observed.get('version')) is int
+                and observed['version'] in (1, 2, 3, 4, 5, 6, 7, 8), 'publish_profile')
+            observation_version = observed['version']
+            diagnostic = observation_version >= 2
+            expected_version = observation_version + 1
+            require(profile_version is None or observation_version == profile_version, 'publish_profile')
+            keys(observed, ('version', 'app', 'operation', 'status', 'code', 'local_process_joined',
+                'core_report_present', 'core_operation_complete',
+                *(('deposit_diagnostics_state', 'deposit_diagnostics') if diagnostic else ())))
+            require(type(observed['version']) is int and observed['version'] == observation_version
+                and observed['app'] in ('image', 'cloud') and observed['operation'] in ('create', 'deposit')
+                and phase == 'publish' and value['stage'] == observed['app'] + '_publish'
+                and value['code'] in ('publish_operation', 'phase_deadline'), 'publish_observation')
+            require(observed['status'] in ('complete', 'incomplete', 'failed', 'cancelled', 'timed_out', 'unknown')
+                and observed['code'] in ('ok', 'retained_operation_incomplete', 'invalid_core_report', 'core_failed',
+                    'cancelled', 'timed_out', 'report_too_large', 'restore_verification_failed', 'unknown')
+                and type(observed['core_report_present']) is bool
+                and all(observed[key] is None or type(observed[key]) is bool
+                    for key in ('local_process_joined', 'core_operation_complete'))
+                and (observed['core_report_present'] or observed['core_operation_complete'] is None)
+                and (diagnostic or not (observed['status'] == 'complete' and observed['local_process_joined'] is True)),
+                'publish_observation')
+            if diagnostic:
+                state, deposit = observed['deposit_diagnostics_state'], observed['deposit_diagnostics']
+                require(state in ('observed', 'missing', 'invalid', 'not_applicable')
+                    and (state == 'not_applicable') == (observed['operation'] == 'create'), 'deposit_diagnostics')
+                if state == 'observed':
+                    validate_deposit_diagnostics(deposit, observation_version - 1)
+                    require(observed['core_report_present'] and observed['core_operation_complete'] in (True, False)
+                        and (observed['core_operation_complete'] is False or not deposit['failures']), 'deposit_diagnostics')
+                else:
+                    require(deposit is None, 'deposit_diagnostics')
+                require(not (observed['status'] == 'complete' and observed['local_process_joined'] is True)
+                    or (observed['operation'] == 'deposit' and state in ('missing', 'invalid')), 'deposit_diagnostics')
+        keys(value, fields)
         require(value['stage'] in STAGES and value['code'] in FAILURE_CODES and value['cleanup_confirmed'] is False, 'failure_report')
     else:
         keys(value, ('version', 'kind', 'phase', 'passed', 'provision_sha256', 'image', 'cloud', 'scope'))
         keys(value['scope'], SCOPE)
         require(all(value['scope'][key] is expected for key, expected in SCOPE.items()), 'scope')
-    require(type(value['version']) is int and value['version'] == 1
+    require(type(value['version']) is int and value['version'] == expected_version
         and value['kind'] == 'storage-consumer-maintenance' and value['phase'] == phase
         and value['provision_sha256'] == provision, 'node_identity')
     if not value['passed']:
@@ -348,12 +498,15 @@ def validate_locations(root, binary, client, providers=None):
 
 
 def node_phase(root, phase, provision, deadline):
-    status, output, _ = run_child([NODE, HERE / 'storage-consumer-maintenance.mjs', phase, root], deadline)
+    command = [NODE, HERE / 'storage-consumer-maintenance.mjs', phase, root]
+    if PROFILE_VERSION in (2, 3, 4, 5, 6, 7, 8):
+        command += ['--profile-version', str(PROFILE_VERSION)]
+    status, output, _ = run_child(command, deadline)
     value = json.loads(output)
     prepared = None if phase == 'prepare' else private_json(root / 'storage-consumer-prepare.json')
     if prepared is not None:
         validate_node_report(prepared, 'prepare', provision)
-    validate_node_report(value, phase, provision, prepared)
+    validate_node_report(value, phase, provision, prepared, profile_version=PROFILE_VERSION)
     require(status == (0 if value['passed'] else 1), 'node_exit')
     retained = file_bytes(root / f'storage-consumer-{phase}.json', MAX_REPORT)
     require(json.loads(retained) == value, 'retained_node_report')
@@ -393,6 +546,8 @@ def prepare(root, binary, client, providers, provider_keys, provision, deadline)
         config = dict(version=1, coreBinary=str(binary), controlSocket=str(client), identity=str(app / 'identity.key'),
             passphraseFile=str(app / 'passphrase'), stateDirectory=str(app / 'archive'), providers=selected,
             fragmentBytes=geometry(size)[0], lifetimeSeconds=1800, deadlineMs=1800000)
+        if PROFILE_VERSION == 8:
+            config['appendDiagnosticsV7'] = True
         policy = dict(enrollment=str(app / 'maintenance'), fromProviderKey=provider_keys[0], providers=selected[1:],
             authorizationSeconds=6000, lifetimeSeconds=3600, renewBeforeSeconds=7200,
             maximumChargedBytes=3 * size, maximumTurnBytes=8388608)
@@ -416,23 +571,39 @@ def phase(root, selected, exit_socket, flow_root, provision, deadline):
     require(Path(exit_socket) == root.parents[1] / 'runtime-exit/control/agent.sock'
         and Path(flow_root) == root.parents[1] / 'client-fixtures/private-storage-user', 'flow_locations')
     private_directory(Path(flow_root))
-    baseline_text, scope_text = os.environ['STORAGE_PROOF_BASELINE_MS'], os.environ['STORAGE_PROOF_ROUTE_SCOPE']
+    baseline_text = os.environ['STORAGE_PROOF_BASELINE_MS']
+    scope_text = os.environ['STORAGE_PROOF_ROUTE_POLICY' if NETWORK_VERSION == 2 else 'STORAGE_PROOF_ROUTE_SCOPE']
     require(re.fullmatch('[0-9]{1,20}', baseline_text) and len(scope_text) <= 4096, 'flow_scope')
     baseline, scope = int(baseline_text), json.loads(scope_text)
-    SAMPLER['validate_route_scope'](scope)
+    sampler = SAMPLER if NETWORK_VERSION == 1 else runpy.run_path(str(HERE / 'storage-consumer-route-sampler.py'))
+    sampler['validate_route_scope' if NETWORK_VERSION == 1 else 'validate_policy'](scope)
+    extra = {}
+    if NETWORK_VERSION == 2:
+        underlay_sha = os.environ['STORAGE_PROOF_UNDERLAY_SHA256']
+        require(re.fullmatch('[0-9a-f]{64}', underlay_sha) is not None, 'flow_underlay')
+        extra = dict(network_version=2, control_underlay_sha256=underlay_sha)
     require(0 < baseline <= int(time.time() * 1000), 'flow_baseline')
     minimum, diagnostic = FLOW_MINIMUM[selected], {}
-    with SAMPLER['capture'](binary, Path(exit_socket), baseline, minimum, client=client, scope=scope,
-            diagnostic=diagnostic) as coverage:
-        value, report_hash = node_phase(root, selected, provision, deadline)
+    sampler_failure = sampler['SamplerFailure'] if NETWORK_VERSION == 1 else sampler['OLD']['SamplerFailure']
+    activity = ACTIVITY['capture'](binary, root.parents[1], root, selected) if (
+        PROFILE_VERSION == 7 and NETWORK_VERSION == 2) else nullcontext()
+    try:
+        with activity, sampler['capture'](
+                binary, Path(exit_socket), baseline, minimum, client=client,
+                **{('scope' if NETWORK_VERSION == 1 else 'policy'): scope}, diagnostic=diagnostic) as coverage:
+            value, report_hash = node_phase(root, selected, provision, deadline)
+    except sampler_failure:
+        if NETWORK_VERSION == 2: raise NetworkPhaseFailure(selected, diagnostic) from None
+        raise
     summary = coverage.report(joined=coverage.joined)
-    SAMPLER['validate_summary'](summary, baseline, minimum)
-    require(summary['exit_log_sampling_version'] == 2 and not CANCELLED and time.monotonic() < deadline + 30, 'phase_deadline')
+    sampler['validate_summary'](summary, baseline, minimum)
+    require(summary['exit_log_sampling_version'] == (3 if NETWORK_VERSION == 2 else 2)
+        and not CANCELLED and time.monotonic() < deadline + 30, 'phase_deadline')
     write_json(Path(flow_root) / f'flow-consumer-{selected}.json', summary)
-    return dict(version=1, kind='storage-consumer-maintenance-orchestration', phase=selected, passed=True,
+    return dict(version=NETWORK_VERSION, kind='storage-consumer-maintenance-orchestration', phase=selected, passed=True,
         node=value, node_report_sha256=report_hash, provision_sha256=provision, node_joined=True,
         protected_flow_proven=True, minimum_protected_completions=minimum, sampler_joined=True,
-        remote_cleanup_independently_proven=False)
+        remote_cleanup_independently_proven=False, **extra)
 
 
 def proc_bytes(path, maximum):
@@ -469,7 +640,8 @@ def cleanup_tree(root):
     """
     files, directories, total = [], [], 0
     original = private_directory(root)
-    top_files = {'consumer-binding.json', *(f'storage-consumer-{p}.json' for p in PHASES)}
+    top_files = {'consumer-binding.json', *(f'storage-consumer-{p}.json' for p in PHASES),
+        *(ACTIVITY['private_name'](phase) for phase in ACTIVITY['PHASES'])}
 
     def visit(path, depth):
         nonlocal total
@@ -514,6 +686,15 @@ def cleanup(root):
 
 
 def main(arguments):
+    global PROFILE_VERSION, NETWORK_VERSION
+    PROFILE_VERSION = 1
+    NETWORK_VERSION = 1
+    if len(arguments) >= 2 and arguments[-2:] == ['--network-version', '2']:
+        NETWORK_VERSION = 2
+        arguments = arguments[:-2]
+    if len(arguments) >= 2 and arguments[-2] == '--profile-version' and arguments[-1] in ('2', '3', '4', '5', '6', '7', '8'):
+        PROFILE_VERSION = int(arguments[-1])
+        arguments = arguments[:-2]
     if len(arguments) == 2 and arguments[0] == 'flow-minimum':
         require(arguments[1] in FLOW_MINIMUM, 'phase')
         print(FLOW_MINIMUM[arguments[1]])
@@ -556,5 +737,5 @@ if __name__ == '__main__':
     except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
         # The original node phase report remains private and independently
         # allowlisted; never replace it with a fabricated successful wrapper.
-        print(json.dumps(error.report if isinstance(error, NodePhaseFailure) else failure_report(sys.argv[1:]), sort_keys=True))
+        print(json.dumps(error.report if isinstance(error, (NodePhaseFailure, NetworkPhaseFailure)) else failure_report(sys.argv[1:]), sort_keys=True))
         sys.exit(1)

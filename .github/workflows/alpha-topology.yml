@@ -167,9 +167,15 @@ jobs:
           python3 -B tests/integration/test-private-storage-log-sampler.py
           python3 -B tests/integration/test-private-storage-maintenance-wiring.py
           sh -n tests/integration/storage-consumer-maintenance-smoke.sh
+          sh -n tests/integration/storage-consumer-control-underlay.sh
+          sh -n tests/integration/storage-consumer-network.sh
+          python3 -B tests/integration/test-storage-consumer-control-underlay.py
+          python3 -B tests/integration/test-storage-consumer-route-sampler.py
+          python3 -B tests/integration/test-storage-consumer-network.py
           python3 -B tests/integration/test-storage-consumer-maintenance-shell.py
           python3 -B tests/integration/test-storage-consumer-maintenance-provision.py
           python3 -B tests/integration/test-storage-consumer-maintenance-smoke.py
+          python3 -B tests/integration/test-storage-provider-activity-sampler.py
           python3 -B tests/integration/test-storage-consumer-maintenance-evidence.py
           python3 -B tests/integration/test-image-snapshot-provision.py
           python3 -B tests/integration/test-image-snapshot-wiring.py
@@ -1208,7 +1214,7 @@ jobs:
           set -euo pipefail
           test "$TOPOLOGY_EXIT_CODE" = 0
           report="$VOLPAROSSA_ALPHA_OUTPUT/private-storage-maintenance-smoke.json"
-          python3 -B tests/integration/private-storage-maintenance-smoke.py report "$report" "$GITHUB_SHA"
+          python3 -B tests/integration/private-storage-maintenance-smoke.py report-consumer-v8 "$report" "$GITHUB_SHA"
           test "$(sha256sum "$VOLPAROSSA_ALPHA_OUTPUT/host-state-before.json" | cut -d" " -f1)" = \
             "$(jq -r '.host_state.before_sha256' "$report")"
           test "$(sha256sum "$VOLPAROSSA_ALPHA_OUTPUT/host-state-after.json" | cut -d" " -f1)" = \

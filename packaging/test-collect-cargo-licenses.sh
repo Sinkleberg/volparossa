@@ -21,6 +21,7 @@ fail() {
 }
 
 metadata=$test_tmp/metadata.json
+python3 -B packaging/test-pinned-sev-license.py
 cargo metadata --locked --offline --format-version 1 >"$metadata"
 
 focused_metadata=$test_tmp/focused-metadata.json
@@ -29,9 +30,11 @@ jq '
     | .packages |= map(select(
         (.id as $id | ($workspace_members | index($id)) != null)
         or (.name == "hickory-proto" and .version == "0.25.2")
+        or (.name == "hickory-resolver" and .version == "0.25.2")
         or (.name == "base256emoji" and .version == "1.0.2")
         or (.name == "blake3" and .version == "1.8.5")
         or (.name == "libp2p-yamux" and .version == "0.47.0")
+        or (.name == "sev" and .version == "8.0.0")
         or (.name == "time" and .version == "0.3.41")
         or (.name == "yamux" and .version == "0.13.10")
     ))
@@ -46,7 +49,10 @@ for license_path in \
     "$notices/blake3-1.8.5/LICENSE_CC0" \
     "$notices/hickory-proto-0.25.2/LICENSE-APACHE" \
     "$notices/hickory-proto-0.25.2/LICENSE-MIT" \
+    "$notices/hickory-resolver-0.25.2/LICENSE-APACHE" \
+    "$notices/hickory-resolver-0.25.2/LICENSE-MIT" \
     "$notices/libp2p-yamux-0.47.0/LICENSE" \
+    "$notices/sev-8.0.0/LICENSE" \
     "$notices/time-0.3.41/LICENSE-Apache" \
     "$notices/time-0.3.41/LICENSE-MIT" \
     "$notices/yamux-0.13.10/LICENSE-APACHE" \
@@ -54,6 +60,10 @@ for license_path in \
 do
     [ -f "$license_path" ] || fail "vendored license was not collected: $license_path"
 done
+
+cmp "$notices/sev-8.0.0/LICENSE" \
+    third_party/licenses/virtee-sev-8.0.0-Apache-2.0.txt ||
+    fail 'pinned SEV license bytes changed during collection'
 
 awk -F '\t' '
     $1 == "base256emoji" && $2 == "1.0.2" &&
@@ -73,6 +83,16 @@ awk -F '	' '
     END { exit !found }
 ' "$notices/DEPENDENCIES.tsv" ||
     fail 'hickory-proto security-backport provenance is absent from notice inventory'
+
+awk -F '\t' '
+    $1 == "hickory-resolver" &&
+    $2 == "0.25.2" &&
+    $4 == "vendored-crates.io+hickory-resolver-0.25.2-security-backport" {
+        found = 1
+    }
+    END { exit !found }
+' "$notices/DEPENDENCIES.tsv" ||
+    fail 'hickory-resolver security-backport provenance is absent from notice inventory'
 
 awk -F '	' '
     $1 == "time" &&

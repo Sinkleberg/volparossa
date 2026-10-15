@@ -5,6 +5,8 @@ from pathlib import Path
 from contextlib import contextmanager
 import copy
 import json
+import os
+import re
 import runpy
 import stat
 import subprocess
@@ -16,6 +18,472 @@ from unittest.mock import MagicMock, Mock, patch
 HERE = Path(__file__).parent
 CHECK = runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))
 OLD = runpy.run_path(str(HERE / 'test-private-storage-fragments-smoke.py'))
+CONSUMER_FIXTURE = runpy.run_path(str(HERE / 'test-storage-consumer-maintenance-evidence.py'))
+
+
+class ProviderEventDiagnostic(unittest.TestCase):
+    CODE = 'CONTENT_DISCOVERY_RESPONSE_TARGETS_UNAVAILABLE'
+
+    def test_every_allowlisted_event_exists_in_the_selected_product_source(self):
+        source = '\n'.join((HERE.parents[1] / path).read_text() for path in (
+            'crates/volparossa-agent/src/content.rs', 'crates/volparossa-agent/src/discovery/content.rs',
+            'crates/volparossa-agent/src/discovery/content/exact.rs'))
+        self.assertEqual(len(CHECK['PROVIDER_EVENT_CODES']), len(set(CHECK['PROVIDER_EVENT_CODES'])))
+        for code in CHECK['PROVIDER_EVENT_CODES']:
+            self.assertIn(f'"{code}"', source)
+
+    @staticmethod
+    def save(path, raw):
+        path.write_text(raw); path.chmod(0o600)
+
+    @classmethod
+    def event(cls, stamp=101, code=None):
+        return f'{stamp}\tlevel=1\tevent={code or cls.CODE}\tsession={"deadbeef" * 8}\tpath=7\n'
+
+    def observed(self, root, raw=None, status='0\n'):
+        self.save(root / 'logs-client-cleanup-status.private', status)
+        self.save(root / 'logs-client.txt', self.event() if raw is None else raw)
+        return CHECK['provider_events'](root, 'storage-consumer-publish', '100')
+
+    def test_exact_roles_allowlist_and_no_raw_identifiers_or_unknown_events(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for node in CHECK['PROVIDER_EVENT_ROLES'].values():
+                self.save(root / f'logs-{node}-cleanup-status.private', '0\n')
+                self.save(root / f'logs-{node}.txt', self.event(99) + self.event()
+                    + self.event(102, 'CONTENT_DISCOVERY_PRIVATE_SENTINEL') + self.event(103, 'UNRELATED'))
+            value = CHECK['provider_events'](root, 'storage-consumer-publish', '100')
+            CHECK['validate_provider_events'](value)
+            self.assertEqual(set(value['roles']), set(CHECK['PROVIDER_EVENT_ROLES']))
+            for row in value['roles'].values():
+                self.assertEqual((row['records'], row['stale_records'], row['fresh_records']), (4, 1, 3))
+                self.assertEqual(row['counts'][self.CODE], 1)
+                self.assertEqual(row['unrecognized_event_records'], 1)
+                self.assertTrue(row['window_covers_baseline'])
+            encoded = json.dumps(value)
+            for private in ('deadbeef', 'PRIVATE_SENTINEL', 'UNRELATED', str(root), 'session=', 'path='):
+                self.assertNotIn(private, encoded)
+            self.assertFalse(value['event_absence_proven'])
+            self.assertFalse(value['causal_attribution'])
+
+    def test_capture_status_is_required_and_failure_never_becomes_empty_ring(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.save(root / 'logs-client.txt', self.event())
+            value = CHECK['provider_events'](root, 'private_unknown_phase', '100')
+            self.assertEqual(value['phase'], 'unknown')
+            self.assertEqual(value['roles']['client']['state'], 'unqueried')
+            for code in (1, 77, 255):
+                row = self.observed(root, raw='', status=f'{code}\n')['roles']['client']
+                self.assertEqual(row['state'], 'query_failed')
+                self.assertEqual(row['query_exit_status'], code)
+                self.assertIsNone(row['records'])
+                self.assertIsNone(row['counts'])
+            row = self.observed(root, raw='')['roles']['client']
+            self.assertEqual((row['state'], row['records']), ('observed', 0))
+            self.assertFalse(row['window_covers_baseline'])
+            self.assertEqual(sum(row['counts'].values()), 0)
+
+    def test_invalid_capture_status_and_missing_log_are_distinct(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for raw in ('00\n', '-1\n', '256\n', '0\nPRIVATE', '0', 'true'):
+                with self.subTest(raw=raw):
+                    row = self.observed(root, status=raw)['roles']['client']
+                    self.assertEqual(row['state'], 'capture_invalid')
+                    self.assertIsNone(row['query_exit_status'])
+            self.save(root / 'logs-client-cleanup-status.private', '0\n')
+            (root / 'logs-client.txt').unlink()
+            self.assertEqual(CHECK['provider_events'](root, 'unknown', '100')['roles']['client']['state'], 'absent')
+
+    def test_baseline_is_bound_without_exporting_timestamp_or_unbound_counts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root)
+            for baseline, state in (('0', 'absent'), ('', 'absent'), ('-1', 'invalid'),
+                    ('0100', 'invalid'), ('1\nPRIVATE', 'invalid'), ('9' * 20, 'invalid')):
+                value = CHECK['provider_events'](root, 'storage-consumer-publish', baseline)
+                self.assertEqual(value['baseline_state'], state)
+                self.assertEqual(value['roles']['client']['state'], 'baseline_unavailable')
+                self.assertIsNone(value['roles']['client']['counts'])
+
+    def test_ring_capacity_and_uncovered_window_remain_observations_not_absence_proof(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            value = self.observed(root, raw=self.event() * 400)
+            row = value['roles']['client']
+            self.assertEqual(row['counts'][self.CODE], 400)
+            self.assertTrue(row['ring_at_capacity'])
+            self.assertFalse(row['window_covers_baseline'])
+            self.assertFalse(value['acceptance_evidence'])
+            self.assertEqual(self.observed(root, raw=self.event() * 401)['roles']['client']['state'], 'invalid')
+
+    def test_malformed_raw_paths_bounds_and_clock_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for raw in ('PRIVATE_PATH /secret/private\n', self.event().replace('path=7', 'path=/secret'),
+                    self.event().replace('event=', 'event=private.example/'), '\N{SNOWMAN}', 'x' * 131073):
+                with self.subTest(length=len(raw)):
+                    value = self.observed(root, raw=raw)
+                    self.assertEqual(value['roles']['client']['state'], 'invalid')
+                    self.assertIsNone(value['roles']['client']['counts'])
+                    self.assertNotIn('PRIVATE_PATH', json.dumps(value))
+                    self.assertNotIn('/secret', json.dumps(value))
+            for raw in (self.event(0), self.event(102) + self.event(101), self.event(10**19)):
+                self.assertEqual(self.observed(root, raw=raw)['roles']['client']['state'], 'clock_invalid')
+
+    def test_private_input_metadata_and_no_follow_boundaries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root)
+            path = root / 'logs-client.txt'
+            path.chmod(0o644)
+            self.assertEqual(CHECK['provider_events'](root, 'unknown', '100')['roles']['client']['state'], 'invalid')
+            path.chmod(0o600)
+            other = root / 'other'; path.rename(other); path.symlink_to(other)
+            self.assertEqual(CHECK['provider_events'](root, 'unknown', '100')['roles']['client']['state'], 'invalid')
+            path.unlink(); os.link(other, path)
+            self.assertEqual(CHECK['provider_events'](root, 'unknown', '100')['roles']['client']['state'], 'invalid')
+            path.unlink(); os.mkfifo(path, 0o600)
+            self.assertEqual(CHECK['provider_events'](root, 'unknown', '100')['roles']['client']['state'], 'invalid')
+
+    def test_closed_validator_rejects_mutation_and_boolean_counts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            value = self.observed(Path(temporary))
+            changes = ({'private_path': 'PRIVATE'}, {'version': True}, {'phase': 'PRIVATE'},
+                {'scope': 'failure_cause'}, {'acceptance_evidence': True}, {'event_absence_proven': True},
+                {'causal_attribution': True}, {'baseline_state': 'invalid'}, {'roles': {}})
+            for change in changes:
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    CHECK['validate_provider_events']({**value, **change})
+            for change in ({'records': True}, {'fresh_records': 401}, {'query_exit_status': True},
+                    {'query_exit_status': 1}, {'state': 'query_failed'}, {'raw': 'PRIVATE'},
+                    {'window_covers_baseline': True}, {'ring_at_capacity': True},
+                    {'counts': {self.CODE: 1}}, {'unrecognized_event_records': 1}):
+                invalid = copy.deepcopy(value); invalid['roles']['client'].update(change)
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    CHECK['validate_provider_events'](invalid)
+
+    def test_sidecar_failure_is_independent_of_existing_route_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root)
+            expected = CHECK['route_diagnostic'](root)
+            for error in (RuntimeError('PRIVATE_FAILURE'), KeyboardInterrupt()):
+                with patch.dict(CHECK['export_provider_events'].__globals__,
+                        provider_events=Mock(side_effect=error)), patch('builtins.print') as output:
+                    CHECK['main'](['route-diagnostic', str(root), 'storage-consumer-publish', '100'])
+                self.assertEqual(json.loads(output.call_args.args[0]), expected)
+                self.assertFalse((root / CHECK['PROVIDER_EVENTS_NAME']).exists())
+            with patch('os.replace', side_effect=OSError('PRIVATE_WRITE_FAILURE')), patch('builtins.print') as output:
+                CHECK['main'](['route-diagnostic', str(root), 'storage-consumer-publish', '100'])
+            self.assertEqual(json.loads(output.call_args.args[0]), expected)
+            self.assertFalse((root / 'maintenance-provider-events.part').exists())
+
+    def test_atomic_sidecar_and_export_validator_do_not_publish_private_or_duplicate_fields(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root)
+            CHECK['export_provider_events'](root, 'storage-consumer-publish', '100')
+            target = root / CHECK['PROVIDER_EVENTS_NAME']
+            value = CHECK['provider_events_file'](target)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            self.assertFalse((root / 'maintenance-provider-events.part').exists())
+            for raw in ('{"version":1,"version":1}', json.dumps({**value, 'path': '/PRIVATE'}), 'x' * 65537):
+                self.save(target, raw)
+                with self.assertRaises(ValueError): CHECK['provider_events_file'](target)
+                with patch('builtins.print') as output:
+                    CHECK['main'](['export-names', str(root)])
+                self.assertNotIn(CHECK['PROVIDER_EVENTS_NAME'], output.call_args.args[0].splitlines())
+
+    @staticmethod
+    def storage_codes():
+        return [f'{CHECK["STORAGE_FAILURE_PREFIX"]}{operation}__{phase}__{category}'
+            for operation in CHECK['STORAGE_FAILURE_OPERATIONS']
+            for phase in CHECK['STORAGE_FAILURE_PHASES']
+            for category in CHECK['STORAGE_FAILURE_CATEGORIES']
+            if CHECK['storage_failure_code'](
+                f'{CHECK["STORAGE_FAILURE_PREFIX"]}{operation}__{phase}__{category}')]
+
+    def test_storage_events_require_closed_verified_operation_and_phase_labels(self):
+        valid = ('UNKNOWN__GRANT__AUTH', 'UNKNOWN__REQUEST__TIMEOUT',
+            'FINALIZE__BACKEND__INTEGRITY', 'FINALIZE__RECEIPT__IO',
+            'APPEND__DISK_ADMISSION__BUSY', 'READ_RANGE__RESPONSE_PAYLOAD__IO')
+        invalid = ('UNKNOWN__BACKEND__STORE', 'FINALIZE__REQUEST__AUTH',
+            'UNKNOWN__RECEIPT__IO', 'FINALIZE__RESPONSE_PAYLOAD__IO',
+            'DELETE__PRIVATE_PHASE__IO', 'FINALIZE__BACKEND__PRIVATE_CATEGORY',
+            'PRIVATE_OPERATION__BACKEND__IO', 'FINALIZE_BACKEND_IO',
+            'FINALIZE__BACKEND__IO__PRIVATE', 'finalize__BACKEND__IO')
+        for suffix in valid:
+            self.assertTrue(CHECK['storage_failure_code'](CHECK['STORAGE_FAILURE_PREFIX'] + suffix))
+        for suffix in invalid:
+            self.assertFalse(CHECK['storage_failure_code'](CHECK['STORAGE_FAILURE_PREFIX'] + suffix))
+        for value in (None, True, 1, [], {}, 'x' * 97):
+            self.assertFalse(CHECK['storage_failure_code'](value))
+
+    def test_storage_allowlist_matches_the_producer_static_label_contract(self):
+        source = (HERE.parents[1] /
+            'crates/volparossa-content/src/private_storage/wire/diagnostic.rs').read_text()
+        self.assertEqual(set(re.findall(r'phase_code!\(\s*"([A-Z_]+)"', source)),
+            set(CHECK['STORAGE_FAILURE_OPERATIONS']))
+        self.assertEqual(set(re.findall(r'category_code!\(\s*\$op,\s*"([A-Z_]+)"', source)),
+            set(CHECK['STORAGE_FAILURE_PHASES']))
+        category_macro = source[source.index('macro_rules! category_code'):source.index('macro_rules! phase_code')]
+        self.assertEqual(set(re.findall(r'"__([A-Z_]+)"', category_macro)),
+            set(CHECK['STORAGE_FAILURE_CATEGORIES']))
+        self.assertIn('"' + CHECK['STORAGE_FAILURE_PREFIX'] + '"', source)
+        self.assertNotIn('format!(', source)
+        self.assertLessEqual(max(map(len, self.storage_codes())), 96)
+
+    def test_sparse_storage_tuples_preserve_pairs_without_private_identifiers(self):
+        first = CHECK['STORAGE_FAILURE_PREFIX'] + 'FINALIZE__BACKEND__INTEGRITY'
+        second = CHECK['STORAGE_FAILURE_PREFIX'] + 'APPEND__RECEIPT__IO'
+        unknown = CHECK['STORAGE_FAILURE_PREFIX'] + 'PRIVATE__BACKEND__IO'
+        with tempfile.TemporaryDirectory() as temporary:
+            value = self.observed(Path(temporary), raw=self.event(99, first)
+                + self.event(101, first) + self.event(102, second) + self.event(103, first)
+                + self.event(104, unknown) + self.event(105))
+            row = value['roles']['client']
+            self.assertEqual(value['version'], 2)
+            self.assertEqual(row['storage_failures'], {first: 2, second: 1})
+            self.assertEqual(row['omitted_storage_failure_records'], 0)
+            self.assertEqual(row['counts'][self.CODE], 1)
+            self.assertEqual(row['unrecognized_event_records'], 1)
+            self.assertEqual((row['records'], row['stale_records'], row['fresh_records']), (6, 1, 5))
+            self.assertNotIn(CHECK['STORAGE_FAILURE_PREFIX'] + 'FINALIZE__RECEIPT__IO',
+                row['storage_failures'])
+            for private in ('deadbeef', unknown, 'session=', 'path=', temporary):
+                self.assertNotIn(private, json.dumps(value))
+            self.assertFalse(value['acceptance_evidence'])
+            self.assertFalse(value['causal_attribution'])
+            self.assertFalse(value['event_absence_proven'])
+
+    def test_storage_tuple_bound_counts_omissions_and_keeps_existing_keys(self):
+        codes = self.storage_codes()[:33]
+        self.assertEqual(len(set(codes)), 33)
+        with tempfile.TemporaryDirectory() as temporary:
+            value = self.observed(Path(temporary), raw=''.join(self.event(101, code) for code in codes)
+                + self.event(102, codes[-1]) + self.event(103, codes[0]))
+            row = value['roles']['client']
+            self.assertEqual(set(row['storage_failures']), set(codes[:32]))
+            self.assertEqual(row['storage_failures'][codes[0]], 2)
+            self.assertEqual(row['omitted_storage_failure_records'], 2)
+            self.assertEqual(row['fresh_records'], 35)
+            self.assertEqual(row['unrecognized_event_records'], 0)
+
+    def test_historical_v1_event_receipts_stay_exact_and_reject_new_fields(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            value = self.observed(Path(temporary))
+        value['version'] = 1
+        for row in value['roles'].values():
+            del row['storage_failures'], row['omitted_storage_failure_records']
+        self.assertEqual(CHECK['validate_provider_events'](copy.deepcopy(value)), value)
+        changed = copy.deepcopy(value)
+        changed['roles']['client']['storage_failures'] = {}
+        with self.assertRaises(ValueError): CHECK['validate_provider_events'](changed)
+        changed = copy.deepcopy(value); changed['version'] = 2
+        with self.assertRaises(ValueError): CHECK['validate_provider_events'](changed)
+
+    def test_storage_validator_rejects_unknown_zero_boolean_and_invented_counts(self):
+        code = CHECK['STORAGE_FAILURE_PREFIX'] + 'FINALIZE__RECEIPT__IO'
+        with tempfile.TemporaryDirectory() as temporary:
+            value = self.observed(Path(temporary), raw=self.event(101, code))
+        changes = ({'storage_failures': None}, {'storage_failures': {code: True}},
+            {'storage_failures': {code: 0}}, {'storage_failures': {code: -1}},
+            {'storage_failures': {code: 2}}, {'storage_failures': {code: 1.0}},
+            {'storage_failures': {'PRIVATE': 1}}, {'omitted_storage_failure_records': True},
+            {'omitted_storage_failure_records': 1}, {'omitted_storage_failure_records': -1},
+            {'omitted_storage_failure_records': 1.0},
+            {'storage_failures': dict.fromkeys(self.storage_codes()[:33], 1)})
+        for change in changes:
+            invalid = copy.deepcopy(value); invalid['roles']['client'].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                CHECK['validate_provider_events'](invalid)
+        for name in ('storage_failures', 'omitted_storage_failure_records'):
+            invalid = copy.deepcopy(value)
+            invalid['roles']['provider_relay3'][name] = {} if name == 'storage_failures' else 0
+            with self.assertRaises(ValueError): CHECK['validate_provider_events'](invalid)
+
+    def test_maximum_storage_snapshot_stays_inside_existing_export_bound(self):
+        codes = sorted(self.storage_codes(), key=len, reverse=True)[:32]
+        raw = ''.join(self.event(101, codes[i % 32]) for i in range(400))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for node in CHECK['PROVIDER_EVENT_ROLES'].values():
+                self.save(root / f'logs-{node}-cleanup-status.private', '0\n')
+                self.save(root / f'logs-{node}.txt', raw)
+            CHECK['export_provider_events'](root, 'storage-consumer-publish', '100')
+            target = root / CHECK['PROVIDER_EVENTS_NAME']
+            self.assertLessEqual(target.stat().st_size, 65536)
+            value = CHECK['provider_events_file'](target)
+            for row in value['roles'].values():
+                self.assertEqual(len(row['storage_failures']), 32)
+                self.assertEqual(sum(row['storage_failures'].values()), 400)
+                self.assertTrue(row['ring_at_capacity'])
+                self.assertFalse(row['window_covers_baseline'])
+
+    @staticmethod
+    def payload_io_codes():
+        return [CHECK['APPEND_PAYLOAD_IO_PREFIX'] + boundary + '__' + kind
+            for boundary in CHECK['APPEND_PAYLOAD_IO_BOUNDARIES'] for kind in CHECK['APPEND_PAYLOAD_IO_KINDS']]
+
+    def test_v3_payload_io_mapping_matches_static_producer_and_rejects_unreviewed_labels(self):
+        source = (HERE.parents[1] /
+            'crates/volparossa-content/src/private_storage/wire/diagnostic.rs').read_text()
+        macro = source[source.index('macro_rules! payload_io_code'):source.index('macro_rules! category_code')]
+        self.assertEqual(set(re.findall(r'"__([A-Z_]+)"', macro)), set(CHECK['APPEND_PAYLOAD_IO_KINDS']))
+        self.assertEqual(set(re.findall(r'payload_io_code!\("([A-Z_]+)"', source)),
+            set(CHECK['APPEND_PAYLOAD_IO_BOUNDARIES']))
+        self.assertIn('"' + CHECK['APPEND_PAYLOAD_IO_PREFIX'] + '"', macro)
+        self.assertNotIn('format!(', source)
+        self.assertEqual(len(self.payload_io_codes()), 14)
+        for code in self.payload_io_codes():
+            self.assertTrue(CHECK['append_payload_io_code'](code))
+            self.assertLessEqual(len(code), 96)
+        for code in (None, True, 1, [], {}, self.payload_io_codes()[0] + '__PRIVATE',
+                self.payload_io_codes()[0].replace('APPEND', 'FINALIZE'),
+                self.payload_io_codes()[0].replace('PAYLOAD_HEADER', 'REQUEST'),
+                self.payload_io_codes()[0].replace('UNEXPECTED_EOF', 'PRIVATE'), 'x' * 97):
+            self.assertFalse(CHECK['append_payload_io_code'](code))
+
+    def test_v3_is_explicit_and_preserves_default_v2_shape_and_unknown_count(self):
+        first, second = self.payload_io_codes()[0], self.payload_io_codes()[-1]
+        legacy = CHECK['STORAGE_FAILURE_PREFIX'] + 'APPEND__PAYLOAD__IO'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            previous = self.observed(root, self.event(99, first) + self.event(101, first)
+                + self.event(102, second) + self.event(103, legacy) + self.event(104, first))
+            current = CHECK['provider_events'](root, 'storage-consumer-publish', '100', version=3)
+        self.assertEqual(previous['version'], 2)
+        self.assertEqual(previous['roles']['client']['unrecognized_event_records'], 3)
+        self.assertNotIn('append_payload_io_failures', previous['roles']['client'])
+        self.assertEqual(current['roles']['client']['append_payload_io_failures'], {first: 2, second: 1})
+        self.assertEqual(current['roles']['client']['storage_failures'], {legacy: 1})
+        projection = copy.deepcopy(current); projection['version'] = 2
+        for row in projection['roles'].values():
+            payload = row.pop('append_payload_io_failures')
+            if payload is not None: row['unrecognized_event_records'] += sum(payload.values())
+        self.assertEqual(json.dumps(projection, sort_keys=True), json.dumps(previous, sort_keys=True))
+        for private in ('deadbeef', 'session=', 'path=', temporary):
+            self.assertNotIn(private, json.dumps(current))
+        self.assertFalse(current['causal_attribution'])
+        self.assertFalse(current['acceptance_evidence'])
+
+    def test_v3_rejects_missing_unknown_boolean_and_impossible_payload_counts(self):
+        code = self.payload_io_codes()[0]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root, self.event(101, code))
+            value = CHECK['provider_events'](root, 'storage-consumer-publish', '100', version=3)
+        for payload in (None, [], {code: True}, {code: 0}, {code: -1}, {code: 1.0},
+                {code: 2}, {code: 401}, {'PRIVATE': 1}):
+            changed = copy.deepcopy(value); changed['roles']['client']['append_payload_io_failures'] = payload
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                CHECK['validate_provider_events'](changed)
+        changed = copy.deepcopy(value); del changed['roles']['client']['append_payload_io_failures']
+        with self.assertRaises(ValueError): CHECK['validate_provider_events'](changed)
+        changed = copy.deepcopy(value); changed['roles']['provider_relay3']['append_payload_io_failures'] = {}
+        with self.assertRaises(ValueError): CHECK['validate_provider_events'](changed)
+        for version in (1, 2):
+            changed = copy.deepcopy(value); changed['version'] = version
+            with self.assertRaises(ValueError): CHECK['validate_provider_events'](changed)
+
+    def test_v3_current_export_is_separate_and_failure_cannot_replace_route_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root, self.event(101, self.payload_io_codes()[0]))
+            expected = CHECK['route_diagnostic'](root)
+            with patch('builtins.print') as output:
+                CHECK['main'](['route-diagnostic-v3', str(root), 'storage-consumer-publish', '100'])
+            self.assertEqual(json.loads(output.call_args.args[0]), expected)
+            path = root / CHECK['PROVIDER_EVENTS_NAME']
+            self.assertEqual(CHECK['provider_events_file'](path)['version'], 3)
+            with patch('builtins.print') as output:
+                CHECK['main'](['export-names', str(root)])
+            self.assertIn(CHECK['PROVIDER_EVENTS_NAME'], output.call_args.args[0].splitlines())
+            with patch.dict(CHECK['export_provider_events'].__globals__, provider_events=Mock(side_effect=ValueError('PRIVATE'))), \
+                    patch('builtins.print') as output:
+                CHECK['main'](['route-diagnostic-v3', str(root), 'storage-consumer-publish', '100'])
+            self.assertEqual(json.loads(output.call_args.args[0]), expected)
+            self.assertFalse(path.exists())
+
+    def test_v3_maximum_old_and_new_tuples_fit_existing_export_limit(self):
+        codes = sorted(self.storage_codes(), key=len, reverse=True)[:32] + self.payload_io_codes()
+        raw = ''.join(self.event(101, codes[i % len(codes)]) for i in range(400))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for node in CHECK['PROVIDER_EVENT_ROLES'].values():
+                self.save(root / f'logs-{node}-cleanup-status.private', '0\n')
+                self.save(root / f'logs-{node}.txt', raw)
+            CHECK['export_provider_events'](root, 'storage-consumer-publish', '100', version=3)
+            target = root / CHECK['PROVIDER_EVENTS_NAME']
+            self.assertLessEqual(target.stat().st_size, 65536)
+            value = CHECK['provider_events_file'](target)
+            for row in value['roles'].values():
+                self.assertEqual(len(row['storage_failures']), 32)
+                self.assertEqual(len(row['append_payload_io_failures']), 14)
+                self.assertEqual(sum(row['storage_failures'].values()) + sum(row['append_payload_io_failures'].values()), 400)
+                self.assertTrue(row['ring_at_capacity'])
+
+    def test_provider_event_export_version_rejects_unknown_or_boolean_selection(self):
+        for version in (True, 1, 4, '3', 3.0):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                CHECK['provider_events'](Path('/unused'), 'unknown', '100', version=version)
+
+
+class SupervisorDiagnostic(unittest.TestCase):
+    def test_closed_schema_rejects_unknown_fields_values_statuses_and_false_acceptance(self):
+        value = CHECK['supervisor_record']('control_match', 'failed', '1', 'different')
+        self.assertFalse(value['acceptance_evidence'])
+        for changed in ({'stage': 'PRIVATE_PATH'}, {'outcome': 'success'}, {'exit_status': 256},
+                {'exit_status': 0}, {'exit_status': True}, {'exit_status': 1.0},
+                {'control_relay_relation': 'PRIVATE_PEER'}, {'acceptance_evidence': True},
+                {'raw_command': 'PRIVATE_COMMAND'}, {'version': True}):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                CHECK['validate_supervisor']({**value, **changed})
+        for status in ('-15', '01', '1\nPRIVATE', '1.0', 'true'):
+            with self.subTest(status=status), self.assertRaises(ValueError):
+                CHECK['supervisor_record']('bind_slots', 'failed', status, 'unobserved')
+        with self.assertRaises(ValueError):
+            CHECK['supervisor_record']('bind_slots', 'complete', '0', 'unobserved')
+
+    def test_private_receipt_reader_is_closed_bounded_and_no_follow(self):
+        value = CHECK['supervisor_record']('control_query', 'pending', 'null', 'unobserved')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / 'supervisor.json'
+            path.write_text(json.dumps(value)); path.chmod(0o600)
+            self.assertEqual(CHECK['supervisor_file'](path), value)
+            for raw in ('x' * 1025, '{"version":1,"version":1}',
+                    json.dumps({**value, 'private_peer': 'DO_NOT_EXPORT'})):
+                path.write_text(raw)
+                with self.assertRaises(ValueError): CHECK['supervisor_file'](path)
+            path.write_text(json.dumps(value)); path.chmod(0o644)
+            with self.assertRaises(ValueError): CHECK['supervisor_file'](path)
+            path.chmod(0o600)
+            link = root / 'link'; link.symlink_to(path)
+            with self.assertRaises(OSError): CHECK['supervisor_file'](link)
+            fifo = root / 'fifo'; os.mkfifo(fifo, 0o600)
+            with self.assertRaises(ValueError): CHECK['supervisor_file'](fifo)
+
+
+class InitialInventory(unittest.TestCase):
+    def test_closed_original_helper_receipt_rejects_changed_status_scope_and_unbounded_input(self):
+        helper = runpy.run_path(str(HERE / 'content-provider-readiness.py'))
+        value = helper['new_record']()
+        value.update(outcome='deadline')
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'inventory.json'
+            def save(record):
+                path.write_text(json.dumps(record)); path.chmod(0o600)
+            save(value)
+            self.assertEqual(CHECK['inventory_file'](path, '1'), value)
+            for status in ('0', '2', '124', '-15'):
+                with self.assertRaises(ValueError): CHECK['inventory_file'](path, status)
+            for record in ({**value, 'raw_peers': 'not-exportable'},
+                    {**value, 'scope': 'route_readiness'}, {**value, 'deadline_seconds': 61},
+                    {**value, 'last_valid_presence': {'relay3': True}}):
+                save(record)
+                with self.assertRaises(ValueError): CHECK['inventory_file'](path, '1')
+            path.write_text('x' * 8193)
+            with self.assertRaises(ValueError): CHECK['inventory_file'](path, '1')
+            save(value)
+            path.chmod(0o644)
+            with self.assertRaises(ValueError): CHECK['inventory_file'](path, '1')
 
 
 def identity_projection(indexes):
@@ -74,7 +542,7 @@ def private_replacements(root, indexes, retired):
             json.dumps(dict(authority=dict(placements=entries))).encode())
 
 
-def fixture(*, historical=False, retired=()):
+def fixture(*, historical=False, previous=False, retired=()):
     value = OLD['fixture']()
     for name in CHECK['F']['SCOPE_FALSE']:
         value.pop(name, None)
@@ -135,6 +603,8 @@ def fixture(*, historical=False, retired=()):
             exit_flow_contexts=[dict(route_context_id=selected['route_context_id'],
                 completed=gates['exit_mptcp_tls_completed'], failed=gates['exit_mptcp_tls_failed'])])
     value['layout']['route_scope'] = copy.deepcopy(value['network']['upload']['gates']['exit_route_scope'])
+    if not (historical or previous):
+        CONSUMER_FIXTURE['attach_transition'](value, consumer=False)
     return value
 
 
@@ -143,6 +613,233 @@ def report(value):
         report_kind='volparossa-private-storage-maintenance', success=True, runner_exit_status=0,
         phase='private-storage-maintenance-complete', observed_blocker=None,
         cleanup=dict(complete=True, remaining_owned_objects=0), host_state=dict(unchanged=True), maintenance=value)
+
+
+def original_custody(value, keys, retired, *, withdrawn):
+    """Exact ea6efddb predicates/messages, retained only as a differential oracle."""
+    require, lengths, size, foreground = CHECK['require'], CHECK['LENGTHS'], CHECK['BYTES'], CHECK['FG']
+    replacements = 3 if withdrawn else len(retired)
+    uncertain_bytes = sum(lengths[index] for index in (0, 2, 3) if index not in retired) if withdrawn else 0
+    usage = CHECK['custody_usage'](retired, withdrawn=withdrawn)
+    require(value['owner_signature_verified'] is True and value.get('report_version', 2 if not replacements else None) == 2
+        and value['logical_ciphertext_bytes'] == size and value['fragment_count'] == 4
+        and value['copies_per_fragment'] == value.get('desired_copies_per_fragment', 2 if not replacements else None) == 2
+        and value.get('placement_authorizations', 0) == replacements and value.get('retained_copy_records', 8) == 8 + replacements
+        and value.get('pending_retirements', 0) == (3 - len(retired) if withdrawn else 0)
+        and value.get('replacement_overhead_included', not replacements) is True
+        and value['uncertain_payload_bytes'] == uncertain_bytes and value['committed_payload_bytes'] == 2 * size
+        and value['reserved_payload_bytes'] == 0 and value['physical_payload_charge_upper_bound'] == 2 * size + uncertain_bytes
+        and value['fully_redundant_from_retained_receipts'] is True
+        and value['fragments_with_confirmed_unexpired_copy'] == 4
+        and value['providers'] == [dict(provider_key=key, physical_payload_charge_upper_bound=count)
+            for key, count in zip(keys, (usage[0]['committed_bytes'], usage[1]['committed_bytes'] - len(foreground),
+                usage[2]['committed_bytes']))], 'replacement custody or accounting incomplete')
+    require(all(value[key] is False for key in ('read_consumes_archive', 'metadata_overhead_measured',
+        'current_remote_availability_proven', 'independent_failure_domains_proven',
+        'network_contribution_credit', 'erasure_coding')), 'replacement scope changed')
+    require(len(value['fragments']) == 4, 'fragment reconstruction geometry changed')
+    for index, fragment in enumerate(value['fragments']):
+        require(fragment['index'] == index and fragment['offset'] == sum(lengths[:index])
+            and fragment['ciphertext_bytes'] == lengths[index] and fragment['confirmed_unexpired_copies'] == 2,
+            'fragment reconstruction geometry changed')
+        providers = [(index + copy) % 3 for copy in range(2)]
+        if index in retired or withdrawn and index != 1:
+            providers.append(2 if index in (0, 3) else 1)
+        require(len(fragment['copies']) == len(providers), 'effective replacement placement')
+        for copy_value, provider in zip(fragment['copies'], providers):
+            charge = ('deleted' if index in retired else 'uncertain' if withdrawn else 'committed') if provider == 0 else 'committed'
+            require(copy_value['provider_key'] == keys[provider] and copy_value['charge'] == charge
+                and copy_value['last_confirmed_state'] == ('Deleted' if charge == 'deleted' else 'Committed')
+                and copy_value['last_confirmed_stored_bytes'] == (0 if charge == 'deleted' else lengths[index])
+                and (copy_value['last_confirmed_expiry'] == 0 if charge == 'deleted'
+                    else copy_value['last_confirmed_expiry'] > int(time.time())), 'effective replacement placement')
+
+
+def fresh_turn_fixture():
+    return dict(turns=6, stage='turn_completed', detail=dict(maintenance_stage='maintained',
+        repair_stage='pending_handoff', attempted_handoffs=1, freshly_verified_replacements=0,
+        pending_retirements=1, physical_payload_charge_upper_bound=CHECK['MAX_CHARGE'],
+        fragment_outcomes=[dict(index=0, handoff_stage='replacement_retention_insufficient',
+            resumed_signed_intent=True, replacement_verified_this_pass=False, operation_complete=False)],
+        refresh=dict(fragment_index=1, renewal=True, operation_complete=True,
+            copy_outcomes=['confirmed', 'existing_retention_sufficient'])))
+
+
+class LifecycleReconciliationDiagnostic(unittest.TestCase):
+    def test_original_custody_guard_pass_fail_messages_and_boolean_semantics_preserved(self):
+        mutations = [lambda value: None]
+        for key in ('owner_signature_verified', 'report_version', 'logical_ciphertext_bytes', 'fragment_count',
+                'copies_per_fragment', 'desired_copies_per_fragment', 'placement_authorizations', 'retained_copy_records',
+                'pending_retirements', 'replacement_overhead_included', 'uncertain_payload_bytes',
+                'committed_payload_bytes', 'reserved_payload_bytes', 'physical_payload_charge_upper_bound',
+                'fully_redundant_from_retained_receipts', 'fragments_with_confirmed_unexpired_copy',
+                'read_consumes_archive', 'metadata_overhead_measured', 'current_remote_availability_proven',
+                'independent_failure_domains_proven', 'network_contribution_credit', 'erasure_coding'):
+            for replacement in (False, True, -1, 0, 1, 2, None, 'PRIVATE_CANARY'):
+                mutations.append(lambda value, k=key, r=replacement: value.update({k: r}))
+            mutations.append(lambda value, k=key: value.pop(k, None))
+        for key in ('provider_key', 'physical_payload_charge_upper_bound'):
+            mutations.append(lambda value, k=key: value['providers'][0].update({k: 'PRIVATE_CANARY'}))
+        for key in ('index', 'offset', 'ciphertext_bytes', 'confirmed_unexpired_copies'):
+            for replacement in (False, True, None, 1, 'PRIVATE_CANARY'):
+                mutations.append(lambda value, k=key, r=replacement: value['fragments'][0].update({k: r}))
+        for key in ('provider_key', 'charge', 'last_confirmed_state', 'last_confirmed_stored_bytes', 'last_confirmed_expiry'):
+            for replacement in (False, True, None, 1, 'PRIVATE_CANARY'):
+                mutations.append(lambda value, k=key, r=replacement: value['fragments'][0]['copies'][0].update({k: r}))
+        mutations.extend((lambda value: value['fragments'].pop(),
+            lambda value: value['fragments'][0]['copies'].pop(),
+            lambda value: value.update(owner_signature_verified=False, fragments=None)))
+        def outcome(function, value, keys, retired, withdrawn):
+            try: function(value, keys, retired, withdrawn=withdrawn)
+            except (ValueError, KeyError, TypeError) as error:
+                return ('ValueError' if isinstance(error, ValueError) else type(error).__name__, str(error))
+            return ('accepted',)
+        for retired, withdrawn in (((), False), ((0,), False), ((0, 2), False), ((), True), ((0,), True)):
+            for index, mutate in enumerate(mutations):
+                value, keys = custody_fixture(retired, withdrawn=withdrawn)
+                mutate(value)
+                with self.subTest(retired=retired, withdrawn=withdrawn, mutation=index), patch.object(time, 'time', return_value=1000):
+                    self.assertEqual(outcome(original_custody, value, keys, retired, withdrawn),
+                        outcome(CHECK['validate_custody'], value, keys, retired, withdrawn))
+
+    def test_actual_rejected_predicates_have_distinct_closed_reasons(self):
+        cases = (
+            (lambda v: v.update(pending_retirements=1, placement_authorizations=1, retained_copy_records=9), 'pending_handoff'),
+            (lambda v: v.update(fully_redundant_from_retained_receipts=False), 'unconfirmed'),
+            (lambda v: v['fragments'][0]['copies'][0].update(last_confirmed_expiry=1), 'expired'),
+            (lambda v: v.update(committed_payload_bytes=0), 'accounting'),
+            (lambda v: v['providers'][0].update(physical_payload_charge_upper_bound=0), 'accounting'),
+            (lambda v: v['fragments'][0]['copies'][0].update(provider_key='PRIVATE_CANARY'), 'identity'),
+            (lambda v: v['fragments'][0].update(offset=999), 'geometry'),
+            (lambda v: v.update(erasure_coding=True), 'scope'),
+            (lambda v: v.pop('owner_signature_verified'), 'malformed'))
+        for mutate, expected in cases:
+            with self.subTest(reason=expected), tempfile.TemporaryDirectory() as temporary:
+                value, keys = custody_fixture(); mutate(value)
+                with self.assertRaises(ValueError) as caught:
+                    CHECK['pre_withdrawal'](Path(temporary), value, keys)
+                self.assertEqual(str(caught.exception), 'pre-withdrawal custody not reconciled')
+                self.assertEqual(CHECK['baseline_failure_reason'](caught.exception), expected)
+        self.assertEqual(CHECK['baseline_failure_reason'](ValueError('PRIVATE_CANARY')), 'unknown')
+
+    def test_maintained_pending_handoff_does_not_pass_baseline_or_replace_earlier_snapshot(self):
+        namespace = CHECK['lifecycle'].__globals__
+        early, keys = custody_fixture()
+        current = copy.deepcopy(early)
+        current.update(placement_authorizations=1, retained_copy_records=9, pending_retirements=1)
+        current['fragments'][0]['copies'].append(dict(provider_key=keys[2], charge='unattempted', last_confirmed_expiry=0))
+        gates = fixture()['network']['lifecycle']['gates']
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); (root / 'maintenance').mkdir()
+            (root / 'maintenance/enrollment.json').write_text(json.dumps({'enrollment': {'expires': int(time.time()) + 6000}}))
+            path = MagicMock(); path.parents = [None, None, path]; path.__truediv__.return_value = path
+            path.exists.return_value = True
+            path.lstat.return_value = Mock(st_mode=stat.S_IFREG | 0o640, st_nlink=1, st_uid=0, st_size=2)
+            owner = Mock(); owner.process.poll.return_value = 0
+            owner.reports.return_value = [dict(stage='turn_completed', turns=5)]
+            @contextmanager
+            def capture(*args, **kwargs): yield Mock(joined=True)
+            def retained(*args):
+                namespace['LIFECYCLE_DIAGNOSTIC']['retained_status'] = CHECK['retained_status_diagnostic'](early, 1000)
+                return dict(version=1, pending=None)
+            with patch.dict(namespace, LIFECYCLE_DIAGNOSTIC=None, SAMPLER_DIAGNOSTIC={},
+                    Path=Mock(return_value=path), OwnerProcess=Mock(return_value=owner),
+                    checkpoint=Mock(side_effect=[dict(stage='paused', turns=3), dict(stage='working', turns=4),
+                        dict(stage='core_unavailable', turns=4), dict(stage='waiting_for_core', turns=4), dict(stage='paused', turns=5)]),
+                    read=Mock(return_value=dict(baseline=gates['event_baseline_unix_ms'], scope=gates['exit_route_scope'])),
+                    retained_current_during_core_loss=retained, retained_intent_continuity=Mock(),
+                    wait_owner=lambda owner, predicate, seconds=180, **kwargs: predicate(),
+                    status=Mock(return_value=early), run_turn=Mock(return_value=fresh_turn_fixture()),
+                    invoke=Mock(return_value=current), unlock=lambda root: [], create=Mock()), \
+                    patch.dict(CHECK['F'], check_identity=Mock()), patch.dict(CHECK['SAMPLER'], capture=capture):
+                with self.assertRaisesRegex(ValueError, '^pre-withdrawal custody not reconciled$') as caught:
+                    CHECK['lifecycle'](root, '/PRIVATE/cli', '/PRIVATE/socket', keys)
+                result = CHECK['failure_receipt'](caught.exception)
+                CHECK['validate_lifecycle_failure'](result)
+                self.assertEqual(result['version'], 3)
+                self.assertEqual(result['baseline_reason'], 'pending_handoff')
+                self.assertEqual(result['retained_status_scope'], 'core_loss')
+                self.assertEqual(result['retained_status']['copy_counts'], [2, 2, 2, 2])
+                self.assertEqual(result['reconcile_status']['status']['copy_counts'], [3, 2, 2, 2])
+                self.assertEqual(result['reconcile_status']['pending_retirements'], 1)
+                self.assertEqual((result['cursor_last'], result['checkpoint_stage']), (5, 'paused'))
+                self.assertEqual(result['fresh_turn_detail']['cursor'], 6)
+                self.assertEqual(result['fresh_turn_detail']['repair_stage'], 'pending_handoff')
+                self.assertEqual(result['fresh_turn_detail']['fragment_outcomes'][0]['handoff_stage'], 'replacement_retention_insufficient')
+                self.assertEqual(result['fresh_turn_detail']['maintenance_stage'], 'maintained')
+                namespace['run_turn'].assert_called_once(); namespace['invoke'].assert_called_once()
+                owner.close.assert_called_once()
+                self.assertFalse(result['success'])
+                self.assertNotIn('PRIVATE', json.dumps(result))
+                self.assertFalse(any(call.args[0] == root / 'lifecycle-result.json' for call in namespace['create'].call_args_list))
+
+    def test_fresh_turn_unknown_fields_and_bounds_never_escape(self):
+        value = fresh_turn_fixture(); value['detail']['private'] = 'PRIVATE_CANARY'
+        projected = CHECK['fresh_turn_diagnostic'](value)
+        CHECK['validate_fresh_turn_detail'](projected)
+        self.assertNotIn('PRIVATE_CANARY', json.dumps(projected))
+        value.update(turns=True, stage='PRIVATE_CANARY')
+        value['detail'].update(repair_stage='PRIVATE_CANARY', attempted_handoffs=2,
+            fragment_outcomes=[{}, {}], refresh=dict(copy_outcomes=['PRIVATE_CANARY']))
+        projected = CHECK['fresh_turn_diagnostic'](value)
+        CHECK['validate_fresh_turn_detail'](projected)
+        self.assertIsNone(projected['cursor']); self.assertIsNone(projected['repair_stage'])
+        self.assertIsNone(projected['checkpoint_stage']); self.assertIsNone(projected['attempted_handoffs'])
+        self.assertIsNone(projected['fragment_outcomes']); self.assertEqual(projected['refresh']['copy_outcomes'], [None])
+        for field, wrong in (('cursor', True), ('repair_stage', 'PRIVATE_CANARY'), ('attempted_handoffs', 2), ('extra', 'PRIVATE_CANARY')):
+            with self.assertRaises(ValueError): CHECK['validate_fresh_turn_detail'](dict(projected, **{field: wrong}))
+
+    def test_later_status_unknown_and_oversize_values_remain_unknown(self):
+        value, _ = custody_fixture()
+        value.update(pending_retirements=True, retained_copy_records=4097, fragments_with_confirmed_unexpired_copy=-1,
+            fully_redundant_from_retained_receipts='PRIVATE_CANARY')
+        projected = CHECK['reconcile_status_diagnostic'](value, 1000)
+        CHECK['validate_reconcile_status'](projected)
+        self.assertTrue(all(projected[key] is None for key in projected if key != 'status'))
+        for field in ('pending_retirements', 'retained_copy_records', 'fragments_with_confirmed_unexpired_copy'):
+            with self.assertRaises(ValueError): CHECK['validate_reconcile_status'](dict(projected, **{field: True}))
+        unknown = CHECK['reconcile_status_diagnostic'](None, 1000)
+        self.assertIsNone(unknown['pending_retirements']); self.assertIsNone(unknown['retained_copy_records'])
+
+    def test_diagnostic_projection_failure_cannot_replace_primary_failure(self):
+        context = {}
+        with patch.dict(CHECK['observe_lifecycle'].__globals__, LIFECYCLE_DIAGNOSTIC=context):
+            CHECK['observe_lifecycle']('reconcile_status', Mock(side_effect=ValueError('PRIVATE_CANARY')), {})
+        self.assertEqual(context, dict(reconcile_status=None))
+
+    def test_historical_v1_v2_fields_and_encoding_are_unchanged(self):
+        old = dict(version=1, success=False, kind='private-storage-maintenance-lifecycle-failure',
+            stage='reconcile_progress', code='baseline_custody', cursor_before=3, cursor_last=5,
+            checkpoint_stage='paused', owner_exit_status=0, owner_joined=True, cleanup_error=None, sampler=None)
+        for version in (1, 2):
+            value = dict(old, version=version)
+            if version == 2: value['retained_status'] = CHECK['retained_status_diagnostic']({}, 1000)
+            original = json.dumps(value, sort_keys=True)
+            self.assertEqual(CHECK['validate_lifecycle_failure'](value), value)
+            self.assertEqual(json.dumps(value, sort_keys=True), original)
+            with self.assertRaises(ValueError): CHECK['validate_lifecycle_failure'](dict(value, reconcile_status=None))
+
+    def test_current_receipt_is_closed_bounded_and_does_not_change_historical_shapes(self):
+        status, _ = custody_fixture()
+        value = dict(version=3, success=False, kind='private-storage-maintenance-lifecycle-failure',
+            stage='reconcile_progress', code='baseline_custody', cursor_before=3, cursor_last=5,
+            checkpoint_stage='paused', owner_exit_status=0, owner_joined=True, cleanup_error=None, sampler=None,
+            retained_status=CHECK['retained_status_diagnostic'](status, 1000), retained_status_scope='core_loss',
+            reconcile_status=CHECK['reconcile_status_diagnostic'](status, 1000),
+            fresh_turn_detail=CHECK['fresh_turn_diagnostic'](fresh_turn_fixture()), baseline_reason='pending_handoff')
+        CHECK['validate_lifecycle_failure'](value)
+        self.assertLessEqual(len(json.dumps(value).encode()), 8192)
+        for field in ('retained_status_scope', 'reconcile_status', 'fresh_turn_detail', 'baseline_reason'):
+            invalid = copy.deepcopy(value); del invalid[field]
+            with self.assertRaises(ValueError): CHECK['validate_lifecycle_failure'](invalid)
+        for fields in (dict(retained_status_scope='reconcile_progress'), dict(baseline_reason='PRIVATE_CANARY'),
+                dict(baseline_reason=True), dict(reconcile_status={}), dict(fresh_turn_detail={}),
+                dict(version=2), dict(success=True), dict(private='PRIVATE_CANARY')):
+            with self.assertRaises(ValueError): CHECK['validate_lifecycle_failure'](dict(value, **fields))
+        # Optional observations remain explicitly unknown, never acceptance.
+        unknown = dict(value, reconcile_status=None, fresh_turn_detail=None, baseline_reason=None)
+        CHECK['validate_lifecycle_failure'](unknown)
+        self.assertFalse(unknown['success'])
 
 
 class MaintenanceEvidence(unittest.TestCase):
@@ -171,6 +868,7 @@ class MaintenanceEvidence(unittest.TestCase):
                         checkpoint=Mock(side_effect=[dict(stage='paused', turns=3),
                             dict(stage='working', turns=4), dict(stage='core_unavailable', turns=4)]),
                         OwnerProcess=Mock(return_value=owner), wait_owner=wait,
+                        retained_current_during_core_loss=Mock(return_value=dict(version=1, pending=None)),
                         status=Mock(return_value=retained), create=Mock(), unlock=lambda root: []), \
                         patch.dict(CHECK['F'], check_identity=Mock()):
                     with self.assertRaisesRegex(ValueError, '^owner lifecycle deadline$') as caught:
@@ -289,6 +987,8 @@ class MaintenanceEvidence(unittest.TestCase):
                             dict(stage='waiting_for_core', turns=5), dict(stage='paused', turns=6)]),
                         read=Mock(return_value=dict(baseline=gates['event_baseline_unix_ms'], scope=gates['exit_route_scope'])),
                         OwnerProcess=Mock(return_value=owner), unlock=lambda root: [], create=created,
+                        retained_current_during_core_loss=Mock(return_value=dict(version=1, pending=None)),
+                        retained_intent_continuity=Mock(),
                         wait_owner=lambda owner, predicate, seconds=180, **kwargs: predicate(),
                         status=Mock(return_value=retained), run_turn=Mock(return_value=dict(turns=7)),
                         invoke=Mock(return_value=dict(physical_payload_charge_upper_bound=2 * CHECK['BYTES'],
@@ -358,6 +1058,7 @@ class MaintenanceEvidence(unittest.TestCase):
                 + self.event(101, 'PRESELECTION_SAMPLE_INSUFFICIENT_RELAYS')
                 + self.event(111, 'PRESELECTION_SAMPLE_NO_EXIT'))
             result = CHECK['closed_preselection_events'](events, baseline, end)
+            CHECK['validate_preselection_diagnostic'](result)
             self.assertEqual(result['state'], 'known')
             self.assertEqual(result['observed_reason'], 'PRESELECTION_SAMPLE_INSUFFICIENT_RELAYS')
             self.assertEqual(result['records'], 4)
@@ -406,6 +1107,7 @@ class MaintenanceEvidence(unittest.TestCase):
                 baseline, events, end = self.preselection_files(Path(temporary))
                 events.write_text(raw)
                 result = CHECK['closed_preselection_events'](events, baseline, end)
+                CHECK['validate_preselection_diagnostic'](result)
                 self.assertEqual(result['state'], 'unknown')
                 self.assertEqual(result['observed_reason'], 'unknown')
                 self.assertEqual(result['uncertainty'], uncertainty)
@@ -453,11 +1155,119 @@ class MaintenanceEvidence(unittest.TestCase):
                 else:
                     events.write_text(self.event(101, 'PRESELECTION_SAMPLE_NO_EXIT') * 401)
                 result = CHECK['closed_preselection_events'](events, baseline, end)
+                CHECK['validate_preselection_diagnostic'](result)
                 self.assertEqual(result['state'], 'unknown')
                 self.assertEqual(result['uncertainty'],
                     'invalid_baseline' if kind.startswith('baseline')
                     else 'invalid_window_end' if kind.startswith('end') else 'invalid')
                 self.assertIsNone(result['counts'])
+
+    @staticmethod
+    def selection_route():
+        return dict(schema_version=1, stage='budget', reason='DEADLINE_EXHAUSTED',
+            last_connect_reason='PRESELECTION_UNAVAILABLE', connect_exit_status=1,
+            attempts=12, retries=11, redraws=0, path_polls=0, path_status=None)
+
+    def test_route_projection_binds_last_window_and_excludes_private_context(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            baseline, events, end = self.preselection_files(work)
+            baseline.rename(work / 'private-storage-maintenance-selection-start.private')
+            end.rename(work / 'private-storage-maintenance-selection-end.private')
+            phase = work / 'private-storage-maintenance-selection-phase.private'
+            phase.write_text('initial\n')
+            phase.chmod(0o600)
+            events.write_text(self.event(99, 'PRESELECTION_SAMPLE_NO_EXIT')
+                + self.event(101, 'PRESELECTION_SAMPLE_INSUFFICIENT_RELAYS')
+                + self.event(111, 'PRESELECTION_SAMPLE_NO_EXIT'))
+            raw = work / 'private-storage-maintenance-selection-route-diagnostic.json'
+            raw.write_text(json.dumps(self.selection_route()))
+            raw.chmod(0o600)
+            value = CHECK['route_diagnostic'](work)
+            CHECK['validate_route_diagnostic'](value)
+            self.assertEqual(value['route_state'], 'observed')
+            self.assertEqual(value['selection_phase'], 'initial')
+            self.assertEqual(value['route'], self.selection_route())
+            self.assertEqual(value['preselection']['observed_reason'], 'PRESELECTION_SAMPLE_INSUFFICIENT_RELAYS')
+            self.assertEqual(value['scope'], 'last_selection_window_not_failure_cause')
+            self.assertFalse(value['acceptance_evidence'])
+            for private in (str(work), 'session=', 'path=', '12345', 'a' * 64):
+                self.assertNotIn(private, json.dumps(value))
+            exported = work / 'public.json'
+            exported.write_text(json.dumps(value))
+            subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                'route-diagnostic-check', str(exported)], check=True, capture_output=True, timeout=5)
+            for phase_text, expected in (('reconnect\n', 'reconnect'), ('PRIVATE_PATH\n', 'unknown')):
+                phase.write_text(phase_text)
+                self.assertEqual(CHECK['route_diagnostic'](work)['selection_phase'], expected)
+            phase.write_text('initial\n')
+            phase.chmod(0o644)
+            self.assertEqual(CHECK['route_diagnostic'](work)['selection_phase'], 'unknown')
+
+    def test_route_projection_missing_or_invalid_is_unknown_not_raw_export(self):
+        for kind in ('missing', 'empty', 'duplicate', 'private', 'oversize', 'mode', 'symlink', 'hardlink', 'fifo'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary)
+                raw = work / 'private-storage-maintenance-selection-route-diagnostic.json'
+                if kind != 'missing':
+                    raw.write_text(json.dumps(self.selection_route()))
+                    raw.chmod(0o600)
+                if kind == 'empty':
+                    raw.write_text('')
+                elif kind == 'duplicate':
+                    raw.write_text('{"schema_version":1,' + raw.read_text()[1:])
+                elif kind == 'private':
+                    raw.write_text(json.dumps(dict(self.selection_route(), token='PRIVATE_CANARY')))
+                elif kind == 'oversize':
+                    raw.write_text('PRIVATE_CANARY' * 2048)
+                elif kind == 'mode':
+                    raw.chmod(0o644)
+                elif kind == 'symlink':
+                    raw.rename(work / 'target')
+                    raw.symlink_to(work / 'target')
+                elif kind == 'hardlink':
+                    os.link(raw, work / 'other')
+                elif kind == 'fifo':
+                    raw.unlink()
+                    os.mkfifo(raw, 0o600)
+                # Real child bounds the FIFO/no-writer regression as well.
+                result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                    'route-diagnostic', str(work)], check=True, capture_output=True, text=True, timeout=5)
+                value = json.loads(result.stdout)
+                CHECK['validate_route_diagnostic'](value)
+                self.assertEqual(value['route_state'], 'absent' if kind == 'missing' else 'invalid')
+                self.assertEqual(value['selection_phase'], 'unknown')
+                self.assertIsNone(value['route'])
+                self.assertEqual(value['preselection']['state'], 'unknown')
+                self.assertNotIn('PRIVATE_CANARY', result.stdout)
+                self.assertNotIn(str(work), result.stdout)
+
+    def test_route_diagnostic_validator_rejects_open_fields_and_fabricated_known(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            value = CHECK['route_diagnostic'](Path(temporary))
+        value.update(route_state='observed', route=self.selection_route())
+        mutations = (
+            lambda v: v.update(version=True), lambda v: v.update(acceptance_evidence=True),
+            lambda v: v.update(scope='failure_cause'), lambda v: v.update(token='PRIVATE'),
+            lambda v: v.update(selection_phase='PRIVATE'),
+            lambda v: v.update(route_state='absent'), lambda v: v.update(route=None),
+            lambda v: v['route'].update(attempts=True), lambda v: v['route'].update(retries=0),
+            lambda v: v['route'].update(attempts=361, retries=360),
+            lambda v: v['route'].update(redraws=33), lambda v: v['route'].update(path_polls=101),
+            lambda v: v['route'].update(stage='complete'),
+            lambda v: v['route'].update(last_connect_reason='PRIVATE'),
+            lambda v: v['route'].update(connect_exit_status=True),
+            lambda v: v['preselection'].update(state='known', observed_reason='PRESELECTION_SAMPLE_NO_EXIT'),
+            lambda v: v['preselection'].update(uncertainty='PRIVATE'),
+            lambda v: v['preselection'].update(records=0),
+            lambda v: v['preselection'].update(window_covers_baseline=True),
+            lambda v: v['preselection'].update(session='PRIVATE'),
+        )
+        for mutate in mutations:
+            invalid = copy.deepcopy(value)
+            mutate(invalid)
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                CHECK['validate_route_diagnostic'](invalid)
 
     def test_retirement_projects_only_existing_bounded_checkpoint_fields(self):
         namespace = CHECK['retirement_turn'].__globals__
@@ -534,6 +1344,7 @@ class MaintenanceEvidence(unittest.TestCase):
             owner, status, invoke = Mock(side_effect=turns), Mock(side_effect=[before] +
                 [dict(before, pending_retirements=2)] * 4), Mock()
             with patch.dict(namespace, run_turn=owner, status=status, invoke=invoke,
+                    retained_intent_continuity=Mock(),
                     RETIREMENT_TURNS=[], SAMPLER_DIAGNOSTIC={}):
                 with self.assertRaisesRegex(ValueError, 'source retirement unconfirmed') as failure:
                     CHECK['finish'](root, '/synthetic/cli', '/synthetic/socket', ['a', 'b', 'c'])
@@ -647,13 +1458,21 @@ class MaintenanceEvidence(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             OLD['write_evidence'](root, value)
+            (root / 'private-storage-fragments-layout.json').write_bytes(CONSUMER_FIXTURE['M']['encoded'](value['layout']))
+            (root / CHECK['CONSUMERS']['TRANSITION_NAME']).write_bytes(CHECK['CONSUMERS']['canonical'](value['control_transition']))
+            for name, phase in value['network'].items():
+                (root / f'private-storage-fragments-{name}-layout.json').write_text(json.dumps(phase['layout']))
             (root / 'private-storage-maintenance-lifecycle.json').write_text(json.dumps(value['lifecycle']))
+            for path in root.iterdir(): path.chmod(0o600)
             self.assertEqual(CHECK['evidence'](root), value)
             consumer_only = set(CHECK['CONSUMERS']['EXPORT_NAMES']) - set(CHECK['F']['EXPORT_NAMES'])
             self.assertEqual(set(CHECK['EXPORT_NAMES']) - consumer_only - {
                 'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json',
-                'private-storage-maintenance-lifecycle-failure.json'},
-                {p.name for p in root.iterdir()})
+                'private-storage-maintenance-lifecycle-failure.json', 'private-storage-maintenance-route-diagnostic.json',
+            'private-storage-maintenance-provider-events.json',
+                'private-storage-provider-activity.json',
+                'private-storage-maintenance-inventory.json', 'private-storage-maintenance-supervisor.json'},
+                {p.name for p in root.iterdir()} - {CHECK['CONSUMERS']['TRANSITION_NAME']})
             (root / 'private-storage-fragments-restored_usage.json').write_text('{}')
             with self.assertRaises(ValueError):
                 CHECK['evidence'](root)
@@ -664,7 +1483,8 @@ class MaintenanceEvidence(unittest.TestCase):
         # Bind this synthetic consumer fixture to the original fixture's scope.
         for name in ('expected_peers', 'layout', 'isolation'):
             consumers[name] = copy.deepcopy(original[name])
-        combined = dict(report(original), schema_version=3, consumers=consumers)
+        CONSUMER_FIXTURE['attach_transition'](consumers)
+        combined = dict(report(original), schema_version=4, consumers=consumers)
         CHECK['validate_report'](combined, '1' * 40)
         with self.assertRaises(ValueError):
             CHECK['validate_report'](report(original), '1' * 40)
@@ -683,6 +1503,166 @@ class MaintenanceEvidence(unittest.TestCase):
             result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
                 'report', str(path), '1' * 40], capture_output=True, timeout=5)
             self.assertNotEqual(result.returncode, 0, 'historical v2 must not pass the current CLI gate')
+
+    def test_current_consumer_v4_cli_requires_new_generation_but_preserves_historical_replay(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        original = fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'report.json'
+            for profile in (1, 3, 4, 5, 6, 7, 8):
+                consumers = (CONSUMER_FIXTURE['fixture']() if profile == 1 else network['fixture'](profile))
+                combined = dict(report(original), schema_version=7 if profile == 8 else 6 if profile == 7 else 5 if profile == 6 else 4, consumers=consumers)
+                for command in ('report', 'report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6', 'report-consumer-v7', 'report-consumer-v8'):
+                    with self.subTest(profile=profile, command=command):
+                        path.write_text(json.dumps(combined))
+                        path.chmod(0o600)
+                        result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                            command, str(path), '1' * 40], capture_output=True, timeout=10)
+                        self.assertEqual(result.returncode == 0, (command == 'report' and profile not in (6, 7, 8))
+                            or (command == 'report-consumer-v4' and profile == 4)
+                            or (command == 'report-consumer-v5' and profile == 5)
+                            or (command == 'report-consumer-v6' and profile == 6)
+                            or (command == 'report-consumer-v7' and profile == 7)
+                            or (command == 'report-consumer-v8' and profile == 8),
+                            result.stdout + result.stderr)
+
+    def test_consumer_v8_is_explicit_and_keeps_network_custody_and_cleanup_gates(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        original = dict(report(fixture()), schema_version=7, consumers=network['fixture'](8))
+        CHECK['validate_report'](original, '1' * 40, append_profile=True)
+        for options in ({}, dict(challenge_profile=True), dict(stream_profile=True),
+                dict(append_profile=True, challenge_profile=True), dict(append_profile=True, stream_profile=True),
+                dict(append_profile=True, historical=True), dict(append_profile=True, previous=True),
+                dict(append_profile=1), dict(append_profile='true')):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                CHECK['validate_report'](original, '1' * 40, **options)
+        mutations = (
+            lambda v: v.update(schema_version=6), lambda v: v.update(schema_version=7.0),
+            lambda v: v.update(source_revision='2' * 40), lambda v: v['cleanup'].update(complete=False),
+            lambda v: v['consumers'].update(schema_version=8.0),
+            lambda v: v['consumers']['provision'].update(version=7),
+            lambda v: v['consumers']['provision'].update(pins=CHECK['CONSUMERS']['PROVISIONER']['load_pins'](7)),
+            lambda v: v['consumers']['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+            lambda v: v['consumers']['deleted_usage'][0].update(leases=1),
+        )
+        for mutate in mutations:
+            value = copy.deepcopy(original); mutate(value)
+            with self.assertRaises(ValueError):
+                CHECK['validate_report'](value, '1' * 40, append_profile=True)
+
+    def test_consumer_v7_needs_explicit_outer_generation_and_unchanged_acceptance(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        original = dict(report(fixture()), schema_version=6, consumers=network['fixture'](7))
+        CHECK['validate_report'](original, '1' * 40, challenge_profile=True)
+        for options in ({}, dict(stream_profile=True), dict(challenge_profile=True, stream_profile=True),
+                dict(challenge_profile=True, historical=True), dict(challenge_profile=True, previous=True)):
+            with self.assertRaises(ValueError): CHECK['validate_report'](original, '1' * 40, **options)
+        mutations = (
+            lambda v: v.update(schema_version=5), lambda v: v.update(schema_version=6.0),
+            lambda v: v.update(source_revision='2' * 40), lambda v: v['cleanup'].update(complete=False),
+            lambda v: v['consumers'].update(schema_version=7.0),
+            lambda v: v['consumers']['provision'].update(pins=CHECK['CONSUMERS']['PROVISIONER']['load_pins'](6)),
+            lambda v: v['consumers']['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+            lambda v: v['consumers']['deleted_usage'][0].update(leases=1),
+        )
+        for mutate in mutations:
+            value = copy.deepcopy(original); mutate(value)
+            with self.assertRaises(ValueError):
+                CHECK['validate_report'](value, '1' * 40, challenge_profile=True)
+
+    def test_consumer_v6_requires_new_outer_schema_and_retains_cleanup_and_network_gates(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        original = dict(report(fixture()), schema_version=5, consumers=network['fixture'](6))
+        CHECK['validate_report'](original, '1' * 40, stream_profile=True)
+        with self.assertRaises(ValueError): CHECK['validate_report'](original, '1' * 40)
+        for schema in (4, 5.0, True):
+            invalid = copy.deepcopy(original); invalid['schema_version'] = schema
+            with self.assertRaises(ValueError): CHECK['validate_report'](invalid, '1' * 40, stream_profile=True)
+        invalid = copy.deepcopy(original); invalid['schema_version'] = 4
+        with self.assertRaises(ValueError): CHECK['validate_report'](invalid, '1' * 40)
+        mutations = (
+            lambda v: v.update(source_revision='2' * 40), lambda v: v['cleanup'].update(complete=False),
+            lambda v: v['consumers'].update(schema_version=6.0), lambda v: v['consumers']['provision'].update(version=True),
+            lambda v: v['consumers']['provision'].update(pins=CHECK['CONSUMERS']['PROVISIONER']['load_pins'](5)),
+            lambda v: v['consumers']['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+            lambda v: v['consumers']['deleted_usage'][0].update(leases=1),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'report.json'
+            for mutate in mutations:
+                value = copy.deepcopy(original); mutate(value)
+                path.write_text(json.dumps(value)); path.chmod(0o600)
+                result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                    'report-consumer-v6', str(path), '1' * 40], capture_output=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_current_consumer_v5_cli_keeps_original_network_custody_and_cleanup_gates(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        original = dict(report(fixture()), schema_version=4, consumers=network['fixture'](5))
+        mutations = (
+            lambda v: v.update(source_revision='2' * 40), lambda v: v['cleanup'].update(complete=False),
+            lambda v: v['consumers'].update(schema_version=5.0), lambda v: v['consumers']['provision'].update(version=True),
+            lambda v: v['consumers']['provision'].update(pins=CHECK['CONSUMERS']['PROVISIONER']['load_pins'](4)),
+            lambda v: v['consumers']['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+            lambda v: v['consumers']['deleted_usage'][0].update(leases=1),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'report.json'
+            for index, mutate in enumerate(mutations):
+                with self.subTest(mutation=index):
+                    value = copy.deepcopy(original); mutate(value)
+                    path.write_text(json.dumps(value)); path.chmod(0o600)
+                    result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                        'report-consumer-v5', str(path), '1' * 40], capture_output=True, timeout=10)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_current_consumer_v4_cli_keeps_source_types_cleanup_and_network_checks(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        original = dict(report(fixture()), schema_version=4, consumers=network['fixture'](4))
+        mutations = (
+            lambda v: v.update(source_revision='2' * 40),
+            lambda v: v['cleanup'].update(complete=False),
+            lambda v: v['consumers'].update(schema_version=4.0),
+            lambda v: v['consumers'].update(schema_version=True),
+            lambda v: v['consumers']['provision'].update(version=4.0),
+            lambda v: v['consumers']['provision'].update(version=True),
+            lambda v: v['consumers']['provision'].update(pins=CHECK['CONSUMERS']['PROVISIONER']['load_pins'](3)),
+            lambda v: v['consumers']['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'report.json'
+            for index, mutate in enumerate(mutations):
+                with self.subTest(mutation=index):
+                    value = copy.deepcopy(original)
+                    mutate(value)
+                    path.write_text(json.dumps(value))
+                    path.chmod(0o600)
+                    result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+                        'report-consumer-v4', str(path), '1' * 40], capture_output=True, timeout=10)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_original_schema_three_remains_explicit_without_reinterpreting_broker_evidence(self):
+        original = fixture(previous=True)
+        consumers = CONSUMER_FIXTURE['fixture'](previous=True)
+        for name in ('expected_peers', 'layout', 'isolation'):
+            consumers[name] = copy.deepcopy(original[name])
+        retained = dict(report(original), schema_version=3, consumers=consumers)
+        CHECK['validate_report'](retained, '1' * 40, previous=True)
+        with self.assertRaises(ValueError): CHECK['validate_report'](retained, '1' * 40)
+        with self.assertRaises(ValueError): CHECK['validate_report'](retained, '1' * 40, historical=True)
+        retained['maintenance']['control_transition'] = fixture()['control_transition']
+        with self.assertRaises(ValueError): CHECK['validate_report'](retained, '1' * 40, previous=True)
+
+    def test_original_upload_control_capture_is_not_relabelled_by_later_transition(self):
+        value = fixture()
+        original_upload = copy.deepcopy(value['network']['upload'])
+        CHECK['validate_evidence'](value)
+        self.assertEqual(value['network']['upload'], original_upload)
+        for name in ('upload', 'lifecycle', 'restore', 'finish'):
+            invalid = copy.deepcopy(value)
+            other = 'lifecycle' if name == 'upload' else 'upload'
+            invalid['network'][name]['control_privacy'] = copy.deepcopy(value['network'][other]['control_privacy'])
+            with self.subTest(phase=name), self.assertRaises(ValueError): CHECK['validate_evidence'](invalid)
 
     def test_missing_core_authority_cursor_and_stop_proofs_never_pass(self):
         for mutate in (
@@ -849,6 +1829,7 @@ class MaintenanceEvidence(unittest.TestCase):
                 namespace = CHECK['restore'].__globals__
                 with patch.dict(namespace, checkpoint=Mock(side_effect=[dict(turns=9), dict(turns=10 + len(remaining))]),
                         status=Mock(side_effect=states), run_turn=Mock(side_effect=turns), invoke=invoke,
+                        retained_intent_continuity=Mock(),
                         staged_files_absent=Mock(), REPAIR_DIAGNOSTIC=None, REPAIR_TURNS=[]), \
                         patch.dict(CHECK['F'], check_identity=Mock()):
                     actual = CHECK['restore'](root, 'inert-cli', 'inert-socket', keys)
@@ -938,6 +1919,235 @@ class MaintenanceEvidence(unittest.TestCase):
             self.assertFalse(root.exists())
             self.assertTrue(all(CHECK['cleanup'](root).values()))
             self.assertEqual(sentinel.read_text(), 'retain')
+
+
+class UploadFailureProjection(unittest.TestCase):
+    def setUp(self):
+        self.namespace = CHECK['upload_invoke'].__globals__
+        self.state = patch.dict(self.namespace, UPLOAD_DIAGNOSTIC=None, STAGE='upload',
+            LIFECYCLE_DIAGNOSTIC=None, SAMPLER_DIAGNOSTIC={})
+        self.state.start()
+        self.addCleanup(self.state.stop)
+
+    @staticmethod
+    def report(version=2, failures=1):
+        diagnostic = dict(version=version, omitted_failures=0, failures=[])
+        for index in range(failures):
+            failure = dict(fragment_index=index // 2, copy_index=index % 2,
+                operation='reserve', stage='agent_ready', category='agent_rejected',
+                agent_code='CONTENT_UNAVAILABLE')
+            if version >= 2:
+                failure['agent_detail'] = dict(stage='route_connect', deadline_scope='none')
+            if version >= 3:
+                failure['agent_detail']['tls_failure'] = None
+            if version == 4:
+                failure.update(stage='wire_receipt', category='io', operation='finalize', agent_code=None,
+                    agent_detail=None, agent_outcome=dict(status='observed', detail=dict(
+                        phase='remote_receipt_read', category='timeout', deadline_scope='remote_wire')))
+            diagnostic['failures'].append(failure)
+        return dict(operation='private_storage_fragments_deposit', operation_complete=False,
+            fragment_count=4, copies_per_fragment=2, deposit_diagnostics=diagnostic,
+            providers=[dict(provider_key='PRIVATE_KEY')], private_path='PRIVATE_PATH')
+
+    def observe(self, report, operation='deposit'):
+        raw = json.dumps(report).encode() if type(report) is dict else report
+        return CHECK['upload_observation'](operation, 1, raw, b'PRIVATE_STDERR')
+
+    def test_exact_call_labels_and_both_existing_diagnostic_versions(self):
+        for version in (1, 2, 3, 4):
+            for count in (0, 1, 8):
+                source = self.report(version, count)
+                for operation in CHECK['UPLOAD_OPERATIONS']:
+                    with self.subTest(version=version, count=count, operation=operation):
+                        value = self.observe(source, operation)
+                        self.assertEqual(set(value), {'operation', 'exit_status', 'stdout_state',
+                            'stderr_state', 'deposit_diagnostics_state', 'deposit_diagnostics'})
+                        self.assertEqual(value['operation'], operation)
+                        self.assertEqual(value['exit_status'], 1)
+                        applicable = operation in ('deposit', 'redeposit')
+                        self.assertEqual(value['deposit_diagnostics_state'],
+                            'observed' if applicable else 'not_applicable')
+                        self.assertEqual(value['deposit_diagnostics'],
+                            source['deposit_diagnostics'] if applicable else None)
+                        self.assertNotIn('PRIVATE', json.dumps(value))
+
+    def test_upload_outcome_projects_only_valid_closed_observation_without_success_or_custody_claim(self):
+        source = self.report(4)
+        value = self.observe(source)
+        self.assertEqual(value['deposit_diagnostics_state'], 'observed')
+        self.assertEqual(value['deposit_diagnostics'], source['deposit_diagnostics'])
+        self.assertNotIn('success', value); self.assertNotIn('custody', json.dumps(value))
+        for mutate in (lambda f: f.pop('agent_outcome'), lambda f: f['agent_outcome'].pop('detail'),
+                lambda f: f['agent_outcome'].update(raw='PRIVATE'),
+                lambda f: f['agent_outcome']['detail'].update(original_request_id='PRIVATE'),
+                lambda f: f['agent_outcome']['detail'].update(category='cancelled'),
+                lambda f: f.update(stage='signed_request')):
+            bad = copy.deepcopy(source); mutate(bad['deposit_diagnostics']['failures'][0])
+            result = self.observe(bad)
+            self.assertEqual(result['deposit_diagnostics_state'], 'invalid')
+            self.assertIsNone(result['deposit_diagnostics']); self.assertNotIn('PRIVATE', json.dumps(result))
+
+    def test_invalid_missing_oversized_and_duplicate_reports_never_export_raw_data(self):
+        mutations = [
+            lambda v: v.update(operation='PRIVATE_OPERATION'),
+            lambda v: v.update(operation_complete=True),
+            lambda v: v.update(operation_complete=0),
+            lambda v: v.update(fragment_count=True),
+            lambda v: v.update(copies_per_fragment=3),
+            lambda v: v.update(deposit_diagnostics=None),
+            lambda v: v['deposit_diagnostics'].update(version=True),
+            lambda v: v['deposit_diagnostics'].update(version=3),
+            lambda v: v['deposit_diagnostics'].update(omitted_failures=1),
+            lambda v: v['deposit_diagnostics'].update(raw='PRIVATE_PAYLOAD'),
+            lambda v: v['deposit_diagnostics']['failures'].append(
+                copy.deepcopy(v['deposit_diagnostics']['failures'][0])),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(fragment_index=4),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(copy_index=True),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(raw='PRIVATE_PAYLOAD'),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(operation='PRIVATE_PATH'),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(stage='PRIVATE_PATH'),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(category='PRIVATE_ERROR'),
+            lambda v: v['deposit_diagnostics']['failures'][0].update(agent_code='PRIVATE_CODE'),
+            lambda v: v['deposit_diagnostics']['failures'][0].pop('agent_detail'),
+            lambda v: v['deposit_diagnostics']['failures'][0]['agent_detail'].update(raw='PRIVATE_KEY'),
+        ]
+        for change in mutations:
+            report = self.report()
+            change(report)
+            value = self.observe(report)
+            self.assertEqual(value['deposit_diagnostics_state'], 'invalid')
+            self.assertIsNone(value['deposit_diagnostics'])
+            self.assertNotIn('PRIVATE', json.dumps(value))
+        for raw in (b'PRIVATE_INVALID_JSON', b'[]', b'{"operation":1,"operation":2}',
+                    b' ' * 16385, b'\xff', b'[' * 1100):
+            value = self.observe(raw)
+            self.assertEqual(value['deposit_diagnostics_state'], 'invalid')
+            self.assertIsNone(value['deposit_diagnostics'])
+        value = self.observe(self.report(failures=9))
+        self.assertEqual(value['deposit_diagnostics_state'], 'invalid')
+        source = self.report()
+        source.pop('deposit_diagnostics')
+        self.assertEqual(self.observe(source)['deposit_diagnostics_state'], 'missing')
+        raw = json.dumps(self.report()).encode()
+        for size, expected in ((16384, 'observed'), (16385, 'invalid')):
+            value = CHECK['upload_observation']('deposit', 1, raw, b'x' * size)
+            self.assertEqual(value['deposit_diagnostics_state'], expected)
+        padded = raw + b' ' * (16384 - len(raw))
+        self.assertEqual(self.observe(padded)['deposit_diagnostics_state'], 'observed')
+        self.assertEqual(self.observe(padded + b' ')['stdout_state'], 'oversize')
+
+    def test_projection_uses_the_same_closed_agent_deadline_matrix(self):
+        stages = ('unobserved', 'route_connect', 'control_selection', 'provider_lookup',
+            'provider_cardinality', 'offer_validity', 'stream_open', 'tls_handshake', 'challenge')
+        for stage in stages:
+            for scope in ('none', 'operation', 'exchange'):
+                for code in ('CONTENT_INVALID', 'CONTENT_UNAVAILABLE', 'CONTENT_BUSY', 'CONTENT_POLICY'):
+                    report = self.report()
+                    failure = report['deposit_diagnostics']['failures'][0]
+                    failure.update(agent_code=code, agent_detail=dict(stage=stage, deadline_scope=scope))
+                    valid = (stage != 'unobserved' or scope == 'operation') \
+                        and (scope != 'exchange' or stage in stages[-3:]) \
+                        and (scope == 'none' or code == 'CONTENT_UNAVAILABLE')
+                    self.assertEqual(self.observe(report)['deposit_diagnostics_state'],
+                        'observed' if valid else 'invalid', (stage, scope, code))
+
+    def test_nonzero_observer_keeps_original_error_and_does_not_change_success(self):
+        invoke = CHECK['F']['invoke']
+        process = Mock(returncode=7)
+        process.communicate.return_value = (json.dumps(self.report()).encode(), b'PRIVATE_STDERR')
+        process.poll.return_value = 7
+        for problem in (ValueError('PRIVATE_ERROR'), TypeError('PRIVATE_ERROR'),
+                        SystemExit('PRIVATE_ERROR'), KeyboardInterrupt()):
+            observer = Mock(side_effect=problem)
+            with patch.object(CHECK['subprocess'], 'Popen', return_value=process):
+                with self.assertRaisesRegex(ValueError, '^private replica CLI operation failed$'):
+                    invoke('private-cli', 'private-socket', [], deadline=900, failure_observer=observer)
+            observer.assert_called_once_with(7, *process.communicate.return_value)
+            process.communicate.assert_called_with(timeout=900)
+        process.returncode = process.poll.return_value = 0
+        process.communicate.return_value = (b'{"ok":true}', b'')
+        observer = Mock(side_effect=AssertionError('must not run on success'))
+        with patch.object(CHECK['subprocess'], 'Popen', return_value=process):
+            self.assertEqual(invoke('private-cli', 'private-socket', [], failure_observer=observer), {'ok': True})
+        observer.assert_not_called()
+        process.terminate.assert_not_called()
+
+    def test_failure_is_this_call_not_the_previous_deposit_or_secondary_sampler(self):
+        process = Mock(returncode=7)
+        process.communicate.return_value = (json.dumps(self.report()).encode(), b'PRIVATE_STDERR')
+        process.poll.return_value = 7
+        with patch.object(CHECK['subprocess'], 'Popen', return_value=process):
+            with self.assertRaises(ValueError) as failure:
+                CHECK['upload_invoke']('deposit', 'private-cli', 'private-socket', [], deadline=900)
+        self.namespace['SAMPLER_DIAGNOSTIC'].update(phase='final_drain', operation='route_query',
+            code='process', samples=1, completed=0, failed=0)
+        value = CHECK['failure_receipt'](failure.exception)
+        self.assertEqual((value['version'], value['code'], value['upload']['operation']), (3, 'cli_exit', 'deposit'))
+        self.assertEqual(value['upload']['deposit_diagnostics_state'], 'observed')
+        self.assertEqual(value['sampler']['phase'], 'final_drain')
+        original = subprocess.TimeoutExpired('PRIVATE_COMMAND', 900)
+        process.communicate.side_effect = original
+        with patch.object(CHECK['subprocess'], 'Popen', return_value=process):
+            with self.assertRaises(subprocess.TimeoutExpired) as failure:
+                CHECK['upload_invoke']('progress', 'private-cli', 'private-socket', [], deadline=900)
+        self.assertIs(failure.exception, original)
+        value = CHECK['failure_receipt'](failure.exception)
+        self.assertEqual(value['code'], 'cli_timeout')
+        self.assertEqual(value['upload']['operation'], 'progress')
+        self.assertIsNone(value['upload']['exit_status'])
+        self.assertIsNone(value['upload']['deposit_diagnostics'])
+        self.assertNotIn('PRIVATE', json.dumps(value))
+        self.namespace['STAGE'] = 'restore'
+        historical = CHECK['failure_receipt'](ValueError('private replica CLI operation failed'))
+        self.assertEqual(historical['version'], 2)
+        self.assertNotIn('upload', historical)
+
+    def test_fragment_upload_labels_preserve_calls_deadlines_and_short_circuit(self):
+        upload = CHECK['F']['upload']
+        namespace = upload.__globals__
+        expected = ['create', 'deposit', 'progress', 'redeposit', 'renew', 'status']
+        for stop in [None, *expected]:
+            seen = []
+            def invoke(operation, binary, socket, arguments, **options):
+                seen.append((operation, arguments[:3], options))
+                if operation == stop:
+                    raise ValueError('private replica CLI operation failed')
+                return {}
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'input.bin').write_bytes(b'inert')
+                with patch.dict(namespace, validate_cli=Mock(), existing=lambda root: [],
+                        identity_digest=Mock(return_value=b''), create=Mock(), check_identity=Mock(),
+                        staged_files_absent=Mock(), private_file=Mock()):
+                    if stop is None:
+                        upload(root, 'private-cli', 'private-socket', ['a', 'b', 'c'], invoke_operation=invoke)
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'private replica CLI operation failed'):
+                            upload(root, 'private-cli', 'private-socket', ['a', 'b', 'c'], invoke_operation=invoke)
+            labels = expected if stop is None else expected[:expected.index(stop) + 1]
+            self.assertEqual([item[0] for item in seen], labels)
+            for operation, command, options in seen:
+                self.assertEqual(command, ['storage', 'fragments', 'deposit' if operation == 'redeposit' else operation])
+                self.assertEqual(options, {} if operation in ('create', 'status') else {'deadline': 900})
+
+    def test_foreground_seed_is_separate_and_a_new_upload_clears_stale_observation(self):
+        process = Mock(returncode=1)
+        process.communicate.return_value = (json.dumps(self.report()).encode(), b'PRIVATE_STDERR')
+        process.poll.return_value = 1
+        self.namespace['UPLOAD_DIAGNOSTIC'] = self.observe(self.report())
+        with patch.dict(CHECK['F'], upload=Mock(return_value={})), \
+                patch.dict(self.namespace, peer_args=lambda *args: []), \
+                patch.object(CHECK['subprocess'], 'Popen', return_value=process):
+            with self.assertRaises(ValueError) as failure:
+                CHECK['upload'](Path('/private'), 'private-cli', 'private-socket', ['a', 'b', 'c'])
+            value = CHECK['failure_receipt'](failure.exception)
+        self.assertEqual(value['upload']['operation'], 'foreground_seed')
+        self.assertEqual(value['upload']['deposit_diagnostics_state'], 'not_applicable')
+        self.assertIsNone(value['upload']['deposit_diagnostics'])
+        with patch.dict(CHECK['F'], upload=Mock(side_effect=OSError('PRIVATE_PATH'))):
+            with self.assertRaises(OSError) as failure:
+                CHECK['upload'](Path('/private'), 'private-cli', 'private-socket', ['a', 'b', 'c'])
+        self.assertNotIn('upload', CHECK['failure_receipt'](failure.exception))
 
 
 if __name__ == '__main__':
