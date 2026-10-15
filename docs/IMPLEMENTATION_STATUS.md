@@ -98,15 +98,37 @@ prefill checkpoints with the same model-driven read/edit/test task, owner
 controls, resource limits and post-task checks. The new core pin includes the
 separately verified native/Storage source join; it is not only a prefill change.
 
-[Storage challenge test `38824933092`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38824933092)
-uses test-only candidate `cccc999875ac2790c27e3c42ae06ebb8d347ca31`, with
+[Storage challenge test `38826092150`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38826092150)
+uses test-only candidate `eaf9fa237a83dc3ded35c6afb301cdd35b6b90c9`, with
 production source unchanged from `dcdf7cfb`. Three regressions exercise signed
 receipts over genuine nested TLS, a full reverse transport buffer, and joined
-cancellation. They use in-memory transports and the production proxy, not
-real MPTCP or the complete Image/Cloud path. Their outcome cannot by itself
+cancellation. The outer tunnel uses the existing 4,096-byte fixture capacity;
+the provider-side target buffer remains 16 bytes. They use in-memory transports
+and the production proxy, not real MPTCP or the complete Image/Cloud path.
+Their outcome cannot by itself
 establish the cause of the failed distributed trial.
 
 ### Latest completed integration evidence — 15–16 October
+
+- **Signed nested-TLS receipts pass; the first challenge fixture misses its target.**
+  [Scoped run `38824933092`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38824933092)
+  compiles exact test-only source `cccc9998` and finds all three expected tests.
+  The signed append/finalize/restore receipt test passes before any extra write
+  or EOF. Both new challenge tests fail after ten seconds because their
+  combined backpressure precondition is not reached. The original output does
+  not distinguish which TLS or protocol prerequisite was missing; their later
+  cleanup assertions are not reached. Clippy reports ten `large_futures`
+  errors and formatting reports two assertion-layout differences.
+
+  The correction boxes the shared fixture future, applies those layout fixes
+  and limits the 16-byte target to the provider transport instead of both TLS
+  legs. It retains the challenge, full-buffer, receipt-before-close and
+  cancellation checks, and the original ten-second limit. A bounded synthetic
+  phase/counter snapshot distinguishes future setup failures. No production
+  defect or complete Storage acceptance is established. Original artifact and
+  log ZIP SHA-256 values are respectively
+  `5859ad3bab3c290ebb84d403db8cbe452bbb708af5bd2bd9f8bcde6bfb53f324`
+  and `29a04fb3ed85fa10345bbeaf3cf3f75c46675efc079589394677c15e5004d9d4`.
 
 - **The adaptive-prefill Code pin passes source checks.**
   [Source run `38823962068`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38823962068)
