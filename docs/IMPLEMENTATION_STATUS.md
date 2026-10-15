@@ -159,6 +159,31 @@ trials or substitutes for the later completed outcomes above.
   [PR247](https://github.com/VOLPAROSSA/volparossa/pull/247) retains the original
   artifact hashes and failed attempts alongside current-source acceptance.
 
+### Storage directory lock lifetime
+
+Private archive, replica-set and fragment-set operations now release their
+directory lock explicitly when the owning scope ends. Closing a plain file
+descriptor could leave the lock held by a duplicate, including a descriptor
+inherited before a child executes. The guard preserves exclusive access while
+the operation is active, owner-only directory checks and anchored file access.
+
+[Targeted trial `38696828273`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38696828273)
+compares unchanged locking plus regression tests (`dd590d1a`) with the corrected
+implementation (`788c11c4`). The identical three tests give one pass and the two
+expected lock-retention failures on the baseline, then three passes on the
+candidate. The existing uniform-storage lifecycle also passes, including legacy
+three-copy handling and actual charges. Formatting passes. Original artifact
+ZIP SHA-256:
+`7ff7a66f555dc6eb376661dc6f4107d128d072e26a283b19a5a5768575c6af3c`.
+
+This establishes the shared-descriptor lifetime correction, not the cause of
+the earlier native-core [Quality failure `38688104130`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38688104130)
+or distributed consumer acceptance. Full integration checks remain required.
+The first [targeted attempt `38695362871`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38695362871)
+stopped at incorrect temporary-directory permissions and formatting; the
+successful comparison corrects those test fixtures without relaxing production
+checks.
+
 ### TCP streaming under simultaneous backpressure
 
 The proxy now polls both forwarding directions independently. A blocked request
