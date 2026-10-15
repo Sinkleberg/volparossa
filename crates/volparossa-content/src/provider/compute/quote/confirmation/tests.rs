@@ -178,7 +178,7 @@ where
     .unwrap();
 }
 
-fn software_prepared<'a>(pending: PendingSession<'a>, offer: Offer) -> PreparedConfirmation<'a> {
+fn software_prepared(pending: PendingSession<'_>, offer: Offer) -> PreparedConfirmation<'_> {
     let live = synthetic_confirmation_lifetime(pending, *offer.response().unwrap().public_key());
     PreparedConfirmation::from_live(live, offer).unwrap()
 }
