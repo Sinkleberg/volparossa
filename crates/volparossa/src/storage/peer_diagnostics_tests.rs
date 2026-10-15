@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[path = "peer_append_diagnostics_tests.rs"]
+mod append_tests;
+
 #[path = "peer_challenge_diagnostics_tests.rs"]
 mod challenge_tests;
 

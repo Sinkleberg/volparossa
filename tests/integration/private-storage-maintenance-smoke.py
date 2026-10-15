@@ -41,6 +41,7 @@ EXPORT_NAMES = tuple(name for name in F['EXPORT_NAMES'] if name not in
     'private-storage-maintenance-lifecycle-failure.json',
     'private-storage-maintenance-route-diagnostic.json',
     'private-storage-maintenance-provider-events.json',
+    'private-storage-provider-activity.json',
     'private-storage-maintenance-inventory.json',
     'private-storage-maintenance-supervisor.json',
     'private-storage-fragments-lifecycle-live-selection.json',
@@ -73,6 +74,8 @@ LIFECYCLE_STAGES = ('checkpoint_before', 'spawn_owner', 'await_working', 'await_
     'reconcile_progress', 'validate_flow_coverage', 'publish_result')
 CHECKPOINT_STAGES = ('enrolled', 'owner_locked', 'waiting_for_core', 'working', 'paused',
     'enrollment_expired', 'core_unavailable', 'core_turn_revoked', 'turn_completed', 'retry_pending')
+BASELINE_REASONS = ('pending_handoff', 'unconfirmed', 'expired', 'accounting', 'identity',
+    'geometry', 'scope', 'live_source_exhausted', 'malformed', 'unknown')
 FAILURE_CODES = {
     'maintenance checkpoint scope': 'checkpoint_scope',
     'core turn not observed': 'turn_not_observed',
@@ -183,6 +186,19 @@ STORAGE_FAILURE_CATEGORIES = ('IO', 'AUTH', 'INVALID', 'BUSY', 'STORE', 'TIMEOUT
     'DATABASE', 'INTEGRITY', 'EXPIRED', 'OWNERSHIP', 'CONFLICT', 'DELETED', 'QUOTA',
     'NOT_FOUND', 'NOT_COMMITTED', 'ENTROPY')
 MAX_STORAGE_FAILURE_TUPLES = 32
+APPEND_PAYLOAD_IO_PREFIX = 'CONTENT_PROVIDER_STORAGE_V2_APPEND__'
+APPEND_PAYLOAD_IO_BOUNDARIES = ('PAYLOAD_HEADER', 'PAYLOAD_BODY')
+APPEND_PAYLOAD_IO_KINDS = ('UNEXPECTED_EOF', 'TIMED_OUT', 'CONNECTION_RESET', 'BROKEN_PIPE',
+    'INVALID_DATA', 'INTERRUPTED', 'OTHER')
+MAX_APPEND_PAYLOAD_IO_TUPLES = len(APPEND_PAYLOAD_IO_BOUNDARIES) * len(APPEND_PAYLOAD_IO_KINDS)
+
+
+def append_payload_io_code(code):
+    if type(code) is not str or len(code) > 96 or not code.startswith(APPEND_PAYLOAD_IO_PREFIX):
+        return False
+    parts = code[len(APPEND_PAYLOAD_IO_PREFIX):].split('__')
+    return (len(parts) == 2 and parts[0] in APPEND_PAYLOAD_IO_BOUNDARIES
+        and parts[1] in APPEND_PAYLOAD_IO_KINDS)
 
 
 def storage_failure_code(code):
@@ -203,7 +219,7 @@ def storage_failure_code(code):
 def validate_provider_events(value):
     require(type(value) is dict and set(value) == {'version', 'kind', 'scope', 'acceptance_evidence',
         'causal_attribution', 'event_absence_proven', 'phase', 'baseline_state', 'roles'}
-        and type(value['version']) is int and value['version'] in (1, 2)
+        and type(value['version']) is int and value['version'] in (1, 2, 3)
         and value['kind'] == 'private-storage-maintenance-provider-events'
         and value['scope'] == 'pre_agent_stop_snapshot_may_include_owner_cleanup'
         and all(value[key] is False for key in ('acceptance_evidence', 'causal_attribution', 'event_absence_proven'))
@@ -211,8 +227,10 @@ def validate_provider_events(value):
         and type(value['roles']) is dict and set(value['roles']) == set(PROVIDER_EVENT_ROLES), 'provider event shape')
     counters = ('records', 'fresh_records', 'stale_records', 'unrecognized_event_records')
     observations = (*counters, 'counts', 'window_covers_baseline', 'ring_at_capacity')
-    if value['version'] == 2:
+    if value['version'] >= 2:
         observations += ('storage_failures', 'omitted_storage_failure_records')
+    if value['version'] == 3:
+        observations += ('append_payload_io_failures',)
     for row in value['roles'].values():
         require(type(row) is dict and set(row) == {'state', 'query_exit_status', *observations}
             and row['state'] in ('observed', 'unqueried', 'capture_invalid', 'query_failed',
@@ -239,7 +257,7 @@ def validate_provider_events(value):
             and row['window_covers_baseline'] == (row['stale_records'] > 0)
             and type(row['ring_at_capacity']) is bool
             and row['ring_at_capacity'] == (row['records'] == 400), 'provider event bounds')
-        if value['version'] == 2:
+        if value['version'] >= 2:
             storage = row['storage_failures']
             omitted = row['omitted_storage_failure_records']
             require(type(storage) is dict and len(storage) <= MAX_STORAGE_FAILURE_TUPLES
@@ -249,10 +267,19 @@ def validate_provider_events(value):
                 and (omitted == 0 or len(storage) == MAX_STORAGE_FAILURE_TUPLES)
                 and sum(row['counts'].values()) + row['unrecognized_event_records']
                     + sum(storage.values()) + omitted <= row['fresh_records'], 'provider storage event bounds')
+        if value['version'] == 3:
+            payload = row['append_payload_io_failures']
+            require(type(payload) is dict and len(payload) <= MAX_APPEND_PAYLOAD_IO_TUPLES
+                and all(append_payload_io_code(code) and type(n) is int and 1 <= n <= 400
+                    for code, n in payload.items())
+                and sum(row['counts'].values()) + row['unrecognized_event_records']
+                    + sum(row['storage_failures'].values()) + row['omitted_storage_failure_records']
+                    + sum(payload.values()) <= row['fresh_records'], 'provider append payload io bounds')
     return value
 
 
-def provider_events(work, phase, raw_baseline):
+def provider_events(work, phase, raw_baseline, *, version=2):
+    require(type(version) is int and version in (2, 3), 'provider event export version')
     now_ms = time.time_ns() // 1_000_000
     baseline = None
     baseline_state = 'absent' if raw_baseline in ('', '0') else 'invalid'
@@ -264,6 +291,8 @@ def provider_events(work, phase, raw_baseline):
             stale_records=None, unrecognized_event_records=None, counts=None,
             window_covers_baseline=None, ring_at_capacity=None,
             storage_failures=None, omitted_storage_failure_records=None)
+        if version == 3:
+            row['append_payload_io_failures'] = None
         roles[role] = row
         try:
             raw = closed_diagnostic_text(work / f'logs-{node}-cleanup-status.private', 4)
@@ -286,6 +315,7 @@ def provider_events(work, phase, raw_baseline):
             require(len(lines) <= 400, 'provider event ring bound')
             counts = dict.fromkeys(PROVIDER_EVENT_CODES, 0)
             storage, omitted = {}, 0
+            payload = {}
             stale, unknown, previous = 0, 0, 0
             for line in lines:
                 match = re.fullmatch(r'([0-9]{1,20})\tlevel=([0-9])\tevent=([A-Z0-9_]{1,96})'
@@ -306,6 +336,9 @@ def provider_events(work, phase, raw_baseline):
                         storage[code] = storage.get(code, 0) + 1
                     else:
                         omitted += 1
+                elif version == 3 and append_payload_io_code(match[3]):
+                    code = match[3]
+                    payload[code] = payload.get(code, 0) + 1
                 elif match[3].startswith(('CONTENT_PROVIDER_', 'CONTENT_DISCOVERY_', 'CONTENT_EXACT_', 'CONTENT_LOOKUP_')):
                     unknown += 1
             else:
@@ -313,11 +346,13 @@ def provider_events(work, phase, raw_baseline):
                     stale_records=stale, unrecognized_event_records=unknown, counts=counts,
                     window_covers_baseline=stale > 0, ring_at_capacity=len(lines) == 400,
                     storage_failures=storage, omitted_storage_failure_records=omitted)
+                if version == 3:
+                    row['append_payload_io_failures'] = payload
         except FileNotFoundError:
             row['state'] = 'absent'
         except (OSError, ValueError, UnicodeError):
             row['state'] = 'invalid'
-    return validate_provider_events(dict(version=2, kind='private-storage-maintenance-provider-events',
+    return validate_provider_events(dict(version=version, kind='private-storage-maintenance-provider-events',
         scope='pre_agent_stop_snapshot_may_include_owner_cleanup', acceptance_evidence=False,
         causal_attribution=False, event_absence_proven=False,
         phase=phase if phase in PROVIDER_EVENT_PHASES else 'unknown', baseline_state=baseline_state, roles=roles))
@@ -333,13 +368,13 @@ def provider_events_file(path):
     return validate_provider_events(json.loads(closed_diagnostic_text(path, 65536), object_pairs_hook=unique))
 
 
-def export_provider_events(work, phase, baseline):
+def export_provider_events(work, phase, baseline, *, version=2):
     # Optional sidecar in the existing diagnostic process. Never let even an
     # unexpected projection/publication error replace the route or primary error.
     target, part = work / PROVIDER_EVENTS_NAME, work / 'maintenance-provider-events.part'
     try:
         target.unlink(missing_ok=True)
-        value = provider_events(work, phase, baseline)
+        value = provider_events(work, phase, baseline, version=version)
         data = (json.dumps(value, sort_keys=True) + '\n').encode('ascii')
         require(len(data) <= 65536, 'provider event output bound')
         descriptor = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -702,7 +737,7 @@ def retirement_turn(value, turn, *, target=None, maximum=4):
 
 def failure_receipt(error):
     if LIFECYCLE_DIAGNOSTIC is not None:
-        return dict(version=2, success=False, kind='private-storage-maintenance-lifecycle-failure',
+        return dict(version=3, success=False, kind='private-storage-maintenance-lifecycle-failure',
             code='sampler_failure' if isinstance(error, SAMPLER['SamplerFailure']) else failure_code(error),
             **LIFECYCLE_DIAGNOSTIC, sampler=SAMPLER_DIAGNOSTIC or None)
     upload = UPLOAD_DIAGNOSTIC if STAGE == 'upload' else None
@@ -774,12 +809,14 @@ def upload_invoke(operation, binary, socket, arguments, **options):
 def validate_lifecycle_failure(value):
     """Reject rather than copy unknown fields from even fixture-owned output."""
     require(isinstance(value, dict) and type(value.get('version')) is int
-        and value['version'] in (1, 2), 'invalid lifecycle failure')
+        and value['version'] in (1, 2, 3), 'invalid lifecycle failure')
     fields = {'version', 'success', 'kind', 'code', 'stage',
         'cursor_before', 'cursor_last', 'checkpoint_stage', 'owner_exit_status', 'owner_joined',
         'cleanup_error', 'sampler'}
-    if value['version'] == 2:
+    if value['version'] >= 2:
         fields.add('retained_status')
+    if value['version'] == 3:
+        fields.update(('retained_status_scope', 'reconcile_status', 'fresh_turn_detail', 'baseline_reason'))
     require(set(value) == fields, 'invalid lifecycle failure')
     codes = set(FAILURE_CODES.values()) | {'cli_timeout', 'cli_process', 'local_io', 'unclassified',
         'sampler_failure', 'termination_signal'}
@@ -795,8 +832,18 @@ def validate_lifecycle_failure(value):
         and -128 <= value['owner_exit_status'] <= 255, 'invalid lifecycle failure')
     require(type(value['owner_joined']) is bool and (value['cleanup_error'] is None
         or value['cleanup_error'] in codes), 'invalid lifecycle failure')
-    if value['version'] == 2 and value['retained_status'] is not None:
+    if value['version'] >= 2 and value['retained_status'] is not None:
         validate_retained_status(value['retained_status'])
+    if value['version'] == 3:
+        require(value['retained_status_scope'] == 'core_loss'
+            and (value['baseline_reason'] is None or type(value['baseline_reason']) is str
+                and value['baseline_reason'] in BASELINE_REASONS), 'invalid lifecycle reconciliation')
+        if value['reconcile_status'] is not None:
+            validate_reconcile_status(value['reconcile_status'])
+        if value['fresh_turn_detail'] is not None:
+            validate_fresh_turn_detail(value['fresh_turn_detail'])
+        require(len(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()) <= 8192,
+            'invalid lifecycle failure bound')
     sampler = value['sampler']
     if sampler is not None:
         fields = {'phase', 'operation', 'code', 'samples', 'completed', 'failed'}
@@ -1127,6 +1174,64 @@ def validate_retained_status(value):
             and sum(detail.values()) == total, 'invalid retained status diagnostic')
 
 
+def reconcile_status_diagnostic(value, now):
+    """The later progress response, separate from the core-loss observation."""
+    value = value if type(value) is dict else {}
+    return dict(status=retained_status_diagnostic(value, now),
+        pending_retirements=bounded_count(value.get('pending_retirements'), 4096),
+        retained_copy_records=bounded_count(value.get('retained_copy_records'), 4096),
+        fully_redundant_from_retained_receipts=value.get('fully_redundant_from_retained_receipts')
+            if type(value.get('fully_redundant_from_retained_receipts')) is bool else None,
+        fragments_with_confirmed_unexpired_copy=bounded_count(value.get('fragments_with_confirmed_unexpired_copy'), 64))
+
+
+def validate_reconcile_status(value):
+    require(type(value) is dict and set(value) == {'status', 'pending_retirements', 'retained_copy_records',
+        'fully_redundant_from_retained_receipts', 'fragments_with_confirmed_unexpired_copy'},
+        'invalid lifecycle reconciliation')
+    validate_retained_status(value['status'])
+    for name, maximum in (('pending_retirements', 4096), ('retained_copy_records', 4096),
+            ('fragments_with_confirmed_unexpired_copy', 64)):
+        require(value[name] is None or type(value[name]) is int and 0 <= value[name] <= maximum,
+            'invalid lifecycle reconciliation')
+    require(value['fully_redundant_from_retained_receipts'] is None
+        or type(value['fully_redundant_from_retained_receipts']) is bool, 'invalid lifecycle reconciliation')
+
+
+def fresh_turn_diagnostic(value):
+    # Reuse the existing bounded turn projection; relative turn=1 is this one
+    # already completed fresh process, not another operation or retry.
+    rows = []
+    retirement_turn(value, 1, target=rows, maximum=1)
+    result = rows[0]
+    del result['turn']
+    stage = value.get('stage') if type(value) is dict else None
+    result['checkpoint_stage'] = stage if type(stage) is str and stage in CHECKPOINT_STAGES else None
+    return result
+
+
+def validate_fresh_turn_detail(value):
+    require(type(value) is dict and set(value) == {'cursor', 'checkpoint_stage', 'maintenance_stage',
+        'repair_stage', 'attempted_handoffs', 'freshly_verified_replacements', 'pending_retirements',
+        'physical_payload_charge_upper_bound', 'fragment_outcomes', 'refresh'}, 'invalid fresh lifecycle turn')
+    # Projection is idempotent only for the closed original domains/bounds.
+    reconstructed = dict(turns=value['cursor'], stage=value['checkpoint_stage'],
+        detail={key: item for key, item in value.items() if key not in ('cursor', 'checkpoint_stage')})
+    require(json.dumps(value, sort_keys=True, allow_nan=False)
+        == json.dumps(fresh_turn_diagnostic(reconstructed), sort_keys=True, allow_nan=False),
+        'invalid fresh lifecycle turn')
+
+
+def observe_lifecycle(name, projector, *arguments):
+    """Best effort over already available values; never mask a trial failure."""
+    if LIFECYCLE_DIAGNOSTIC is None:
+        return
+    try:
+        LIFECYCLE_DIAGNOSTIC[name] = projector(*arguments)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        LIFECYCLE_DIAGNOSTIC[name] = None
+
+
 def retained_during_core_loss(retained):
     """Historical counter-only contract; current lifecycle uses the bound check below."""
     if LIFECYCLE_DIAGNOSTIC is not None:
@@ -1270,7 +1375,8 @@ def lifecycle(root, binary, client, keys):
     """A fixed external VM supervisor alone controls the core service."""
     global LIFECYCLE_DIAGNOSTIC
     LIFECYCLE_DIAGNOSTIC = dict(stage='checkpoint_before', cursor_before=None, cursor_last=None,
-        checkpoint_stage=None, owner_exit_status=None, owner_joined=False, cleanup_error=None, retained_status=None)
+        checkpoint_stage=None, owner_exit_status=None, owner_joined=False, cleanup_error=None, retained_status=None,
+        retained_status_scope='core_loss', reconcile_status=None, fresh_turn_detail=None, baseline_reason=None)
     enrollment = (root / 'maintenance/enrollment.json').read_bytes()
     budget = LifecycleBudget(json.loads(enrollment)['enrollment']['expires'])
 
@@ -1340,13 +1446,19 @@ def lifecycle(root, binary, client, keys):
             # Fresh process reconciles the original journals; no new enrollment.
             LIFECYCLE_DIAGNOSTIC['stage'] = 'fresh_owner_turn'
             restarted = run_turn(root, binary, client, keys[1], budget=budget)
+            observe_lifecycle('fresh_turn_detail', fresh_turn_diagnostic, restarted)
             require(restarted['turns'] == paused['turns'] + 1, 'resume cursor changed')
             LIFECYCLE_DIAGNOSTIC['stage'] = 'reconcile_progress'
             current = invoke(binary, client, ['storage', 'fragments', 'progress', *existing(root)],
                 deadline=budget.remaining(180))
+            observe_lifecycle('reconcile_status', reconcile_status_diagnostic, current, int(time.time()))
             F['check_identity'](root)
             retained_intent_continuity(root)
-            baseline = pre_withdrawal(root, current, keys)
+            try:
+                baseline = pre_withdrawal(root, current, keys)
+            except (ValueError, KeyError, TypeError) as error:
+                observe_lifecycle('baseline_reason', baseline_failure_reason, error)
+                raise
             LIFECYCLE_DIAGNOSTIC['stage'] = 'validate_flow_coverage'
         gates = coverage.report(joined=coverage.joined)
         SAMPLER['validate_summary'](gates, control['baseline'], 1)
@@ -1540,42 +1652,76 @@ def custody_usage(retired, *, withdrawn):
     return result
 
 
+class CustodyFailure(ValueError):
+    """Same historical error text, with a closed failing-predicate category."""
+    def __init__(self, message, reason):
+        super().__init__(message)
+        self.reason = reason
+
+
+def baseline_failure_reason(error):
+    cause = error.__cause__ if error.__cause__ is not None else error
+    if isinstance(cause, CustodyFailure):
+        return cause.reason if cause.reason in BASELINE_REASONS else 'unknown'
+    if isinstance(cause, (KeyError, TypeError)):
+        return 'malformed'
+    return {'baseline_identity': 'identity', 'baseline_no_live_a': 'live_source_exhausted'}.get(
+        failure_code(error), 'unknown')
+
+
 def validate_custody(value, keys, retired, *, withdrawn):
     replacements = 3 if withdrawn else len(retired)
     uncertain_bytes = sum(LENGTHS[index] for index in (0, 2, 3) if index not in retired) if withdrawn else 0
     usage = custody_usage(retired, withdrawn=withdrawn)
-    require(value['owner_signature_verified'] is True and value.get('report_version', 2 if not replacements else None) == 2
-        and value['logical_ciphertext_bytes'] == BYTES and value['fragment_count'] == 4
-        and value['copies_per_fragment'] == value.get('desired_copies_per_fragment', 2 if not replacements else None) == 2
-        and value.get('placement_authorizations', 0) == replacements and value.get('retained_copy_records', 8) == 8 + replacements
-        and value.get('pending_retirements', 0) == (3 - len(retired) if withdrawn else 0)
-        and value.get('replacement_overhead_included', not replacements) is True
+    def check(condition, message, reason):
+        if not condition:
+            if reason == 'placement':
+                pending = value.get('pending_retirements', 0)
+                reason = ('pending_handoff' if type(pending) is int and pending > 0
+                    and pending != (3 - len(retired) if withdrawn else 0) else 'identity')
+            raise CustodyFailure(message, reason)
+
+    # Keep the original conjunct order, defaults, comparisons and error text.
+    # Splitting the guards only identifies which predicate actually rejected
+    # the retained report; it neither repairs nor reinterprets that report.
+    message = 'replacement custody or accounting incomplete'
+    check(value['owner_signature_verified'] is True and value.get('report_version', 2 if not replacements else None) == 2,
+        message, 'identity')
+    check(value['logical_ciphertext_bytes'] == BYTES and value['fragment_count'] == 4
+        and value['copies_per_fragment'] == value.get('desired_copies_per_fragment', 2 if not replacements else None) == 2,
+        message, 'geometry')
+    check(value.get('placement_authorizations', 0) == replacements and value.get('retained_copy_records', 8) == 8 + replacements
+        and value.get('pending_retirements', 0) == (3 - len(retired) if withdrawn else 0), message, 'placement')
+    check(value.get('replacement_overhead_included', not replacements) is True
         and value['uncertain_payload_bytes'] == uncertain_bytes and value['committed_payload_bytes'] == 2 * BYTES
-        and value['reserved_payload_bytes'] == 0 and value['physical_payload_charge_upper_bound'] == 2 * BYTES + uncertain_bytes
-        and value['fully_redundant_from_retained_receipts'] is True
-        and value['fragments_with_confirmed_unexpired_copy'] == 4
-        and value['providers'] == [dict(provider_key=key, physical_payload_charge_upper_bound=size)
+        and value['reserved_payload_bytes'] == 0 and value['physical_payload_charge_upper_bound'] == 2 * BYTES + uncertain_bytes,
+        message, 'accounting')
+    check(value['fully_redundant_from_retained_receipts'] is True
+        and value['fragments_with_confirmed_unexpired_copy'] == 4, message, 'unconfirmed')
+    check(value['providers'] == [dict(provider_key=key, physical_payload_charge_upper_bound=size)
             for key, size in zip(keys, (usage[0]['committed_bytes'], usage[1]['committed_bytes'] - len(FG),
-                usage[2]['committed_bytes']))], 'replacement custody or accounting incomplete')
-    require(all(value[key] is False for key in ('read_consumes_archive', 'metadata_overhead_measured',
+                usage[2]['committed_bytes']))], message, 'accounting')
+    check(all(value[key] is False for key in ('read_consumes_archive', 'metadata_overhead_measured',
         'current_remote_availability_proven', 'independent_failure_domains_proven',
-        'network_contribution_credit', 'erasure_coding')), 'replacement scope changed')
-    require(len(value['fragments']) == 4, 'fragment reconstruction geometry changed')
+        'network_contribution_credit', 'erasure_coding')), 'replacement scope changed', 'scope')
+    check(len(value['fragments']) == 4, 'fragment reconstruction geometry changed', 'geometry')
     for index, fragment in enumerate(value['fragments']):
-        require(fragment['index'] == index and fragment['offset'] == sum(LENGTHS[:index])
-            and fragment['ciphertext_bytes'] == LENGTHS[index] and fragment['confirmed_unexpired_copies'] == 2,
-            'fragment reconstruction geometry changed')
+        check(fragment['index'] == index and fragment['offset'] == sum(LENGTHS[:index])
+            and fragment['ciphertext_bytes'] == LENGTHS[index], 'fragment reconstruction geometry changed', 'geometry')
+        check(fragment['confirmed_unexpired_copies'] == 2, 'fragment reconstruction geometry changed', 'unconfirmed')
         providers = [(index + copy) % 3 for copy in range(2)]
         if index in retired or withdrawn and index != 1:
             providers.append(2 if index in (0, 3) else 1)
-        require(len(fragment['copies']) == len(providers), 'effective replacement placement')
+        check(len(fragment['copies']) == len(providers), 'effective replacement placement', 'geometry')
         for copy, provider in zip(fragment['copies'], providers):
             charge = ('deleted' if index in retired else 'uncertain' if withdrawn else 'committed') if provider == 0 else 'committed'
-            require(copy['provider_key'] == keys[provider] and copy['charge'] == charge
-                and copy['last_confirmed_state'] == ('Deleted' if charge == 'deleted' else 'Committed')
-                and copy['last_confirmed_stored_bytes'] == (0 if charge == 'deleted' else LENGTHS[index])
-                and (copy['last_confirmed_expiry'] == 0 if charge == 'deleted'
-                    else copy['last_confirmed_expiry'] > int(time.time())), 'effective replacement placement')
+            check(copy['provider_key'] == keys[provider], 'effective replacement placement', 'identity')
+            check(copy['charge'] == charge and copy['last_confirmed_state'] == ('Deleted' if charge == 'deleted' else 'Committed'),
+                'effective replacement placement', 'unconfirmed')
+            check(copy['last_confirmed_stored_bytes'] == (0 if charge == 'deleted' else LENGTHS[index]),
+                'effective replacement placement', 'accounting')
+            check(copy['last_confirmed_expiry'] == 0 if charge == 'deleted' else copy['last_confirmed_expiry'] > int(time.time()),
+                'effective replacement placement', 'expired')
 
 
 def pre_withdrawal(root, value, keys):
@@ -1926,14 +2072,16 @@ def evidence(work):
 
 
 def validate_report(report, revision, *, historical=False, previous=False, stream_profile=False,
-        challenge_profile=False):
+        challenge_profile=False, append_profile=False):
     # Historical v2 reports describe only the original opaque fixture. They
     # remain inspectable, but never satisfy the current combined CLI gate.
-    require(type(challenge_profile) is bool and not (challenge_profile and (historical or previous or stream_profile))
+    require(type(append_profile) is bool
+        and not (append_profile and (historical or previous or stream_profile or challenge_profile))
+        and type(challenge_profile) is bool and not (challenge_profile and (historical or previous or stream_profile))
         and type(stream_profile) is bool and not (stream_profile and (historical or previous))
         and not (historical and previous) and re.fullmatch('[0-9a-f]{40}', revision) and report['source_revision'] == revision
         and type(report['schema_version']) is int
-        and report['schema_version'] == (2 if historical else 3 if previous else 6 if challenge_profile else 5 if stream_profile else 4)
+        and report['schema_version'] == (7 if append_profile else 2 if historical else 3 if previous else 6 if challenge_profile else 5 if stream_profile else 4)
         and report['report_kind'] == 'volparossa-private-storage-maintenance'
         and report['success'] is True and report['runner_exit_status'] == 0
         and report['phase'] == 'private-storage-maintenance-complete' and report['observed_blocker'] is None
@@ -1948,6 +2096,9 @@ def validate_report(report, revision, *, historical=False, previous=False, strea
         require((report['consumers']['schema_version'] == 7) == challenge_profile
             and (report['consumers']['provision']['version'] == 7) == challenge_profile,
             'consumer_challenge_source_profile')
+        require((report['consumers']['schema_version'] == 8) == append_profile
+            and (report['consumers']['provision']['version'] == 8) == append_profile,
+            'consumer_append_source_profile')
         require(all(report['maintenance'][name] == report['consumers'][name]
             for name in ('expected_peers', 'layout', 'isolation', *(() if previous else ('control_transition',))))
             and report['maintenance']['deleted_usage'] == report['consumers']['initial_usage'],
@@ -1966,6 +2117,9 @@ def main(args):
     if len(args) in (2, 4) and args[0] == 'route-diagnostic':
         if len(args) == 4:
             export_provider_events(Path(args[1]), args[2], args[3])
+        print(json.dumps(route_diagnostic(Path(args[1])), sort_keys=True)); return
+    if len(args) == 4 and args[0] == 'route-diagnostic-v3':
+        export_provider_events(Path(args[1]), args[2], args[3], version=3)
         print(json.dumps(route_diagnostic(Path(args[1])), sort_keys=True)); return
     if len(args) == 2 and args[0] == 'route-diagnostic-check':
         validate_route_diagnostic(read(Path(args[1]))); return
@@ -1991,6 +2145,13 @@ def main(args):
             provider_events_file(Path(args[1]) / PROVIDER_EVENTS_NAME)
         except BaseException:
             names.remove(PROVIDER_EVENTS_NAME)
+        try:
+            activity = runpy.run_path(str(Path(__file__).with_name('storage-provider-activity-sampler.py')))
+            path = Path(args[1]) / activity['NAME']
+            value = activity['decode'](closed_diagnostic_text(path, activity['MAX_BYTES']).encode(), activity['MAX_BYTES'])
+            activity['validate'](value)
+        except Exception:
+            names.remove('private-storage-provider-activity.json')
         print('\n'.join(names)); return
     if len(args) == 2 and args[0] == 'preselection-diagnostic':
         work = Path(args[1])
@@ -1998,15 +2159,15 @@ def main(args):
             work / 'private-storage-maintenance-selection-start.private',
             work / 'private-storage-maintenance-selection-end.private'), sort_keys=True))
         return
-    if len(args) == 3 and args[0] in ('report', 'report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6', 'report-consumer-v7'):
+    if len(args) == 3 and args[0] in ('report', 'report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6', 'report-consumer-v7', 'report-consumer-v8'):
         report = read(Path(args[1]))
         validate_report(report, args[2], stream_profile=args[0] == 'report-consumer-v6',
-            challenge_profile=args[0] == 'report-consumer-v7')
-        if args[0] in ('report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6', 'report-consumer-v7'):
+            challenge_profile=args[0] == 'report-consumer-v7', append_profile=args[0] == 'report-consumer-v8')
+        if args[0] in ('report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6', 'report-consumer-v7', 'report-consumer-v8'):
             # Current hosted acceptance is generation-specific; keep the
             # original report command available for exact historical replay.
             consumer = report['consumers']
-            version = {'report-consumer-v4': 4, 'report-consumer-v5': 5, 'report-consumer-v6': 6, 'report-consumer-v7': 7}[args[0]]
+            version = {'report-consumer-v4': 4, 'report-consumer-v5': 5, 'report-consumer-v6': 6, 'report-consumer-v7': 7, 'report-consumer-v8': 8}[args[0]]
             require(type(consumer['schema_version']) is int and consumer['schema_version'] == version
                 and type(consumer['provision']['version']) is int and consumer['provision']['version'] == version,
                 'consumer_current_source_profile')

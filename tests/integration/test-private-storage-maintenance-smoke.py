@@ -224,7 +224,8 @@ class ProviderEventDiagnostic(unittest.TestCase):
             set(CHECK['STORAGE_FAILURE_OPERATIONS']))
         self.assertEqual(set(re.findall(r'category_code!\(\s*\$op,\s*"([A-Z_]+)"', source)),
             set(CHECK['STORAGE_FAILURE_PHASES']))
-        self.assertEqual(set(re.findall(r'"__([A-Z_]+)"', source)),
+        category_macro = source[source.index('macro_rules! category_code'):source.index('macro_rules! phase_code')]
+        self.assertEqual(set(re.findall(r'"__([A-Z_]+)"', category_macro)),
             set(CHECK['STORAGE_FAILURE_CATEGORIES']))
         self.assertIn('"' + CHECK['STORAGE_FAILURE_PREFIX'] + '"', source)
         self.assertNotIn('format!(', source)
@@ -316,6 +317,112 @@ class ProviderEventDiagnostic(unittest.TestCase):
                 self.assertEqual(sum(row['storage_failures'].values()), 400)
                 self.assertTrue(row['ring_at_capacity'])
                 self.assertFalse(row['window_covers_baseline'])
+
+    @staticmethod
+    def payload_io_codes():
+        return [CHECK['APPEND_PAYLOAD_IO_PREFIX'] + boundary + '__' + kind
+            for boundary in CHECK['APPEND_PAYLOAD_IO_BOUNDARIES'] for kind in CHECK['APPEND_PAYLOAD_IO_KINDS']]
+
+    def test_v3_payload_io_mapping_matches_static_producer_and_rejects_unreviewed_labels(self):
+        source = (HERE.parents[1] /
+            'crates/volparossa-content/src/private_storage/wire/diagnostic.rs').read_text()
+        macro = source[source.index('macro_rules! payload_io_code'):source.index('macro_rules! category_code')]
+        self.assertEqual(set(re.findall(r'"__([A-Z_]+)"', macro)), set(CHECK['APPEND_PAYLOAD_IO_KINDS']))
+        self.assertEqual(set(re.findall(r'payload_io_code!\("([A-Z_]+)"', source)),
+            set(CHECK['APPEND_PAYLOAD_IO_BOUNDARIES']))
+        self.assertIn('"' + CHECK['APPEND_PAYLOAD_IO_PREFIX'] + '"', macro)
+        self.assertNotIn('format!(', source)
+        self.assertEqual(len(self.payload_io_codes()), 14)
+        for code in self.payload_io_codes():
+            self.assertTrue(CHECK['append_payload_io_code'](code))
+            self.assertLessEqual(len(code), 96)
+        for code in (None, True, 1, [], {}, self.payload_io_codes()[0] + '__PRIVATE',
+                self.payload_io_codes()[0].replace('APPEND', 'FINALIZE'),
+                self.payload_io_codes()[0].replace('PAYLOAD_HEADER', 'REQUEST'),
+                self.payload_io_codes()[0].replace('UNEXPECTED_EOF', 'PRIVATE'), 'x' * 97):
+            self.assertFalse(CHECK['append_payload_io_code'](code))
+
+    def test_v3_is_explicit_and_preserves_default_v2_shape_and_unknown_count(self):
+        first, second = self.payload_io_codes()[0], self.payload_io_codes()[-1]
+        legacy = CHECK['STORAGE_FAILURE_PREFIX'] + 'APPEND__PAYLOAD__IO'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            previous = self.observed(root, self.event(99, first) + self.event(101, first)
+                + self.event(102, second) + self.event(103, legacy) + self.event(104, first))
+            current = CHECK['provider_events'](root, 'storage-consumer-publish', '100', version=3)
+        self.assertEqual(previous['version'], 2)
+        self.assertEqual(previous['roles']['client']['unrecognized_event_records'], 3)
+        self.assertNotIn('append_payload_io_failures', previous['roles']['client'])
+        self.assertEqual(current['roles']['client']['append_payload_io_failures'], {first: 2, second: 1})
+        self.assertEqual(current['roles']['client']['storage_failures'], {legacy: 1})
+        projection = copy.deepcopy(current); projection['version'] = 2
+        for row in projection['roles'].values():
+            payload = row.pop('append_payload_io_failures')
+            if payload is not None: row['unrecognized_event_records'] += sum(payload.values())
+        self.assertEqual(json.dumps(projection, sort_keys=True), json.dumps(previous, sort_keys=True))
+        for private in ('deadbeef', 'session=', 'path=', temporary):
+            self.assertNotIn(private, json.dumps(current))
+        self.assertFalse(current['causal_attribution'])
+        self.assertFalse(current['acceptance_evidence'])
+
+    def test_v3_rejects_missing_unknown_boolean_and_impossible_payload_counts(self):
+        code = self.payload_io_codes()[0]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root, self.event(101, code))
+            value = CHECK['provider_events'](root, 'storage-consumer-publish', '100', version=3)
+        for payload in (None, [], {code: True}, {code: 0}, {code: -1}, {code: 1.0},
+                {code: 2}, {code: 401}, {'PRIVATE': 1}):
+            changed = copy.deepcopy(value); changed['roles']['client']['append_payload_io_failures'] = payload
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                CHECK['validate_provider_events'](changed)
+        changed = copy.deepcopy(value); del changed['roles']['client']['append_payload_io_failures']
+        with self.assertRaises(ValueError): CHECK['validate_provider_events'](changed)
+        changed = copy.deepcopy(value); changed['roles']['provider_relay3']['append_payload_io_failures'] = {}
+        with self.assertRaises(ValueError): CHECK['validate_provider_events'](changed)
+        for version in (1, 2):
+            changed = copy.deepcopy(value); changed['version'] = version
+            with self.assertRaises(ValueError): CHECK['validate_provider_events'](changed)
+
+    def test_v3_current_export_is_separate_and_failure_cannot_replace_route_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root, self.event(101, self.payload_io_codes()[0]))
+            expected = CHECK['route_diagnostic'](root)
+            with patch('builtins.print') as output:
+                CHECK['main'](['route-diagnostic-v3', str(root), 'storage-consumer-publish', '100'])
+            self.assertEqual(json.loads(output.call_args.args[0]), expected)
+            path = root / CHECK['PROVIDER_EVENTS_NAME']
+            self.assertEqual(CHECK['provider_events_file'](path)['version'], 3)
+            with patch('builtins.print') as output:
+                CHECK['main'](['export-names', str(root)])
+            self.assertIn(CHECK['PROVIDER_EVENTS_NAME'], output.call_args.args[0].splitlines())
+            with patch.dict(CHECK['export_provider_events'].__globals__, provider_events=Mock(side_effect=ValueError('PRIVATE'))), \
+                    patch('builtins.print') as output:
+                CHECK['main'](['route-diagnostic-v3', str(root), 'storage-consumer-publish', '100'])
+            self.assertEqual(json.loads(output.call_args.args[0]), expected)
+            self.assertFalse(path.exists())
+
+    def test_v3_maximum_old_and_new_tuples_fit_existing_export_limit(self):
+        codes = sorted(self.storage_codes(), key=len, reverse=True)[:32] + self.payload_io_codes()
+        raw = ''.join(self.event(101, codes[i % len(codes)]) for i in range(400))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for node in CHECK['PROVIDER_EVENT_ROLES'].values():
+                self.save(root / f'logs-{node}-cleanup-status.private', '0\n')
+                self.save(root / f'logs-{node}.txt', raw)
+            CHECK['export_provider_events'](root, 'storage-consumer-publish', '100', version=3)
+            target = root / CHECK['PROVIDER_EVENTS_NAME']
+            self.assertLessEqual(target.stat().st_size, 65536)
+            value = CHECK['provider_events_file'](target)
+            for row in value['roles'].values():
+                self.assertEqual(len(row['storage_failures']), 32)
+                self.assertEqual(len(row['append_payload_io_failures']), 14)
+                self.assertEqual(sum(row['storage_failures'].values()) + sum(row['append_payload_io_failures'].values()), 400)
+                self.assertTrue(row['ring_at_capacity'])
+
+    def test_provider_event_export_version_rejects_unknown_or_boolean_selection(self):
+        for version in (True, 1, 4, '3', 3.0):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                CHECK['provider_events'](Path('/unused'), 'unknown', '100', version=version)
 
 
 class SupervisorDiagnostic(unittest.TestCase):
@@ -506,6 +613,233 @@ def report(value):
         report_kind='volparossa-private-storage-maintenance', success=True, runner_exit_status=0,
         phase='private-storage-maintenance-complete', observed_blocker=None,
         cleanup=dict(complete=True, remaining_owned_objects=0), host_state=dict(unchanged=True), maintenance=value)
+
+
+def original_custody(value, keys, retired, *, withdrawn):
+    """Exact ea6efddb predicates/messages, retained only as a differential oracle."""
+    require, lengths, size, foreground = CHECK['require'], CHECK['LENGTHS'], CHECK['BYTES'], CHECK['FG']
+    replacements = 3 if withdrawn else len(retired)
+    uncertain_bytes = sum(lengths[index] for index in (0, 2, 3) if index not in retired) if withdrawn else 0
+    usage = CHECK['custody_usage'](retired, withdrawn=withdrawn)
+    require(value['owner_signature_verified'] is True and value.get('report_version', 2 if not replacements else None) == 2
+        and value['logical_ciphertext_bytes'] == size and value['fragment_count'] == 4
+        and value['copies_per_fragment'] == value.get('desired_copies_per_fragment', 2 if not replacements else None) == 2
+        and value.get('placement_authorizations', 0) == replacements and value.get('retained_copy_records', 8) == 8 + replacements
+        and value.get('pending_retirements', 0) == (3 - len(retired) if withdrawn else 0)
+        and value.get('replacement_overhead_included', not replacements) is True
+        and value['uncertain_payload_bytes'] == uncertain_bytes and value['committed_payload_bytes'] == 2 * size
+        and value['reserved_payload_bytes'] == 0 and value['physical_payload_charge_upper_bound'] == 2 * size + uncertain_bytes
+        and value['fully_redundant_from_retained_receipts'] is True
+        and value['fragments_with_confirmed_unexpired_copy'] == 4
+        and value['providers'] == [dict(provider_key=key, physical_payload_charge_upper_bound=count)
+            for key, count in zip(keys, (usage[0]['committed_bytes'], usage[1]['committed_bytes'] - len(foreground),
+                usage[2]['committed_bytes']))], 'replacement custody or accounting incomplete')
+    require(all(value[key] is False for key in ('read_consumes_archive', 'metadata_overhead_measured',
+        'current_remote_availability_proven', 'independent_failure_domains_proven',
+        'network_contribution_credit', 'erasure_coding')), 'replacement scope changed')
+    require(len(value['fragments']) == 4, 'fragment reconstruction geometry changed')
+    for index, fragment in enumerate(value['fragments']):
+        require(fragment['index'] == index and fragment['offset'] == sum(lengths[:index])
+            and fragment['ciphertext_bytes'] == lengths[index] and fragment['confirmed_unexpired_copies'] == 2,
+            'fragment reconstruction geometry changed')
+        providers = [(index + copy) % 3 for copy in range(2)]
+        if index in retired or withdrawn and index != 1:
+            providers.append(2 if index in (0, 3) else 1)
+        require(len(fragment['copies']) == len(providers), 'effective replacement placement')
+        for copy_value, provider in zip(fragment['copies'], providers):
+            charge = ('deleted' if index in retired else 'uncertain' if withdrawn else 'committed') if provider == 0 else 'committed'
+            require(copy_value['provider_key'] == keys[provider] and copy_value['charge'] == charge
+                and copy_value['last_confirmed_state'] == ('Deleted' if charge == 'deleted' else 'Committed')
+                and copy_value['last_confirmed_stored_bytes'] == (0 if charge == 'deleted' else lengths[index])
+                and (copy_value['last_confirmed_expiry'] == 0 if charge == 'deleted'
+                    else copy_value['last_confirmed_expiry'] > int(time.time())), 'effective replacement placement')
+
+
+def fresh_turn_fixture():
+    return dict(turns=6, stage='turn_completed', detail=dict(maintenance_stage='maintained',
+        repair_stage='pending_handoff', attempted_handoffs=1, freshly_verified_replacements=0,
+        pending_retirements=1, physical_payload_charge_upper_bound=CHECK['MAX_CHARGE'],
+        fragment_outcomes=[dict(index=0, handoff_stage='replacement_retention_insufficient',
+            resumed_signed_intent=True, replacement_verified_this_pass=False, operation_complete=False)],
+        refresh=dict(fragment_index=1, renewal=True, operation_complete=True,
+            copy_outcomes=['confirmed', 'existing_retention_sufficient'])))
+
+
+class LifecycleReconciliationDiagnostic(unittest.TestCase):
+    def test_original_custody_guard_pass_fail_messages_and_boolean_semantics_preserved(self):
+        mutations = [lambda value: None]
+        for key in ('owner_signature_verified', 'report_version', 'logical_ciphertext_bytes', 'fragment_count',
+                'copies_per_fragment', 'desired_copies_per_fragment', 'placement_authorizations', 'retained_copy_records',
+                'pending_retirements', 'replacement_overhead_included', 'uncertain_payload_bytes',
+                'committed_payload_bytes', 'reserved_payload_bytes', 'physical_payload_charge_upper_bound',
+                'fully_redundant_from_retained_receipts', 'fragments_with_confirmed_unexpired_copy',
+                'read_consumes_archive', 'metadata_overhead_measured', 'current_remote_availability_proven',
+                'independent_failure_domains_proven', 'network_contribution_credit', 'erasure_coding'):
+            for replacement in (False, True, -1, 0, 1, 2, None, 'PRIVATE_CANARY'):
+                mutations.append(lambda value, k=key, r=replacement: value.update({k: r}))
+            mutations.append(lambda value, k=key: value.pop(k, None))
+        for key in ('provider_key', 'physical_payload_charge_upper_bound'):
+            mutations.append(lambda value, k=key: value['providers'][0].update({k: 'PRIVATE_CANARY'}))
+        for key in ('index', 'offset', 'ciphertext_bytes', 'confirmed_unexpired_copies'):
+            for replacement in (False, True, None, 1, 'PRIVATE_CANARY'):
+                mutations.append(lambda value, k=key, r=replacement: value['fragments'][0].update({k: r}))
+        for key in ('provider_key', 'charge', 'last_confirmed_state', 'last_confirmed_stored_bytes', 'last_confirmed_expiry'):
+            for replacement in (False, True, None, 1, 'PRIVATE_CANARY'):
+                mutations.append(lambda value, k=key, r=replacement: value['fragments'][0]['copies'][0].update({k: r}))
+        mutations.extend((lambda value: value['fragments'].pop(),
+            lambda value: value['fragments'][0]['copies'].pop(),
+            lambda value: value.update(owner_signature_verified=False, fragments=None)))
+        def outcome(function, value, keys, retired, withdrawn):
+            try: function(value, keys, retired, withdrawn=withdrawn)
+            except (ValueError, KeyError, TypeError) as error:
+                return ('ValueError' if isinstance(error, ValueError) else type(error).__name__, str(error))
+            return ('accepted',)
+        for retired, withdrawn in (((), False), ((0,), False), ((0, 2), False), ((), True), ((0,), True)):
+            for index, mutate in enumerate(mutations):
+                value, keys = custody_fixture(retired, withdrawn=withdrawn)
+                mutate(value)
+                with self.subTest(retired=retired, withdrawn=withdrawn, mutation=index), patch.object(time, 'time', return_value=1000):
+                    self.assertEqual(outcome(original_custody, value, keys, retired, withdrawn),
+                        outcome(CHECK['validate_custody'], value, keys, retired, withdrawn))
+
+    def test_actual_rejected_predicates_have_distinct_closed_reasons(self):
+        cases = (
+            (lambda v: v.update(pending_retirements=1, placement_authorizations=1, retained_copy_records=9), 'pending_handoff'),
+            (lambda v: v.update(fully_redundant_from_retained_receipts=False), 'unconfirmed'),
+            (lambda v: v['fragments'][0]['copies'][0].update(last_confirmed_expiry=1), 'expired'),
+            (lambda v: v.update(committed_payload_bytes=0), 'accounting'),
+            (lambda v: v['providers'][0].update(physical_payload_charge_upper_bound=0), 'accounting'),
+            (lambda v: v['fragments'][0]['copies'][0].update(provider_key='PRIVATE_CANARY'), 'identity'),
+            (lambda v: v['fragments'][0].update(offset=999), 'geometry'),
+            (lambda v: v.update(erasure_coding=True), 'scope'),
+            (lambda v: v.pop('owner_signature_verified'), 'malformed'))
+        for mutate, expected in cases:
+            with self.subTest(reason=expected), tempfile.TemporaryDirectory() as temporary:
+                value, keys = custody_fixture(); mutate(value)
+                with self.assertRaises(ValueError) as caught:
+                    CHECK['pre_withdrawal'](Path(temporary), value, keys)
+                self.assertEqual(str(caught.exception), 'pre-withdrawal custody not reconciled')
+                self.assertEqual(CHECK['baseline_failure_reason'](caught.exception), expected)
+        self.assertEqual(CHECK['baseline_failure_reason'](ValueError('PRIVATE_CANARY')), 'unknown')
+
+    def test_maintained_pending_handoff_does_not_pass_baseline_or_replace_earlier_snapshot(self):
+        namespace = CHECK['lifecycle'].__globals__
+        early, keys = custody_fixture()
+        current = copy.deepcopy(early)
+        current.update(placement_authorizations=1, retained_copy_records=9, pending_retirements=1)
+        current['fragments'][0]['copies'].append(dict(provider_key=keys[2], charge='unattempted', last_confirmed_expiry=0))
+        gates = fixture()['network']['lifecycle']['gates']
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); (root / 'maintenance').mkdir()
+            (root / 'maintenance/enrollment.json').write_text(json.dumps({'enrollment': {'expires': int(time.time()) + 6000}}))
+            path = MagicMock(); path.parents = [None, None, path]; path.__truediv__.return_value = path
+            path.exists.return_value = True
+            path.lstat.return_value = Mock(st_mode=stat.S_IFREG | 0o640, st_nlink=1, st_uid=0, st_size=2)
+            owner = Mock(); owner.process.poll.return_value = 0
+            owner.reports.return_value = [dict(stage='turn_completed', turns=5)]
+            @contextmanager
+            def capture(*args, **kwargs): yield Mock(joined=True)
+            def retained(*args):
+                namespace['LIFECYCLE_DIAGNOSTIC']['retained_status'] = CHECK['retained_status_diagnostic'](early, 1000)
+                return dict(version=1, pending=None)
+            with patch.dict(namespace, LIFECYCLE_DIAGNOSTIC=None, SAMPLER_DIAGNOSTIC={},
+                    Path=Mock(return_value=path), OwnerProcess=Mock(return_value=owner),
+                    checkpoint=Mock(side_effect=[dict(stage='paused', turns=3), dict(stage='working', turns=4),
+                        dict(stage='core_unavailable', turns=4), dict(stage='waiting_for_core', turns=4), dict(stage='paused', turns=5)]),
+                    read=Mock(return_value=dict(baseline=gates['event_baseline_unix_ms'], scope=gates['exit_route_scope'])),
+                    retained_current_during_core_loss=retained, retained_intent_continuity=Mock(),
+                    wait_owner=lambda owner, predicate, seconds=180, **kwargs: predicate(),
+                    status=Mock(return_value=early), run_turn=Mock(return_value=fresh_turn_fixture()),
+                    invoke=Mock(return_value=current), unlock=lambda root: [], create=Mock()), \
+                    patch.dict(CHECK['F'], check_identity=Mock()), patch.dict(CHECK['SAMPLER'], capture=capture):
+                with self.assertRaisesRegex(ValueError, '^pre-withdrawal custody not reconciled$') as caught:
+                    CHECK['lifecycle'](root, '/PRIVATE/cli', '/PRIVATE/socket', keys)
+                result = CHECK['failure_receipt'](caught.exception)
+                CHECK['validate_lifecycle_failure'](result)
+                self.assertEqual(result['version'], 3)
+                self.assertEqual(result['baseline_reason'], 'pending_handoff')
+                self.assertEqual(result['retained_status_scope'], 'core_loss')
+                self.assertEqual(result['retained_status']['copy_counts'], [2, 2, 2, 2])
+                self.assertEqual(result['reconcile_status']['status']['copy_counts'], [3, 2, 2, 2])
+                self.assertEqual(result['reconcile_status']['pending_retirements'], 1)
+                self.assertEqual((result['cursor_last'], result['checkpoint_stage']), (5, 'paused'))
+                self.assertEqual(result['fresh_turn_detail']['cursor'], 6)
+                self.assertEqual(result['fresh_turn_detail']['repair_stage'], 'pending_handoff')
+                self.assertEqual(result['fresh_turn_detail']['fragment_outcomes'][0]['handoff_stage'], 'replacement_retention_insufficient')
+                self.assertEqual(result['fresh_turn_detail']['maintenance_stage'], 'maintained')
+                namespace['run_turn'].assert_called_once(); namespace['invoke'].assert_called_once()
+                owner.close.assert_called_once()
+                self.assertFalse(result['success'])
+                self.assertNotIn('PRIVATE', json.dumps(result))
+                self.assertFalse(any(call.args[0] == root / 'lifecycle-result.json' for call in namespace['create'].call_args_list))
+
+    def test_fresh_turn_unknown_fields_and_bounds_never_escape(self):
+        value = fresh_turn_fixture(); value['detail']['private'] = 'PRIVATE_CANARY'
+        projected = CHECK['fresh_turn_diagnostic'](value)
+        CHECK['validate_fresh_turn_detail'](projected)
+        self.assertNotIn('PRIVATE_CANARY', json.dumps(projected))
+        value.update(turns=True, stage='PRIVATE_CANARY')
+        value['detail'].update(repair_stage='PRIVATE_CANARY', attempted_handoffs=2,
+            fragment_outcomes=[{}, {}], refresh=dict(copy_outcomes=['PRIVATE_CANARY']))
+        projected = CHECK['fresh_turn_diagnostic'](value)
+        CHECK['validate_fresh_turn_detail'](projected)
+        self.assertIsNone(projected['cursor']); self.assertIsNone(projected['repair_stage'])
+        self.assertIsNone(projected['checkpoint_stage']); self.assertIsNone(projected['attempted_handoffs'])
+        self.assertIsNone(projected['fragment_outcomes']); self.assertEqual(projected['refresh']['copy_outcomes'], [None])
+        for field, wrong in (('cursor', True), ('repair_stage', 'PRIVATE_CANARY'), ('attempted_handoffs', 2), ('extra', 'PRIVATE_CANARY')):
+            with self.assertRaises(ValueError): CHECK['validate_fresh_turn_detail'](dict(projected, **{field: wrong}))
+
+    def test_later_status_unknown_and_oversize_values_remain_unknown(self):
+        value, _ = custody_fixture()
+        value.update(pending_retirements=True, retained_copy_records=4097, fragments_with_confirmed_unexpired_copy=-1,
+            fully_redundant_from_retained_receipts='PRIVATE_CANARY')
+        projected = CHECK['reconcile_status_diagnostic'](value, 1000)
+        CHECK['validate_reconcile_status'](projected)
+        self.assertTrue(all(projected[key] is None for key in projected if key != 'status'))
+        for field in ('pending_retirements', 'retained_copy_records', 'fragments_with_confirmed_unexpired_copy'):
+            with self.assertRaises(ValueError): CHECK['validate_reconcile_status'](dict(projected, **{field: True}))
+        unknown = CHECK['reconcile_status_diagnostic'](None, 1000)
+        self.assertIsNone(unknown['pending_retirements']); self.assertIsNone(unknown['retained_copy_records'])
+
+    def test_diagnostic_projection_failure_cannot_replace_primary_failure(self):
+        context = {}
+        with patch.dict(CHECK['observe_lifecycle'].__globals__, LIFECYCLE_DIAGNOSTIC=context):
+            CHECK['observe_lifecycle']('reconcile_status', Mock(side_effect=ValueError('PRIVATE_CANARY')), {})
+        self.assertEqual(context, dict(reconcile_status=None))
+
+    def test_historical_v1_v2_fields_and_encoding_are_unchanged(self):
+        old = dict(version=1, success=False, kind='private-storage-maintenance-lifecycle-failure',
+            stage='reconcile_progress', code='baseline_custody', cursor_before=3, cursor_last=5,
+            checkpoint_stage='paused', owner_exit_status=0, owner_joined=True, cleanup_error=None, sampler=None)
+        for version in (1, 2):
+            value = dict(old, version=version)
+            if version == 2: value['retained_status'] = CHECK['retained_status_diagnostic']({}, 1000)
+            original = json.dumps(value, sort_keys=True)
+            self.assertEqual(CHECK['validate_lifecycle_failure'](value), value)
+            self.assertEqual(json.dumps(value, sort_keys=True), original)
+            with self.assertRaises(ValueError): CHECK['validate_lifecycle_failure'](dict(value, reconcile_status=None))
+
+    def test_current_receipt_is_closed_bounded_and_does_not_change_historical_shapes(self):
+        status, _ = custody_fixture()
+        value = dict(version=3, success=False, kind='private-storage-maintenance-lifecycle-failure',
+            stage='reconcile_progress', code='baseline_custody', cursor_before=3, cursor_last=5,
+            checkpoint_stage='paused', owner_exit_status=0, owner_joined=True, cleanup_error=None, sampler=None,
+            retained_status=CHECK['retained_status_diagnostic'](status, 1000), retained_status_scope='core_loss',
+            reconcile_status=CHECK['reconcile_status_diagnostic'](status, 1000),
+            fresh_turn_detail=CHECK['fresh_turn_diagnostic'](fresh_turn_fixture()), baseline_reason='pending_handoff')
+        CHECK['validate_lifecycle_failure'](value)
+        self.assertLessEqual(len(json.dumps(value).encode()), 8192)
+        for field in ('retained_status_scope', 'reconcile_status', 'fresh_turn_detail', 'baseline_reason'):
+            invalid = copy.deepcopy(value); del invalid[field]
+            with self.assertRaises(ValueError): CHECK['validate_lifecycle_failure'](invalid)
+        for fields in (dict(retained_status_scope='reconcile_progress'), dict(baseline_reason='PRIVATE_CANARY'),
+                dict(baseline_reason=True), dict(reconcile_status={}), dict(fresh_turn_detail={}),
+                dict(version=2), dict(success=True), dict(private='PRIVATE_CANARY')):
+            with self.assertRaises(ValueError): CHECK['validate_lifecycle_failure'](dict(value, **fields))
+        # Optional observations remain explicitly unknown, never acceptance.
+        unknown = dict(value, reconcile_status=None, fresh_turn_detail=None, baseline_reason=None)
+        CHECK['validate_lifecycle_failure'](unknown)
+        self.assertFalse(unknown['success'])
 
 
 class MaintenanceEvidence(unittest.TestCase):
@@ -1136,6 +1470,7 @@ class MaintenanceEvidence(unittest.TestCase):
                 'private-storage-maintenance-smoke.json', 'private-storage-maintenance-evidence.json',
                 'private-storage-maintenance-lifecycle-failure.json', 'private-storage-maintenance-route-diagnostic.json',
             'private-storage-maintenance-provider-events.json',
+                'private-storage-provider-activity.json',
                 'private-storage-maintenance-inventory.json', 'private-storage-maintenance-supervisor.json'},
                 {p.name for p in root.iterdir()} - {CHECK['CONSUMERS']['TRANSITION_NAME']})
             (root / 'private-storage-fragments-restored_usage.json').write_text('{}')
@@ -1174,21 +1509,46 @@ class MaintenanceEvidence(unittest.TestCase):
         original = fixture()
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'report.json'
-            for profile in (1, 3, 4, 5, 6, 7):
+            for profile in (1, 3, 4, 5, 6, 7, 8):
                 consumers = (CONSUMER_FIXTURE['fixture']() if profile == 1 else network['fixture'](profile))
-                combined = dict(report(original), schema_version=6 if profile == 7 else 5 if profile == 6 else 4, consumers=consumers)
-                for command in ('report', 'report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6', 'report-consumer-v7'):
+                combined = dict(report(original), schema_version=7 if profile == 8 else 6 if profile == 7 else 5 if profile == 6 else 4, consumers=consumers)
+                for command in ('report', 'report-consumer-v4', 'report-consumer-v5', 'report-consumer-v6', 'report-consumer-v7', 'report-consumer-v8'):
                     with self.subTest(profile=profile, command=command):
                         path.write_text(json.dumps(combined))
                         path.chmod(0o600)
                         result = subprocess.run(['python3', '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
                             command, str(path), '1' * 40], capture_output=True, timeout=10)
-                        self.assertEqual(result.returncode == 0, (command == 'report' and profile not in (6, 7))
+                        self.assertEqual(result.returncode == 0, (command == 'report' and profile not in (6, 7, 8))
                             or (command == 'report-consumer-v4' and profile == 4)
                             or (command == 'report-consumer-v5' and profile == 5)
                             or (command == 'report-consumer-v6' and profile == 6)
-                            or (command == 'report-consumer-v7' and profile == 7),
+                            or (command == 'report-consumer-v7' and profile == 7)
+                            or (command == 'report-consumer-v8' and profile == 8),
                             result.stdout + result.stderr)
+
+    def test_consumer_v8_is_explicit_and_keeps_network_custody_and_cleanup_gates(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        original = dict(report(fixture()), schema_version=7, consumers=network['fixture'](8))
+        CHECK['validate_report'](original, '1' * 40, append_profile=True)
+        for options in ({}, dict(challenge_profile=True), dict(stream_profile=True),
+                dict(append_profile=True, challenge_profile=True), dict(append_profile=True, stream_profile=True),
+                dict(append_profile=True, historical=True), dict(append_profile=True, previous=True),
+                dict(append_profile=1), dict(append_profile='true')):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                CHECK['validate_report'](original, '1' * 40, **options)
+        mutations = (
+            lambda v: v.update(schema_version=6), lambda v: v.update(schema_version=7.0),
+            lambda v: v.update(source_revision='2' * 40), lambda v: v['cleanup'].update(complete=False),
+            lambda v: v['consumers'].update(schema_version=8.0),
+            lambda v: v['consumers']['provision'].update(version=7),
+            lambda v: v['consumers']['provision'].update(pins=CHECK['CONSUMERS']['PROVISIONER']['load_pins'](7)),
+            lambda v: v['consumers']['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+            lambda v: v['consumers']['deleted_usage'][0].update(leases=1),
+        )
+        for mutate in mutations:
+            value = copy.deepcopy(original); mutate(value)
+            with self.assertRaises(ValueError):
+                CHECK['validate_report'](value, '1' * 40, append_profile=True)
 
     def test_consumer_v7_needs_explicit_outer_generation_and_unchanged_acceptance(self):
         network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))

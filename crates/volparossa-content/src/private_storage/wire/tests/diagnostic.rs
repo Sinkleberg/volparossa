@@ -1,12 +1,137 @@
 //! Real signed requests and durable custody; diagnostics do not establish remote availability.
 
 use super::*;
+use crate::private_storage::LeaseId;
 use crate::private_storage::wire::diagnostic::{Failure, Observation};
 use std::sync::atomic::AtomicBool;
 
 type ObservedServer = JoinHandle<(Result<(), WireError>, Option<Failure>)>;
 const BYTES: &[u8] = b"opaque diagnostic fixture";
 const CANARY: &str = "/private/provider/archive-and-owner-key";
+
+#[tokio::test]
+async fn append_payload_header_and_body_eof_keep_wire_error_and_custody_unchanged() {
+    for header in [true, false] {
+        let fixture = Fixture::new();
+        let original = target(BYTES);
+        let reserved = fixture
+            .exchange(
+                original,
+                StorageOperation::Reserve {
+                    expires_at: unix_now().unwrap() + 600,
+                },
+                &[],
+            )
+            .await
+            .unwrap();
+        let owned = StorageTarget {
+            lease_id: Some(reserved.receipt.result().lease_id),
+            ..original
+        };
+        let before = fixture.usage();
+        let (mut client, task, challenge) =
+            session(&fixture, Arc::new(AtomicBool::new(false))).await;
+        let signed = fixture.request(&challenge, owned, append(0, BYTES));
+        write_frame(&mut client, &signed.encode()).await.unwrap();
+        if header {
+            client.write_all(&[0, 0]).await.unwrap();
+        } else {
+            client
+                .write_u32(u32::try_from(BYTES.len()).unwrap())
+                .await
+                .unwrap();
+            client.write_all(&BYTES[..BYTES.len() - 1]).await.unwrap();
+        }
+        client.shutdown().await.unwrap();
+        let (result, failure) = timeout(Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(result, Err(WireError::Io(error)) if error.kind() == std::io::ErrorKind::UnexpectedEof)
+        );
+        let failure = failure.unwrap();
+        assert_eq!(
+            failure.event_code(),
+            "CONTENT_PROVIDER_STORAGE_V1_APPEND__PAYLOAD__IO"
+        );
+        assert_eq!(
+            failure.payload_io_event_code(),
+            Some(if header {
+                "CONTENT_PROVIDER_STORAGE_V2_APPEND__PAYLOAD_HEADER__UNEXPECTED_EOF"
+            } else {
+                "CONTENT_PROVIDER_STORAGE_V2_APPEND__PAYLOAD_BODY__UNEXPECTED_EOF"
+            })
+        );
+        assert_eq!(fixture.usage(), before);
+        let progress = fixture
+            .exchange(owned, StorageOperation::Progress, &[])
+            .await
+            .unwrap();
+        assert_eq!(progress.receipt.result().stored_bytes, 0);
+        drop(client);
+    }
+}
+
+#[tokio::test]
+async fn invalid_append_payload_length_is_not_misreported_as_read_io() {
+    for length in [0, u32::try_from(CHUNK_BYTES + 1).unwrap()] {
+        let fixture = Fixture::new();
+        let (mut client, task, challenge) =
+            session(&fixture, Arc::new(AtomicBool::new(false))).await;
+        let owned = StorageTarget {
+            lease_id: Some(LeaseId::from_bytes([32; 16])),
+            ..target(BYTES)
+        };
+        let signed = fixture.request(&challenge, owned, append(0, BYTES));
+        write_frame(&mut client, &signed.encode()).await.unwrap();
+        client.write_u32(length).await.unwrap();
+        client.flush().await.unwrap();
+        let (result, failure) = timeout(Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(result, Err(WireError::Invalid)));
+        let failure = failure.unwrap();
+        assert_eq!(
+            failure.event_code(),
+            "CONTENT_PROVIDER_STORAGE_V1_APPEND__PAYLOAD__INVALID"
+        );
+        assert!(failure.payload_io_event_code().is_none());
+        assert_eq!(fixture.usage().leases, 0);
+        drop(client);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn stalled_append_payload_keeps_existing_timeout_without_inventing_io_error_kind() {
+    let fixture = Fixture::new();
+    let (mut client, task, challenge) = session(&fixture, Arc::new(AtomicBool::new(false))).await;
+    let owned = StorageTarget {
+        lease_id: Some(LeaseId::from_bytes([32; 16])),
+        ..target(BYTES)
+    };
+    let signed = fixture.request(&challenge, owned, append(0, BYTES));
+    write_frame(&mut client, &signed.encode()).await.unwrap();
+    client
+        .write_u32(u32::try_from(BYTES.len()).unwrap())
+        .await
+        .unwrap();
+    client.flush().await.unwrap();
+    let (result, failure) = timeout(IO_TIMEOUT + Duration::from_secs(1), task)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(result, Err(WireError::Timeout)));
+    let failure = failure.unwrap();
+    assert_eq!(
+        failure.event_code(),
+        "CONTENT_PROVIDER_STORAGE_V1_APPEND__PAYLOAD__TIMEOUT"
+    );
+    assert!(failure.payload_io_event_code().is_none());
+    assert_eq!(fixture.usage().leases, 0);
+    drop(client);
+}
 
 struct ReceiptFault {
     stream: DuplexStream,

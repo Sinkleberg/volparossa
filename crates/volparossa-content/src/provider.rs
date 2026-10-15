@@ -5,6 +5,7 @@
 //! provider key and supplies a policy-authorized protected stream. This module never dials,
 //! listens, discovers peers, or adopts a directory named by a network request.
 
+pub mod activity;
 pub mod compute;
 pub mod custody;
 pub mod custody_storage;
@@ -623,10 +624,6 @@ where
 ///
 /// # Errors
 /// Returns the same failures as [`serve_publication`], including its original outer deadline.
-#[allow(
-    clippy::too_many_lines,
-    reason = "One bounded selector dispatch keeps every protocol under the same outer deadline"
-)]
 pub async fn serve_publication_observed<S>(
     stream: &mut S,
     registry: &PublicationRegistry,
@@ -636,13 +633,41 @@ pub async fn serve_publication_observed<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    serve_publication_with_activity(stream, registry, limits, storage_failure, &()).await
+}
+
+/// The same operation with optional, request-independent local progress observation.
+///
+/// # Errors
+/// Preserves all errors and deadlines of [`serve_publication_observed`].
+#[allow(
+    clippy::too_many_lines,
+    reason = "One bounded selector dispatch keeps every protocol under the same outer deadline"
+)]
+pub async fn serve_publication_with_activity<S>(
+    stream: &mut S,
+    registry: &PublicationRegistry,
+    limits: TransferLimits,
+    storage_failure: &mut Option<crate::private_storage::wire::diagnostic::Failure>,
+    activity: &dyn activity::Observer,
+) -> Result<TransferProgress, ProviderError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     *storage_failure = None;
     let session = SelectorSession::new(limits)?;
     let mut observation = crate::private_storage::wire::diagnostic::Observation::default();
     let result = timeout_at(session.deadline, async {
+        activity.enter(activity::Stage::SelectorRead);
         let selector: Selector = timeout_at(session.selector_deadline, read_frame(stream))
             .await
             .map_err(|_| ProviderError::Timeout)??;
+        if !(selector.version == crate::private_storage::wire::SELECTOR_VERSION
+            && selector.operation == crate::private_storage::wire::SELECTOR_OPERATION
+            && selector.manifest_id.is_empty())
+        {
+            activity.enter(activity::Stage::OtherProtocol);
+        }
         if selector.version == compute::quote::SELECTOR_VERSION
             && selector.operation == compute::quote::SELECTOR_OPERATION
             && selector.manifest_id.is_empty()
@@ -689,7 +714,7 @@ where
                 .private_storage
                 .as_ref()
                 .ok_or(ProviderError::Missing)?
-                .serve_observed(stream, &mut observation)
+                .serve_with_activity(stream, &mut observation, activity)
                 .await
                 .map_err(|_| ProviderError::Protocol)?;
             return Ok(TransferProgress::default());

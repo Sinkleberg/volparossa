@@ -3,7 +3,7 @@
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
-use crate::ControlProtocolError;
+use crate::{ControlProtocolError, PrivateStorageElapsedBucket};
 
 /// Query only the caller's original unpredictable local request identifier.
 #[derive(Clone, PartialEq, Eq, Message)]
@@ -11,6 +11,9 @@ pub struct PrivateStorageOutcomeRequest {
     /// Original 16-byte request ID; no provider, archive, path or signing key.
     #[prost(bytes = "vec", tag = "1")]
     pub original_request_id: Vec<u8>,
+    /// Explicitly include coarse APPEND timing in this same one-use query.
+    #[prost(bool, tag = "2")]
+    pub include_append_timing: bool,
 }
 
 impl PrivateStorageOutcomeRequest {
@@ -151,6 +154,52 @@ pub struct PrivateStorageOutcome {
     /// Existing deadline that elapsed, if any.
     #[prost(enumeration = "PrivateStorageOutcomeDeadline", tag = "4")]
     pub deadline: i32,
+    /// Optional local APPEND timing, returned only on an explicit query opt-in.
+    #[prost(message, optional, tag = "5")]
+    pub append_timing: Option<PrivateStorageAppendTiming>,
+}
+
+/// Coarse local APPEND progress, never provider arrival, custody or reservation proof.
+#[derive(Clone, Copy, PartialEq, Eq, Message)]
+pub struct PrivateStorageAppendTiming {
+    /// Original operation budget already spent before entering payload write/flush.
+    #[prost(enumeration = "PrivateStorageElapsedBucket", tag = "1")]
+    pub before_payload: i32,
+    /// Time in payload write/flush, ending at its return or the first failure/cancel.
+    #[prost(enumeration = "PrivateStorageElapsedBucket", tag = "2")]
+    pub in_payload_write_flush: i32,
+    /// Time since payload flush returned and receipt read began; absent before that return.
+    #[prost(enumeration = "PrivateStorageElapsedBucket", optional, tag = "3")]
+    pub in_receipt_read: Option<i32>,
+}
+
+impl PrivateStorageAppendTiming {
+    /// Validate the finite vocabulary and exact locally observed boundary.
+    ///
+    /// # Errors
+    /// Reject unknown buckets, unobserved timing and impossible payload/receipt states.
+    pub fn validate(&self, phase: PrivateStorageOutcomePhase) -> Result<(), ControlProtocolError> {
+        let invalid = || ControlProtocolError::Invalid("private storage append timing");
+        for value in [
+            Some(self.before_payload),
+            Some(self.in_payload_write_flush),
+            self.in_receipt_read,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if PrivateStorageElapsedBucket::try_from(value).map_err(|_| invalid())?
+                == PrivateStorageElapsedBucket::Unobserved
+            {
+                return Err(invalid());
+            }
+        }
+        match (phase, self.in_receipt_read) {
+            (PrivateStorageOutcomePhase::RemotePayloadWrite, None)
+            | (PrivateStorageOutcomePhase::RemoteReceiptRead, Some(_)) => Ok(()),
+            _ => Err(invalid()),
+        }
+    }
 }
 
 impl PrivateStorageOutcome {
@@ -167,7 +216,11 @@ impl PrivateStorageOutcome {
         let deadline =
             PrivateStorageOutcomeDeadline::try_from(self.deadline).map_err(|_| invalid())?;
         if status != PrivateStorageOutcomeStatus::Observed {
-            return if self.phase == 0 && self.category == 0 && self.deadline == 0 {
+            return if self.phase == 0
+                && self.category == 0
+                && self.deadline == 0
+                && self.append_timing.is_none()
+            {
                 Ok(())
             } else {
                 Err(invalid())
@@ -184,6 +237,9 @@ impl PrivateStorageOutcome {
         {
             return Err(invalid());
         }
+        if let Some(timing) = self.append_timing {
+            timing.validate(phase)?;
+        }
         Ok(())
     }
 }
@@ -198,6 +254,123 @@ mod tests {
     };
 
     #[test]
+    fn append_timing_opt_in_preserves_original_protobuf_bytes_and_tags() {
+        let mut query = PrivateStorageOutcomeRequest {
+            original_request_id: vec![1; 16],
+            include_append_timing: false,
+        };
+        let mut original = vec![0x0a, 16];
+        original.extend_from_slice(&[1; 16]);
+        assert_eq!(query.encode_to_vec(), original);
+        assert!(
+            !PrivateStorageOutcomeRequest::decode(original.as_slice())
+                .unwrap()
+                .include_append_timing
+        );
+        query.include_append_timing = true;
+        original.extend_from_slice(&[0x10, 1]);
+        assert_eq!(query.encode_to_vec(), original);
+        assert_eq!(
+            PrivateStorageOutcomeRequest::decode(original.as_slice()).unwrap(),
+            query
+        );
+        let mut outcome = PrivateStorageOutcome {
+            status: PrivateStorageOutcomeStatus::Observed as i32,
+            phase: PrivateStorageOutcomePhase::RemoteReceiptRead as i32,
+            category: PrivateStorageOutcomeCategory::Timeout as i32,
+            deadline: PrivateStorageOutcomeDeadline::Operation as i32,
+            append_timing: None,
+        };
+        let original = vec![8, 2, 16, 10, 24, 8, 32, 1];
+        assert_eq!(outcome.encode_to_vec(), original);
+        assert_eq!(
+            PrivateStorageOutcome::decode(original.as_slice()).unwrap(),
+            outcome
+        );
+        outcome.append_timing = Some(PrivateStorageAppendTiming {
+            before_payload: 1,
+            in_payload_write_flush: 2,
+            in_receipt_read: Some(3),
+        });
+        let mut extended = original;
+        extended.extend_from_slice(&[0x2a, 6, 8, 1, 16, 2, 24, 3]);
+        outcome.validate().unwrap();
+        assert_eq!(outcome.encode_to_vec(), extended);
+        assert_eq!(
+            PrivateStorageOutcome::decode(extended.as_slice()).unwrap(),
+            outcome
+        );
+    }
+
+    #[test]
+    fn append_timing_accepts_only_known_buckets_at_the_two_actual_payload_boundaries() {
+        use PrivateStorageOutcomePhase as Phase;
+        for before in 1..=8 {
+            for payload in 1..=8 {
+                for receipt in std::iter::once(None).chain((1..=8).map(Some)) {
+                    let timing = PrivateStorageAppendTiming {
+                        before_payload: before,
+                        in_payload_write_flush: payload,
+                        in_receipt_read: receipt,
+                    };
+                    for phase in 0..=21 {
+                        let phase = Phase::try_from(phase).unwrap();
+                        assert_eq!(
+                            timing.validate(phase).is_ok(),
+                            matches!(
+                                (phase, receipt),
+                                (Phase::RemotePayloadWrite, None)
+                                    | (Phase::RemoteReceiptRead, Some(_))
+                            )
+                        );
+                    }
+                }
+            }
+        }
+        for invalid in [i32::MIN, -1, 0, 9, i32::MAX] {
+            for field in 0..3 {
+                let mut timing = PrivateStorageAppendTiming {
+                    before_payload: 1,
+                    in_payload_write_flush: 1,
+                    in_receipt_read: Some(1),
+                };
+                match field {
+                    0 => timing.before_payload = invalid,
+                    1 => timing.in_payload_write_flush = invalid,
+                    _ => timing.in_receipt_read = Some(invalid),
+                }
+                assert!(timing.validate(Phase::RemoteReceiptRead).is_err());
+                for status in 0..=3 {
+                    let outcome = PrivateStorageOutcome {
+                        status,
+                        phase: Phase::RemoteReceiptRead as i32,
+                        category: PrivateStorageOutcomeCategory::Io as i32,
+                        append_timing: Some(timing),
+                        ..PrivateStorageOutcome::default()
+                    };
+                    assert!(outcome.validate().is_err());
+                }
+            }
+        }
+        let timing = PrivateStorageAppendTiming {
+            before_payload: 1,
+            in_payload_write_flush: 1,
+            in_receipt_read: None,
+        };
+        for status in [0, 1, 3] {
+            assert!(
+                PrivateStorageOutcome {
+                    status,
+                    append_timing: Some(timing),
+                    ..PrivateStorageOutcome::default()
+                }
+                .validate()
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn outcome_tags_roundtrip_without_reusing_quote_or_maintenance_tags() {
         let request = ControlRequest {
             protocol_version: CONTROL_PROTOCOL_VERSION,
@@ -205,6 +378,7 @@ mod tests {
             operation: Some(Operation::PrivateStorageOutcome(
                 PrivateStorageOutcomeRequest {
                     original_request_id: vec![1; 16],
+                    include_append_timing: false,
                 },
             )),
         };
@@ -222,6 +396,7 @@ mod tests {
                 phase: PrivateStorageOutcomePhase::RemoteReceiptRead as i32,
                 category: PrivateStorageOutcomeCategory::Io as i32,
                 deadline: PrivateStorageOutcomeDeadline::None as i32,
+                append_timing: None,
             })),
         };
         let bytes = encode_response(&response).unwrap();
@@ -266,6 +441,7 @@ mod tests {
             assert!(
                 PrivateStorageOutcomeRequest {
                     original_request_id: vec![0; length],
+                    include_append_timing: false,
                 }
                 .validate()
                 .is_err()
@@ -276,6 +452,7 @@ mod tests {
             phase: PrivateStorageOutcomePhase::RemoteReceiptRead as i32,
             category: PrivateStorageOutcomeCategory::Io as i32,
             deadline: PrivateStorageOutcomeDeadline::None as i32,
+            append_timing: None,
         };
         valid.validate().unwrap();
         for bad in [

@@ -168,8 +168,20 @@ impl StorageService {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        self.serve_with_activity(stream, observation, &()).await
+    }
+
+    pub(crate) async fn serve_with_activity<S>(
+        &self,
+        stream: &mut S,
+        observation: &mut diagnostic::Observation,
+        activity: &dyn crate::provider::activity::Observer,
+    ) -> Result<(), WireError>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         observation.begin();
-        let result = timeout(IO_TIMEOUT, self.serve_inner(stream, observation))
+        let result = timeout(IO_TIMEOUT, self.serve_inner(stream, observation, activity))
             .await
             .unwrap_or(Err(WireError::Timeout));
         observation.finish(&result);
@@ -180,13 +192,18 @@ impl StorageService {
         &self,
         stream: &mut S,
         observation: &mut diagnostic::Observation,
+        activity: &dyn crate::provider::activity::Observer,
     ) -> Result<(), WireError>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        use crate::provider::activity::Stage;
+
+        activity.enter(Stage::StorageGrantReadVerify);
         let grant = SignedStorageGrant::decode(&read_frame(stream, MAX_GRANT_BYTES).await?)?
             .verify(&self.signer.verifying_key(), unix_now()?)?;
         observation.phase = diagnostic::Phase::Challenge;
+        activity.enter(Stage::StorageChallengeWriteFlush);
         let created = unix_now()?;
         let challenge = StorageChallenge::issue(
             &self.signer,
@@ -199,6 +216,7 @@ impl StorageService {
             },
         )?;
         write_frame(stream, &challenge.encode()).await?;
+        activity.enter(Stage::StorageRequestReadVerify);
         observation.phase = diagnostic::Phase::Request;
         let request = SignedStorageRequest::decode_and_verify(
             &read_frame(stream, MAX_REQUEST_BYTES).await?,
@@ -207,10 +225,11 @@ impl StorageService {
             unix_now()?,
         )?;
         observation.verified(request.operation());
+        activity.enter(Stage::StorageOperation);
         // There is no loop back to this challenge: after this point the connection can
         // authorize exactly this operation once. A fresh connection receives a new nonce.
         let payload = if matches!(request.operation(), StorageOperation::Append { .. }) {
-            read_frame(stream, CHUNK_BYTES).await?
+            read_append_payload(stream, observation).await?
         } else {
             Vec::new()
         };
@@ -521,6 +540,25 @@ where
         observer.deadline(bridge_observation::Deadline::Bridge);
         WireError::Timeout
     })?
+}
+
+async fn read_append_payload<S: AsyncRead + Unpin>(
+    stream: &mut S,
+    observation: &mut diagnostic::Observation,
+) -> Result<Vec<u8>, WireError> {
+    // Preserve the exact existing header/body reads, bounds and error result. Only
+    // the ErrorKind at an already failed read is projected; no additional I/O occurs.
+    let length = stream.read_u32().await.inspect_err(|error| {
+        observation.payload_read_error(diagnostic::PayloadBoundary::Header, error.kind());
+    })? as usize;
+    if length == 0 || length > CHUNK_BYTES {
+        return Err(WireError::Invalid);
+    }
+    let mut bytes = vec![0; length];
+    stream.read_exact(&mut bytes).await.inspect_err(|error| {
+        observation.payload_read_error(diagnostic::PayloadBoundary::Body, error.kind());
+    })?;
+    Ok(bytes)
 }
 
 fn validate_append(request: &VerifiedStorageRequest, payload: &[u8]) -> Result<(), WireError> {

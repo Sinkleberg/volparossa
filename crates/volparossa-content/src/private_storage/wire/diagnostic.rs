@@ -153,6 +153,84 @@ pub struct Failure {
     operation: Option<Operation>,
     phase: Phase,
     category: Category,
+    payload_io: Option<PayloadIo>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum PayloadBoundary {
+    Header,
+    Body,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PayloadIoKind {
+    UnexpectedEof,
+    TimedOut,
+    ConnectionReset,
+    BrokenPipe,
+    InvalidData,
+    Interrupted,
+    Other,
+}
+
+impl From<std::io::ErrorKind> for PayloadIoKind {
+    fn from(value: std::io::ErrorKind) -> Self {
+        match value {
+            std::io::ErrorKind::UnexpectedEof => Self::UnexpectedEof,
+            std::io::ErrorKind::TimedOut => Self::TimedOut,
+            std::io::ErrorKind::ConnectionReset => Self::ConnectionReset,
+            std::io::ErrorKind::BrokenPipe => Self::BrokenPipe,
+            std::io::ErrorKind::InvalidData => Self::InvalidData,
+            std::io::ErrorKind::Interrupted => Self::Interrupted,
+            _ => Self::Other,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PayloadIo {
+    boundary: PayloadBoundary,
+    kind: PayloadIoKind,
+}
+
+macro_rules! payload_io_code {
+    ($boundary:literal, $kind:expr) => {
+        match $kind {
+            PayloadIoKind::UnexpectedEof => concat!(
+                "CONTENT_PROVIDER_STORAGE_V2_APPEND__",
+                $boundary,
+                "__UNEXPECTED_EOF"
+            ),
+            PayloadIoKind::TimedOut => concat!(
+                "CONTENT_PROVIDER_STORAGE_V2_APPEND__",
+                $boundary,
+                "__TIMED_OUT"
+            ),
+            PayloadIoKind::ConnectionReset => concat!(
+                "CONTENT_PROVIDER_STORAGE_V2_APPEND__",
+                $boundary,
+                "__CONNECTION_RESET"
+            ),
+            PayloadIoKind::BrokenPipe => concat!(
+                "CONTENT_PROVIDER_STORAGE_V2_APPEND__",
+                $boundary,
+                "__BROKEN_PIPE"
+            ),
+            PayloadIoKind::InvalidData => concat!(
+                "CONTENT_PROVIDER_STORAGE_V2_APPEND__",
+                $boundary,
+                "__INVALID_DATA"
+            ),
+            PayloadIoKind::Interrupted => concat!(
+                "CONTENT_PROVIDER_STORAGE_V2_APPEND__",
+                $boundary,
+                "__INTERRUPTED"
+            ),
+            PayloadIoKind::Other => {
+                concat!("CONTENT_PROVIDER_STORAGE_V2_APPEND__", $boundary, "__OTHER")
+            }
+        }
+    };
 }
 
 // Every returned code is a static literal accepted by the existing code-only log ring.
@@ -266,6 +344,23 @@ macro_rules! phase_code {
 }
 
 impl Failure {
+    /// Additional APPEND read boundary and original I/O kind, never a cause or receipt.
+    /// Existing timeout cancellation, invalid frames and other operations have no code.
+    #[must_use]
+    pub fn payload_io_event_code(self) -> Option<&'static str> {
+        if self.operation != Some(Operation::Append)
+            || self.phase != Phase::Payload
+            || self.category != Category::Io
+        {
+            return None;
+        }
+        let payload = self.payload_io?;
+        Some(match payload.boundary {
+            PayloadBoundary::Header => payload_io_code!("PAYLOAD_HEADER", payload.kind),
+            PayloadBoundary::Body => payload_io_code!("PAYLOAD_BODY", payload.kind),
+        })
+    }
+
     /// Bounded static tuple, suitable only for the existing provider-local log ring.
     #[must_use]
     pub fn event_code(self) -> &'static str {
@@ -288,6 +383,7 @@ pub(crate) struct Observation {
     operation: Option<Operation>,
     pub(super) phase: Phase,
     pub(super) backend_category: Option<Category>,
+    payload_io: Option<PayloadIo>,
     active: bool,
     failure: Option<Failure>,
 }
@@ -298,6 +394,7 @@ impl Default for Observation {
             operation: None,
             phase: Phase::Grant,
             backend_category: None,
+            payload_io: None,
             active: false,
             failure: None,
         }
@@ -317,6 +414,19 @@ impl Observation {
         self.phase = Phase::Payload;
     }
 
+    pub(super) fn payload_read_error(
+        &mut self,
+        boundary: PayloadBoundary,
+        kind: std::io::ErrorKind,
+    ) {
+        if self.operation == Some(Operation::Append) && self.phase == Phase::Payload {
+            self.payload_io = Some(PayloadIo {
+                boundary,
+                kind: kind.into(),
+            });
+        }
+    }
+
     pub(super) fn finish(&mut self, result: &Result<(), WireError>) {
         self.failure = result.as_ref().err().map(|error| Failure {
             operation: self.operation,
@@ -324,6 +434,7 @@ impl Observation {
             category: self
                 .backend_category
                 .unwrap_or_else(|| Category::wire(error)),
+            payload_io: self.payload_io,
         });
         self.active = false;
     }
@@ -334,6 +445,7 @@ impl Observation {
                 operation: self.operation,
                 phase: self.phase,
                 category: Category::Timeout,
+                payload_io: None,
             })
         } else {
             self.failure

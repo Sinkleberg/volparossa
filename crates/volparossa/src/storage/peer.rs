@@ -31,6 +31,10 @@ use volparossa_local_control::{
 
 use crate::content::{IdentityUnlock, parse_publisher_key};
 
+pub(super) async fn with_append_diagnostics<F: Future>(enabled: bool, work: F) -> F::Output {
+    diagnostics::with_append_timing(enabled, work).await
+}
+
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
     /// Attach an explicitly owned private store to the running agent's provider service.

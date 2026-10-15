@@ -38,7 +38,7 @@ class UploadProvision(unittest.TestCase):
             self.assertEqual(new['sources'][name]['revision'], M['STREAM_REVISIONS'][name])
             self.assertEqual(set(new['sources'][name]['files']), set(old['sources'][name]['files']))
         M['validate_provision'](receipt(2))
-        for version in (True, 0, 4, '2'):
+        for version in (True, 0, 5, '2'):
             with self.subTest(version=version), self.assertRaises(ValueError): M['load_pins'](version)
         for version, other in ((1, 2), (2, 1)):
             value = receipt(version)
@@ -49,7 +49,8 @@ class UploadProvision(unittest.TestCase):
 
     def test_source_generation_rejects_wrong_prior_before_runtime_access(self):
         previous = runpy.run_path(str(HERE / 'test-storage-consumer-maintenance-evidence.py'))
-        for profile, prior in ((1, 6), (1, 7), (2, 5), (2, 7), (3, 5), (3, 6)):
+        for profile, prior in ((1, 6), (1, 7), (2, 5), (2, 7), (3, 5), (3, 6),
+                (1, 8), (2, 8), (3, 8), (4, 5), (4, 6), (4, 7)):
             raw = json.dumps(previous['fixture'](profile_version=prior)['provision']).encode()
             with patch.dict(M['verify_shared_runtime'].__globals__, public_file=lambda *_: raw,
                     verify_files=Mock(side_effect=AssertionError('unexpected runtime access'))), self.assertRaises(ValueError):
@@ -96,6 +97,31 @@ class UploadProvision(unittest.TestCase):
         self.assertTrue(set(M['SOURCES'].values()).isdisjoint(M['PREVIOUS']['PROVISIONER']['SOURCES'].values()))
         for original, vendored in M['VENDORED'].items():
             self.assertEqual(pins['sources']['image']['files'][original], pins['sources']['cloud']['files'][vendored])
+
+    def test_append_profile_binds_shared8_and_all_24_upload_files_without_changing_runtime(self):
+        current = M['load_pins'](4)
+        prior = M['PREVIOUS']['PROVISIONER']['load_pins'](8)
+        self.assertEqual(M['APPEND_REVISIONS'], dict(image='10c46b9d6424929748e324fdd188a2f5ca77851a',
+            cloud='dda7a21818ece774445cf63d6e9a01fe0f2803b2'))
+        self.assertEqual([len(current['sources'][name]['files']) for name in ('image', 'cloud')], [3, 21])
+        self.assertEqual(current['runtime'], prior['runtime'])
+        for profile in (1, 2, 3):
+            old = M['load_pins'](profile)
+            self.assertEqual(current['runtime'], old['runtime'])
+            for name in ('image', 'cloud'):
+                self.assertEqual(set(current['sources'][name]['files']), set(old['sources'][name]['files']))
+        for name in ('image', 'cloud'):
+            self.assertEqual(current['sources'][name]['revision'], prior['sources'][name]['revision'])
+            for path in current['sources'][name]['files'].keys() & prior['sources'][name]['files'].keys():
+                self.assertEqual(current['sources'][name]['files'][path], prior['sources'][name]['files'][path])
+        for profile in (1, 2, 3, 4):
+            M['validate_provision'](receipt(profile))
+            for other in (1, 2, 3, 4):
+                if profile == other: continue
+                for change in ({'version': other}, {'pins': M['load_pins'](other)},
+                        {'pins_sha256': M['digest'](M['pins_path'](other))}):
+                    with self.subTest(profile=profile, other=other), self.assertRaises(ValueError):
+                        M['validate_provision']({**receipt(profile), **change})
 
     def test_changed_revision_inventory_runtime_and_adapter_rejected(self):
         original = M['load_pins']()

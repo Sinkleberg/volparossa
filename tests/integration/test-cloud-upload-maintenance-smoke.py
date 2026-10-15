@@ -265,32 +265,40 @@ class Orchestration(unittest.TestCase):
         with patch.dict(M['OLD'], guard=lambda: None), patch.dict(G, owner_root=lambda *a, **k: root,
                 tools=lambda: PROVISION, phase=lambda *a, **kw: calls.append((G['PROFILE_VERSION'], kw)) or {'passed': False}):
             for suffix in (['--profile-version', '2', '--network-version', '2'],
-                    ['--profile-version', '3', '--network-version', '2'], []):
+                    ['--profile-version', '3', '--network-version', '2'],
+                    ['--profile-version', '4', '--network-version', '2'], []):
                 with redirect_stdout(io.StringIO()):
                     M['main'](['upload', str(root), '/exit', '/flow', *suffix])
-            self.assertEqual(calls, [(2, dict(network_version=2)), (3, dict(network_version=2)), (1, dict(network_version=1))])
-            for version in ('1', '4', 'true', ''):
+            self.assertEqual(calls, [(2, dict(network_version=2)), (3, dict(network_version=2)),
+                (4, dict(network_version=2)), (1, dict(network_version=1))])
+            for version in ('1', '5', 'true', ''):
                 with self.assertRaisesRegex(ValueError, 'profile_version'):
                     M['main'](['upload', str(root), '/exit', '/flow', '--profile-version', version])
         node = report('prepare')
         raw = json.dumps(node).encode()
         calls = []
-        for profile in (1, 2, 3):
+        for profile in (1, 2, 3, 4):
             with patch.dict(G, PROFILE_VERSION=profile, file_bytes=lambda *a: raw,
                     run_child=lambda args, deadline: calls.append(args) or (0, raw, b'')):
                 M['node_phase'](root, 'prepare', PROVISION, 1)
         original = [M['NODE'], HERE / 'cloud-upload-maintenance.mjs', 'prepare', root]
-        self.assertEqual(calls, [original, [*original, '--profile-version', '2'], [*original, '--profile-version', '3']])
+        self.assertEqual(calls, [original, [*original, '--profile-version', '2'],
+            [*original, '--profile-version', '3'], [*original, '--profile-version', '4']])
 
     def test_tools_rejects_valid_wrong_generation_before_source_access(self):
         fixture = runpy.run_path(str(HERE / 'test-cloud-upload-maintenance-provision.py'))['receipt']
-        for wanted, actual in ((1, 2), (2, 1), (1, 3), (3, 1), (2, 3), (3, 2)):
+        for wanted, actual in ((a, b) for a in (1, 2, 3, 4) for b in (1, 2, 3, 4) if a != b):
             with patch.dict(G, PROFILE_VERSION=wanted, file_bytes=lambda *a, **kw: json.dumps(fixture(actual)).encode()), \
                     patch.dict(M['OLD'], digest_public=lambda *a: self.fail('source must not be read')), \
                     self.assertRaisesRegex(ValueError, 'provision_profile'):
                 M['tools']()
 
     def test_actual_prepare_code_creates_finite_policy_but_no_enrollment_or_deposit(self):
+        for profile in (1, 2, 3, 4):
+            with self.subTest(profile=profile):
+                self.check_prepare_policy(profile)
+
+    def check_prepare_policy(self, profile):
         calls, writes = [], {}
         deadline, clock = time.monotonic() + 10, 1900000000
         providers, provider_keys = ['socket-a', 'socket-b', 'socket-c'], ['1' * 64, '2' * 64, '3' * 64]
@@ -309,7 +317,7 @@ class Orchestration(unittest.TestCase):
             root = Path(temporary)
             with patch.dict(M['OLD'], validate_locations=lambda *a: (Path('/core'), Path('/client'))), \
                     patch.dict(M['BASE'], create=lambda *a: None), \
-                    patch.dict(G, core=command, node_phase=lambda *a: (report('prepare'), 'e' * 64),
+                    patch.dict(G, PROFILE_VERSION=profile, core=command, node_phase=lambda *a: (report('prepare'), 'e' * 64),
                         write_json=lambda path, value: writes.update({path.name: value}),
                         file_bytes=lambda path, size: json.dumps(writes.get(path.name, {})).encode()), \
                     patch.object(M['time'], 'time', return_value=clock):
@@ -320,6 +328,10 @@ class Orchestration(unittest.TestCase):
             self.assertEqual(argv[argv.index('--max-payload-bytes') + 1], 1048576)
             self.assertEqual(argv[argv.index('--max-leases') + 1], 4)
         self.assertNotIn('stateDirectory', writes['storage-template.json'])
+        if profile == 4:
+            self.assertIs(writes['storage-template.json']['appendDiagnosticsV7'], True)
+        else:
+            self.assertNotIn('appendDiagnosticsV7', writes['storage-template.json'])
         policy = writes['service.json']['storageMaintenance']
         self.assertEqual(policy['version'], 2)
         self.assertEqual(policy['expiresAt'], clock + 6000)

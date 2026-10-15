@@ -19,6 +19,7 @@ mod named_admission_tests;
 mod object_policy;
 mod parallel;
 mod private_storage;
+mod provider_activity;
 mod quote;
 mod quote_remote;
 mod recent;
@@ -48,7 +49,8 @@ use tokio::{
 };
 use volparossa_content::provider::{
     ProviderEndpoint, ProviderError, PublicationRegistry, SignedProviderOffer,
-    serve_publication_observed,
+    activity::{Observer as _, Stage},
+    serve_publication_with_activity,
 };
 use volparossa_content::transfer::{TransferError, TransferLimits};
 use volparossa_content::{CacheLimits, ChunkStore, SignedManifest, Validity, VerifiedManifest};
@@ -61,7 +63,7 @@ use volparossa_core::CONTRIBUTION_SOCKET_PRIORITY;
 use volparossa_identity::Identity;
 use volparossa_local_control::{
     ContentCacheLimits, ContentFetchNameRequest, ContentFetchRequest, ContentReceipt,
-    ContentServeRequest, HttpsContentFetchRequest,
+    ContentServeRequest, HttpsContentFetchRequest, MAX_PROVIDER_SESSIONS,
 };
 use zeroize::Zeroizing;
 
@@ -155,6 +157,7 @@ pub(crate) struct ContentRuntime {
     background_custody: Arc<background_custody::BackgroundCustody>,
     storage_maintenance: Arc<storage_maintenance::Coordinator>,
     storage_outcomes: Arc<private_storage::Outcomes>,
+    provider_activity: Arc<provider_activity::Activity>,
     recent: Arc<Mutex<recent::RecentProviders>>,
     source_costs: Arc<Mutex<https::sources::SourceCosts>>,
     worker_budget: worker_budget::WorkerBudget,
@@ -194,6 +197,7 @@ struct ServingLoop {
     stop: watch::Receiver<bool>,
     automatic: bool,
     events: Option<Arc<RwLock<AgentState>>>,
+    activity: Arc<provider_activity::Activity>,
 }
 
 impl ContentRuntime {
@@ -214,6 +218,7 @@ impl ContentRuntime {
             background_custody: Arc::new(background_custody::BackgroundCustody::default()),
             storage_maintenance: Arc::new(storage_maintenance::Coordinator::default()),
             storage_outcomes: Arc::new(private_storage::Outcomes::default()),
+            provider_activity: Arc::new(provider_activity::Activity::default()),
             recent: Arc::new(Mutex::new(recent::RecentProviders::default())),
             source_costs: Arc::new(Mutex::new(https::sources::SourceCosts::default())),
             worker_budget: worker_budget::WorkerBudget::default(),
@@ -413,6 +418,7 @@ impl ContentRuntime {
             stop: receiver,
             automatic: options.automatic,
             events: Some(Arc::clone(&context.state)),
+            activity: Arc::clone(&self.provider_activity),
         };
         let listener_stopped = stop.clone();
         let task = tokio::spawn(async move {
@@ -455,6 +461,7 @@ impl ContentRuntime {
             stop,
             automatic: false,
             events: None,
+            activity: Arc::new(provider_activity::Activity::default()),
         })
         .await;
     }
@@ -474,6 +481,7 @@ impl ContentRuntime {
             mut stop,
             automatic,
             events,
+            activity,
         } = server;
         let mut sessions = JoinSet::new();
         refresh.tick().await;
@@ -528,7 +536,7 @@ impl ContentRuntime {
                         }
                     }
                 }
-                accepted = listener.accept(), if sessions.len() < 4 => {
+                accepted = listener.accept(), if sessions.len() < MAX_PROVIDER_SESSIONS => {
                     let Ok((stream, _source)) = accepted else { break; };
                     if SockRef::from(&stream).set_priority(CONTRIBUTION_SOCKET_PRIORITY).is_err() {
                         continue;
@@ -536,17 +544,22 @@ impl ContentRuntime {
                     let registry = Arc::clone(&registry);
                     let tls = tls.clone();
                     let events = events.clone();
+                    let activity = activity.begin();
                     sessions.spawn(async move {
                         let Ok(mut stream) = tls.accept(stream).await else { return; };
+                        activity.enter(Stage::RegistrySnapshot);
                         // Snapshot at most 64 explicit registrations; never hold the metadata
                         // lock while a background receiver waits before requesting a chunk.
                         // Cache handles retain their own exclusive ownership checks.
                         let Ok(registry) = provider_snapshot(&registry, REGISTRY_SNAPSHOT_TIMEOUT).await else {
+                            activity.enter(Stage::Closing);
                             provider_event(events.as_ref(), "CONTENT_PROVIDER_REGISTRY_TIMEOUT").await;
                             return;
                         };
                         let mut storage_failure = None;
-                        match serve_publication_observed(&mut stream, &registry, TransferLimits::default(), &mut storage_failure).await {
+                        let result = serve_publication_with_activity(&mut stream, &registry, TransferLimits::default(), &mut storage_failure, &activity).await;
+                        activity.enter(Stage::Closing);
+                        match result {
                             Ok(_) => { let _ = tls::finish(&mut stream).await; }
                             Err(error) => provider_failure_event(events.as_ref(), &error, storage_failure).await,
                         }
@@ -561,6 +574,10 @@ impl ContentRuntime {
         sessions.abort_all();
         while sessions.join_next().await.is_some() {}
         let _ = discovery.withdraw_content_offer().await;
+    }
+
+    pub(crate) fn provider_activity(&self) -> volparossa_local_control::ContentProviderActivity {
+        self.provider_activity.snapshot()
     }
 
     pub(crate) async fn stop(
@@ -921,8 +938,8 @@ async fn provider_failure_event(
 ) {
     if let Some(state) = state {
         let mut state = state.write().await;
-        // Preserve the historical category, adding at most one closed tuple to the same
-        // bounded ring and under the same lock. No new await, sink or identifier is added.
+        // Preserve the historical category and V1 tuple, adding at most one closed
+        // APPEND I/O tuple under the same lock. No new await, sink or identifier is added.
         state.log(
             volparossa_local_control::LogLevel::Info,
             provider_error_code(error),
@@ -934,6 +951,13 @@ async fn provider_failure_event(
                 failure.event_code(),
                 unix_millis(),
             );
+            if let Some(code) = failure.payload_io_event_code() {
+                state.log(
+                    volparossa_local_control::LogLevel::Info,
+                    code,
+                    unix_millis(),
+                );
+            }
         }
     }
 }

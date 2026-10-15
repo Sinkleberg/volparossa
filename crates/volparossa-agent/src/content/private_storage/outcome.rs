@@ -1,5 +1,7 @@
 //! Bounded caller-bound RAM observations. No log, disk, peer identity or custody assertion.
 
+mod timing;
+
 use std::{
     collections::BTreeMap,
     sync::{
@@ -65,6 +67,7 @@ impl Outcomes {
             category: AtomicI32::new(Category::Unobserved as i32),
             succeeded: false,
             finished: false,
+            timing: timing::Progress::default(),
         })
     }
 
@@ -94,6 +97,7 @@ fn status(status: Status) -> PrivateStorageOutcome {
         phase: 0,
         category: 0,
         deadline: 0,
+        append_timing: None,
     }
 }
 
@@ -107,14 +111,21 @@ pub(super) struct Guard {
     category: AtomicI32,
     succeeded: bool,
     finished: bool,
+    timing: timing::Progress,
 }
 
 impl Guard {
+    pub(super) fn start_operation(&self, started: Option<Instant>) {
+        self.timing.start_operation(started);
+    }
+
     pub(super) fn enter(&self, phase: Phase) {
+        self.timing.phase(phase);
         self.phase.store(phase as i32, Ordering::Relaxed);
     }
 
     pub(super) fn wire_error(&self, error: &WireError) {
+        self.timing.fail();
         let category = match error {
             WireError::Io(_) => Category::Io,
             WireError::Protocol(ProtocolError::Unauthorized) => Category::Auth,
@@ -129,6 +140,7 @@ impl Guard {
     }
 
     pub(super) fn cancelled(&self) {
+        self.timing.fail();
         self.category
             .store(Category::Cancelled as i32, Ordering::Relaxed);
         self.deadline
@@ -140,6 +152,9 @@ impl Guard {
         result: &Result<(), ContentError>,
         outer: PrivateStorageDeadlineScope,
     ) {
+        if result.is_err() {
+            self.timing.fail();
+        }
         self.finished = true;
         self.succeeded = result.is_ok();
         if self.succeeded {
@@ -170,6 +185,7 @@ impl Guard {
 
 impl Drop for Guard {
     fn drop(&mut self) {
+        self.timing.fail();
         // Its key may have been admitted later after another query freed capacity.
         // An untracked operation must never touch that newer operation's entry.
         if !self.tracked {
@@ -202,6 +218,7 @@ impl Drop for Guard {
                     phase,
                     category,
                     deadline,
+                    append_timing: self.timing.detail(phase),
                 },
             },
         );
@@ -230,6 +247,7 @@ impl Observer for Guard {
     }
 
     fn deadline(&self, deadline: bridge_observation::Deadline) {
+        self.timing.fail();
         let deadline = match deadline {
             bridge_observation::Deadline::Bridge => Deadline::Bridge,
             bridge_observation::Deadline::RemoteWire => Deadline::RemoteWire,

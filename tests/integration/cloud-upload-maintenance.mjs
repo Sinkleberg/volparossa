@@ -20,6 +20,7 @@ const NODE = '/opt/volparossa-node/bin/node';
 const REVISIONS = { cloud: 'cea181f1f80d57c9d8047093ed543f40ec43138d', image: 'eb9758453d094df5ea3ba045e993bd3d2dd47881' };
 const STREAM_REVISIONS = { cloud: '7d10c4943062c5a0ae46fc57e293dc3e33db3ed2', image: '949f208dbb48fcb734d4dfd33eb1933b69830a01' };
 const CHALLENGE_REVISIONS = { cloud: 'e0db1cacf7bec2df3925ee454ec6216587b8ddef', image: '43029ea8b780de2376a3b7325d24a8e1c657f08e' };
+const APPEND_REVISIONS = { cloud: 'dda7a21818ece774445cf63d6e9a01fe0f2803b2', image: '10c46b9d6424929748e324fdd188a2f5ca77851a' };
 const HASH = /^[0-9a-f]{64}$/u, A_FRAGMENTS = [0, 2, 3];
 const COPY_FIELDS = ['provider_key', 'owner_key', 'grant_hex', 'archive_id', 'ciphertext_bytes', 'sha256'];
 const CODES = new Set(['phase_deadline', 'authority_expired', 'authority_changed', 'private_file', 'private_directory',
@@ -42,7 +43,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const fragmentPath = (object, i) => join(object, 'journal', `fragment-${String(i).padStart(4, '0')}`);
 
 export function sourceProfile(version = 1) {
-  check(version === 1 || version === 2 || version === 3, 'arguments');
+  check(version === 1 || version === 2 || version === 3 || version === 4, 'arguments');
+  if (version === 4) return { pinsFile: './cloud-upload-maintenance-pins-v4.json', revisions: { ...APPEND_REVISIONS }, previousVersion: [8] };
   if (version === 3) return { pinsFile: './cloud-upload-maintenance-pins-v3.json', revisions: { ...CHALLENGE_REVISIONS }, previousVersion: [7] };
   return version === 2
     ? { pinsFile: './cloud-upload-maintenance-pins-v2.json', revisions: { ...STREAM_REVISIONS }, previousVersion: [6] }
@@ -198,7 +200,8 @@ export async function request(origin, token, method, body, ctx) {
     req.on('close', () => clearTimeout(timer)); req.on('error', reject); req.end(body);
   });
 }
-export async function configuration(root) {
+export async function configuration(root, profileVersion = 1) {
+  sourceProfile(profileVersion);
   const service = await json(join(root, 'service.json')), template = await json(join(root, 'storage-template.json'));
   const p = service.storageMaintenance;
   check(service.version === 1 && service.catalog === join(root, 'catalog') && service.workDirectory === join(root, 'work')
@@ -212,6 +215,7 @@ export async function configuration(root) {
     && template.fragmentBytes === F && template.lifetimeSeconds === 1800 && template.deadlineMs === 1800000
     && template.providers?.length === 3 && new Set(template.providers.map(p => p.key)).size === 3
     && template.providers.every(p => HASH.test(p.key)) && p.fromProviderKey === template.providers[0].key, 'configuration');
+  if (profileVersion === 4) check(template.appendDiagnosticsV7 === true, 'configuration');
   return { service, template };
 }
 async function objectRoot(root) {
@@ -429,7 +433,7 @@ async function prepare(ctx) {
 }
 async function upload(ctx, m) {
   ctx.stage = 'upload_start';
-  const config = await configuration(ctx.root), expiry = config.service.storageMaintenance.expiresAt;
+  const config = await configuration(ctx.root, ctx.profileVersion), expiry = config.service.storageMaintenance.expiresAt;
   const timer = constrainAuthority(ctx, expiry); let service, object;
   try {
     const plain = await boundedFile(join(ctx.root, 'plaintext.bin'), MAX_CIPHER);
@@ -460,7 +464,7 @@ async function upload(ctx, m) {
   } finally { try { await service?.close(); } finally { clearTimeout(timer); } }
 }
 async function retained(ctx) {
-  const value = await json(join(ctx.root, 'cloud-upload-binding.json'), 16384), config = await configuration(ctx.root);
+  const value = await json(join(ctx.root, 'cloud-upload-binding.json'), 16384), config = await configuration(ctx.root, ctx.profileVersion);
   check(value.version === 1 && value.provision_sha256 === ctx.provision, 'previous_phase');
   const object = await objectRoot(ctx.root);
   check(equal(await binding(ctx.root, object, config), value.bound), 'authority_changed');
@@ -531,13 +535,13 @@ async function finish(ctx, m) {
 export async function main(argv) {
   let profileVersion = 1;
   if (argv.length === 4 && argv[2] === '--profile-version') {
-    check(argv[3] === '2' || argv[3] === '3', 'arguments'); profileVersion = Number(argv[3]); argv = argv.slice(0, 2);
+    check(argv[3] === '2' || argv[3] === '3' || argv[3] === '4', 'arguments'); profileVersion = Number(argv[3]); argv = argv.slice(0, 2);
   }
   check(argv.length === 2 && PHASES.includes(argv[0]), 'arguments'); process.umask(0o077);
   const [phase, root] = argv, provision = await guard(root, profileVersion), cancel = new AbortController();
   const abort = () => cancel.abort(); for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(name, abort);
   const timer = setTimeout(abort, 1800000);
-  const ctx = { root, provision, cancel, signal: cancel.signal, deadline: performance.now() + 1800000, stage: 'phase_start' };
+  const ctx = { root, provision, profileVersion, cancel, signal: cancel.signal, deadline: performance.now() + 1800000, stage: 'phase_start' };
   try {
     check(!await exists(join(root, `cloud-upload-${phase}.json`)), 'previous_phase');
     if (phase !== 'prepare') {

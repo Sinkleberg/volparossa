@@ -344,6 +344,12 @@ private_storage_maintenance_run() {
 
 private_storage_maintenance_finalize_report() {
     maintenance_status=$1
+    # The explicit new trial selects v8; default/historical v7 remains unchanged.
+    case ${storage_consumer_profile_version-7} in
+        7) maintenance_diagnostic_command=route-diagnostic; maintenance_schema=6; maintenance_report_command=report-consumer-v7 ;;
+        8) maintenance_diagnostic_command=route-diagnostic-v3; maintenance_schema=7; maintenance_report_command=report-consumer-v8 ;;
+        *) return 1 ;;
+    esac
     # Already published at the original supervisor gate, before TERM/cleanup.
     # Reject malformed private metadata rather than exporting it as evidence.
     if [ -e "$WORK/private-storage-maintenance-supervisor.json" ] \
@@ -358,7 +364,7 @@ private_storage_maintenance_finalize_report() {
     # replacement for the original outcome and never changes acceptance.
     # The same Python process independently publishes a closed provider-event
     # sidecar from the existing pre-agent-stop captures; no additional RPC.
-    if python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" route-diagnostic \
+    if python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" "$maintenance_diagnostic_command" \
         "$WORK" "$PHASE" "${provider_baseline_ms:-0}" >"$WORK/maintenance-route-diagnostic.part" 2>/dev/null; then
         mv -- "$WORK/maintenance-route-diagnostic.part" "$WORK/private-storage-maintenance-route-diagnostic.json" || true
     else
@@ -381,8 +387,8 @@ private_storage_maintenance_finalize_report() {
         --argjson status "$maintenance_status" --slurpfile evidence "$WORK/handoff-report-evidence.part" \
         --slurpfile consumers "$WORK/handoff-report-consumers.part" \
         --slurpfile host "$WORK/handoff-report-host.part" --argjson complete "$CLEANUP_COMPLETE" \
-        --argjson remaining "$REMAINING_OWNED_OBJECTS" '
-      {schema_version:6,report_kind:"volparossa-private-storage-maintenance",source_revision:$revision,run_id:$run,
+        --argjson remaining "$REMAINING_OWNED_OBJECTS" --argjson schema "$maintenance_schema" '
+      {schema_version:$schema,report_kind:"volparossa-private-storage-maintenance",source_revision:$revision,run_id:$run,
        phase:$phase,runner_exit_status:$status,maintenance:$evidence[0],consumers:$consumers[0],
        success:($status == 0 and $evidence[0].success == true and $consumers[0].success == true and $complete and $remaining == 0 and $host[0].unchanged == true),
        observed_blocker:(if $blocker == "NONE" then null else $blocker end),
@@ -397,6 +403,6 @@ private_storage_maintenance_finalize_report() {
             install -o "$OUTPUT_UID" -g "$OUTPUT_GID" -m 0600 "$maintenance_artifact" "$output_directory/$maintenance_name"
         fi
     done
-    python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" report-consumer-v7 \
+    python3 -B "$source_directory/tests/integration/private-storage-maintenance-smoke.py" "$maintenance_report_command" \
         "$WORK/private-storage-maintenance-smoke.json" "$expected_commit"
 }

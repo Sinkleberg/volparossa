@@ -25,6 +25,9 @@ browser_filter_bundle=
 browser_filter_manifest_sha256=
 weather_client_bundle=
 weather_client_manifest_sha256=
+weather_android_source=
+weather_android_commit=
+weather_client_version=
 decoder_abi_inputs=
 
 guest_memory_for_scenario() {
@@ -49,6 +52,7 @@ usage() {
         '       --native-runtime PATH is required for agent-native-coding or agent-native-editor (exact verified bundle).' \
         '       content-provider optionally accepts --browser-filter-bundle ARCHIVE --browser-filter-manifest-sha256 SHA256.' \
         '       Or --weather-client-bundle ARCHIVE --weather-client-manifest-sha256 SHA256 (one joined client per run).' \
+        '       Android profile 6 additionally requires --weather-android-source DIRECTORY (exact prepared hosted source).' \
         '       weather-decoder-abi requires --decoder-abi-inputs DIRECTORY (source-admitted exact public files; no --mpquic).' \
         '       Native-editor, cooperative-code, content-provider and weather-decoder-abi accept --host-tools-directory PATH (verified workspace-only QEMU).'
 }
@@ -551,6 +555,11 @@ while [ "$#" -gt 0 ]; do
             weather_client_manifest_sha256=$2
             shift
             ;;
+        --weather-android-source)
+            if [ "$#" -lt 2 ] || [ -n "$weather_android_source" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
+            weather_android_source=$2
+            shift
+            ;;
         --decoder-abi-inputs)
             if [ "$#" -lt 2 ] || [ -n "$decoder_abi_inputs" ] || [ -z "$2" ]; then usage >&2; exit 64; fi
             decoder_abi_inputs=$2
@@ -610,7 +619,7 @@ done
 
 if [ "$mode" = preview ]; then
     if [ "$approval" != no ] \
-        || [ -n "$image_path$mpquic_path$package_path$native_runtime_path$host_tools_directory$output_directory$expected_commit$code_bundle$code_manifest_sha256$browser_filter_bundle$browser_filter_manifest_sha256$weather_client_bundle$weather_client_manifest_sha256$decoder_abi_inputs" ]; then
+        || [ -n "$image_path$mpquic_path$package_path$native_runtime_path$host_tools_directory$output_directory$expected_commit$code_bundle$code_manifest_sha256$browser_filter_bundle$browser_filter_manifest_sha256$weather_client_bundle$weather_client_manifest_sha256$weather_android_source$decoder_abi_inputs" ]; then
         usage >&2
         exit 64
     fi
@@ -660,6 +669,11 @@ if [ -n "$weather_client_bundle$weather_client_manifest_sha256" ]; then
     case $weather_client_bundle in /|*/|*//*|*/../*|*/./*|*/..|*/.|*[[:cntrl:]]*) exit 64 ;; esac
     case $weather_client_manifest_sha256 in ''|*[!0-9a-f]*) exit 64 ;; esac
     [ "${#weather_client_manifest_sha256}" -eq 64 ] || exit 64
+fi
+if [ -n "$weather_android_source" ]; then
+    [ "$scenario" = content-provider ] && [ -n "$weather_client_bundle" ] || exit 64
+    case $weather_android_source in /*) ;; *) exit 64 ;; esac
+    case $weather_android_source in /|*/|*//*|*/../*|*/./*|*/..|*/.|*[[:cntrl:]]*) exit 64 ;; esac
 fi
 case $expected_commit in ''|*[!0-9a-f]*) exit 64 ;; esac
 case ${#expected_commit} in 40|64) ;; *) exit 64 ;; esac
@@ -796,22 +810,55 @@ RUN_DIRECTORY=$(mktemp -d "$RUN_DIRECTORY_PARENT/$RUN_DIRECTORY_PREFIX.XXXXXX")
 case $RUN_DIRECTORY in "$RUN_DIRECTORY_PARENT"/"$RUN_DIRECTORY_PREFIX".??????) ;; *) exit 69 ;; esac
 chmod 0700 "$RUN_DIRECTORY"
 QEMU_PID=
+QEMU_STARTED=no
+QEMU_JOINED=no
+WEATHER_ANDROID_OWNER_PID=
+QEMU_BIRTH=
+QEMU_STOP_ATTEMPTED=no
 FINISHED=no
+
+stop_qemu_child() {
+    [ -n "$QEMU_PID" ] || return 0
+    # A failed/interrupted shutdown is not retried by EXIT with a fresh budget.
+    [ "$QEMU_STOP_ATTEMPTED" = no ] || return 1
+    QEMU_STOP_ATTEMPTED=yes
+    [ -n "$QEMU_BIRTH" ] || return 1
+    if ! timeout --signal=TERM --kill-after=2s 45s \
+        python3 -B "$HERE/qemu-child-lifecycle.py" stop "$QEMU_PID" "$$" "$QEMU_BIRTH" "$1"; then
+        return 1
+    fi
+    # The original child is now confirmed terminated, so this is a reap, not
+    # an unbounded wait for a live process. Its status is not the guest result.
+    wait "$QEMU_PID" 2>/dev/null || true
+    QEMU_JOINED=yes
+    QEMU_PID=
+    return 0
+}
 
 cleanup() {
     status=$?
     trap - EXIT HUP INT TERM
-    if [ -n "$QEMU_PID" ] && kill -0 "$QEMU_PID" 2>/dev/null; then
-        kill -TERM "$QEMU_PID" 2>/dev/null || true
-        wait_attempt=0
-        while kill -0 "$QEMU_PID" 2>/dev/null && [ "$wait_attempt" -lt 50 ]; do
-            sleep 0.1
-            wait_attempt=$((wait_attempt + 1))
-        done
-        if kill -0 "$QEMU_PID" 2>/dev/null; then
-            kill -KILL "$QEMU_PID" 2>/dev/null || true
+    # A shell-only cancellation must reach the Android owner too. Wait for its
+    # bounded child cleanup before destroying the guest or its private files.
+    if [ -n "$WEATHER_ANDROID_OWNER_PID" ]; then
+        if kill -0 "$WEATHER_ANDROID_OWNER_PID" 2>/dev/null; then
+            kill -TERM "$WEATHER_ANDROID_OWNER_PID" 2>/dev/null || true
+            owner_wait_attempt=0
+            while kill -0 "$WEATHER_ANDROID_OWNER_PID" 2>/dev/null && [ "$owner_wait_attempt" -lt 400 ]; do
+                sleep 0.1
+                owner_wait_attempt=$((owner_wait_attempt + 1))
+            done
+            if kill -0 "$WEATHER_ANDROID_OWNER_PID" 2>/dev/null; then
+                kill -KILL "$WEATHER_ANDROID_OWNER_PID" 2>/dev/null || true
+                status=1
+            fi
         fi
-        wait "$QEMU_PID" 2>/dev/null || true
+        wait "$WEATHER_ANDROID_OWNER_PID" 2>/dev/null || true
+        WEATHER_ANDROID_OWNER_PID=
+    fi
+    if ! stop_qemu_child abort; then
+        [ "$status" -ne 0 ] || status=1
+        printf '%s\n' 'QEMU exit unconfirmed; private VM scratch retained' >&2
     fi
     if [ "$FINISHED" = no ] && [ -f "$RUN_DIRECTORY/console.log" ]; then
         install -m 0600 "$RUN_DIRECTORY/console.log" "$output_directory/vm-console.log" \
@@ -831,11 +878,34 @@ cleanup() {
         tail -c 131072 "$RUN_DIRECTORY/qemu.stderr" >"$output_directory/qemu.stderr" \
             2>/dev/null || status=1
     fi
-    case $RUN_DIRECTORY in
-        "$RUN_DIRECTORY_PARENT"/"$RUN_DIRECTORY_PREFIX".??????)
-            rm -rf --one-file-system -- "$RUN_DIRECTORY" ;;
-        *) status=69 ;;
-    esac
+    if [ -z "$QEMU_PID" ]; then
+        case $RUN_DIRECTORY in
+            "$RUN_DIRECTORY_PARENT"/"$RUN_DIRECTORY_PREFIX".??????)
+                rm -rf --one-file-system -- "$RUN_DIRECTORY" ;;
+            *) status=69 ;;
+        esac
+    fi
+    if [ "${weather_client_version:-}" = 6 ]; then
+        # Record whether private guest state and temporary SSH keys were removed
+        # after the bounded shutdown attempt. The later hosted gate must
+        # also validate the exact native/core evidence; cleanup alone is not it.
+        android_private_removed=false
+        if [ ! -e "$RUN_DIRECTORY" ] && [ ! -L "$RUN_DIRECTORY" ]; then android_private_removed=true; fi
+        if [ "$android_private_removed" != true ]; then
+            [ "$status" -ne 0 ] || status=1
+        fi
+        if ! (set -C
+            jq -n --arg core_commit "$expected_commit" --arg weather_commit "$weather_android_commit" \
+                --arg manifest_sha256 "$WEATHER_CLIENT_MANIFEST_SHA256" \
+                --arg driver_finished "$FINISHED" --arg qemu_started "$QEMU_STARTED" --arg qemu_joined "$QEMU_JOINED" \
+                --argjson private_guest_state_removed "$android_private_removed" --argjson owner_exit_status "$status" \
+                '{schema:6,kind:"weather-android-vm-cleanup",core_commit:$core_commit,weather_commit:$weather_commit,
+                  manifest_sha256:$manifest_sha256,driver_finished:($driver_finished == "yes"),
+                  qemu_started:($qemu_started == "yes"),qemu_joined:($qemu_joined == "yes"),
+                  private_guest_state_removed:$private_guest_state_removed,owner_exit_status:$owner_exit_status,
+                  joined_core_acceptance:false}' >"$output_directory/weather-android-vm-cleanup.json"
+        ); then status=1; fi
+    fi
     exit "$status"
 }
 trap cleanup EXIT
@@ -870,6 +940,19 @@ if [ -n "$weather_client_bundle" ]; then
     python3 -B "$HERE/weather-client-bundle.py" verify-runtime "$WEATHER_CLIENT_ARCHIVE" "$weather_client_manifest_sha256"
     WEATHER_CLIENT_ARCHIVE_SHA256=$(sha256sum "$WEATHER_CLIENT_ARCHIVE" | awk '{ print $1 }')
     WEATHER_CLIENT_MANIFEST_SHA256=$weather_client_manifest_sha256
+    weather_client_version=$(python3 -B "$HERE/weather-client-bundle.py" runtime-version \
+        "$WEATHER_CLIENT_ARCHIVE" "$WEATHER_CLIENT_MANIFEST_SHA256" | jq -er '.bundle_version')
+    if [ "${weather_client_version:-}" = 6 ]; then
+        [ -n "$weather_android_source" ] || exit 64
+        weather_android_commit=$(jq -er '.sources.weather.commit' "$HERE/weather-public-android-v6.json")
+        # Native compilation and immutable preparation happened earlier on the
+        # hosted runner, never inside the publication's finite lifetime.
+        python3 -B "$HERE/weather-android-owner.py" preflight --weather-root "$weather_android_source" \
+            --core-commit "$expected_commit" --weather-commit "$weather_android_commit" --kvm-output "$output_directory" \
+            --kvm-baseline "$RUN_DIRECTORY/kvm-before-vm.json"
+    else
+        [ -z "$weather_android_source" ] || exit 64
+    fi
     printf '%s\n' 'Additional proof: public model HTTPS acquisition (ECMWF, plus NOAA for the two-product profiles), protected peer transfer and the exact bundled Drizz.li or Overmorrow UI; origin acquisition is not an overlay claim.'
 fi
 CODE_ARCHIVE_SHA256=none
@@ -1103,6 +1186,7 @@ MAINTENANCE_NAMES = (FRAGMENTS_NAMES - {"private-storage-fragments-smoke.json", 
     "private-storage-maintenance-lifecycle-failure.json",
     "private-storage-maintenance-route-diagnostic.json",
     "private-storage-maintenance-provider-events.json",
+    "private-storage-provider-activity.json",
     "private-storage-maintenance-inventory.json",
     "private-storage-maintenance-supervisor.json",
     "private-storage-maintenance-control-transition.json",
@@ -1141,7 +1225,8 @@ MAINTENANCE_PRIORITY_NAMES = {
     name for name in MAINTENANCE_NAMES if name not in CONSUMER_CONTROL_NAMES and (
     name.startswith("storage-consumer-") or name.startswith("private-storage-maintenance-")
     or name.endswith("_usage.json") or name.endswith("private_cleanup.json"))
-} | {"host-state-before.json", "host-state-after.json", "guest-exit-status", "current-phase"}
+} | {"host-state-before.json", "host-state-after.json", "guest-exit-status", "current-phase",
+     "private-storage-provider-activity.json"}
 
 # Exact additional continuation outputs. No private owner/config/log glob.
 CLOUD_UPLOAD_NAMES = MAINTENANCE_NAMES | {
@@ -1174,9 +1259,10 @@ CLOUD_UPLOAD_OUTCOME_NAMES = {
     "private-storage-fragments-cloud_upload_deleted_usage.json",
     "host-state-before.json", "host-state-after.json", "guest-exit-status", "current-phase",
 }
-# 167 exact old/new receipt names + five recovery names = 172 slots.
+# 168 exact old/new receipt names + five recovery names = 173 slots.
+# The extra receipt is the existing closed private-storage-provider-activity.json.
 # The old scenario stays at 128; byte-identical copies share only one slot.
-CLOUD_UPLOAD_FILE_COUNT_LIMIT = 172
+CLOUD_UPLOAD_FILE_COUNT_LIMIT = 173
 
 SIGNAL_FRAGMENT_NAMES = {"a01-expected-peers.json", "signal-backup-provision.json",
     "signal-backup-private_cleanup.json", "host-state-before.json", "host-state-after.json",
@@ -1248,6 +1334,10 @@ WEATHER_PRODUCTS_FAILURE_NAMES = {f"weather-products-delivery-{suffix}.json" for
 WEATHER_PRODUCTS_HELPERS = ("weather-products-delivery.py", "weather-source-observer.mjs",
     "weather-public-drizzli-v4.json", *WEATHER_CLIENT_HELPERS)
 WEATHER_PRODUCTS_V5_ADMISSION = "weather-public-overmorrow-v5.json"
+WEATHER_ANDROID_NAMES = {"weather-android-delivery-evidence.json"}
+WEATHER_ANDROID_HELPERS = ("weather-android-evidence.py", "weather-android-api.py",
+    "weather-android-delivery.py", "weather-android-control.py", "weather-public-android-v6.json",
+    *WEATHER_PRODUCTS_HELPERS)
 LATE_PROVIDER_NAMES = {f"content-provider-late-recovery-{suffix}.json" for suffix in (
     "first-snapshot", "final-snapshot", "object", "run-cleanup", "cleanup", "evidence", "failure", "readiness")}
 PRESSURE_PROVIDER_NAMES = {f"content-provider-pressure-{suffix}.json" for suffix in (
@@ -1288,6 +1378,16 @@ def browser_filter_helper(work):
 
 
 def weather_client_helper(work):
+    # An Android closure never falls back to browser evidence or exports its
+    # private receipt/configuration files, including after an interrupted run.
+    try:
+        (work / "bin/weather-android-evidence.py").lstat()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return None
+    else:
+        return joined_client_helper(work, WEATHER_ANDROID_HELPERS, "weather-android-evidence.py")
     # A present v2 entrypoint selects the complete v2 validation closure. If
     # unsafe, reject it rather than silently interpreting v2 evidence as v1.
     try:
@@ -1314,7 +1414,8 @@ def weather_client_helper(work):
 def weather_client_candidates(root, label, helper, target):
     # No raw forecast, request/config, CLI receipt or process log is exported.
     names = {"weather-client-delivery.py": WEATHER_CLIENT_NAMES,
-        "weather-products-delivery.py": WEATHER_PRODUCTS_NAMES}.get(helper.name)
+        "weather-products-delivery.py": WEATHER_PRODUCTS_NAMES,
+        "weather-android-evidence.py": WEATHER_ANDROID_NAMES}.get(helper.name)
     if names is None:
         return []
     action = "copy-artifacts"
@@ -1765,7 +1866,7 @@ def collect(home, opt, revision, scenario, guest_status,
                     parsed = json.loads(data)
                     if scenario == "cloud-upload-maintenance" and original_size > 1048576:
                         if not (path.name == "cloud-upload-evidence.json" and isinstance(parsed, dict)
-                                and type(parsed.get("schema_version")) is int and parsed["schema_version"] in (3, 4, 5)
+                                and type(parsed.get("schema_version")) is int and parsed["schema_version"] in (3, 4, 5, 6)
                                 and parsed.get("kind") == "cloud-upload-maintenance-evidence"):
                             continue
                 except (ValueError, UnicodeError, RecursionError):
@@ -1776,7 +1877,7 @@ def collect(home, opt, revision, scenario, guest_status,
             if identity in seen_maintenance_bytes:
                 continue
             seen_maintenance_bytes.add(identity)
-        if path.name in BROWSER_FILTER_NAMES | WEATHER_CLIENT_NAMES | WEATHER_PRODUCTS_NAMES | WEATHER_PRODUCTS_FAILURE_NAMES | LATE_PROVIDER_NAMES | PRESSURE_PROVIDER_NAMES and original_size > len(data):
+        if path.name in BROWSER_FILTER_NAMES | WEATHER_CLIENT_NAMES | WEATHER_PRODUCTS_NAMES | WEATHER_PRODUCTS_FAILURE_NAMES | WEATHER_ANDROID_NAMES | LATE_PROVIDER_NAMES | PRESSURE_PROVIDER_NAMES and original_size > len(data):
             continue  # Preserve complete validated original bytes, never a JSON tail.
         if path.name in PRESSURE_PROVIDER_NAMES:
             try:
@@ -2107,6 +2208,17 @@ if [ "$weather_client_manifest_sha256" != none ]; then
     guest_phase weather-client-inputs
     printf '%s  /home/vpci/weather-client.tar\n' "$weather_client_archive_sha256" | sha256sum --check --strict -
     python3 -B tests/integration/weather-client-bundle.py verify-runtime /home/vpci/weather-client.tar "$weather_client_manifest_sha256"
+    weather_guest_profile=$(python3 -B tests/integration/weather-client-bundle.py runtime-version \
+        /home/vpci/weather-client.tar "$weather_client_manifest_sha256" | jq -er '.bundle_version')
+    if [ "$weather_guest_profile" = 6 ]; then
+        # Fixed API-only doorway. It accepts no arbitrary root operation or
+        # user-supplied socket path; the controller publishes the sole endpoint.
+        sudo -n install -d -o root -g root -m 0755 /usr/local/libexec
+        test ! -e /usr/local/libexec/volparossa-weather-android-tunnel.py
+        test ! -L /usr/local/libexec/volparossa-weather-android-tunnel.py
+        sudo -n install -o root -g root -m 0555 tests/integration/weather-android-tunnel.py \
+            /usr/local/libexec/volparossa-weather-android-tunnel.py
+    fi
 fi
 if [ "$scenario" = agent-cooperative-code ] || [ "$scenario" = agent-cooperative-code-proposal ]; then
     guest_phase code-inputs
@@ -2128,11 +2240,11 @@ elif [ "$scenario" = image-snapshot ]; then
     sudo -n python3 -B tests/integration/image-snapshot-provision.py provision --download
 elif [ "$scenario" = private-storage-maintenance ] || [ "$scenario" = cloud-upload-maintenance ]; then
     guest_phase storage-consumer-runtime-provision
-    sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download --profile-version 7
+    sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download --profile-version 8
     /opt/volparossa-node/bin/node --test tests/integration/test-storage-consumer-maintenance.mjs
     if [ "$scenario" = cloud-upload-maintenance ]; then
         guest_phase cloud-upload-maintenance-runtime-provision
-        sudo -n python3 -B tests/integration/cloud-upload-maintenance-provision.py provision --download --profile-version 3
+        sudo -n python3 -B tests/integration/cloud-upload-maintenance-provision.py provision --download --profile-version 4
         /opt/volparossa-node/bin/node --test tests/integration/test-cloud-upload-maintenance.mjs
     fi
 elif [ "$scenario" = cloud-private-upload ]; then
@@ -2351,7 +2463,7 @@ elif [ "$scenario" = signal-backup ] || [ "$scenario" = signal-backup-fragments 
 elif [ "$scenario" = cloud-upload-maintenance ]; then
     {
         python3 -B tests/integration/private-storage-maintenance-smoke.py export-names
-        python3 -B tests/integration/cloud-upload-maintenance-evidence.py export-names-v5
+        python3 -B tests/integration/cloud-upload-maintenance-evidence.py export-names-v6
         printf '%s\n' host-state-before.json host-state-after.json guest-exit-status current-phase
     } | sort -u | while IFS= read -r retained; do
         case $retained in */*|'') exit 1 ;; esac
@@ -2361,7 +2473,7 @@ elif [ "$scenario" = cloud-upload-maintenance ]; then
             retained_size=$(wc -c <"$retained_path") || exit 1
             if [ "$retained" = cloud-upload-evidence.json ] \
                 && [ "$retained_size" -le 2097152 ] \
-                && jq -e '(.schema_version == 3 or .schema_version == 4 or .schema_version == 5) and .kind == "cloud-upload-maintenance-evidence"' "$retained_path" >/dev/null; then
+                && jq -e '(.schema_version == 3 or .schema_version == 4 or .schema_version == 5 or .schema_version == 6) and .kind == "cloud-upload-maintenance-evidence"' "$retained_path" >/dev/null; then
                 retained_limit=2097152
             fi
             [ "$retained_size" -le "$retained_limit" ] || exit 1
@@ -2399,7 +2511,12 @@ runner_reserve_mib=1024
 if [ "$scenario" = content-provider ] || [ "$scenario" = weather-decoder-abi ]; then
     runner_reserve_mib=2048
 fi
-if [ "$guest_memory_mib" -gt 4096 ] || [ "$runner_reserve_mib" -eq 2048 ]; then
+if [ "${weather_client_version:-}" = 6 ]; then
+    # Simultaneous 4-GiB guest and 4-GiB Android emulator, plus 2-GiB owner
+    # reserve. This read-only admission is not a host-memory configuration.
+    runner_reserve_mib=6144
+fi
+if [ "$guest_memory_mib" -gt 4096 ] || [ "$runner_reserve_mib" -ge 2048 ]; then
     # A read-only preflight snapshot, not a host memory reservation. Refuse
     # before QEMU unless the guest plus its selected host reserve fits. The
     # standalone and joined provider proofs require 2 GiB reserve; larger model
@@ -2430,6 +2547,7 @@ if [ -n "$host_tools_directory" ]; then
     qemu_vga_device=$qemu_vga_device,romfile=$host_tools_directory/root/usr/share/seabios/vgabios-stdvga.bin
 fi
 { [ "$scenario" != agent-cooperative-code ] && [ "$scenario" != agent-cooperative-code-proposal ]; } || print_plan
+timeout --signal=TERM --kill-after=2s 5s python3 -B "$HERE/qemu-child-lifecycle.py" preflight
 qemu-system-x86_64 \
     -name volparossa-alpha-topology \
     -no-user-config -nodefaults \
@@ -2444,6 +2562,9 @@ qemu-system-x86_64 \
     -sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny \
     </dev/null >/dev/null 2>"$RUN_DIRECTORY/qemu.stderr" &
 QEMU_PID=$!
+QEMU_STARTED=yes
+QEMU_BIRTH=$(timeout --signal=TERM --kill-after=2s 5s \
+    python3 -B "$HERE/qemu-child-lifecycle.py" birth "$QEMU_PID" "$$")
 
 ssh_bounded() {
     ssh_time_bound=$1
@@ -2596,7 +2717,30 @@ driver_time_bound=2400s
 [ "$scenario" != signal-backup-fragments ] || driver_time_bound=7200s
 case $scenario in
     content-provider)
-        if [ -n "$weather_client_bundle" ]; then
+        if [ "$weather_client_version" = 6 ]; then
+            # Own the driver and Android/tunnel children in one bounded process.
+            # No shell-selected command or remote endpoint is given to Android.
+            WEATHER_ANDROID_CONFIG=$RUN_DIRECTORY/android-owner-input.json
+            jq -n --arg core_commit "$expected_commit" --arg weather_commit "$weather_android_commit" \
+                --arg weather_root "$weather_android_source" --arg run_directory "$RUN_DIRECTORY" \
+                --arg output_directory "$output_directory" --arg source_sha256 "$SOURCE_SHA256" \
+                --arg mpquic_sha256 "$MPQUIC_SHA256" --arg package_sha256 "$PACKAGE_SHA256" \
+                --arg weather_archive_sha256 "$WEATHER_CLIENT_ARCHIVE_SHA256" \
+                --arg weather_manifest_sha256 "$WEATHER_CLIENT_MANIFEST_SHA256" \
+                '{schema:6,core_commit:$core_commit,weather_commit:$weather_commit,
+                  weather_root:$weather_root,run_directory:$run_directory,output_directory:$output_directory,
+                  source_sha256:$source_sha256,mpquic_sha256:$mpquic_sha256,package_sha256:$package_sha256,
+                  weather_archive_sha256:$weather_archive_sha256,weather_manifest_sha256:$weather_manifest_sha256}' \
+                >"$WEATHER_ANDROID_CONFIG"
+            # Waiting on an owned background child lets POSIX sh run its TERM
+            # trap immediately instead of deferring it until Python returns.
+            python3 -B "$HERE/weather-android-owner.py" run --config "$WEATHER_ANDROID_CONFIG" &
+            WEATHER_ANDROID_OWNER_PID=$!
+            wait "$WEATHER_ANDROID_OWNER_PID"
+            android_owner_status=$?
+            WEATHER_ANDROID_OWNER_PID=
+            (exit "$android_owner_status")
+        elif [ -n "$weather_client_bundle" ]; then
             ssh_bounded "$driver_time_bound" /home/vpci/guest-driver.sh "$expected_commit" "$SOURCE_SHA256" \
                 "$MPQUIC_SHA256" "$PACKAGE_SHA256" "$scenario" weather-client "$WEATHER_CLIENT_ARCHIVE_SHA256" "$WEATHER_CLIENT_MANIFEST_SHA256"
         elif [ -n "$browser_filter_bundle" ]; then
@@ -2651,6 +2795,9 @@ if ! scp_from_bounded "$retrieval_bound" /home/vpci/alpha-output.tar.gz "$RUN_DI
     exit "$GUEST_STATUS"
 fi
 tar -C "$output_directory" -xzf "$RUN_DIRECTORY/alpha-output.tar.gz"
+if [ "$weather_client_version" = 6 ] && [ "$GUEST_STATUS" -eq 0 ]; then
+    python3 -B "$HERE/weather-android-owner.py" join --config "$WEATHER_ANDROID_CONFIG" || GUEST_STATUS=1
+fi
 if grep -aERq -- '-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----' "$output_directory"; then
     printf '%s\n' 'refusing topology output containing private-key material' >&2
     exit 1
@@ -2658,9 +2805,11 @@ fi
 if [ "$scenario" != signal-backup ] && [ "$scenario" != signal-backup-fragments ]; then
     install -m 0600 "$CONSOLE" "$output_directory/vm-console.log"
 fi
-ssh_base sudo -n systemctl poweroff >/dev/null 2>&1 || true
-wait "$QEMU_PID" || true
-QEMU_PID=
+ssh_bounded 15s sudo -n systemctl poweroff >/dev/null 2>&1 || true
+if ! stop_qemu_child normal; then
+    [ "$GUEST_STATUS" -ne 0 ] || GUEST_STATUS=1
+    exit "$GUEST_STATUS"
+fi
 printf '%s  %s\n' "$IMAGE_SHA512" "$image_path" | sha512sum --check --strict -
 FINISHED=yes
 exit "$GUEST_STATUS"

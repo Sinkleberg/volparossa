@@ -33,6 +33,8 @@ const STREAM_REVISIONS = Object.freeze({ image: '949f208dbb48fcb734d4dfd33eb1933
   cloud: '7d10c4943062c5a0ae46fc57e293dc3e33db3ed2' });
 const CHALLENGE_REVISIONS = Object.freeze({ image: '43029ea8b780de2376a3b7325d24a8e1c657f08e',
   cloud: 'e0db1cacf7bec2df3925ee454ec6216587b8ddef' });
+const APPEND_REVISIONS = Object.freeze({ image: '10c46b9d6424929748e324fdd188a2f5ca77851a',
+  cloud: 'dda7a21818ece774445cf63d6e9a01fe0f2803b2' });
 const CHECKPOINTS = new Set(['enrolled', 'owner_locked', 'waiting_for_core', 'working', 'paused',
   'enrollment_expired', 'core_unavailable', 'core_turn_revoked', 'turn_completed', 'retry_pending']);
 const SQL = Buffer.from('-- VOLPAROSSA synthetic quiesced snapshot\nCREATE TABLE fixture (id integer);\nINSERT INTO fixture VALUES (1);\n');
@@ -77,14 +79,15 @@ const OUTCOME_PHASES = Object.freeze(['ready_write', 'local_request_read', 'loca
 const closedKeys = (value, keys) => value !== null && typeof value === 'object' && !Array.isArray(value)
   && equal(Object.keys(value).sort(), [...keys].sort());
 
-function agentOutcome(value, stage) {
+function agentOutcome(value, stage, version = 4, operation = null) {
   if (value === null) return null;
   check(['wire_receipt', 'agent_terminal', 'deadline'].includes(stage)
-    && closedKeys(value, ['status', 'detail'])
+    && closedKeys(value, ['status', 'detail', ...(version === 7 ? ['append_timing'] : [])])
     && ['observed', 'missing', 'pending', 'expired', 'query_failed', 'query_timeout'].includes(value.status), 'deposit_diagnostics');
   if (value.status !== 'observed') {
     check(value.detail === null, 'deposit_diagnostics');
-    return { status: value.status, detail: null };
+    if (version === 7) check(value.append_timing === null, 'deposit_diagnostics');
+    return { status: value.status, detail: null, ...(version === 7 ? { append_timing: null } : {}) };
   }
   const d = value.detail;
   check(closedKeys(d, ['phase', 'category', 'deadline_scope']) && OUTCOME_PHASES.includes(d.phase)
@@ -93,13 +96,25 @@ function agentOutcome(value, stage) {
     && (d.category === 'timeout') === (d.deadline_scope !== 'none')
     && (d.deadline_scope !== 'bridge' || OUTCOME_PHASES.slice(1, 15).includes(d.phase))
     && (d.deadline_scope !== 'remote_wire' || OUTCOME_PHASES.slice(6, 13).includes(d.phase)), 'deposit_diagnostics');
-  return { status: value.status, detail: { phase: d.phase, category: d.category, deadline_scope: d.deadline_scope } };
+  let timing = null;
+  if (version === 7 && value.append_timing !== null) {
+    const t = value.append_timing;
+    check(closedKeys(t, ['before_payload', 'in_payload_write_flush', 'in_receipt_read'])
+      && operation === 'append' && ['remote_payload_write', 'remote_receipt_read'].includes(d.phase)
+      && ELAPSED_BUCKETS.has(t.before_payload) && ELAPSED_BUCKETS.has(t.in_payload_write_flush)
+      && (d.phase === 'remote_payload_write' ? t.in_receipt_read === null : ELAPSED_BUCKETS.has(t.in_receipt_read)),
+    'deposit_diagnostics');
+    timing = { before_payload: t.before_payload, in_payload_write_flush: t.in_payload_write_flush,
+      in_receipt_read: t.in_receipt_read };
+  }
+  return { status: value.status, detail: { phase: d.phase, category: d.category, deadline_scope: d.deadline_scope },
+    ...(version === 7 ? { append_timing: timing } : {}) };
 }
 
 // This proof has exactly four fragments/two initial copies. The bridge already
 // checks general archive geometry; revalidate the narrower exported trial here.
 export function depositDiagnostic(value, version = 1) {
-  check([1, 2, 3, 4, 5, 6].includes(version), 'deposit_diagnostics');
+  check([1, 2, 3, 4, 5, 6, 7].includes(version), 'deposit_diagnostics');
   check(closedKeys(value, ['version', 'failures', 'omitted_failures']) && value.version === version
     && Array.isArray(value.failures) && value.failures.length <= 8 && value.omitted_failures === 0, 'deposit_diagnostics');
   const seen = new Set(), failures = value.failures.map(failure => {
@@ -151,7 +166,7 @@ export function depositDiagnostic(value, version = 1) {
     return { fragment_index: failure.fragment_index, copy_index: failure.copy_index,
       operation: failure.operation, stage: failure.stage, category: failure.category, agent_code: failure.agent_code,
       ...(version >= 2 ? { agent_detail: detail } : {}),
-      ...(version >= 4 ? { agent_outcome: agentOutcome(failure.agent_outcome, failure.stage) } : {}) };
+      ...(version >= 4 ? { agent_outcome: agentOutcome(failure.agent_outcome, failure.stage, version, failure.operation) } : {}) };
   });
   return { version, failures, omitted_failures: 0 };
 }
@@ -167,7 +182,7 @@ class PublishFailure extends Error {
 // copy its raw storage report, paths, exceptions or private journal to evidence.
 export function requirePublishComplete(value, app, operation, profileVersion = 1) {
   check(['image', 'cloud'].includes(app) && ['create', 'deposit'].includes(operation), 'arguments');
-  check([1, 2, 3, 4, 5, 6, 7].includes(profileVersion), 'arguments');
+  check([1, 2, 3, 4, 5, 6, 7, 8].includes(profileVersion), 'arguments');
   const report = value?.storage;
   const present = report !== null && typeof report === 'object' && !Array.isArray(report);
   let state = 'not_applicable', diagnostic = null;
@@ -538,7 +553,7 @@ async function guard(root, profileVersion) {
     && provision.kind === 'storage-consumer-maintenance-runtime-provision'
     && provision.success === true && provision.guest_only === true && provision.shared_adapter_verified === true,
   'provision');
-  const revisions = profileVersion === 7 ? CHALLENGE_REVISIONS : profileVersion === 6 ? STREAM_REVISIONS : profileVersion === 5 ? OUTCOME_REVISIONS
+  const revisions = profileVersion === 8 ? APPEND_REVISIONS : profileVersion === 7 ? CHALLENGE_REVISIONS : profileVersion === 6 ? STREAM_REVISIONS : profileVersion === 5 ? OUTCOME_REVISIONS
     : profileVersion === 4 ? TLS_REVISIONS : profileVersion === 3 ? DETAIL_REVISIONS
     : profileVersion === 2 ? DIAGNOSTIC_REVISIONS : REVISIONS;
   for (const [name, source] of Object.entries(provision.pins.sources)) {
@@ -567,11 +582,17 @@ async function receipt(app, name) {
     && r.cipher_file === (name === 'image' ? 'snapshot.pgp' : 'file.pgp'), 'cipher_receipt');
   return r;
 }
-async function config(app) {
+export function validateAppendProfile(value, profileVersion) {
+  check([1, 2, 3, 4, 5, 6, 7, 8].includes(profileVersion)
+    && (profileVersion === 8 ? value.appendDiagnosticsV7 === true : !Object.hasOwn(value, 'appendDiagnosticsV7')),
+  'configuration');
+}
+async function config(app, profileVersion) {
   const value = await json(join(app, 'storage.json'));
   check(value.version === 1 && value.stateDirectory === join(app, 'archive')
     && value.providers?.length === 3 && new Set(value.providers.map(p => p.key)).size === 3
     && value.providers.every(p => HASH.test(p.key)) && integer(value.deadlineMs, 100, 1800000), 'configuration');
+  validateAppendProfile(value, profileVersion);
   return value;
 }
 async function removeCipher(app, r) {
@@ -611,7 +632,7 @@ async function publish(ctx, m) {
   const result = {}, retained = { version: 1, provision_sha256: ctx.provision };
   for (const name of ['image', 'cloud']) {
     ctx.stage = `${name}_publish`;
-    const app = join(ctx.root, name), r = await receipt(app, name), c = await config(app);
+    const app = join(ctx.root, name), r = await receipt(app, name), c = await config(app, ctx.profileVersion);
     check(c.fragmentBytes === Math.ceil(r.cipher_bytes / 4), 'fragment_geometry');
     const core = await m.CoreStorage.open(join(app, 'storage.json'));
     try {
@@ -676,7 +697,7 @@ async function exercise(ctx, m) {
   try {
     for (const name of ['image', 'cloud']) {
       ctx.stage = `${name}_authority`;
-      const app = join(ctx.root, name), r = await receipt(app, name), c = await config(app);
+      const app = join(ctx.root, name), r = await receipt(app, name), c = await config(app, ctx.profileVersion);
       await unchanged(app, retained[name]);
       await removeCipher(app, r);
       if (name === 'image') {
@@ -756,7 +777,7 @@ async function finish(ctx, m) {
   check(retained.provision_sha256 === ctx.provision, 'retained_binding');
   for (const name of ['image', 'cloud']) {
     ctx.stage = `${name}_delete`;
-    const app = join(ctx.root, name), r = await receipt(app, name), c = await config(app);
+    const app = join(ctx.root, name), r = await receipt(app, name), c = await config(app, ctx.profileVersion);
     await unchanged(app, retained[name]);
     const core = await m.CoreStorage.open(join(app, 'storage.json'));
     try {
@@ -772,7 +793,7 @@ async function finish(ctx, m) {
 
 export async function main(argv) {
   let profileVersion = 1;
-  if (argv.length === 4 && argv[2] === '--profile-version' && ['2', '3', '4', '5', '6', '7'].includes(argv[3])) {
+  if (argv.length === 4 && argv[2] === '--profile-version' && ['2', '3', '4', '5', '6', '7', '8'].includes(argv[3])) {
     profileVersion = Number(argv[3]); argv = argv.slice(0, 2);
   }
   check(argv.length === 2 && PHASES.includes(argv[0]), 'arguments');

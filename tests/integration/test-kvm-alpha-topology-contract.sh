@@ -1255,6 +1255,7 @@ python3 -B "$HERE/test-wifi-link-smoke.py"
 sh -n "$HERE/uplink-link-smoke.sh"
 python3 -B "$HERE/test-uplink-link-smoke.py"
 python3 -B "$HERE/test-alpha-vm-diagnostics.py"
+python3 -B "$HERE/test-qemu-child-lifecycle.py"
 sh -n "$HERE/content-network-smoke.sh"
 grep -F 'content_network_run' "$GUEST" >/dev/null
 grep -F -- '-p volparossa-content --example content-acceptance-fixture' "$HOST" >/dev/null

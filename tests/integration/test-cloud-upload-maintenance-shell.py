@@ -78,7 +78,7 @@ private_cloud_upload_phase upload
             'private_cloud_upload_phase exercise', 'private_storage_fragments_usage cloud_upload_restored_usage',
             'private_cloud_upload_phase finish', 'private_storage_fragments_usage cloud_upload_deleted_usage',
             'CLOUD_UPLOAD_PROVIDER_CLEANUP_INCOMPLETE', 'private_cloud_upload_cleanup ||',
-            'evidence-v5 "$WORK" "$WORK/cloud-upload-evidence.json"']
+            'evidence-v6 "$WORK" "$WORK/cloud-upload-evidence.json"']
         offsets = [SOURCE.index(token) for token in tokens]
         self.assertEqual(offsets, sorted(offsets))
         self.assertIn('runtime-client/control/agent.sock', SOURCE)
@@ -101,11 +101,39 @@ private_cloud_upload_private upload /inert/u/a
         self.assertEqual(result.stdout, '123|policy|digest|--signal=TERM --kill-after=30s 2400s setpriv '
             '--reuid=2001 --regid=2001 --groups=2002 --inh-caps=-all --ambient-caps=-all '
             '--bounding-set=-all --no-new-privs -- python3 -B /inert/bin/cloud-upload-maintenance-smoke.py '
-            'upload /inert/u/a --profile-version 3 --network-version 2\n')
+            'upload /inert/u/a --profile-version 4 --network-version 2\n')
         self.assertNotIn('STORAGE_PROOF_ROUTE_SCOPE', SOURCE)
-        self.assertIn("jq -e '.schema_version == 7'", SOURCE)
-        self.assertIn('finalize-report-v5', SOURCE)
-        self.assertIn('check-report-v5', SOURCE)
+        self.assertIn("jq -e '.schema_version == 8'", SOURCE)
+        self.assertIn('finalize-report-v6', SOURCE)
+        self.assertIn('check-report-v6', SOURCE)
+        for old_selector in ('--profile-version 3', 'evidence-v5', 'finalize-report-v5',
+                'check-report-v5', 'export-names-v5'):
+            self.assertNotIn(old_selector, SOURCE)
+
+    def test_current_prior_profile_gate_rejects_legacy_before_any_owner_or_service_action(self):
+        for version in (1, 2, 3, 4, 5, 6, 7, True, 8):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / 'storage-consumer-evidence.json').write_text(
+                    json.dumps({'schema_version': version}))
+                (root / 'private-storage-fragments-consumer_deleted_usage.json').write_text(
+                    json.dumps([dict(reserved_bytes=0, committed_bytes=0, leases=0)] * 3))
+                script = '''. "$1"
+WORK=$2; source_directory=/inert; WORKER_UID=2001; WORKER_GID=2001
+private_storage_maintenance=yes; cloud_upload_maintenance=yes; consumer_private_cleanup_complete=yes
+fail() { echo "$1"; exit 1; }
+# Isolate the explicit version gate; the real evidence validator has its own
+# closed-schema tests. Stop at the first owner-creation operation without I/O.
+python3() { [ "$3" = check ]; }
+install() { echo REACHED_OWNER_BOUNDARY; exit 73; }
+private_cloud_upload_run
+'''
+                result = subprocess.run(['sh', '-eu', '-c', script, 'inert', str(SCRIPT), temporary],
+                    capture_output=True, text=True, timeout=5)
+                expected = (73, 'REACHED_OWNER_BOUNDARY') if type(version) is int and version == 8 else (
+                    1, 'CLOUD_UPLOAD_PRIOR_CONSUMER_PROFILE_INVALID')
+                self.assertEqual((result.returncode, result.stdout.strip()), expected, result.stderr)
+                self.assertFalse((root / 'u').exists())
 
     def test_network_phase_failure_cannot_proceed_as_application_success(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -195,11 +223,14 @@ private_cloud_upload_readback before
                 ('cloud-upload-evidence.json', 3, 1050000, True),
                 ('cloud-upload-evidence.json', 4, 1050000, True),
                 ('cloud-upload-evidence.json', 5, 1050000, True),
-                ('cloud-upload-evidence.json', 6, 1050000, False),
+                ('cloud-upload-evidence.json', 6, 1050000, True),
+                ('cloud-upload-evidence.json', 7, 1050000, False),
                 ('cloud-upload-evidence.json', 2, 1050000, False),
                 ('cloud-upload-evidence.json', 3, 2097153, False),
                 ('cloud-upload-evidence.json', 4, 2097153, False),
                 ('cloud-upload-evidence.json', 5, 2097153, False),
+                ('cloud-upload-evidence.json', 6, 2097153, False),
+                ('cloud-upload-prepare.json', 6, 1050000, False),
                 ('cloud-upload-prepare.json', 3, 1050000, False)):
             with tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary); output = root / 'export'; output.mkdir()
@@ -211,7 +242,7 @@ WORK=$2; output_directory=$WORK/export; export_name=$3
 OUTPUT_UID=$4; OUTPUT_GID=$5; source_directory=/inert
 expected_commit=inert; RUN_ID=inert; PHASE=inert; CLEANUP_COMPLETE=true
 REMAINING_OWNED_OBJECTS=0; OBSERVED_BLOCKER=NONE
-python3() { if [ "$3" = export-names-v5 ]; then printf '%s\n' "$export_name"; fi; }
+python3() { if [ "$3" = export-names-v6 ]; then printf '%s\n' "$export_name"; fi; }
 private_cloud_upload_finalize_report 0
 '''
                 result = subprocess.run(['sh', '-eu', '-c', script, 'inert', str(SCRIPT), temporary,
@@ -243,11 +274,12 @@ private_cloud_upload_cleanup
 
     def test_exact_static_proof_union_is_measured_before_runner_wiring(self):
         previous = runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))['EXPORT_NAMES']
-        self.assertEqual(len(set(previous)), 112)
+        self.assertEqual(len(set(previous)), 113)
+        self.assertIn('private-storage-provider-activity.json', previous)
         self.assertEqual(len(set(E['EXPORT_NAMES']) - set(previous)), 40)
-        self.assertEqual(len(set(E['EXPORT_NAMES']) | set(previous)), 152)
+        self.assertEqual(len(set(E['EXPORT_NAMES']) | set(previous)), 153)
         current = set(E['EXPORT_NAMES']) | set(E['CURRENT_EXPORT_NAMES'])
-        self.assertEqual(len(current | set(previous)), 167)
+        self.assertEqual(len(current | set(previous)), 168)
         # This deliberately excludes emergency driver/current-phase/duplicate
         # receipts; it is NOT a claim that all recovery files fit that cap.
         self.assertNotIn('guest-phase.txt', E['EXPORT_NAMES'])
@@ -270,6 +302,7 @@ private_cloud_upload_cleanup
         names = ('cloud-upload-maintenance-smoke.sh', 'cloud-upload-maintenance-smoke.py',
             'cloud-upload-maintenance.mjs', 'cloud-upload-maintenance-pins.json', 'cloud-upload-maintenance-pins-v2.json',
             'cloud-upload-maintenance-pins-v3.json',
+            'cloud-upload-maintenance-pins-v4.json',
             'cloud-upload-maintenance-evidence.py', 'cloud-upload-maintenance-provision.py')
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -302,6 +335,7 @@ private_cloud_upload_cleanup
         self.assertIn('cloud-upload-maintenance-smoke.sh"', guest)
         self.assertIn('cloud-upload-maintenance-pins.json"', guest)
         self.assertIn('"$WORK/bin/cloud-upload-maintenance-pins-v3.json"', guest)
+        self.assertIn('"$WORK/bin/cloud-upload-maintenance-pins-v4.json"', guest)
 
 
 if __name__ == '__main__':

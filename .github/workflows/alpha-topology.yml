@@ -177,6 +177,7 @@ jobs:
           python3 -B tests/integration/test-storage-consumer-maintenance-shell.py
           python3 -B tests/integration/test-storage-consumer-maintenance-provision.py
           python3 -B tests/integration/test-storage-consumer-maintenance-smoke.py
+          python3 -B tests/integration/test-storage-provider-activity-sampler.py
           python3 -B tests/integration/test-storage-consumer-maintenance-evidence.py
           sh -n tests/integration/cloud-upload-maintenance-smoke.sh
           python3 -B tests/integration/test-cloud-upload-maintenance-provision.py
@@ -1230,9 +1231,9 @@ jobs:
           set -euo pipefail
           test "$TOPOLOGY_EXIT_CODE" = 0
           report="$VOLPAROSSA_ALPHA_OUTPUT/cloud-upload-maintenance-smoke.json"
-          python3 -B tests/integration/cloud-upload-maintenance-evidence.py check-report-v5 "$report" "$GITHUB_SHA"
+          python3 -B tests/integration/cloud-upload-maintenance-evidence.py check-report-v6 "$report" "$GITHUB_SHA"
           original="$VOLPAROSSA_ALPHA_OUTPUT/private-storage-maintenance-smoke.json"
-          python3 -B tests/integration/private-storage-maintenance-smoke.py report-consumer-v7 "$original" "$GITHUB_SHA"
+          python3 -B tests/integration/private-storage-maintenance-smoke.py report-consumer-v8 "$original" "$GITHUB_SHA"
           test "$(sha256sum "$VOLPAROSSA_ALPHA_OUTPUT/host-state-before.json" | cut -d" " -f1)" = \
             "$(jq -r '.host_state.before_sha256' "$original")"
           test "$(sha256sum "$VOLPAROSSA_ALPHA_OUTPUT/host-state-after.json" | cut -d" " -f1)" = \
@@ -1246,7 +1247,7 @@ jobs:
           set -euo pipefail
           test "$TOPOLOGY_EXIT_CODE" = 0
           report="$VOLPAROSSA_ALPHA_OUTPUT/private-storage-maintenance-smoke.json"
-          python3 -B tests/integration/private-storage-maintenance-smoke.py report-consumer-v7 "$report" "$GITHUB_SHA"
+          python3 -B tests/integration/private-storage-maintenance-smoke.py report-consumer-v8 "$report" "$GITHUB_SHA"
           test "$(sha256sum "$VOLPAROSSA_ALPHA_OUTPUT/host-state-before.json" | cut -d" " -f1)" = \
             "$(jq -r '.host_state.before_sha256' "$report")"
           test "$(sha256sum "$VOLPAROSSA_ALPHA_OUTPUT/host-state-after.json" | cut -d" " -f1)" = \

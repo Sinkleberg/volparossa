@@ -18654,8 +18654,9 @@ mod tests {
         fixture: &NativePermitForwardFixture,
         relay: &Identity,
         sequence: u64,
+        network_discriminator: u8,
     ) -> (Vec<u8>, NativeProbePathScope) {
-        let encoded = service_advertisement(
+        let encoded = service_advertisement_with_capabilities(
             relay,
             RolesConfig {
                 client: true,
@@ -18667,6 +18668,10 @@ mod tests {
             generate_nonce(),
             fixture.now_ms,
             &fixture.fixture.directory,
+            PreselectionTestCapabilities {
+                network_discriminator: Some(network_discriminator),
+                ..PreselectionTestCapabilities::default()
+            },
         )
         .signed_envelope()
         .to_vec();
@@ -18789,7 +18794,7 @@ mod tests {
         };
         let relay = Identity::generate();
         let peer = *relay.peer_id();
-        let (encoded, scope) = exit_data_relay_cache_input(&fixture, &relay, 31);
+        let (encoded, scope) = exit_data_relay_cache_input(&fixture, &relay, 31, 1);
         fixture
             .fixture
             .runtime
@@ -18828,7 +18833,7 @@ mod tests {
         let relay = Identity::generate();
         let peer = *relay.peer_id();
         let mut cache = HashMap::new();
-        let (encoded, scope) = exit_data_relay_cache_input(&fixture, &relay, 31);
+        let (encoded, scope) = exit_data_relay_cache_input(&fixture, &relay, 31, 1);
         let admit =
             |cache: &mut HashMap<_, _>, encoded: &[u8], scope: &NativeProbePathScope, peer| {
                 cache_exit_data_relay_capability(
@@ -18842,16 +18847,30 @@ mod tests {
                 )
             };
         let first = admit(&mut cache, &encoded, &scope, peer).expect("first peer");
+        // A fresh envelope nonce does not make an identical payload contradictory.
+        let (same_encoded, same_scope) = exit_data_relay_cache_input(&fixture, &relay, 31, 1);
+        assert_eq!(same_scope.data_relay, scope.data_relay);
+        assert_eq!(
+            admit(&mut cache, &same_encoded, &same_scope, peer),
+            Some(first.clone())
+        );
         let other = Identity::generate();
-        let (other_encoded, other_scope) = exit_data_relay_cache_input(&fixture, &other, 31);
+        let (other_encoded, other_scope) = exit_data_relay_cache_input(&fixture, &other, 31, 2);
         assert!(admit(&mut cache, &other_encoded, &other_scope, *other.peer_id()).is_none());
         assert_eq!(cache.len(), 1);
         assert!(admit(&mut cache, &encoded, &scope, *other.peer_id()).is_none());
-        let (conflict_encoded, conflict_scope) = exit_data_relay_cache_input(&fixture, &relay, 31);
+        let (conflict_encoded, conflict_scope) =
+            exit_data_relay_cache_input(&fixture, &relay, 31, 2);
+        let original_actor = scope.data_relay.as_ref().unwrap();
+        let conflict_actor = conflict_scope.data_relay.as_ref().unwrap();
+        assert_ne!(
+            original_actor.advertisement_payload_hash,
+            conflict_actor.advertisement_payload_hash
+        );
         assert!(admit(&mut cache, &conflict_encoded, &conflict_scope, peer).is_none());
         assert_eq!(cache.get(&peer), Some(&first));
 
-        let (new_encoded, new_scope) = exit_data_relay_cache_input(&fixture, &relay, 32);
+        let (new_encoded, new_scope) = exit_data_relay_cache_input(&fixture, &relay, 32, 1);
         let latest = admit(&mut cache, &new_encoded, &new_scope, peer).expect("same-peer refresh");
         assert_eq!(cache.len(), 1);
         assert_eq!(cache.get(&peer), Some(&latest));

@@ -3,6 +3,7 @@
 mod begin_observation;
 mod bridge_observation;
 mod diagnostic;
+mod provider_activity;
 
 use ed25519_dalek::Signer as _;
 use std::{

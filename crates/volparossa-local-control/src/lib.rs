@@ -21,6 +21,7 @@ mod mailbox;
 mod private_storage;
 mod private_storage_detail;
 mod private_storage_outcome;
+mod provider_activity;
 mod quote;
 pub use content::{
     ContentCacheLimits, ContentExportRequest, ContentFetchNameRequest, ContentFetchRequest,
@@ -45,8 +46,13 @@ pub use private_storage_detail::{
     PrivateStorageStreamFailure, PrivateStorageTlsFailure,
 };
 pub use private_storage_outcome::{
-    PrivateStorageOutcome, PrivateStorageOutcomeCategory, PrivateStorageOutcomeDeadline,
-    PrivateStorageOutcomePhase, PrivateStorageOutcomeRequest, PrivateStorageOutcomeStatus,
+    PrivateStorageAppendTiming, PrivateStorageOutcome, PrivateStorageOutcomeCategory,
+    PrivateStorageOutcomeDeadline, PrivateStorageOutcomePhase, PrivateStorageOutcomeRequest,
+    PrivateStorageOutcomeStatus,
+};
+pub use provider_activity::{
+    ContentProviderActivity, MAX_PROVIDER_SESSIONS, ProviderActivityElapsedBucket,
+    ProviderActivityGroup, ProviderActivityStage, ProviderActivityState,
 };
 pub use quote::{QuoteAttachRequest, QuoteReady, QuoteRemoteRequest};
 
@@ -77,7 +83,7 @@ pub struct ControlRequest {
     /// One allowlisted operation.
     #[prost(
         oneof = "control_request::Operation",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48"
     )]
     pub operation: Option<control_request::Operation>,
 }
@@ -216,6 +222,9 @@ pub mod control_request {
         /// Consume this Unix caller's bounded observation after a failed stream handoff.
         #[prost(message, tag = "47")]
         PrivateStorageOutcome(PrivateStorageOutcomeRequest),
+        /// Read only finite aggregate provider stages on the protected local socket.
+        #[prost(message, tag = "48")]
+        ContentProviderActivity(Empty),
     }
 }
 
@@ -304,7 +313,7 @@ pub struct ControlResponse {
     /// Typed response body.
     #[prost(
         oneof = "control_response::Payload",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36"
     )]
     pub payload: Option<control_response::Payload>,
 }
@@ -315,11 +324,12 @@ pub mod control_response {
 
     use super::{
         BrowserGatewayGranted, ComputeDiscovered, ComputeReady, ComputeTranscript,
-        ContentCustodyDiscovered, ContentCustodyReady, ContentPolicyReceipt, ContentReceipt,
-        ContentTransferReady, Empty, HttpsContentTransferReady, LogList, MailboxReady,
-        NamedContentTransferReady, PathList, PeerList, PolicySnapshot, PrivateStorageAdmission,
-        PrivateStorageGrant, PrivateStorageMaintenanceReady, PrivateStorageOutcome,
-        PrivateStorageReady, QuoteReady, RoleSnapshot, SessionList, StatusSnapshot,
+        ContentCustodyDiscovered, ContentCustodyReady, ContentPolicyReceipt,
+        ContentProviderActivity, ContentReceipt, ContentTransferReady, Empty,
+        HttpsContentTransferReady, LogList, MailboxReady, NamedContentTransferReady, PathList,
+        PeerList, PolicySnapshot, PrivateStorageAdmission, PrivateStorageGrant,
+        PrivateStorageMaintenanceReady, PrivateStorageOutcome, PrivateStorageReady, QuoteReady,
+        RoleSnapshot, SessionList, StatusSnapshot,
     };
 
     /// Exactly one response body.
@@ -404,6 +414,9 @@ pub mod control_response {
         /// Local failure observation only; not a signed provider custody receipt.
         #[prost(message, tag = "35")]
         PrivateStorageOutcome(PrivateStorageOutcome),
+        /// Local aggregate activity, never storage acceptance or causal attribution.
+        #[prost(message, tag = "36")]
+        ContentProviderActivity(ContentProviderActivity),
     }
 }
 
@@ -848,6 +861,7 @@ fn validate_request(request: &ControlRequest) -> Result<(), ControlProtocolError
         | control_request::Operation::Roles(_)
         | control_request::Operation::ContentStop(_)
         | control_request::Operation::QuoteDetach(_)
+        | control_request::Operation::ContentProviderActivity(_)
         | control_request::Operation::ContentStatus(_) => {}
     }
     Ok(())
@@ -864,6 +878,9 @@ fn validate_response(response: &ControlResponse) -> Result<(), ControlProtocolEr
         .as_ref()
         .ok_or(ControlProtocolError::Invalid("missing response payload"))?;
     match payload {
+        control_response::Payload::ContentProviderActivity(snapshot) => {
+            validate_provider_activity_response(response, snapshot)?;
+        }
         control_response::Payload::Peers(list) => {
             list_len(list.peers.len())?;
             for peer in &list.peers {
@@ -946,6 +963,21 @@ fn validate_response(response: &ControlResponse) -> Result<(), ControlProtocolEr
         control_response::Payload::Ack(_)
         | control_response::Payload::Status(_)
         | control_response::Payload::Roles(_) => {}
+    }
+    Ok(())
+}
+
+fn validate_provider_activity_response(
+    response: &ControlResponse,
+    snapshot: &ContentProviderActivity,
+) -> Result<(), ControlProtocolError> {
+    snapshot.validate()?;
+    if response.result != ControlResult::Ok as i32
+        || response.diagnostic_code != "CONTENT_PROVIDER_ACTIVITY"
+    {
+        return Err(ControlProtocolError::Invalid(
+            "content provider activity envelope",
+        ));
     }
     Ok(())
 }

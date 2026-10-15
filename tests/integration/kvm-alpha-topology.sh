@@ -836,8 +836,8 @@ while [ "$#" -gt 0 ]; do
                 private-storage-replicas) scenario=content-custody; private_storage_replicas=yes; wifi_link=no; uplink_link=no ;;
                 private-storage-handoff) scenario=content-custody; private_storage_handoff=yes; wifi_link=no; uplink_link=no ;;
                 private-storage-fragments) scenario=content-custody; private_storage_fragments=yes; wifi_link=no; uplink_link=no ;;
-                private-storage-maintenance) scenario=content-custody; private_storage_fragments=yes; private_storage_maintenance=yes; wifi_link=no; uplink_link=no ;;
-                cloud-upload-maintenance) scenario=content-custody; private_storage_fragments=yes; private_storage_maintenance=yes; cloud_upload_maintenance=yes; wifi_link=no; uplink_link=no ;;
+                private-storage-maintenance) scenario=content-custody; private_storage_fragments=yes; private_storage_maintenance=yes; storage_consumer_profile_version=8; wifi_link=no; uplink_link=no ;;
+                cloud-upload-maintenance) scenario=content-custody; private_storage_fragments=yes; private_storage_maintenance=yes; cloud_upload_maintenance=yes; storage_consumer_profile_version=8; wifi_link=no; uplink_link=no ;;
                 image-snapshot) scenario=content-custody; private_storage_fragments=yes; image_snapshot=yes; wifi_link=no; uplink_link=no ;;
                 cloud-private-file) scenario=content-custody; private_storage_fragments=yes; cloud_private_file=yes; wifi_link=no; uplink_link=no ;;
                 cloud-private-upload) scenario=content-custody; private_storage_fragments=yes; cloud_private_upload=yes; wifi_link=no; uplink_link=no ;;
@@ -1182,11 +1182,12 @@ if [ "$private_storage_fragments" = yes ]; then
 fi
 if [ "$private_storage_maintenance" = yes ]; then
     for maintenance_fixture in private-storage-maintenance-smoke.sh private-storage-maintenance-smoke.py \
-        private-storage-log-sampler.py content-provider-readiness.py \
+        private-storage-log-sampler.py content-provider-readiness.py storage-provider-activity-sampler.py \
         storage-consumer-maintenance-smoke.sh storage-consumer-maintenance-smoke.py \
         storage-consumer-maintenance.mjs storage-consumer-maintenance-pins.json storage-consumer-maintenance-pins-v2.json \
         storage-consumer-maintenance-pins-v3.json storage-consumer-maintenance-pins-v4.json storage-consumer-maintenance-pins-v5.json \
         storage-consumer-maintenance-pins-v6.json storage-consumer-maintenance-pins-v7.json \
+        storage-consumer-maintenance-pins-v8.json \
         storage-consumer-control-underlay.sh storage-consumer-control-underlay.py \
         storage-consumer-network.sh storage-consumer-network.py storage-consumer-route-sampler.py \
         storage-consumer-maintenance-evidence.py storage-consumer-maintenance-provision.py \
@@ -1198,7 +1199,7 @@ fi
 if [ "$cloud_upload_maintenance" = yes ]; then
     for upload_fixture in cloud-upload-maintenance-smoke.sh cloud-upload-maintenance-smoke.py \
         cloud-upload-maintenance.mjs cloud-upload-maintenance-pins.json cloud-upload-maintenance-pins-v2.json \
-        cloud-upload-maintenance-pins-v3.json \
+        cloud-upload-maintenance-pins-v3.json cloud-upload-maintenance-pins-v4.json \
         cloud-upload-maintenance-evidence.py cloud-upload-maintenance-provision.py; do
         [ -f "$source_directory/tests/integration/$upload_fixture" ] \
             && [ ! -L "$source_directory/tests/integration/$upload_fixture" ] || exit 69
@@ -3088,6 +3089,7 @@ if [ "$private_storage_fragments" = yes ]; then
 fi
 if [ "$private_storage_maintenance" = yes ]; then
     for maintenance_script in private-storage-maintenance-smoke.py private-storage-log-sampler.py content-provider-readiness.py \
+        storage-provider-activity-sampler.py \
         storage-consumer-maintenance-smoke.py storage-consumer-maintenance.mjs \
         storage-consumer-maintenance-evidence.py storage-consumer-maintenance-provision.py \
         storage-consumer-control-underlay.py storage-consumer-network.py storage-consumer-route-sampler.py \
@@ -3108,6 +3110,8 @@ if [ "$private_storage_maintenance" = yes ]; then
         "$WORK/bin/storage-consumer-maintenance-pins-v6.json"
     install -o root -g root -m 0444 "$source_directory/tests/integration/storage-consumer-maintenance-pins-v7.json" \
         "$WORK/bin/storage-consumer-maintenance-pins-v7.json"
+    install -o root -g root -m 0444 "$source_directory/tests/integration/storage-consumer-maintenance-pins-v8.json" \
+        "$WORK/bin/storage-consumer-maintenance-pins-v8.json"
     install -o root -g root -m 0444 "$source_directory/tests/integration/agent-private-task-code-pins.json" \
         "$WORK/bin/agent-private-task-code-pins.json"
 fi
@@ -3122,6 +3126,8 @@ if [ "$cloud_upload_maintenance" = yes ]; then
         "$WORK/bin/cloud-upload-maintenance-pins-v2.json"
     install -o root -g root -m 0444 "$source_directory/tests/integration/cloud-upload-maintenance-pins-v3.json" \
         "$WORK/bin/cloud-upload-maintenance-pins-v3.json"
+    install -o root -g root -m 0444 "$source_directory/tests/integration/cloud-upload-maintenance-pins-v4.json" \
+        "$WORK/bin/cloud-upload-maintenance-pins-v4.json"
 fi
 if [ "$image_snapshot" = yes ] || [ "$cloud_private_file" = yes ] || [ "$cloud_private_upload" = yes ]; then
     install -o root -g root -m 0555 "$source_directory/tests/integration/image-snapshot-smoke.py" \
@@ -4185,6 +4191,17 @@ launch_agent() {
             relay5) set -- "--property=InaccessiblePaths=$WORK/state-client $WORK/state-relay3 $WORK/state-relay4" ;;
         esac
     fi
+    agent_write_paths=$WORK/state-$node
+    if [ "$scenario" = content-provider ] && [ "$node" = client ] && [ -n "$weather_client_bundle" ] \
+        && [ "${WEATHER_AGENT_PROFILE_VERSION:-}" = 6 ]; then
+        # Only this app's public cache gets an additional writable mount. Keep
+        # agent state private and all other fixture/service paths read-only.
+        [ -n "${WEATHER_ANDROID_CACHE_IDENTITY:-}" ] \
+            && [ -d "$WORK/weather-android-cache" ] && [ ! -L "$WORK/weather-android-cache" ] \
+            && [ "$(stat -Lc '%d:%i:%u:%g:%a' "$WORK/weather-android-cache")" = "$WEATHER_ANDROID_CACHE_IDENTITY" ] \
+            || fail WEATHER_ANDROID_CACHE_PARENT_CHANGED
+        agent_write_paths="$agent_write_paths $WORK/weather-android-cache"
+    fi
     systemd-run --no-block --unit="$agent_unit" --slice=system.slice \
         --description="VOLPAROSSA disposable alpha agent $node" \
         --service-type=exec \
@@ -4219,7 +4236,7 @@ launch_agent() {
         --property=SystemCallErrorNumber=EPERM \
         --property='RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK' \
         --property="BindPaths=$WORK/runtime-$node:/run/volparossa" \
-        --property="ReadWritePaths=$WORK/state-$node" \
+        --property="ReadWritePaths=$agent_write_paths" \
         --property="Environment=VOLPAROSSA_CONFIG=$WORK/config-$node.yaml" \
         --property="Environment=VOLPAROSSA_STATE_DIRECTORY=$WORK/state-$node" \
         --property=Environment=VOLPAROSSA_CONTROL_SOCKET=/run/volparossa/control/agent.sock \
@@ -4242,6 +4259,9 @@ if [ "$agent_jobs_peer_recovery" = yes ]; then
     agent_jobs_peer_recovery_filter || fail PEER_RECOVERY_CONTROL_FILTER_FAILED
 fi
 if [ "$wifi_link" = yes ]; then wifi_link_observe_start; fi
+if [ -n "$weather_client_bundle" ]; then
+    weather_client_agent_cache_prepare || fail WEATHER_CLIENT_AGENT_CACHE_PREPARE_FAILED
+fi
 launch_agent client "$CLIENT"
 if [ "$wifi_link" != yes ]; then
     launch_agent bootstrap1 "$B1"
@@ -6381,6 +6401,8 @@ start_privacy_observers() {
             [ "$scenario" = content-https ] || return 1 ;;
         weather-products-delivery-weather-privacy|weather-products-delivery-air-quality-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;
+        weather-android-delivery-privacy)
+            [ "$scenario" = content-provider ] && [ "${weather_profile_version:-}" = 6 ] || return 1 ;;
         content-provider-late-recovery-privacy)
             [ "$scenario" = content-provider ] || return 1 ;;
         content-provider-pressure-privacy)
