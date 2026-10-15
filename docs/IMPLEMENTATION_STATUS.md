@@ -21,8 +21,8 @@ Last updated: 2026-10-15
 The shared cache and actual Weather delivery into Drizz.li and Overmorrow are
 integrated. The installed Android refresh/background-expiry trial with synthetic
 products is also integrated. Shared private storage maintenance and protected
-compute remain the next core dependencies; further Weather expansion does not automatically take
-precedence over core blockers. Choose slices by shared dependencies,
+compute remain the next core dependencies; further Weather expansion does not
+automatically take precedence over core blockers. Choose slices by shared dependencies,
 architectural uncertainty and a demonstrable end-to-end result, not by application
 order or change count. Develop core functions with their actual consumers.
 
@@ -31,25 +31,25 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa`, `volparossa-weather` | Complete actual core delivery through Android's initial, refresh and background/resume lifecycle; then verify expiry behavior with real products. | The installed-app lifecycle, including expiry, passes with synthetic products (Weather PR19). The latest completed joined trial stops during refresh observation; see the 15 October evidence below. Weather PR24 corrects the observation window within the unchanged total deadline. Core PR248 carries the pinned follow-up; actual joined acceptance and expiry, physical devices and iOS remain open. |
+| Native Overmorrow — `volparossa`, `volparossa-weather` | Complete actual core delivery through Android's initial, refresh and background/resume lifecycle; then verify expiry behavior with real products. | The installed-app lifecycle, including expiry, passes with synthetic products (Weather PR19). After Weather PR24's bounded observation correction, the actual installed-app trial returns success, but the guest driver exits unsuccessfully during finalization. Core PR248 adds closed diagnostics for that later failure; joined acceptance and actual expiry, physical devices and iOS remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized maintenance after restart, then publish, repair and restore through actual consumers after provider replacement. | The base lifecycle passes, but the latest completed trial stops during Cloud FINALIZE's signed-challenge exchange, before local READY. PR232 adds receiving-side activity diagnostics; these are not a demonstrated fix. Consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | One native model-generated read completes, but six execution failures leave the fixture unchanged. Core PR212 and Code PR11 carry tested closed task diagnostics and an exact follow-up pin. The model, task and limits are unchanged. This development executor is not confidential peer execution or completion of the shared-brain requirement. |
+| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | One native model-generated read completes, but six subsequent requests are refused by memory admission. Core PR212 and Code PR11 now identify that refusal; safe release of unused model-file cache after confirmed worker cleanup is the next candidate, not a proven cause or fix. Model, task and memory limits remain unchanged. This development executor is not confidential peer execution or completion of the shared-brain requirement. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify quote exchange on the production route, then execute a private task on another node with verified protection. | PR246 and PR247 are merged. The quote-only slice passes appraisal, guest, agent/control/CLI and quote software checks. Production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is still unavailable; local coding and storage integration continue without substituting for this requirement. |
 
 ### Latest completed integration evidence — 15 October
 
-- **Android delivery remains incomplete.** [Trial `38674805209`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38674805209)
-  on core `89c91156` / Weather `0a31bf18` reaches the actual refresh phase, then
-  records `product_count_wait` / `observation_deadline` before cleanup. The final
-  tunnel count is four exchanges, not the required six; that final count does
-  not establish which responses completed before the observation deadline.
-  Owner/VM cleanup and exact KVM ACL restoration pass. No joined acceptance or
-  expiry proof is produced. Original artifact ZIP SHA-256:
-  `38835fde753b2dfb12191532ea749e25ad8cd79fbabde23ea5cef82c88c134a3`.
-  Weather PR24 gives each live observation the same bounded window within the
-  original 180-second total. Its tests pass, but this does not establish the
-  unique cause of the failed trial or successful Android delivery.
+- **Android reaches finalization, but joined delivery remains incomplete.**
+  [Trial `38679477312`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38679477312)
+  on core `5a6c566b` / Weather `3b90442a` records a successful actual installed-app
+  trial and zero native/tunnel exit statuses. The owner then rejects driver
+  exit status 1 at `driver-join`; no budget expiry or output overflow is recorded.
+  That stop does not identify the guest-side cause or prove guest API
+  finalization. Owner/VM cleanup and exact KVM ACL restoration pass. Joined
+  acceptance and actual expiry remain unproven. Original artifact ZIP SHA-256:
+  `b446f2343e13491750dc92197e3e469cdcca7e3f35ba79b60acd9fc056273b14`.
+  PR248 adds a bounded diagnostic projection for this exact later failure,
+  without granting success authority or expanding execution budgets.
 - **Storage consumer maintenance remains incomplete.** [Trial `38667836184`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38667836184)
   on `9127a8fc` passes the base core-loss/restart, pause/resume, replacement,
   two-restore and delete lifecycle. Cloud publication then fails before READY
@@ -61,24 +61,39 @@ The immediate milestones build on the retained candidates and evidence below:
   artifact ZIP SHA-256:
   `ba75d48332b5232ccdd5277d7090852b1d7202e14f5f38bd1ff8afe92f97117a`.
   PR232's bounded receiving-side snapshots address that missing observation,
-  without changing storage authority, timeouts or acceptance.
-- **OpenCode reaches one real read, not a coding loop.** [Trial `38675278393`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38675278393)
-  on Code `6aa6291a` / core `9d044921` passes native build, conversion and
+  without changing storage authority, timeouts or acceptance. On `db50e01f`,
+  [Quality `38680114504`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38680114504)
+  passes all eighteen new CLI, agent, wire and local-control tests. The exact-source
+  [follow-up `38682910244`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38682910244)
+  must establish any change in the actual consumer outcome.
+- **OpenCode reaches one real read, then refuses memory admission.**
+  [Trial `38681471469`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38681471469)
+  on Code `e3926734` / core `5607f117` passes native build, conversion and
   provisioning. One of seven submitted requests produces a function call and
-  the actual OpenCode runtime completes its read. Six requests fail execution;
-  their cause is not identified. The task ends after 588,147 ms without an edit,
-  test or changed fixture. Reported runtime, project, VM and owned-runner cleanup
-  complete. Original artifact ZIP SHA-256:
-  `487bee78bb4857c6a5b48df7d69df21ceeb608ded9d9264122668480f62afa74`.
-  [Core Quality `38678859785`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38678859785)
-  verifies three new task-diagnostic Rust cases and thirteen output-constraint
-  cases on `5607f117`; Code `e3926734` pins that source. This adds closed failure
-  information, not a presumed fix, larger budget or private peer execution.
+  the actual OpenCode runtime completes its read. The six subsequent task events
+  report `compute_model_memory_headroom`. This identifies an admission refusal,
+  not whether host memory, a cgroup ancestor or unavailable measurements caused
+  it. The reported core memory peak is 5,849,735,168 bytes under an
+  11,811,160,064-byte limit, with zero OOM kills. File-cache occupancy at admission
+  is not measured. The task ends after 564,911 ms without an edit, test or changed
+  fixture. Reported runtime, project, VM and owned-runner cleanup complete.
+  Original artifact ZIP SHA-256:
+  `29f93f53de70c6ce7dbbac261916289010743cd3b4cb3fae6dce6a7493561810`.
+  The next candidate targets unused model cache after confirmed worker cleanup,
+  while preserving the existing admission guard and memory limits.
 
 See the follow-up results in [Storage PR232](https://github.com/VOLPAROSSA/volparossa/pull/232),
 [Android PR248](https://github.com/VOLPAROSSA/volparossa/pull/248) and
 [Code PR11](https://github.com/VOLPAROSSA/volparossa-code/pull/11).
 Starting a follow-up does not supersede the last completed outcome above.
+
+Earlier 15 October checkpoints remain retained: Android
+[`38674805209`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38674805209)
+stopped at refresh observation (`observation_deadline`); Code
+[`38675278393`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38675278393)
+completed one read without identifying the six execution failures. Weather PR24
+and core task diagnostics made the later observations above possible; they do
+not by themselves establish either complete use case.
 
 ### Earlier integration evidence — 14 October
 
