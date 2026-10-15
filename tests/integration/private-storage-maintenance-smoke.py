@@ -2106,7 +2106,7 @@ def main(args):
         except BaseException:
             names.remove(PROVIDER_EVENTS_NAME)
         try:
-            activity = runpy.run_path(str(HERE / 'storage-provider-activity-sampler.py'))
+            activity = runpy.run_path(str(Path(__file__).with_name('storage-provider-activity-sampler.py')))
             path = Path(args[1]) / activity['NAME']
             value = activity['decode'](closed_diagnostic_text(path, activity['MAX_BYTES']).encode(), activity['MAX_BYTES'])
             activity['validate'](value)

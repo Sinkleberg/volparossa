@@ -190,6 +190,45 @@ class OwnedQueries(unittest.TestCase):
 
 
 class Wiring(unittest.TestCase):
+    def export_names(self, work):
+        result = subprocess.run([sys.executable, '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
+            'export-names', str(work)], capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, b'')
+        self.assertNotIn(b'PRIVATE_EXPORT_CANARY', result.stdout)
+        return set(result.stdout.decode('ascii').splitlines())
+
+    def expected_exports(self, activity):
+        maintenance = runpy.run_path(str(HERE / 'private-storage-maintenance-smoke.py'))
+        names = set(maintenance['EXPORT_NAMES']) - {maintenance['PROVIDER_EVENTS_NAME']}
+        return names if activity else names - {M['NAME']}
+
+    def test_actual_exporter_includes_valid_optional_activity_in_each_phase(self):
+        for phase in M['PHASES']:
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as temp:
+                work = Path(temp)
+                samples = M['Samples'](phase); samples.rounds = 1
+                samples.add('a', 'observed', snapshot(), True)
+                M['publish'](work, phase, samples.report())
+                work.joinpath(M['private_name'](phase)).rename(work / M['NAME'])
+                self.assertEqual(self.export_names(work), self.expected_exports(True))
+
+    def test_actual_exporter_rejects_malformed_and_authority_changed_activity(self):
+        invalid = M['Samples']('publish').report()
+        invalid['acceptance_evidence'] = True
+        for raw in (b'PRIVATE_EXPORT_CANARY', M['encoded'](invalid)):
+            with self.subTest(raw=raw[:32]), tempfile.TemporaryDirectory() as temp:
+                work = Path(temp)
+                M['publish'](work, 'publish', M['Samples']('publish').report())
+                path = work / M['NAME']
+                work.joinpath(M['private_name']('publish')).rename(path)
+                path.write_bytes(raw)
+                self.assertEqual(self.export_names(work), self.expected_exports(False))
+
+    def test_actual_exporter_omits_absent_optional_activity_without_losing_other_names(self):
+        with tempfile.TemporaryDirectory() as temp:
+            self.assertEqual(self.export_names(Path(temp)), self.expected_exports(False))
+
     def test_phase_projects_before_failure_and_never_overrides_application_result(self):
         script = '''
 set -eu
