@@ -97,7 +97,7 @@ impl Fixture {
         let (mut owner, mut agent) = duplex(4096);
         let (challenge_sender, challenge_receiver) = oneshot::channel();
         let receipt_before_close = Barrier::new(3);
-        let (received, bridged, (), ()) = timeout(Duration::from_secs(10), async {
+        let (received, bridged, (), ()) = Box::pin(timeout(Duration::from_secs(10), async {
             tokio::join!(
                 async {
                     // Only fixture coordination carries the original challenge here;
@@ -156,7 +156,7 @@ impl Fixture {
                     forward(&mut observed, &mut forwarded).await;
                 },
             )
-        })
+        }))
         .await
         .expect("signed storage receipt must arrive before shutdown, within 10 seconds");
         assert_eq!(received.receipt.encode(), bridged.receipt.encode());

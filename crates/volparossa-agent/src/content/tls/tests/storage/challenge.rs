@@ -241,7 +241,9 @@ fn start(
     control: &Arc<Control>,
     target: StorageTarget,
 ) -> JoinSet<Completed> {
-    let (client_io, exit_io) = duplex(TRANSPORT_BYTES);
+    // Keep the original fixture capacity around the outer TLS tunnel. Only the
+    // provider transport below is the sixteen-byte reverse-backpressure subject.
+    let (client_io, exit_io) = duplex(4096);
     let (forwarded, provider_io) = duplex(TRANSPORT_BYTES);
     let client_io = Endpoint::new(client_io, control, Role::Client);
     let exit_io = Endpoint::new(exit_io, control, Role::Exit);
@@ -313,7 +315,10 @@ async fn prepared() -> (Arc<Fixture>, StorageTarget) {
             bytes,
         )
         .await;
-    assert_eq!(appended.receipt.result().stored_bytes, target.ciphertext_bytes);
+    assert_eq!(
+        appended.receipt.result().stored_bytes,
+        target.ciphertext_bytes
+    );
     (fixture, target)
 }
 
@@ -334,6 +339,16 @@ async fn exchange(cancel: bool) -> Vec<Result<Completed, JoinError>> {
     let blocked = timeout_at(deadline, control.blocked_challenge())
         .await
         .is_ok();
+    // Snapshot only synthetic test enums and counters, before cancellation or draining.
+    let observed = (
+        *control.stage.borrow(),
+        *control.phase.borrow(),
+        control.gate.lock().unwrap().blocked,
+        *control.pending.borrow(),
+        control.reverse_written.load(SeqCst),
+        control.reverse_read.load(SeqCst),
+        control.dropped.load(SeqCst),
+    );
     let at_challenge = *control.stage.borrow() == Stage::StorageChallengeWriteFlush;
     let no_transport_dropped = control.dropped.load(SeqCst) == 0;
     if cancel || !blocked {
@@ -347,7 +362,10 @@ async fn exchange(cancel: bool) -> Vec<Result<Completed, JoinError>> {
         tasks.abort_all();
         drain(&mut tasks).await;
     }
-    assert!(blocked, "real signed challenge must reach reverse backpressure");
+    assert!(
+        blocked,
+        "real signed challenge must reach reverse backpressure; before cleanup (stage, phase, gate, pending, written, read, dropped)={observed:?}"
+    );
     assert!(at_challenge);
     assert!(no_transport_dropped);
     assert!(tasks.is_empty());
