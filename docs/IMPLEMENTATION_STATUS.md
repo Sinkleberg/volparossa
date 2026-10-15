@@ -12,7 +12,7 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-15
+Last updated: 2026-10-16
 
 ## Current integration and active work
 
@@ -35,14 +35,14 @@ The immediate milestones build on the retained candidates and evidence below:
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Targeted source run `38799870413` passes on `0e17aff5`; full Quality `38800337179` passes on profile 9 source `fc75a42d`. Actual `38804192575` reaches Cloud FINALIZE after Image publication, then fails at flow acquisition: first `helper_kernel`, then `helper_cleanup_incomplete`. The exact kernel or cleanup suboperation is unknown. A separate listener-rejection correction is under targeted verification, not established as this failure's cause. Combined repair, restoration, remote cleanup and reciprocal capacity remain open. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Complete the post-task resource checks around the successful real read/edit/test task, then integrate the accepted native candidate. | Actual `38806073909` on Code `cce5a211` / core `6d65bb12` completes two reads, an approved edit, a test command and independent verification. The outer trial fails afterward; task memory and subsequent input/core-stop checks are absent. A bounded task-holder correction is being developed to preserve final cgroup observation. Joined core candidate `985774f9` passes its normal/sanitizer native suite and CodeQL; full Quality remains outstanding. The ordinary toolset, 4B/BF16 model, approvals and resource limits remain unchanged. Protected peer execution remains open. |
+| Native coding execution — `volparossa`, `volparossa-code` | Complete the post-task resource checks around the successful real read/edit/test task, then integrate the accepted native candidate. | Actual `38806073909` on Code `cce5a211` / core `6d65bb12` completes two reads, an approved edit, a test command and independent verification. The outer trial fails afterward; task memory and subsequent input/core-stop checks are absent. A bounded task-holder correction is under source review to preserve final cgroup observation. Joined core candidate `985774f9` passes its normal/sanitizer native suite, CodeQL and full Quality. The ordinary toolset, 4B/BF16 model, approvals and resource limits remain unchanged. Protected peer execution remains open. |
 | Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258's authenticated refusal path has actual route evidence; PR262 integrates explicit same-connection key confirmation. The next implementation reuses the native worker lifecycle and existing TLS stack, rather than extending the probe into task authority. Boot/runtime/model integrity, production roots and current vendor appraisal must be checked before private input; task authority needs its own finite grant. Those functions and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
 The latest completed outcomes are summarized below.
 
-### Latest completed integration evidence — 15 October
+### Latest completed integration evidence — 15–16 October
 
 - **A real coding task succeeds; its outer postflight still fails.**
   [Trial `38806073909`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38806073909)
@@ -94,9 +94,16 @@ The latest completed outcomes are summarized below.
   newly accepted stream ends the reusable exit listener. Candidate `74f0b16a`
   distinguishes a closed rejected stream from a listener failure while retaining
   fail-closed MPTCP validation, cancellation and failure reporting. Targeted run
-  `38813474802` is outstanding. Its predecessor `38813245298` fails only two
-  formatting checks before compilation; no tests ran there. Neither source review
-  nor this candidate establishes the cause of the original storage failure.
+  [`38813474802`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38813474802)
+  passes all 17 unique tests, including the real kernel-listener test in a
+  disposable network namespace, plus formatting and strict Clippy. Its final
+  host comparison fails: routes/DNS match, but raw firewall-dump hashes differ.
+  Those dumps contain volatile timestamps and traffic counters; the original
+  hashes cannot establish whether configuration also changed. The run remains
+  failed. A workflow-only correction tests narrowly normalized configuration;
+  it does not change the Rust candidate. The predecessor `38813245298` fails only
+  two formatting checks before compilation. Neither targeted run establishes the
+  cause of the original storage failure or complete storage acceptance.
 
 - **The native candidate joined to current main passes native source checks.**
   [Run `38811039580`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38811039580)
@@ -106,11 +113,18 @@ The latest completed outcomes are summarized below.
   six native targets, including the complete 35-type upstream tensor suite.
   Twelve source records, eight wrappers and the actual patched CPU compile input
   match Git. All four CodeQL analyses in `38811040412` pass; their build-free
-  analysis is not compilation evidence. Full Quality `38811047918` remains
-  outstanding; this candidate is not merged into main. The separate original coding
-  trial remains pinned to `6d65bb12`. Normal and sanitizer artifact ZIP SHA-256:
+  analysis is not compilation evidence. Full Quality
+  [`38811047918`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38811047918)
+  passes on a merge checkout with the identical tree: 3,830 unique workspace
+  Rust tests pass, with seven ignored. Formatter, strict Clippy, dependency and
+  license checks, and the non-mutating harness pass. Three live namespace proofs
+  and one optional CLI case explicitly skip; they are not runtime evidence.
+  This candidate is not merged into main. The separate original coding trial
+  remains pinned to `6d65bb12`. Normal and sanitizer artifact ZIP SHA-256:
   `3ccc0565d589015ff0866afd569cab739fa1b2f017b16d42197a2c24661f3cbd`
   and `19bad8cb5240fc35eb4193fbda9215e6c94a73b45faa731bd83a934b00b809bd`.
+  Original Quality log ZIP SHA-256:
+  `c2f28db51232f608e9531555086efdb821940c41c5b923d644e85ddb2bff7f1d`.
 
 - **The native edit-target correction passes source checks.**
   [Code PR17](https://github.com/VOLPAROSSA/volparossa-code/pull/17) merges as
