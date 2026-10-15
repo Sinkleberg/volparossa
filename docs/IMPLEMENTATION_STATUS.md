@@ -436,10 +436,17 @@ wrong-requester rejection, an authenticated device-unavailable claim, and reject
 after the single authorized attempt. It uses the production provider path and
 observes the fixed device's absence in the provider service's mount namespace;
 it does not substitute firmware or admit private work. Fourteen inert checker
-tests, ten wiring tests and four existing VM-diagnostic tests pass locally.
+tests, eleven wiring tests and four existing VM-diagnostic tests pass locally.
 Only a closed guest report and a separate original host-side VM-cleanup receipt
 may be published. These tests validate the harness, not an executed topology;
 actual route, physical privacy captures and cleanup acceptance remain pending.
+
+Full Quality run `38747335446` on `5f7e8f3a` stops in the historical Weather
+export fixture: it invokes the extracted exporter under `set -u` without the
+new scenario flag that the real runner initializes. The fixture now explicitly
+selects `protected_quote=no`; its expected exports and failure assertions are
+unchanged. A separate inert test checks that the quote scenario returns before
+any general export. The failed run is not integration acceptance.
 
 #### Integrated quote exchange
 

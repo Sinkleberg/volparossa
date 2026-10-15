@@ -126,6 +126,16 @@ protected_quote_case "$CASE"
         self.assertIn("set -C", cleanup[position:])
         self.assertIn('[ ! -e "$RUN_DIRECTORY" ] && [ ! -L "$RUN_DIRECTORY" ]', cleanup[position:])
 
+    def test_quote_never_enters_general_artifact_export(self):
+        source = GUEST.read_text()
+        body = source.split("\ncopy_artifacts() {\n", 1)[1].split("\n}\n", 1)[0]
+        script = "set -eu\nprotected_quote=yes\ncopy_artifacts() {\n" + body + "\n}\ncopy_artifacts\n"
+        # Other scenario globals deliberately remain unset under nounset: the
+        # quote branch must return before any generic exporter can run.
+        result = subprocess.run(["sh", "-c", script], capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, b"")
+
     def test_workflow_separate_exact_export_and_both_gates(self):
         text = (ROOT / ".github/workflows/alpha-topology.yml").read_text()
         self.assertIn("          - protected-quote\n", text)

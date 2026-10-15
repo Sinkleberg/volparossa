@@ -60,6 +60,7 @@ jobs:
           python3 -B tests/integration/test-protected-quote-route.py
           python3 -B tests/integration/test-protected-quote-route-wiring.py
           python3 -B tests/integration/test-alpha-vm-diagnostics.py
+          python3 -B tests/integration/test-weather-client-runner.py
       - name: Fetch locked dependencies without modifying source
         run: |
           set -euo pipefail
