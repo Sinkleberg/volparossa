@@ -761,14 +761,23 @@ exit "$status"
         self.assertIsNone(value)
 
     def test_actual_term_is_distinct_from_local_io_without_exporting_signal_text(self):
-        script = '''import json,runpy,signal,sys
+        script = '''import json,os,runpy,select,signal,sys
 m=runpy.run_path(sys.argv[1])
 signal.signal(signal.SIGTERM,m['interrupted'])
+read_fd,write_fd=os.pipe2(os.O_NONBLOCK|os.O_CLOEXEC)
+previous_wakeup=signal.set_wakeup_fd(write_fd)
 try:
  print('ready',flush=True)
- signal.pause()
+ # A signal received before select remains readable; pause has no such memory.
+ if not select.select([read_fd],[],[],3)[0]:
+  raise TimeoutError('TERM was not observed')
+ raise AssertionError('TERM handler did not raise')
 except InterruptedError as error:
  print(json.dumps({'code':m['failure_code'](error)}),flush=True)
+finally:
+ signal.set_wakeup_fd(previous_wakeup)
+ os.close(read_fd)
+ os.close(write_fd)
 '''
         process = subprocess.Popen([sys.executable, '-B', '-c', script,
             str(HERE / 'private-storage-maintenance-smoke.py')], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
