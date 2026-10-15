@@ -73,6 +73,8 @@ LIFECYCLE_STAGES = ('checkpoint_before', 'spawn_owner', 'await_working', 'await_
     'reconcile_progress', 'validate_flow_coverage', 'publish_result')
 CHECKPOINT_STAGES = ('enrolled', 'owner_locked', 'waiting_for_core', 'working', 'paused',
     'enrollment_expired', 'core_unavailable', 'core_turn_revoked', 'turn_completed', 'retry_pending')
+BASELINE_REASONS = ('pending_handoff', 'unconfirmed', 'expired', 'accounting', 'identity',
+    'geometry', 'scope', 'live_source_exhausted', 'malformed', 'unknown')
 FAILURE_CODES = {
     'maintenance checkpoint scope': 'checkpoint_scope',
     'core turn not observed': 'turn_not_observed',
@@ -702,7 +704,7 @@ def retirement_turn(value, turn, *, target=None, maximum=4):
 
 def failure_receipt(error):
     if LIFECYCLE_DIAGNOSTIC is not None:
-        return dict(version=2, success=False, kind='private-storage-maintenance-lifecycle-failure',
+        return dict(version=3, success=False, kind='private-storage-maintenance-lifecycle-failure',
             code='sampler_failure' if isinstance(error, SAMPLER['SamplerFailure']) else failure_code(error),
             **LIFECYCLE_DIAGNOSTIC, sampler=SAMPLER_DIAGNOSTIC or None)
     upload = UPLOAD_DIAGNOSTIC if STAGE == 'upload' else None
@@ -774,12 +776,14 @@ def upload_invoke(operation, binary, socket, arguments, **options):
 def validate_lifecycle_failure(value):
     """Reject rather than copy unknown fields from even fixture-owned output."""
     require(isinstance(value, dict) and type(value.get('version')) is int
-        and value['version'] in (1, 2), 'invalid lifecycle failure')
+        and value['version'] in (1, 2, 3), 'invalid lifecycle failure')
     fields = {'version', 'success', 'kind', 'code', 'stage',
         'cursor_before', 'cursor_last', 'checkpoint_stage', 'owner_exit_status', 'owner_joined',
         'cleanup_error', 'sampler'}
-    if value['version'] == 2:
+    if value['version'] >= 2:
         fields.add('retained_status')
+    if value['version'] == 3:
+        fields.update(('retained_status_scope', 'reconcile_status', 'fresh_turn_detail', 'baseline_reason'))
     require(set(value) == fields, 'invalid lifecycle failure')
     codes = set(FAILURE_CODES.values()) | {'cli_timeout', 'cli_process', 'local_io', 'unclassified',
         'sampler_failure', 'termination_signal'}
@@ -795,8 +799,18 @@ def validate_lifecycle_failure(value):
         and -128 <= value['owner_exit_status'] <= 255, 'invalid lifecycle failure')
     require(type(value['owner_joined']) is bool and (value['cleanup_error'] is None
         or value['cleanup_error'] in codes), 'invalid lifecycle failure')
-    if value['version'] == 2 and value['retained_status'] is not None:
+    if value['version'] >= 2 and value['retained_status'] is not None:
         validate_retained_status(value['retained_status'])
+    if value['version'] == 3:
+        require(value['retained_status_scope'] == 'core_loss'
+            and (value['baseline_reason'] is None or type(value['baseline_reason']) is str
+                and value['baseline_reason'] in BASELINE_REASONS), 'invalid lifecycle reconciliation')
+        if value['reconcile_status'] is not None:
+            validate_reconcile_status(value['reconcile_status'])
+        if value['fresh_turn_detail'] is not None:
+            validate_fresh_turn_detail(value['fresh_turn_detail'])
+        require(len(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()) <= 8192,
+            'invalid lifecycle failure bound')
     sampler = value['sampler']
     if sampler is not None:
         fields = {'phase', 'operation', 'code', 'samples', 'completed', 'failed'}
@@ -1127,6 +1141,64 @@ def validate_retained_status(value):
             and sum(detail.values()) == total, 'invalid retained status diagnostic')
 
 
+def reconcile_status_diagnostic(value, now):
+    """The later progress response, separate from the core-loss observation."""
+    value = value if type(value) is dict else {}
+    return dict(status=retained_status_diagnostic(value, now),
+        pending_retirements=bounded_count(value.get('pending_retirements'), 4096),
+        retained_copy_records=bounded_count(value.get('retained_copy_records'), 4096),
+        fully_redundant_from_retained_receipts=value.get('fully_redundant_from_retained_receipts')
+            if type(value.get('fully_redundant_from_retained_receipts')) is bool else None,
+        fragments_with_confirmed_unexpired_copy=bounded_count(value.get('fragments_with_confirmed_unexpired_copy'), 64))
+
+
+def validate_reconcile_status(value):
+    require(type(value) is dict and set(value) == {'status', 'pending_retirements', 'retained_copy_records',
+        'fully_redundant_from_retained_receipts', 'fragments_with_confirmed_unexpired_copy'},
+        'invalid lifecycle reconciliation')
+    validate_retained_status(value['status'])
+    for name, maximum in (('pending_retirements', 4096), ('retained_copy_records', 4096),
+            ('fragments_with_confirmed_unexpired_copy', 64)):
+        require(value[name] is None or type(value[name]) is int and 0 <= value[name] <= maximum,
+            'invalid lifecycle reconciliation')
+    require(value['fully_redundant_from_retained_receipts'] is None
+        or type(value['fully_redundant_from_retained_receipts']) is bool, 'invalid lifecycle reconciliation')
+
+
+def fresh_turn_diagnostic(value):
+    # Reuse the existing bounded turn projection; relative turn=1 is this one
+    # already completed fresh process, not another operation or retry.
+    rows = []
+    retirement_turn(value, 1, target=rows, maximum=1)
+    result = rows[0]
+    del result['turn']
+    stage = value.get('stage') if type(value) is dict else None
+    result['checkpoint_stage'] = stage if type(stage) is str and stage in CHECKPOINT_STAGES else None
+    return result
+
+
+def validate_fresh_turn_detail(value):
+    require(type(value) is dict and set(value) == {'cursor', 'checkpoint_stage', 'maintenance_stage',
+        'repair_stage', 'attempted_handoffs', 'freshly_verified_replacements', 'pending_retirements',
+        'physical_payload_charge_upper_bound', 'fragment_outcomes', 'refresh'}, 'invalid fresh lifecycle turn')
+    # Projection is idempotent only for the closed original domains/bounds.
+    reconstructed = dict(turns=value['cursor'], stage=value['checkpoint_stage'],
+        detail={key: item for key, item in value.items() if key not in ('cursor', 'checkpoint_stage')})
+    require(json.dumps(value, sort_keys=True, allow_nan=False)
+        == json.dumps(fresh_turn_diagnostic(reconstructed), sort_keys=True, allow_nan=False),
+        'invalid fresh lifecycle turn')
+
+
+def observe_lifecycle(name, projector, *arguments):
+    """Best effort over already available values; never mask a trial failure."""
+    if LIFECYCLE_DIAGNOSTIC is None:
+        return
+    try:
+        LIFECYCLE_DIAGNOSTIC[name] = projector(*arguments)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        LIFECYCLE_DIAGNOSTIC[name] = None
+
+
 def retained_during_core_loss(retained):
     """Historical counter-only contract; current lifecycle uses the bound check below."""
     if LIFECYCLE_DIAGNOSTIC is not None:
@@ -1270,7 +1342,8 @@ def lifecycle(root, binary, client, keys):
     """A fixed external VM supervisor alone controls the core service."""
     global LIFECYCLE_DIAGNOSTIC
     LIFECYCLE_DIAGNOSTIC = dict(stage='checkpoint_before', cursor_before=None, cursor_last=None,
-        checkpoint_stage=None, owner_exit_status=None, owner_joined=False, cleanup_error=None, retained_status=None)
+        checkpoint_stage=None, owner_exit_status=None, owner_joined=False, cleanup_error=None, retained_status=None,
+        retained_status_scope='core_loss', reconcile_status=None, fresh_turn_detail=None, baseline_reason=None)
     enrollment = (root / 'maintenance/enrollment.json').read_bytes()
     budget = LifecycleBudget(json.loads(enrollment)['enrollment']['expires'])
 
@@ -1340,13 +1413,19 @@ def lifecycle(root, binary, client, keys):
             # Fresh process reconciles the original journals; no new enrollment.
             LIFECYCLE_DIAGNOSTIC['stage'] = 'fresh_owner_turn'
             restarted = run_turn(root, binary, client, keys[1], budget=budget)
+            observe_lifecycle('fresh_turn_detail', fresh_turn_diagnostic, restarted)
             require(restarted['turns'] == paused['turns'] + 1, 'resume cursor changed')
             LIFECYCLE_DIAGNOSTIC['stage'] = 'reconcile_progress'
             current = invoke(binary, client, ['storage', 'fragments', 'progress', *existing(root)],
                 deadline=budget.remaining(180))
+            observe_lifecycle('reconcile_status', reconcile_status_diagnostic, current, int(time.time()))
             F['check_identity'](root)
             retained_intent_continuity(root)
-            baseline = pre_withdrawal(root, current, keys)
+            try:
+                baseline = pre_withdrawal(root, current, keys)
+            except (ValueError, KeyError, TypeError) as error:
+                observe_lifecycle('baseline_reason', baseline_failure_reason, error)
+                raise
             LIFECYCLE_DIAGNOSTIC['stage'] = 'validate_flow_coverage'
         gates = coverage.report(joined=coverage.joined)
         SAMPLER['validate_summary'](gates, control['baseline'], 1)
@@ -1540,42 +1619,76 @@ def custody_usage(retired, *, withdrawn):
     return result
 
 
+class CustodyFailure(ValueError):
+    """Same historical error text, with a closed failing-predicate category."""
+    def __init__(self, message, reason):
+        super().__init__(message)
+        self.reason = reason
+
+
+def baseline_failure_reason(error):
+    cause = error.__cause__ if error.__cause__ is not None else error
+    if isinstance(cause, CustodyFailure):
+        return cause.reason if cause.reason in BASELINE_REASONS else 'unknown'
+    if isinstance(cause, (KeyError, TypeError)):
+        return 'malformed'
+    return {'baseline_identity': 'identity', 'baseline_no_live_a': 'live_source_exhausted'}.get(
+        failure_code(error), 'unknown')
+
+
 def validate_custody(value, keys, retired, *, withdrawn):
     replacements = 3 if withdrawn else len(retired)
     uncertain_bytes = sum(LENGTHS[index] for index in (0, 2, 3) if index not in retired) if withdrawn else 0
     usage = custody_usage(retired, withdrawn=withdrawn)
-    require(value['owner_signature_verified'] is True and value.get('report_version', 2 if not replacements else None) == 2
-        and value['logical_ciphertext_bytes'] == BYTES and value['fragment_count'] == 4
-        and value['copies_per_fragment'] == value.get('desired_copies_per_fragment', 2 if not replacements else None) == 2
-        and value.get('placement_authorizations', 0) == replacements and value.get('retained_copy_records', 8) == 8 + replacements
-        and value.get('pending_retirements', 0) == (3 - len(retired) if withdrawn else 0)
-        and value.get('replacement_overhead_included', not replacements) is True
+    def check(condition, message, reason):
+        if not condition:
+            if reason == 'placement':
+                pending = value.get('pending_retirements', 0)
+                reason = ('pending_handoff' if type(pending) is int and pending > 0
+                    and pending != (3 - len(retired) if withdrawn else 0) else 'identity')
+            raise CustodyFailure(message, reason)
+
+    # Keep the original conjunct order, defaults, comparisons and error text.
+    # Splitting the guards only identifies which predicate actually rejected
+    # the retained report; it neither repairs nor reinterprets that report.
+    message = 'replacement custody or accounting incomplete'
+    check(value['owner_signature_verified'] is True and value.get('report_version', 2 if not replacements else None) == 2,
+        message, 'identity')
+    check(value['logical_ciphertext_bytes'] == BYTES and value['fragment_count'] == 4
+        and value['copies_per_fragment'] == value.get('desired_copies_per_fragment', 2 if not replacements else None) == 2,
+        message, 'geometry')
+    check(value.get('placement_authorizations', 0) == replacements and value.get('retained_copy_records', 8) == 8 + replacements
+        and value.get('pending_retirements', 0) == (3 - len(retired) if withdrawn else 0), message, 'placement')
+    check(value.get('replacement_overhead_included', not replacements) is True
         and value['uncertain_payload_bytes'] == uncertain_bytes and value['committed_payload_bytes'] == 2 * BYTES
-        and value['reserved_payload_bytes'] == 0 and value['physical_payload_charge_upper_bound'] == 2 * BYTES + uncertain_bytes
-        and value['fully_redundant_from_retained_receipts'] is True
-        and value['fragments_with_confirmed_unexpired_copy'] == 4
-        and value['providers'] == [dict(provider_key=key, physical_payload_charge_upper_bound=size)
+        and value['reserved_payload_bytes'] == 0 and value['physical_payload_charge_upper_bound'] == 2 * BYTES + uncertain_bytes,
+        message, 'accounting')
+    check(value['fully_redundant_from_retained_receipts'] is True
+        and value['fragments_with_confirmed_unexpired_copy'] == 4, message, 'unconfirmed')
+    check(value['providers'] == [dict(provider_key=key, physical_payload_charge_upper_bound=size)
             for key, size in zip(keys, (usage[0]['committed_bytes'], usage[1]['committed_bytes'] - len(FG),
-                usage[2]['committed_bytes']))], 'replacement custody or accounting incomplete')
-    require(all(value[key] is False for key in ('read_consumes_archive', 'metadata_overhead_measured',
+                usage[2]['committed_bytes']))], message, 'accounting')
+    check(all(value[key] is False for key in ('read_consumes_archive', 'metadata_overhead_measured',
         'current_remote_availability_proven', 'independent_failure_domains_proven',
-        'network_contribution_credit', 'erasure_coding')), 'replacement scope changed')
-    require(len(value['fragments']) == 4, 'fragment reconstruction geometry changed')
+        'network_contribution_credit', 'erasure_coding')), 'replacement scope changed', 'scope')
+    check(len(value['fragments']) == 4, 'fragment reconstruction geometry changed', 'geometry')
     for index, fragment in enumerate(value['fragments']):
-        require(fragment['index'] == index and fragment['offset'] == sum(LENGTHS[:index])
-            and fragment['ciphertext_bytes'] == LENGTHS[index] and fragment['confirmed_unexpired_copies'] == 2,
-            'fragment reconstruction geometry changed')
+        check(fragment['index'] == index and fragment['offset'] == sum(LENGTHS[:index])
+            and fragment['ciphertext_bytes'] == LENGTHS[index], 'fragment reconstruction geometry changed', 'geometry')
+        check(fragment['confirmed_unexpired_copies'] == 2, 'fragment reconstruction geometry changed', 'unconfirmed')
         providers = [(index + copy) % 3 for copy in range(2)]
         if index in retired or withdrawn and index != 1:
             providers.append(2 if index in (0, 3) else 1)
-        require(len(fragment['copies']) == len(providers), 'effective replacement placement')
+        check(len(fragment['copies']) == len(providers), 'effective replacement placement', 'geometry')
         for copy, provider in zip(fragment['copies'], providers):
             charge = ('deleted' if index in retired else 'uncertain' if withdrawn else 'committed') if provider == 0 else 'committed'
-            require(copy['provider_key'] == keys[provider] and copy['charge'] == charge
-                and copy['last_confirmed_state'] == ('Deleted' if charge == 'deleted' else 'Committed')
-                and copy['last_confirmed_stored_bytes'] == (0 if charge == 'deleted' else LENGTHS[index])
-                and (copy['last_confirmed_expiry'] == 0 if charge == 'deleted'
-                    else copy['last_confirmed_expiry'] > int(time.time())), 'effective replacement placement')
+            check(copy['provider_key'] == keys[provider], 'effective replacement placement', 'identity')
+            check(copy['charge'] == charge and copy['last_confirmed_state'] == ('Deleted' if charge == 'deleted' else 'Committed'),
+                'effective replacement placement', 'unconfirmed')
+            check(copy['last_confirmed_stored_bytes'] == (0 if charge == 'deleted' else LENGTHS[index]),
+                'effective replacement placement', 'accounting')
+            check(copy['last_confirmed_expiry'] == 0 if charge == 'deleted' else copy['last_confirmed_expiry'] > int(time.time()),
+                'effective replacement placement', 'expired')
 
 
 def pre_withdrawal(root, value, keys):

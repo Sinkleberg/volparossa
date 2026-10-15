@@ -32,7 +32,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | Quality `38654744521` passes. Actual `38655062763` on `de5091e2` records HTTP 503 on the first forecast GET, with SSH exit 0 and no expired owner budget. PR248 corrects the separate cache parent missing from the client agent's writable mount allowlist. Actual recovery, native cleanup, joined delivery, live expiry, physical devices and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Quality `38653565238` passes all nineteen new Rust diagnostic tests. Actual `38653857407` on `7b27d13d` passes the separate base lifecycle, but a later Cloud upload stops before READY while reading/verifying the provider challenge. Less than one second precedes that exchange; the operation deadline expires after 90–120 seconds inside it. A separately identified bidirectional backpressure correction needs hosted tests. Consumer repair, restoration and remote cleanup remain unproved; Cloud PR234 waits for this shared integration. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Quality `38661788072` passes. Actual `38662571845` on `ea6efddb` stops earlier, at base custody reconciliation after core restart; no Image/Cloud execution is accepted. Its failure record lacks the final progress and fresh-turn detail. The independently verified streaming fix is merged in main through PR252, without claiming it caused or resolved the earlier challenge deadline. Consumer restoration and remote cleanup remain unproved; Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR247 is merged as `17afa3f0`, with the exact tested tree of `09b0d3cc`. Targeted run `38512217556` passes 52 appraisal, 16 guest and twelve quote tests; Quality `38512223814` also executes all eight new agent/control/CLI cases and passes. CodeQL `38512218075` passes. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
 
@@ -129,7 +129,62 @@ test execution. The exact whitespace correction is applied; no behavior changes.
 Its original checkout `210a3d22` combines main `7b728846` with that head.
 Original logs ZIP SHA-256:
 `9e765901d287d4c966a70541a8258fb0ea2903e95ddbad352c4b3414f42cdb3b`.
-Fresh hosted compilation and execution remain required.
+[Quality `38661788072`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38661788072)
+on `ea6efddb` passes all twelve streaming tests, nineteen request-progress tests,
+isolated outcome/wire suites of seven and 28 tests, and 3,802 workspace tests
+with zero failures and seven ignores. Checkout `7800d9e3` merges main `7b728846`
+with that head; all 41 changed code/test/harness blobs match. Three namespace
+proofs and one optional CLI fixture skip. Original log ZIP SHA-256:
+`ae02a10b5bcf8bd6103b16eccd7cbbb4ede29620b3dd9df55a3e61fb93d36e60`.
+
+The isolated four-file streaming fix is now merged through
+[PR252](https://github.com/VOLPAROSSA/volparossa/pull/252), main `87f8c31d`.
+Its own Quality `38663438337` passes all twelve streaming tests and 3,663
+workspace tests; CodeQL `38663436370` passes all four languages. The complete
+tested tree matches the isolated head `3cfbaba1`. This does not accept the
+larger Storage integration or attribute its failures to that defect.
+
+### Restart reconciliation: final state not yet established
+
+Actual [run `38662571845`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38662571845)
+uses exact `ea6efddb0a7b6d9039b368c89a8b8fb8a7d3b7ae` and unchanged consumer
+profile 7. It fails earlier than the previous consumer upload, during
+`private-storage-maintenance-core-restart`: `baseline_custody` at
+`reconcile_progress`. Base maintenance and consumer results are null. Initial
+upload evidence validates 74 completed protected MPTCP/TLS flows, zero recorded
+failures and two relays; that does not establish later reconciliation.
+
+The failure record's five committed, three uncertain and one unattempted copy
+are the earlier **core-loss snapshot**, not the failed final progress. Its
+cursor 5 / paused likewise predates the fresh owner process; source ordering
+establishes that turn 6 completed before the baseline check. The final progress
+and fresh-turn outcome were not exported, so neither data loss nor a particular
+pending-handoff, expiry or accounting failure is established.
+
+One completed bounded maintenance turn may legitimately retain a pending
+handoff. Foreground progress observes/reconciles existing custody but does not
+itself finish an unattempted replacement upload. The baseline therefore remains
+strict: a completed turn is not sufficient evidence of completed recovery.
+The failure-only v3 candidate separates the already available final progress
+and fresh-turn observations from earlier snapshots, with closed reasons for the
+failing guard and an 8 KiB maximum. It adds no operations, retries, deadline
+extensions or weaker acceptance; success evidence is unchanged. All 76 smoke
+and 41 wiring tests pass locally, including eight new diagnostic cases and a
+differential comparison against the original custody predicates. Independent
+source review passes. The original v2 failure record still validates unchanged;
+v1/v2 keep their exact historical field sets. These inert checks do not establish
+the actual failure's cause or successful distributed recovery.
+
+Original lifecycle, route, provider-event, supervisor and control-transition
+diagnostics validate. Provider snapshots cover their baselines without recorded
+storage failure tuples; client/control rings do not, so absence there proves
+nothing about this failure. Local cleanup completes with zero owned objects;
+guest-root host-state hashes match. Final deletion and zero provider usage are
+not proven. Cloud's separate actual trial remains gated on shared acceptance.
+Original artifact ZIP SHA-256:
+`10ffd422e4e9da4ea3f99f4356bfcb2ccdcfa6a2291318e791a813971aa725c6`;
+log ZIP SHA-256:
+`9fa16d3435d867a43b6e39b0858fea28fe26e88da1a41b45267895415ec6c025`.
 
 ### Earlier protected storage stream diagnostics
 

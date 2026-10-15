@@ -1320,14 +1320,16 @@ private_storage_maintenance_finalize_report 7
             with self.assertRaises(ValueError):
                 M['validate_retained_status'](invalid)
 
-    def test_lifecycle_v2_exports_only_projected_status_and_keeps_v1_distinct(self):
+    def test_lifecycle_v3_exports_only_projected_status_and_keeps_v1_v2_distinct(self):
         value, _, _ = FIXTURE['OLD']['cli_fixture']('committed')
         context = dict(stage='verify_retained', cursor_before=3, cursor_last=4,
             checkpoint_stage='core_unavailable', owner_exit_status=0, owner_joined=True,
-            cleanup_error=None, retained_status=M['retained_status_diagnostic'](value, 100))
+            cleanup_error=None, retained_status=M['retained_status_diagnostic'](value, 100),
+            retained_status_scope='core_loss', reconcile_status=None, fresh_turn_detail=None,
+            baseline_reason=None)
         with patch.dict(M['failure_receipt'].__globals__, LIFECYCLE_DIAGNOSTIC=context, SAMPLER_DIAGNOSTIC={}):
             receipt = M['failure_receipt'](ValueError('core loss changed copy count'))
-        self.assertEqual(receipt['version'], 2)
+        self.assertEqual(receipt['version'], 3)
         M['validate_lifecycle_failure'](receipt)
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'failure.json'
@@ -1335,10 +1337,14 @@ private_storage_maintenance_finalize_report 7
             result = subprocess.run([sys.executable, '-B', str(HERE / 'private-storage-maintenance-smoke.py'),
                 'lifecycle-failure', str(path)], capture_output=True, check=True, timeout=5)
             self.assertEqual(json.loads(result.stdout), receipt)
-        historical = dict(receipt, version=1, code='lifecycle_charge_changed')
+        historical_v2 = dict(receipt, version=2)
+        for key in ('retained_status_scope', 'reconcile_status', 'fresh_turn_detail', 'baseline_reason'):
+            del historical_v2[key]
+        M['validate_lifecycle_failure'](historical_v2)
+        historical = dict(historical_v2, version=1, code='lifecycle_charge_changed')
         del historical['retained_status']
         M['validate_lifecycle_failure'](historical)
-        for invalid in (dict(receipt, version=1), dict(historical, version=2),
+        for invalid in (dict(receipt, version=1), dict(receipt, version=2), dict(historical, version=2),
                 dict(receipt, retained_status=dict(receipt['retained_status'], private='SECRET'))):
             with self.assertRaises(ValueError):
                 M['validate_lifecycle_failure'](invalid)
