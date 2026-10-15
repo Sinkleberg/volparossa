@@ -6,8 +6,13 @@ use serde::{Deserialize, Serialize};
 use crate::{ControlProtocolError, ControlResponse, ControlResult, control_response::Payload};
 
 mod challenge;
+mod flow_acquire;
 pub use challenge::{
     PrivateStorageChallengeDetail, PrivateStorageChallengePhase, PrivateStorageElapsedBucket,
+};
+pub use flow_acquire::{
+    PrivateStorageFlowAcquireDetail, PrivateStorageFlowAcquireFailure,
+    PrivateStorageFlowAcquireReason, PrivateStorageFlowAcquireStage,
 };
 
 /// Last polled private-storage preparation boundary; never a remote denial claim.
@@ -117,6 +122,9 @@ pub struct PrivateStorageRemoteDetail {
     /// Optional request-local challenge progress and coarse elapsed budgets.
     #[prost(message, optional, tag = "5")]
     pub challenge: Option<PrivateStorageChallengeDetail>,
+    /// Optional first/last returned flow-acquisition failures; no runtime identifiers.
+    #[prost(message, optional, tag = "6")]
+    pub flow_acquire: Option<PrivateStorageFlowAcquireDetail>,
 }
 
 impl PrivateStorageRemoteDetail {
@@ -180,6 +188,19 @@ impl PrivateStorageRemoteDetail {
                 ));
             }
         }
+        if let Some(flow) = self.flow_acquire {
+            flow.validate()?;
+            if stage != PrivateStorageRemoteStage::StreamOpen
+                || deadline != PrivateStorageDeadlineScope::None
+                || self.stream_failure != Some(PrivateStorageStreamFailure::FlowAcquire as i32)
+                || self.tls_failure.is_some()
+                || self.challenge.is_some()
+            {
+                return Err(ControlProtocolError::Invalid(
+                    "private storage flow acquisition combination",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -204,7 +225,8 @@ impl PrivateStorageRemoteDetail {
             || ((self.deadline_scope != PrivateStorageDeadlineScope::None as i32
                 || self.tls_failure.is_some()
                 || self.stream_failure.is_some()
-                || self.challenge.is_some())
+                || self.challenge.is_some()
+                || self.flow_acquire.is_some())
                 && result != ControlResult::Unavailable)
         {
             return Err(ControlProtocolError::Invalid(

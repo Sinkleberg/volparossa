@@ -1815,6 +1815,10 @@ impl ClientRouteControl {
         ),
         ContentStreamOpenFailure,
     > {
+        use crate::mptcp_transport::acquire_diagnostic::{
+            Failure, History, Observation, Reason, Stage,
+        };
+
         self.retire_expired_route(now_ms, Instant::now()).await;
         let mut state = self.state.lock().await;
         let ClientRouteControlState::Established(established) = &mut *state else {
@@ -1839,21 +1843,29 @@ impl ClientRouteControl {
             ));
         };
         let mut helper_route_was_lost = false;
+        let mut history = History::default();
         for _ in 0..8 {
             let local_port =
                 random_mptcp_source_port(PRODUCTION_MPTCP_EXIT_PORT).map_err(|error| {
-                    ContentStreamOpenFailure::new(ContentStreamOpenCause::FlowAcquire, error)
+                    history.record_round(Some(Failure {
+                        stage: Stage::SourcePort,
+                        reason: Reason::Entropy,
+                    }));
+                    ContentStreamOpenFailure::from_flow_acquire(error, history.summary())
                 })?;
+            let mut observation = Observation::default();
             match transport
-                .acquire_flow(&established.helper, local_port)
+                .acquire_flow(&established.helper, local_port, &mut observation)
                 .await
             {
                 Ok(flow) => return Ok((flow, material)),
-                Err(error) if mptcp_acquire_failure_lost_helper_route(&error) => {
-                    helper_route_was_lost = true;
-                    break;
+                Err(error) => {
+                    history.record_round(observation.failure());
+                    if mptcp_acquire_failure_lost_helper_route(&error) {
+                        helper_route_was_lost = true;
+                        break;
+                    }
                 }
-                Err(_) => {}
             }
         }
         if helper_route_was_lost {
@@ -1863,9 +1875,9 @@ impl ClientRouteControl {
                 Box::pin(established.shutdown(self.agent_state.as_ref())).await;
             }
         }
-        Err(ContentStreamOpenFailure::new(
-            ContentStreamOpenCause::FlowAcquire,
+        Err(ContentStreamOpenFailure::from_flow_acquire(
             ClientRouteConnectError::TransportRuntimeUnavailable,
+            history.summary(),
         ))
     }
 

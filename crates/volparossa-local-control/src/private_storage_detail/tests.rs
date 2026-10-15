@@ -10,6 +10,7 @@ fn rejected() -> ControlResponse {
         result: ControlResult::Unavailable as i32,
         diagnostic_code: "CONTENT_UNAVAILABLE".into(),
         private_storage_remote_detail: Some(PrivateStorageRemoteDetail {
+            flow_acquire: None,
             stage: PrivateStorageRemoteStage::ProviderLookup as i32,
             deadline_scope: PrivateStorageDeadlineScope::None as i32,
             tls_failure: None,
@@ -102,6 +103,7 @@ fn private_storage_detail_has_only_closed_bounded_stage_and_deadline_values() {
         for deadline_scope in 0..=2 {
             let mut response = rejected();
             response.private_storage_remote_detail = Some(PrivateStorageRemoteDetail {
+                flow_acquire: None,
                 stage,
                 deadline_scope,
                 tls_failure: None,
@@ -163,6 +165,7 @@ fn optional_tls_failure_preserves_original_detail_wire_and_old_reader() {
 fn tls_rejected(failure: i32) -> ControlResponse {
     let mut response = rejected();
     response.private_storage_remote_detail = Some(PrivateStorageRemoteDetail {
+        flow_acquire: None,
         stage: PrivateStorageRemoteStage::TlsHandshake as i32,
         deadline_scope: PrivateStorageDeadlineScope::None as i32,
         tls_failure: Some(failure),
@@ -199,6 +202,7 @@ fn tls_failure_requires_handshake_boundary_without_an_enclosing_deadline() {
             for deadline_scope in 0..=2 {
                 let mut response = tls_rejected(failure);
                 response.private_storage_remote_detail = Some(PrivateStorageRemoteDetail {
+                    flow_acquire: None,
                     stage,
                     deadline_scope,
                     tls_failure: Some(failure),
@@ -244,6 +248,7 @@ fn tls_failure_rejects_success_other_failure_codes_and_non_ack_payloads() {
 fn stream_rejected(failure: i32) -> ControlResponse {
     let mut response = rejected();
     response.private_storage_remote_detail = Some(PrivateStorageRemoteDetail {
+        flow_acquire: None,
         stage: PrivateStorageRemoteStage::StreamOpen as i32,
         deadline_scope: PrivateStorageDeadlineScope::None as i32,
         tls_failure: None,

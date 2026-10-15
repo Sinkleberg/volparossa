@@ -16,10 +16,14 @@ use volparossa_local_control::{
 
 use super::outcome::{AgentOutcome, AppendOutcome};
 
+#[path = "peer_flow_acquire.rs"]
+mod flow_acquire;
+
 const MAX_FAILURES: usize = 8;
 
 tokio::task_local! {
     static APPEND_TIMING: bool;
+    static FLOW_ACQUIRE: bool;
 }
 
 pub(super) fn append_timing_enabled() -> bool {
@@ -28,6 +32,14 @@ pub(super) fn append_timing_enabled() -> bool {
 
 pub(super) async fn with_append_timing<F: Future>(enabled: bool, work: F) -> F::Output {
     APPEND_TIMING.scope(enabled, work).await
+}
+
+pub(super) fn flow_acquire_enabled() -> bool {
+    FLOW_ACQUIRE.try_with(|enabled| *enabled).unwrap_or(false)
+}
+
+pub(super) async fn with_flow_acquire<F: Future>(enabled: bool, work: F) -> F::Output {
+    FLOW_ACQUIRE.scope(enabled, work).await
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -449,6 +461,7 @@ impl AgentDetail {
             Some(AgentCode::Unknown) | None => return false,
         };
         PrivateStorageRemoteDetail {
+            flow_acquire: None,
             stage: self.stage as i32,
             deadline_scope: self.deadline_scope as i32,
             tls_failure: self.tls_failure.map(|failure| failure as i32),
@@ -464,14 +477,23 @@ impl AgentDetail {
 pub(super) struct Diagnostics {
     version: u8,
     failures: Vec<Failure>,
+    // Parallel bounded storage keeps every historical serde DTO unchanged.
+    flow_acquire: [Option<flow_acquire::Detail>; MAX_FAILURES],
     omitted_failures: usize,
 }
 
 impl Default for Diagnostics {
     fn default() -> Self {
         Self {
-            version: if append_timing_enabled() { 7 } else { 6 },
+            version: if flow_acquire_enabled() {
+                8
+            } else if append_timing_enabled() {
+                7
+            } else {
+                6
+            },
             failures: Vec::new(),
+            flow_acquire: [None; MAX_FAILURES],
             omitted_failures: 0,
         }
     }
@@ -556,6 +578,16 @@ impl Serialize for Diagnostics {
         } else if self.version == 7 {
             let current: Vec<_> = self.failures.iter().map(AppendFailure::from).collect();
             value.serialize_field("failures", &current)?;
+        } else if self.version == 8 {
+            let current: Vec<_> = self
+                .failures
+                .iter()
+                .enumerate()
+                .map(|(index, failure)| {
+                    flow_acquire::Failure::new(failure, self.flow_acquire[index])
+                })
+                .collect();
+            value.serialize_field("failures", &current)?;
         } else {
             value.serialize_field("failures", &self.failures)?;
         }
@@ -600,16 +632,22 @@ impl<'de> Deserialize<'de> for Diagnostics {
             omitted_failures: usize,
         }
         let wire = Wire::deserialize(deserializer)?;
-        if !matches!(wire.version, 1..=7) || wire.failures.len() > MAX_FAILURES {
+        if !matches!(wire.version, 1..=8) || wire.failures.len() > MAX_FAILURES {
             return Err(serde::de::Error::custom(
                 "diagnostic version or failure bound",
             ));
         }
+        let mut flow_acquire = [None; MAX_FAILURES];
         let failures = wire
             .failures
             .into_iter()
-            .map(|value| {
-                let failure = if wire.version == 1 {
+            .enumerate()
+            .map(|(index, value)| {
+                let failure = if wire.version == 8 {
+                    let (failure, detail) = flow_acquire::Failure::decode(value)?;
+                    flow_acquire[index] = detail;
+                    failure
+                } else if wire.version == 1 {
                     let old: OriginalFailure = serde_json::from_value(value)?;
                     Failure {
                         fragment_index: old.fragment_index,
@@ -678,6 +716,7 @@ impl<'de> Deserialize<'de> for Diagnostics {
         Ok(Self {
             version: wire.version,
             failures,
+            flow_acquire,
             omitted_failures: wire.omitted_failures,
         })
     }
@@ -708,6 +747,19 @@ impl Diagnostics {
         )
         .then(|| error.downcast_ref::<AgentOutcome>().copied())
         .flatten();
+        if self.version == 8 && matches!(boundary.stage, Stage::AgentReady) {
+            self.flow_acquire[self.failures.len()] = error
+                .downcast_ref::<crate::control::AgentRejected>()
+                .and_then(|rejected| {
+                    let detail = rejected.private_storage_remote_detail?;
+                    detail
+                        .validate_rejection(ControlResult::Unavailable, &rejected.diagnostic_code)
+                        .ok()?;
+                    detail
+                        .flow_acquire
+                        .and_then(flow_acquire::Detail::from_wire)
+                });
+        }
         self.failures.push(Failure {
             fragment_index: None,
             copy_index,
@@ -732,11 +784,12 @@ impl Diagnostics {
             "append diagnostic profile mismatch"
         );
         self.omitted_failures += child.omitted_failures;
-        for mut failure in child.failures {
+        for (index, mut failure) in child.failures.into_iter().enumerate() {
             if self.failures.len() == MAX_FAILURES {
                 self.omitted_failures += 1;
             } else {
                 failure.fragment_index = Some(fragment_index);
+                self.flow_acquire[self.failures.len()] = child.flow_acquire[index];
                 self.failures.push(failure);
             }
         }

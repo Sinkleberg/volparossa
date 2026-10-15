@@ -70,6 +70,10 @@ pub struct PrivateStorageRemoteRequest {
     /// Ephemeral core-issued background turn, empty for existing foreground callers.
     #[prost(bytes = "vec", tag = "3")]
     pub maintenance_turn: Vec<u8>,
+    /// Explicitly include closed flow-acquisition detail in the original failed reply.
+    /// False is omitted on the wire and preserves the historical request bytes.
+    #[prost(bool, tag = "4")]
+    pub include_flow_acquire_detail: bool,
 }
 
 /// Wait for one core-coordinated background turn. No owner paths or secrets are sent.
@@ -359,6 +363,7 @@ mod tests {
                 lifetime_seconds: 3600,
             }),
             Operation::PrivateStorageRemote(PrivateStorageRemoteRequest {
+                include_flow_acquire_detail: false,
                 provider_key: public_key(),
                 grant: vec![1; 2048],
                 maintenance_turn: Vec::new(),
@@ -441,6 +446,7 @@ mod tests {
         request.enrollment_id.pop();
         assert!(request.validate().is_err());
         let mut remote = PrivateStorageRemoteRequest {
+            include_flow_acquire_detail: false,
             provider_key: public_key(),
             grant: vec![1; 2048],
             maintenance_turn: vec![2; 32],
@@ -488,6 +494,7 @@ mod tests {
         assert!(grant.validate().is_err());
         assert!(
             PrivateStorageRemoteRequest {
+                include_flow_acquire_detail: false,
                 provider_key: vec![0; 32],
                 grant: vec![1; 128],
                 maintenance_turn: Vec::new(),
@@ -497,6 +504,7 @@ mod tests {
         );
         assert!(
             PrivateStorageRemoteRequest {
+                include_flow_acquire_detail: false,
                 provider_key: public_key(),
                 grant: vec![1; 2049],
                 maintenance_turn: Vec::new(),

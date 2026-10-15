@@ -668,6 +668,19 @@ where
         {
             activity.enter(activity::Stage::OtherProtocol);
         }
+        if selector.version == compute::quote::confirmation::SELECTOR_VERSION
+            && selector.operation == compute::quote::SELECTOR_OPERATION
+            && selector.manifest_id.is_empty()
+        {
+            registry
+                .quote
+                .as_ref()
+                .ok_or(ProviderError::Missing)?
+                .serve_confirmation(stream)
+                .await
+                .map_err(|_| ProviderError::Protocol)?;
+            return Ok(TransferProgress::default());
+        }
         if selector.version == compute::quote::SELECTOR_VERSION
             && selector.operation == compute::quote::SELECTOR_OPERATION
             && selector.manifest_id.is_empty()

@@ -23,6 +23,7 @@ private_storage_maintenance=no
 image_snapshot=no
 cloud_private_file=no
 cloud_private_upload=no
+protected_quote=no
 agent_jobs_loss=no
 agent_jobs_follow=no
 agent_jobs_peer_recovery=no
@@ -78,11 +79,21 @@ usage() {
         '         --scenario signal-backup also runs the exact pinned native Signal backup test' \
         '         --scenario agent-cooperative-code requires --code-bundle DIRECTORY --code-manifest-sha256 HEX' \
         '         --scenario content-provider accepts --browser-filter-bundle ARCHIVE --browser-filter-manifest-sha256 HEX' \
+        '         --scenario protected-quote checks signed refusal and authority; it does not prove protected execution.' \
         '         or --weather-client-bundle ARCHIVE --weather-client-manifest-sha256 HEX (not both)' \
         '         --mpquic PATH --expected-commit SHA [--scenario alpha|reciprocity|reciprocity-private-dns|local-link|mixed-link|mpquic-growth|mptcp-growth|mptcp-refill|sharing|download-sharing|wifi-link|uplink-link|crash-recovery|content|content-message|content-https|content-provider|content-replication|content-repair|content-mailbox|content-custody|private-storage-peer|private-storage-replicas|signal-backup|private-storage-handoff|private-storage-fragments|private-storage-maintenance|agent-artifact|agent-train-cycle|agent-train-loop|agent-artifact-quarantine|agent-jobs|agent-jobs-loss|agent-jobs-follow|agent-jobs-peer-recovery|agent-jobs-ready-queue|agent-jobs-package-queue|agent-public-task|agent-public-document|agent-public-collection|agent-public-network-sources|agent-task-graph|agent-ready-dag|agent-model-planning|agent-model-task-graph|agent-successor-serving|agent-active-recovery|agent-adapter-aggregation|agent-autonomous-aggregation|agent-policy-assessment|dns-cache]'
 }
 
 print_plan() {
+    if [ "$protected_quote" = yes ]; then
+        printf '%s\n' \
+            'VOLPAROSSA protected-quote route refusal plan:' \
+            '  one real provider listener and signed request exchange over existing protected MPTCP/TLS;' \
+            '  wrong requester, actual fixed-device unavailability, then exhausted one-attempt grant;' \
+            '  five-role privacy plus control captures and exact cleanup; no fake firmware or private task;' \
+            '  two selected distinct relays are not proof of two-subflow bulk traffic.'
+        return
+    fi
     if [ "$signal_backup_fragments" = yes ]; then
         printf '%s\n' 'VOLPAROSSA native Signal fragment backup trial:' \
             '  three real 1MiB providers; two encrypted copies per fragment through protected routes;' \
@@ -786,6 +797,7 @@ while [ "$#" -gt 0 ]; do
             image_snapshot=no
             cloud_private_file=no
             cloud_private_upload=no
+            protected_quote=no
             download_sharing=no
             agent_jobs_loss=no
             agent_jobs_follow=no
@@ -813,6 +825,7 @@ while [ "$#" -gt 0 ]; do
             agent_train_loop=no
             agent_artifact_quarantine=no
             case $2 in
+                protected-quote) scenario=content-provider; protected_quote=yes; wifi_link=no; uplink_link=no ;;
                 agent-cooperative-code) scenario=agent-jobs; agent_cooperative_code=yes; wifi_link=no; uplink_link=no ;;
                 agent-cooperative-code-proposal) scenario=agent-jobs; agent_cooperative_code=yes; agent_cooperative_code_proposal=yes; wifi_link=no; uplink_link=no ;;
                 agent-cooperative-browser) scenario=agent-jobs; agent_cooperative_browser=yes; wifi_link=no; uplink_link=no ;;
@@ -824,7 +837,7 @@ while [ "$#" -gt 0 ]; do
                 private-storage-replicas) scenario=content-custody; private_storage_replicas=yes; wifi_link=no; uplink_link=no ;;
                 private-storage-handoff) scenario=content-custody; private_storage_handoff=yes; wifi_link=no; uplink_link=no ;;
                 private-storage-fragments) scenario=content-custody; private_storage_fragments=yes; wifi_link=no; uplink_link=no ;;
-                private-storage-maintenance) scenario=content-custody; private_storage_fragments=yes; private_storage_maintenance=yes; storage_consumer_profile_version=8; wifi_link=no; uplink_link=no ;;
+                private-storage-maintenance) scenario=content-custody; private_storage_fragments=yes; private_storage_maintenance=yes; storage_consumer_profile_version=9; wifi_link=no; uplink_link=no ;;
                 image-snapshot) scenario=content-custody; private_storage_fragments=yes; image_snapshot=yes; wifi_link=no; uplink_link=no ;;
                 cloud-private-file) scenario=content-custody; private_storage_fragments=yes; cloud_private_file=yes; wifi_link=no; uplink_link=no ;;
                 cloud-private-upload) scenario=content-custody; private_storage_fragments=yes; cloud_private_upload=yes; wifi_link=no; uplink_link=no ;;
@@ -966,14 +979,15 @@ elif [ -n "$code_bundle$code_manifest_sha256" ]; then
 fi
 
 if [ -n "$browser_filter_bundle$browser_filter_manifest_sha256" ]; then
-    [ "$scenario" = content-provider ] || exit 64
+    [ "$scenario" = content-provider ] && [ "$protected_quote" = no ] || exit 64
     case $browser_filter_bundle in /*) ;; *) exit 64 ;; esac
     case $browser_filter_bundle in /|*/|*//*|*/../*|*/./*|*/..|*/.|*[[:cntrl:]]*) exit 64 ;; esac
     case $browser_filter_manifest_sha256 in ''|*[!0-9a-f]*) exit 64 ;; esac
     [ "${#browser_filter_manifest_sha256}" -eq 64 ] || exit 64
 fi
 if [ -n "$weather_client_bundle$weather_client_manifest_sha256" ]; then
-    [ "$scenario" = content-provider ] && [ -z "$browser_filter_bundle$browser_filter_manifest_sha256" ] || exit 64
+    [ "$scenario" = content-provider ] && [ "$protected_quote" = no ] \
+        && [ -z "$browser_filter_bundle$browser_filter_manifest_sha256" ] || exit 64
     case $weather_client_bundle in /*) ;; *) exit 64 ;; esac
     case $weather_client_bundle in /|*/|*//*|*/../*|*/./*|*/..|*/.|*[[:cntrl:]]*) exit 64 ;; esac
     case $weather_client_manifest_sha256 in ''|*[!0-9a-f]*) exit 64 ;; esac
@@ -1174,7 +1188,7 @@ if [ "$private_storage_maintenance" = yes ]; then
         storage-consumer-maintenance.mjs storage-consumer-maintenance-pins.json storage-consumer-maintenance-pins-v2.json \
         storage-consumer-maintenance-pins-v3.json storage-consumer-maintenance-pins-v4.json storage-consumer-maintenance-pins-v5.json \
         storage-consumer-maintenance-pins-v6.json storage-consumer-maintenance-pins-v7.json \
-        storage-consumer-maintenance-pins-v8.json \
+        storage-consumer-maintenance-pins-v8.json storage-consumer-maintenance-pins-v9.json \
         storage-consumer-control-underlay.sh storage-consumer-control-underlay.py \
         storage-consumer-network.sh storage-consumer-network.py storage-consumer-route-sampler.py \
         storage-consumer-maintenance-evidence.py storage-consumer-maintenance-provision.py \
@@ -1382,6 +1396,13 @@ if [ "$scenario" = content-mailbox ]; then
         command -v "$mailbox_tool" >/dev/null 2>&1 || exit 69
     done
 fi
+if [ "$protected_quote" = yes ]; then
+    for quote_fixture in protected-quote-route.sh protected-quote-route.py content-provider-smoke.sh content-custody-smoke.py \
+        content-provider-readiness.py; do
+        [ -f "$source_directory/tests/integration/$quote_fixture" ] \
+            && [ ! -L "$source_directory/tests/integration/$quote_fixture" ] || exit 69
+    done
+fi
 if [ "$scenario" = content-provider ]; then
     for provider_fixture in content-provider-smoke.sh content-provider-smoke.py content-provider-readiness.py content-network-smoke.py \
         content-provider-https-smoke.sh content-provider-https-smoke.py content-publication-smoke.sh content-named-smoke.sh \
@@ -1397,10 +1418,13 @@ if [ "$scenario" = content-provider ]; then
             exit 69
         fi
     done
-    [ -x "$binary_directory/examples/content-acceptance-fixture" ] \
-        || { printf '%s\n' 'content provider executable unavailable' >&2; exit 69; }
-    [ -x "$binary_directory/examples/https-content-acceptance-fixture" ] \
-        || { printf '%s\n' 'content provider HTTPS executable unavailable' >&2; exit 69; }
+    if [ "$protected_quote" = no ]; then
+        # Quote-only uses production attach/verify, not these transfer examples.
+        [ -x "$binary_directory/examples/content-acceptance-fixture" ] \
+            || { printf '%s\n' 'content provider executable unavailable' >&2; exit 69; }
+        [ -x "$binary_directory/examples/https-content-acceptance-fixture" ] \
+            || { printf '%s\n' 'content provider HTTPS executable unavailable' >&2; exit 69; }
+    fi
 fi
 if [ "$scenario" = content-https ]; then
     for https_fixture in content-https-smoke.sh content-https-smoke.py content-network-smoke.py; do
@@ -1658,6 +1682,11 @@ capture_host_state() {
 
 copy_artifacts() {
     artifact_copy_status=0
+    if [ "$protected_quote" = yes ]; then
+        # The separate finalizer exports only its checked closed projection.
+        # No logs, identities, raw quote requests or private fixture directories.
+        return 0
+    fi
     if [ -n "$weather_client_bundle" ] && command -v weather_client_delivery_copy_artifacts >/dev/null 2>&1; then
         # Keep the failed closed export visible to final acceptance, but retain
         # independent safe diagnostics even when a Weather artifact is invalid.
@@ -2629,6 +2658,8 @@ cleanup() {
         agent_train_loop_finalize_report "$original_status" || original_status=1
     elif [ "$scenario" = agent-artifact ]; then
         agent_artifact_finalize_report "$original_status" || original_status=1
+    elif [ "$protected_quote" = yes ]; then
+        protected_quote_route_finalize_report "$original_status" || original_status=1
     elif [ "$scenario" = content-provider ]; then
         content_provider_finalize_report "$original_status" || original_status=1
     elif [ "$scenario" = content-https ]; then
@@ -2748,6 +2779,11 @@ fi
 if [ "$scenario" = content-provider ]; then
     # shellcheck source=tests/integration/content-provider-smoke.sh
     . "$source_directory/tests/integration/content-provider-smoke.sh"
+    if [ "$protected_quote" = yes ]; then
+        # Utilities only; no publication, HTTPS or other provider transfer runs.
+        # shellcheck source=tests/integration/protected-quote-route.sh
+        . "$source_directory/tests/integration/protected-quote-route.sh"
+    else
     # shellcheck source=tests/integration/content-publication-smoke.sh
     . "$source_directory/tests/integration/content-publication-smoke.sh"
     # shellcheck source=tests/integration/content-provider-site-smoke.sh
@@ -2763,6 +2799,7 @@ if [ "$scenario" = content-provider ]; then
     if [ -n "$weather_client_bundle" ]; then
         # shellcheck source=tests/integration/weather-client-delivery.sh
         . "$source_directory/tests/integration/weather-client-delivery.sh"
+    fi
     fi
 fi
 if [ "$scenario" = content-replication ]; then
@@ -3005,14 +3042,18 @@ install -o root -g "$AGENT_GID" -m 0555 \
     "$WORK/bin/examples/tls-policy-acceptance-fixture"
 if [ "$scenario" = content ] || [ "$scenario" = content-message ] || [ "$scenario" = content-provider ] \
     || [ "$scenario" = content-replication ] || [ "$scenario" = content-repair ]; then
-    install -o root -g "$AGENT_GID" -m 0555 \
-        "$binary_directory/examples/content-acceptance-fixture" \
-        "$WORK/bin/examples/content-acceptance-fixture"
+    if [ "$protected_quote" = no ]; then
+        install -o root -g "$AGENT_GID" -m 0555 \
+            "$binary_directory/examples/content-acceptance-fixture" \
+            "$WORK/bin/examples/content-acceptance-fixture"
+    fi
 fi
 if [ "$scenario" = content-https ] || [ "$scenario" = content-provider ]; then
-    install -o root -g "$AGENT_GID" -m 0555 \
-        "$binary_directory/examples/https-content-acceptance-fixture" \
-        "$WORK/bin/examples/https-content-acceptance-fixture"
+    if [ "$protected_quote" = no ]; then
+        install -o root -g "$AGENT_GID" -m 0555 \
+            "$binary_directory/examples/https-content-acceptance-fixture" \
+            "$WORK/bin/examples/https-content-acceptance-fixture"
+    fi
 fi
 if [ "$scenario" = content-provider ]; then
     install -o root -g root -m 0555 "$source_directory/tests/integration/content-provider-readiness.py" \
@@ -3080,6 +3121,8 @@ if [ "$private_storage_maintenance" = yes ]; then
         "$WORK/bin/storage-consumer-maintenance-pins-v7.json"
     install -o root -g root -m 0444 "$source_directory/tests/integration/storage-consumer-maintenance-pins-v8.json" \
         "$WORK/bin/storage-consumer-maintenance-pins-v8.json"
+    install -o root -g root -m 0444 "$source_directory/tests/integration/storage-consumer-maintenance-pins-v9.json" \
+        "$WORK/bin/storage-consumer-maintenance-pins-v9.json"
     install -o root -g root -m 0444 "$source_directory/tests/integration/agent-private-task-code-pins.json" \
         "$WORK/bin/agent-private-task-code-pins.json"
 fi
@@ -6340,6 +6383,8 @@ start_http3_observers() {
 start_privacy_observers() {
     privacy_prefix=${1:-privacy}
     case $privacy_prefix in
+        protected-quote-privacy)
+            [ "$protected_quote" = yes ] || return 1 ;;
         privacy|mptcp-privacy) ;;
         mpquic-growth-initial-privacy|mpquic-growth-expanded-privacy)
             [ "$scenario" = mpquic-growth ] || return 1 ;;
@@ -7112,7 +7157,8 @@ if [ "$scenario" = content-https ]; then
     exit 0
 fi
 if [ "$scenario" = content-provider ]; then
-    content_provider_run
+    if [ "$protected_quote" = yes ]; then protected_quote_route_run
+    else content_provider_run; fi
     exit 0
 fi
 if [ "$scenario" = content-mailbox ]; then

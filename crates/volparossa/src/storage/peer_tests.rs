@@ -30,6 +30,9 @@ use super::{
 #[path = "peer_outcome_transfer_tests.rs"]
 mod outcome_transfer;
 
+#[path = "peer_flow_acquire_tests.rs"]
+mod flow_acquire;
+
 fn fixture_grant() -> (SigningKey, SigningKey, VerifiedStorageGrant) {
     let provider = SigningKey::from_bytes(&[11; 32]);
     let owner = SigningKey::from_bytes(&[22; 32]);

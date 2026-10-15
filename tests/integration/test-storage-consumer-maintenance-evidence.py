@@ -369,6 +369,29 @@ class ControlTransition(unittest.TestCase):
 
 
 class ConsumerEvidence(unittest.TestCase):
+    def test_profile_nine_binds_exact_sources_and_retains_all_custody_privacy_and_cleanup_gates(self):
+        network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
+        value = network['fixture'](9)
+        self.assertEqual(M['validate_evidence'](value), value)
+        for prior in range(1, 9):
+            for mutate in (lambda v, p=prior: v.update(schema_version=p),
+                    lambda v, p=prior: v['provision'].update(version=p),
+                    lambda v, p=prior: v['provision'].update(pins=M['PROVISIONER']['load_pins'](p))):
+                invalid = copy.deepcopy(value); mutate(invalid)
+                with self.assertRaises(ValueError): M['validate_evidence'](invalid)
+        for mutate in (lambda v: v['network']['publish']['privacy']['client'].update(direct_client_exit_packets=1),
+                lambda v: v['deleted_usage'][0].update(leases=1),
+                lambda v: v['private_cleanup'].update(no_owned_fixture_process_observed=False),
+                lambda v: v['publish'].update(node_joined=False),
+                lambda v: v['provision'].update(raw='/private/canary')):
+            invalid = copy.deepcopy(value); mutate(invalid)
+            with self.assertRaises(ValueError): M['validate_evidence'](invalid)
+        for arguments in (dict(flow_profile=True), dict(flow_profile=1),
+                *(dict(network_version=2, flow_profile=True, **{other: True})
+                    for other in ('tls_profile', 'outcome_profile', 'stream_profile', 'challenge_profile', 'append_profile'))):
+            with self.assertRaises(ValueError): M['build_evidence']('/inert/not-read', **arguments)
+        network['ConsumerNetwork']().assert_builder(9)
+
     def test_profile_eight_binds_new_sources_without_weakening_network_custody_or_cleanup(self):
         network = runpy.run_path(str(HERE / 'test-storage-consumer-network.py'))
         value = network['fixture'](8)

@@ -1,4 +1,6 @@
-//! Quote-only handoff on the existing protected route; no public-job or raw-report logging.
+//! Quote/explicit confirmation handoff; no public-job or raw-report logging.
+
+mod exchange;
 
 use std::time::Duration;
 
@@ -34,6 +36,9 @@ impl ContentRuntime {
         let _foreground = self.foreground.enter();
         let mut stage = "QUOTE_LOCAL_REQUEST_FAILED";
         let result = timeout(Duration::from_secs(150), async {
+            if !matches!(request.confirmation_version, None | Some(1)) {
+                return Err(ContentError::Invalid);
+            }
             let provider_key: [u8; 32] = request
                 .provider_key
                 .as_slice()
@@ -106,10 +111,9 @@ impl ContentRuntime {
             })
             .await?;
             stage = "QUOTE_CHALLENGE_FAILED";
-            let challenge = until_requester_closed(local, async {
-                wire::begin(&mut remote, &provider_key)
+            let mut exchange = until_requester_closed(local, async {
+                exchange::Exchange::begin(&mut remote, &provider_key, request.confirmation_version)
                     .await
-                    .map_err(|_| ContentError::Unavailable)
             })
             .await?;
             checked_route(context, &policy, control, peer).await?;
@@ -126,50 +130,64 @@ impl ContentRuntime {
                 Payload::QuoteReady(QuoteReady {
                     provider_key: provider_key.to_vec(),
                     requester_key: self.signer.verifying_key().to_bytes().to_vec(),
+                    confirmation_version: request.confirmation_version,
                 }),
             )
             .await?;
             stage = "QUOTE_LOCAL_CHALLENGE_FAILED";
-            let quote_request = timeout(Duration::from_secs(30), wire::read_request(local))
-                .await
-                .map_err(|_| ContentError::Unavailable)?
-                .map_err(|_| ContentError::Invalid)?;
+            let quote_request = exchange.request(local).await?;
             checked_route(context, &policy, control, peer).await?;
             if provider.offer.validity().expires <= now() {
                 return Err(ContentError::Unavailable);
             }
             stage = "QUOTE_SIGNED_EXCHANGE_FAILED";
-            // No more requester bytes are legal until the response. EOF cancels local ownership.
-            let response = until_requester_closed(local, async {
-                wire::exchange(&mut remote, challenge, &self.signer, &quote_request)
+            // Only the explicit profile accepts one typed probe after its offer.
+            // EOF cancels local ownership; no arbitrary requester stream is forwarded.
+            let response = exchange
+                .exchange(local, &self.signer, &quote_request, &mut stage)
+                .await?;
+            let deadline = response.deadline();
+            stage = "QUOTE_PROVIDER_CLOSE_FAILED";
+            exchange::finish_before(deadline, async {
+                tls::finish(&mut remote)
                     .await
                     .map_err(|_| ContentError::Unavailable)
             })
             .await?;
-            stage = "QUOTE_PROVIDER_CLOSE_FAILED";
-            tls::finish(&mut remote)
-                .await
-                .map_err(|_| ContentError::Unavailable)?;
             drop(remote);
             stage = "QUOTE_ROUTE_CLOSE_FAILED";
-            tls::finish(flow.stream_mut())
-                .await
-                .map_err(|_| ContentError::Unavailable)?;
+            exchange::finish_before(deadline, async {
+                tls::finish(flow.stream_mut())
+                    .await
+                    .map_err(|_| ContentError::Unavailable)
+            })
+            .await?;
             flow.shutdown();
             stage = "QUOTE_FINAL_POLICY_FAILED";
-            checked_route(context, &policy, control, peer).await?;
+            exchange::finish_before(deadline, checked_route(context, &policy, control, peer))
+                .await?;
             if provider.offer.validity().expires <= now() {
                 return Err(ContentError::Unavailable);
             }
             stage = "QUOTE_LOCAL_REPLY_FAILED";
-            wire::write_response(local, &response)
-                .await
-                .map_err(|_| ContentError::Unavailable)?;
-            send(
-                local,
-                request_id,
-                "QUOTE_EXCHANGE_OK",
-                Payload::Ack(Empty {}),
+            exchange::finish_before(deadline, response.write(local, &quote_request)).await?;
+            if deadline.is_some() {
+                stage = "QUOTE_CONFIRMATION_FINAL_POLICY_FAILED";
+                exchange::finish_before(deadline, checked_route(context, &policy, control, peer))
+                    .await?;
+                if provider.offer.validity().expires <= now() {
+                    return Err(ContentError::Unavailable);
+                }
+            }
+            exchange::check_deadline(deadline)?;
+            exchange::finish_before(
+                deadline,
+                send(
+                    local,
+                    request_id,
+                    response.terminal_code(),
+                    Payload::Ack(Empty {}),
+                ),
             )
             .await
         })
@@ -180,6 +198,13 @@ impl ContentRuntime {
             super::content_event(context, stage).await;
         }
         result
+    }
+}
+
+const fn terminal_code(outcome: &wire::QuoteOutcome) -> &'static str {
+    match outcome {
+        wire::QuoteOutcome::Evidence(_) => "QUOTE_EXCHANGE_OK",
+        wire::QuoteOutcome::DeviceUnavailable => "QUOTE_DEVICE_UNAVAILABLE",
     }
 }
 
@@ -202,4 +227,21 @@ async fn send(
     )
     .await
     .map_err(|_| ContentError::Unavailable)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quote_remote_device_refusal_has_a_distinct_terminal_code() {
+        assert_eq!(
+            terminal_code(&wire::QuoteOutcome::DeviceUnavailable),
+            "QUOTE_DEVICE_UNAVAILABLE"
+        );
+        assert_ne!(
+            terminal_code(&wire::QuoteOutcome::DeviceUnavailable),
+            "QUOTE_EXCHANGE_OK"
+        );
+    }
 }

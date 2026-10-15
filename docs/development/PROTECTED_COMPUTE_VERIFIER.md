@@ -358,11 +358,12 @@ processes. The [implementation ledger](../IMPLEMENTATION_STATUS.md#guest-owned-p
 retains the artifact hashes and earlier failed attempts; neither software success
 nor a compiled firmware call proves execution inside an approved confidential guest.
 
-The quote service below connects an authorized caller to this module over the existing
-protected provider stream. An approved guest image and model/runtime assets, full
-report appraisal and protected task-input/output handling remain required. The
-guest module itself installs no daemon, changes no host configuration and starts
-no listener or scheduler. A compiled firmware call does not enable private work.
+The integrated quote-only service below connects an authorized caller to this
+module over the existing protected provider stream. An approved guest image and
+model/runtime assets, full report appraisal and protected task-input/output
+handling remain required. The guest module itself installs no daemon, changes no
+host configuration and starts no listener or scheduler. A compiled firmware call
+does not enable private work.
 
 Source references: the pinned [firmware API](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/src/firmware/guest/mod.rs)
 and the [Linux SEV guest interface](https://www.kernel.org/doc/html/latest/virt/coco/sev-guest.html).
@@ -378,9 +379,9 @@ also executes all eight new agent/control/CLI tests and passes; CodeQL
 `38512218075` passes. Independent reconstruction and root replay bind these
 results to original artifacts, source and the unchanged lockfile. Earlier failed
 attempts retain their revision-specific evidence in the implementation ledger.
-The production protected-route exchange still needs an actual trial; software
-tests do not prove confidential hardware or private-task execution. No suitable
-confidential-computing hardware is currently available.
+These are software checks, not proof of a working production quote route or
+confidential hardware. Suitable hardware is still unavailable for the required
+protected-execution trial.
 
 ### Operator authority and cancellation
 
@@ -426,7 +427,7 @@ Reference verification keeps `complete_appraisal`, `worker_admission` and
 `private_input_released` false. The receiving authorized requester necessarily
 processes the report in memory; this exchange is not anonymous quote disclosure.
 
-### Evidence required for integration
+### Software evidence and remaining route proof
 
 Twelve content regressions cover message separation, exact authorization,
 bounded framing, retained-key expiry, delivery failure, cancellation during
@@ -440,7 +441,41 @@ The separate quote software receipt requires the original source and lock bindin
 twelve quote results. It does not treat these tests as proof of production-route
 execution, confidential hardware, complete appraisal or private-task execution.
 The [implementation ledger](../IMPLEMENTATION_STATUS.md#authorized-quote-exchange-candidate)
-tracks both integrated software slices and the remaining runtime proof separately.
+tracks software integration separately from the outstanding route and hardware
+proofs. A follow-up signed device-refusal candidate does not turn lack of
+attestation into permission to run a private task.
+
+### Explicit key confirmation
+
+The separate `--key-confirmation-v1` flag on both `volparossa compute quote attach`
+and `volparossa compute quote verify` selects same-connection key confirmation.
+The legacy profile above remains the default. An enabled requester rejects an
+unsupported profile or mismatched readiness response; it does not fall back to
+the legacy exchange. Existing finite requester authority, policy checks and
+collateral inputs still apply.
+
+The CLI independently verifies the original signed quote and keeps its verifier
+owner alive while generating a fresh random 32-byte probe. The pinned HPKE
+implementation encrypts that probe for the proposed session key. Its context
+binds the provider, requester, original signed challenge and request, quote,
+session key and effective expiry. The provider handles one probe on the same
+connection; the CLI checks the correlated signed echo before accepting the
+final local acknowledgement. Setup and frame exchanges cannot renew the original
+deadlines. Cancellation, expiry, authority loss and dropped work release or
+cancel the same owners; the firmware worker retains its permit until it joins.
+
+This command accepts no private task plaintext and returns no reusable worker
+permit. Successful output is version 3 with `key_confirmation=true`, while
+`complete_appraisal`, `worker_admission` and `private_input_released` remain false.
+It proves possession within this exchange, not that the key originated in an
+approved confidential guest. Authenticated device-unavailable refusal retains
+its separate conservative result. Raw reports, keys and transcripts are not
+printed or made public.
+
+Targeted software checks pass on `6bc31925`: 97 Rust cases, 233 Python cases,
+formatting and strict Clippy. Positive firmware facts in these tests are
+synthetic and test-only. Full integration and suitable-hardware trials remain
+outstanding; see the [current evidence](../IMPLEMENTATION_STATUS.md#latest-completed-integration-evidence--15-october).
 
 ## What is still needed before private tasks can run remotely
 
