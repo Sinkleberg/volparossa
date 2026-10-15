@@ -62,8 +62,9 @@ class Wiring(unittest.TestCase):
                 'inert', scenario], text=True, capture_output=True, check=True, timeout=5)
             calls = result.stdout.splitlines()
             self.assertEqual(len(calls), expected)
+            profile = 8 if scenario == SCENARIO else 9
             self.assertEqual(calls[:2], [
-                'sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download --profile-version 8',
+                f'sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download --profile-version {profile}',
                 'node --test tests/integration/test-storage-consumer-maintenance.mjs'])
             if scenario == SCENARIO:
                 self.assertEqual(calls[2:], [

@@ -209,6 +209,7 @@ async fn diagnostic_v6_real_correlated_response_preserves_challenge_and_fragment
                 PrivateStorageDeadlineScope::try_from(i32::try_from(phase_index).unwrap()).unwrap();
             correlated_projection_case(
                 PrivateStorageRemoteDetail {
+                    flow_acquire: None,
                     stage: PrivateStorageRemoteStage::Challenge as i32,
                     deadline_scope: deadline as i32,
                     tls_failure: None,

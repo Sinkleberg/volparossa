@@ -9,6 +9,7 @@ use volparossa_local_control::{
 async fn private_storage_detail_requires_initial_operation_and_exact_correlation() {
     for detail in [
         PrivateStorageRemoteDetail {
+            flow_acquire: None,
             stage: PrivateStorageRemoteStage::ProviderLookup as i32,
             deadline_scope: PrivateStorageDeadlineScope::Operation as i32,
             tls_failure: None,
@@ -16,6 +17,7 @@ async fn private_storage_detail_requires_initial_operation_and_exact_correlation
             challenge: None,
         },
         PrivateStorageRemoteDetail {
+            flow_acquire: None,
             stage: PrivateStorageRemoteStage::Challenge as i32,
             deadline_scope: PrivateStorageDeadlineScope::Operation as i32,
             tls_failure: None,
@@ -60,6 +62,7 @@ async fn initial_detail_correlation_case(detail: PrivateStorageRemoteDetail) {
         });
         let operation = if private_storage {
             Operation::PrivateStorageRemote(PrivateStorageRemoteRequest {
+                include_flow_acquire_detail: false,
                 provider_key: ed25519_dalek::SigningKey::from_bytes(&[7; 32])
                     .verifying_key()
                     .to_bytes()
@@ -92,6 +95,7 @@ async fn terminal_response_cannot_export_a_pre_ready_detail() {
             result: ControlResult::Unavailable as i32,
             diagnostic_code: "CONTENT_UNAVAILABLE".into(),
             private_storage_remote_detail: Some(PrivateStorageRemoteDetail {
+                flow_acquire: None,
                 stage: PrivateStorageRemoteStage::Challenge as i32,
                 deadline_scope: PrivateStorageDeadlineScope::None as i32,
                 tls_failure: None,

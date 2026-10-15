@@ -1195,6 +1195,7 @@ mod tests {
             PrivateStorageDeadlineScope, PrivateStorageRemoteDetail, PrivateStorageRemoteStage,
         };
         let detail = Some(PrivateStorageRemoteDetail {
+            flow_acquire: None,
             stage: PrivateStorageRemoteStage::Challenge as i32,
             deadline_scope: PrivateStorageDeadlineScope::Exchange as i32,
             tls_failure: None,

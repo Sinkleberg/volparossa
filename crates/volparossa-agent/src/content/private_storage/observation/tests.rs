@@ -33,6 +33,7 @@ async fn every_observed_boundary_keeps_original_error_and_success_resets_detail(
         assert_eq!(
             observation.detail(),
             Some(PrivateStorageRemoteDetail {
+                flow_acquire: None,
                 stage: stage as i32,
                 deadline_scope: Deadline::None as i32,
                 tls_failure: None,
@@ -131,6 +132,7 @@ async fn only_actual_elapsed_budget_sets_its_exact_operation_or_exchange_scope()
     assert_eq!(
         observation.detail(),
         Some(PrivateStorageRemoteDetail {
+            flow_acquire: None,
             stage: Stage::Unobserved as i32,
             deadline_scope: Deadline::Operation as i32,
             tls_failure: None,
@@ -154,6 +156,7 @@ async fn only_actual_elapsed_budget_sets_its_exact_operation_or_exchange_scope()
     assert_eq!(
         observation.detail(),
         Some(PrivateStorageRemoteDetail {
+            flow_acquire: None,
             stage: Stage::Challenge as i32,
             deadline_scope: Deadline::Exchange as i32,
             tls_failure: None,
@@ -177,6 +180,7 @@ async fn only_actual_elapsed_budget_sets_its_exact_operation_or_exchange_scope()
     assert_eq!(
         observation.detail(),
         Some(PrivateStorageRemoteDetail {
+            flow_acquire: None,
             stage: Stage::TlsHandshake as i32,
             deadline_scope: Deadline::Operation as i32,
             tls_failure: None,
@@ -335,6 +339,7 @@ async fn tls_failure_is_request_local_and_reset_by_success_or_another_boundary()
         assert_eq!(
             observation.detail(),
             Some(PrivateStorageRemoteDetail {
+                flow_acquire: None,
                 stage: Stage::TlsHandshake as i32,
                 deadline_scope: Deadline::None as i32,
                 tls_failure: Some(failure as i32),
@@ -383,6 +388,7 @@ async fn enclosing_deadlines_clear_tls_failure_and_keep_their_original_scope() {
         assert_eq!(
             observation.detail(),
             Some(PrivateStorageRemoteDetail {
+                flow_acquire: None,
                 stage: Stage::TlsHandshake as i32,
                 deadline_scope: scope as i32,
                 tls_failure: None,

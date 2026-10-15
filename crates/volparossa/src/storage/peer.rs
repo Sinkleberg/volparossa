@@ -35,6 +35,15 @@ pub(super) async fn with_append_diagnostics<F: Future>(enabled: bool, work: F) -
     diagnostics::with_append_timing(enabled, work).await
 }
 
+pub(super) async fn with_diagnostics<F: Future>(
+    append_v7: bool,
+    flow_v8: bool,
+    work: F,
+) -> F::Output {
+    diagnostics::with_flow_acquire(flow_v8, with_append_diagnostics(append_v7 || flow_v8, work))
+        .await
+}
+
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
     /// Attach an explicitly owned private store to the running agent's provider service.

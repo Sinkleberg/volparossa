@@ -6,7 +6,7 @@
 
 private_storage_consumer_private() {
     consumer_profile_version=${storage_consumer_profile_version-7}
-    case $consumer_profile_version in 7|8) ;; *) fail CONSUMER_PROFILE_INVALID; return 1 ;; esac
+    case $consumer_profile_version in 7|8|9) ;; *) fail CONSUMER_PROFILE_INVALID; return 1 ;; esac
     STORAGE_PROOF_BASELINE_MS=${provider_baseline_ms:-0} \
       STORAGE_PROOF_ROUTE_SCOPE=${storage_route_scope:-} \
       STORAGE_PROOF_ROUTE_POLICY=${consumer_route_policy:-} \
@@ -126,7 +126,7 @@ private_storage_consumer_run() {
         >"$WORK/storage-consumer-withdrawal.json"
     private_storage_consumer_cleanup || fail CONSUMER_PRIVATE_CLEANUP_FAILED
     consumer_profile_version=${storage_consumer_profile_version-7}
-    case $consumer_profile_version in 7|8) ;; *) fail CONSUMER_PROFILE_INVALID; return 1 ;; esac
+    case $consumer_profile_version in 7|8|9) ;; *) fail CONSUMER_PROFILE_INVALID; return 1 ;; esac
     python3 -B "$source_directory/tests/integration/storage-consumer-maintenance-evidence.py" \
         "evidence-v$consumer_profile_version" "$WORK" "$WORK/storage-consumer-evidence.json" \
         || fail CONSUMER_EVIDENCE_INVALID

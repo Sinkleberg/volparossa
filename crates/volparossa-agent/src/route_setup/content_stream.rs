@@ -4,6 +4,7 @@ use super::ClientRouteConnectError;
 use crate::mptcp_flow_runtime::{
     ProductionMptcpClientActivationStage, ProductionMptcpClientFailure,
 };
+use crate::mptcp_transport::acquire_diagnostic::Summary;
 
 /// Stages describe local control flow, not a new protocol or evidence of remote acceptance.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -25,6 +26,7 @@ pub(crate) enum ContentStreamOpenCause {
 pub(crate) struct ContentStreamOpenFailure {
     cause: ContentStreamOpenCause,
     route_error: ClientRouteConnectError,
+    flow_acquire: Option<Summary>,
 }
 
 impl ContentStreamOpenFailure {
@@ -32,7 +34,26 @@ impl ContentStreamOpenFailure {
         cause: ContentStreamOpenCause,
         route_error: ClientRouteConnectError,
     ) -> Self {
-        Self { cause, route_error }
+        Self {
+            cause,
+            route_error,
+            flow_acquire: None,
+        }
+    }
+
+    pub(super) const fn from_flow_acquire(
+        route_error: ClientRouteConnectError,
+        flow_acquire: Option<Summary>,
+    ) -> Self {
+        Self {
+            cause: ContentStreamOpenCause::FlowAcquire,
+            route_error,
+            flow_acquire,
+        }
+    }
+
+    pub(crate) const fn flow_acquire(self) -> Option<Summary> {
+        self.flow_acquire
     }
 
     pub(crate) const fn cause(self) -> ContentStreamOpenCause {
@@ -74,6 +95,76 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use volparossa_test_support::verified_development_manifest;
+
+    #[test]
+    fn content_flow_acquire_detail_preserves_original_cause_and_route_error() {
+        use crate::mptcp_transport::acquire_diagnostic::{Failure, History, Reason, Stage};
+
+        let mut history = History::default();
+        history.record_round(Some(Failure {
+            stage: Stage::HelperAcquire,
+            reason: Reason::HelperCapacity,
+        }));
+        history.record_round(Some(Failure {
+            stage: Stage::RetirementDrain,
+            reason: Reason::Unconfirmed,
+        }));
+        let original = ClientRouteConnectError::TransportRuntimeUnavailable;
+        let failure = ContentStreamOpenFailure::from_flow_acquire(original, history.summary());
+        assert_eq!(failure.cause(), ContentStreamOpenCause::FlowAcquire);
+        assert_eq!(failure.into_route_error(), original);
+        assert_eq!(failure.flow_acquire(), history.summary());
+        let no_detail = ContentStreamOpenFailure::from_flow_acquire(original, None);
+        assert_eq!(no_detail.into_route_error(), original);
+        assert_eq!(no_detail.flow_acquire(), None);
+        assert_eq!(
+            ContentStreamOpenFailure::new(ContentStreamOpenCause::Policy, original).flow_acquire(),
+            None,
+        );
+    }
+
+    #[test]
+    fn content_flow_acquire_classification_does_not_change_route_loss_decisions() {
+        use crate::helper::HelperClientError;
+        use crate::mptcp_transport::MptcpTransportError;
+        use volparossa_routing::HelperResult;
+
+        for (error, lost) in [
+            (MptcpTransportError::AcquireUnconfirmed, true),
+            (MptcpTransportError::InvalidMetadata, false),
+            (
+                MptcpTransportError::Io(std::io::Error::other("private-canary")),
+                false,
+            ),
+            (
+                MptcpTransportError::Helper(HelperClientError::Rejected(HelperResult::Kernel)),
+                false,
+            ),
+            (
+                MptcpTransportError::Helper(HelperClientError::Rejected(HelperResult::Capacity)),
+                false,
+            ),
+            (
+                MptcpTransportError::Helper(HelperClientError::Rejected(HelperResult::Unavailable)),
+                false,
+            ),
+            (
+                MptcpTransportError::Helper(HelperClientError::Rejected(HelperResult::NotFound)),
+                true,
+            ),
+            (
+                MptcpTransportError::Helper(HelperClientError::Rejected(
+                    HelperResult::CleanupIncomplete,
+                )),
+                true,
+            ),
+        ] {
+            assert_eq!(
+                super::super::mptcp_acquire_failure_lost_helper_route(&error),
+                lost,
+            );
+        }
+    }
 
     #[test]
     fn content_stream_activation_causes_are_exhaustively_distinct() {
@@ -126,7 +217,8 @@ mod tests {
         );
         assert_eq!(
             format!("{denied:?}"),
-            "ContentStreamOpenFailure { cause: Policy, route_error: TransportRuntimeUnavailable }",
+            "ContentStreamOpenFailure { cause: Policy, route_error: TransportRuntimeUnavailable, \
+             flow_acquire: None }",
         );
     }
 
