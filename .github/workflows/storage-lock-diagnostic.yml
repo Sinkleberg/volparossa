@@ -1,0 +1,225 @@
+name: Storage lock reproducibility diagnostic
+run-name: Unchanged 3630ff79 storage lock diagnostic (not an acceptance gate)
+
+on:
+  workflow_dispatch:
+  # Register this new workflow with one reviewed publication. Other branch
+  # changes cannot trigger it, and this does not trigger any model/VM trial.
+  push:
+    branches: [diagnostic/storage-lock-3630ff79]
+    paths: [.github/workflows/storage-lock-diagnostic.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: storage-lock-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SOURCE_COMMIT: 3630ff7905f401f26245f2e6cf4f0f01d7950549
+  WORKFLOW_COMMIT: ${{ github.sha }}
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: '1'
+  RUST_LIB_BACKTRACE: '1'
+
+jobs:
+  diagnose:
+    name: Fixed source, one isolated case and two parallel CLI observations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out the original failing source, not the workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 3630ff7905f401f26245f2e6cf4f0f01d7950549
+          persist-credentials: false
+
+      - name: Require the exact disposable source and record the diagnostic scope
+        id: scope
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ARCH" = X64
+          test "$(id -u)" != 0
+          test "$GITHUB_REPOSITORY" = VOLPAROSSA/volparossa
+          test "$GITHUB_REF" = refs/heads/diagnostic/storage-lock-3630ff79
+          case "$GITHUB_EVENT_NAME" in push|workflow_dispatch) ;; *) exit 1 ;; esac
+          test "$SOURCE_COMMIT" = 3630ff7905f401f26245f2e6cf4f0f01d7950549
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test -z "${RUST_TEST_THREADS:-}"
+          for tool in cmake git jq pkg-config timeout tee; do command -v "$tool"; done
+          umask 077
+          output="$RUNNER_TEMP/storage-lock-diagnostic"
+          test ! -e "$output"
+          install -d -m 0700 "$output"
+          printf 'LOCK_DIAGNOSTIC_OUTPUT=%s\n' "$output" >> "$GITHUB_ENV"
+          jq -n --arg source "$SOURCE_COMMIT" --arg workflow "$WORKFLOW_COMMIT" \
+            --arg tree "$(git rev-parse 'HEAD^{tree}')" \
+            --arg lock_sha256 "$(sha256sum Cargo.lock | cut -d ' ' -f 1)" \
+            --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            '{version:1, source_commit:$source, source_tree:$tree,
+              workflow_commit:$workflow, cargo_lock_sha256:$lock_sha256,
+              run_id:$run, run_attempt:$attempt, rust_toolchain:"1.85.0",
+              original_quality_run_id:"38688104130",
+              scope:"one_exact_uniform_case_then_two_default_parallel_cli_runs",
+              selection:["--workspace","--all-features","--bin","volparossa"],
+              feature_equivalence_to_full_workspace_proven:false,
+              rust_backtrace:1, rust_lib_backtrace:1, test_threads_override:false,
+              full_workspace_execution:false, acceptance_gate:false,
+              lock_fix_claimed:false}' > "$output/scope.json"
+          printf '%s\n' \
+            'Diagnostic only: the original source and lock behavior are unchanged.' \
+            'Build preserves workspace/all-features selection but narrows targets to the volparossa binary.' \
+            'Unused workspace dev-dependency feature contributions may differ; full graph equivalence is not claimed.' \
+            'One exact case, then two fixed default-parallel observations; no retry-until-pass.' \
+            'No other workspace test binaries, audit tools, models or namespace trials run.' \
+            'A passing observation does not erase the original Quality failure or prove a lock fix.' \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install the same pinned official Rust toolchain as Quality
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal
+          rustup show active-toolchain
+          rustc --version --verbose
+          cargo --version --verbose
+
+      - name: Install the same reviewed Protobuf compiler on this disposable runner
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(dpkg --print-architecture)" = amd64
+          sudo -n apt-get update
+          sudo -n apt-get install --yes --no-install-recommends \
+            protobuf-compiler=3.21.12-8.2ubuntu0.3
+          test "$(protoc --version)" = 'libprotoc 3.21.12'
+
+      - name: Build only the CLI test target with the original workspace feature selection
+        id: build
+        run: |
+          set -uo pipefail
+          set +e
+          timeout --kill-after=10s 900s \
+            cargo test --locked --workspace --all-features --bin volparossa --no-run \
+            2>&1 | tee "$LOCK_DIAGNOSTIC_OUTPUT/build.log"
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${statuses[0]}" > "$LOCK_DIAGNOSTIC_OUTPUT/build.status"
+          test "${statuses[1]}" -eq 0
+          exit "${statuses[0]}"
+
+      - name: Require the original exact testcase and complete CLI inventory
+        id: inventory
+        run: |
+          set -euo pipefail
+          timeout --kill-after=10s 60s \
+            cargo test --locked --offline --workspace --all-features --bin volparossa \
+            -- --list > "$LOCK_DIAGNOSTIC_OUTPUT/tests.list"
+          grep -Fx 'storage::peer::replicas::fragments::retained::uniform_tests::uniform_policy_preserves_legacy_three_copy_lifecycle_and_actual_charges: test' \
+            "$LOCK_DIAGNOSTIC_OUTPUT/tests.list"
+          test "$(grep -c ': test$' "$LOCK_DIAGNOSTIC_OUTPUT/tests.list")" -eq 643
+
+      - name: Observe the exact uniform lifecycle once with original backtraces
+        id: exact
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          set +e
+          timeout --kill-after=10s 300s \
+            cargo test --locked --offline --workspace --all-features --bin volparossa \
+            storage::peer::replicas::fragments::retained::uniform_tests::uniform_policy_preserves_legacy_three_copy_lifecycle_and_actual_charges \
+            -- --exact 2>&1 | tee "$LOCK_DIAGNOSTIC_OUTPUT/exact.log"
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${statuses[0]}" > "$LOCK_DIAGNOSTIC_OUTPUT/exact.status"
+          test "${statuses[1]}" -eq 0
+          exit "${statuses[0]}"
+
+      - name: Observe the default-parallel CLI binary once
+        id: parallel_one
+        if: ${{ !cancelled() && steps.inventory.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          set +e
+          timeout --kill-after=10s 300s \
+            cargo test --locked --offline --workspace --all-features --bin volparossa \
+            2>&1 | tee "$LOCK_DIAGNOSTIC_OUTPUT/parallel-one.log"
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${statuses[0]}" > "$LOCK_DIAGNOSTIC_OUTPUT/parallel-one.status"
+          test "${statuses[1]}" -eq 0
+          exit "${statuses[0]}"
+
+      - name: Observe the default-parallel CLI binary a second fixed time
+        id: parallel_two
+        if: ${{ !cancelled() && steps.inventory.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          set +e
+          timeout --kill-after=10s 300s \
+            cargo test --locked --offline --workspace --all-features --bin volparossa \
+            2>&1 | tee "$LOCK_DIAGNOSTIC_OUTPUT/parallel-two.log"
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${statuses[0]}" > "$LOCK_DIAGNOSTIC_OUTPUT/parallel-two.status"
+          test "${statuses[1]}" -eq 0
+          exit "${statuses[0]}"
+
+      - name: Preserve every original outcome and fail if any observation failed
+        if: always()
+        env:
+          SCOPE_OUTCOME: ${{ steps.scope.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          INVENTORY_OUTCOME: ${{ steps.inventory.outcome }}
+          EXACT_OUTCOME: ${{ steps.exact.outcome }}
+          PARALLEL_ONE_OUTCOME: ${{ steps.parallel_one.outcome }}
+          PARALLEL_TWO_OUTCOME: ${{ steps.parallel_two.outcome }}
+        run: |
+          set -euo pipefail
+          test "$SCOPE_OUTCOME" = success
+          jq -n --arg build "$BUILD_OUTCOME" --arg inventory "$INVENTORY_OUTCOME" \
+            --arg exact "$EXACT_OUTCOME" --arg first "$PARALLEL_ONE_OUTCOME" \
+            --arg second "$PARALLEL_TWO_OUTCOME" \
+            '{version:1, build:$build, inventory:$inventory,
+              exact:$exact, parallel_one:$first, parallel_two:$second,
+              acceptance_gate:false, lock_fix_claimed:false}' \
+            > "$LOCK_DIAGNOSTIC_OUTPUT/outcomes.json"
+          test "$BUILD_OUTCOME" = success
+          test "$INVENTORY_OUTCOME" = success
+          test "$EXACT_OUTCOME" = success
+          test "$PARALLEL_ONE_OUTCOME" = success
+          test "$PARALLEL_TWO_OUTCOME" = success
+          for name in build exact parallel-one parallel-two; do
+            test "$(cat "$LOCK_DIAGNOSTIC_OUTPUT/$name.status")" = 0
+          done
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          git diff --exit-code
+
+      - name: Retain only original diagnostic metadata and logs, including failures
+        if: ${{ always() && steps.scope.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: storage-lock-3630ff79-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/storage-lock-diagnostic/scope.json
+            ${{ runner.temp }}/storage-lock-diagnostic/outcomes.json
+            ${{ runner.temp }}/storage-lock-diagnostic/tests.list
+            ${{ runner.temp }}/storage-lock-diagnostic/build.log
+            ${{ runner.temp }}/storage-lock-diagnostic/build.status
+            ${{ runner.temp }}/storage-lock-diagnostic/exact.log
+            ${{ runner.temp }}/storage-lock-diagnostic/exact.status
+            ${{ runner.temp }}/storage-lock-diagnostic/parallel-one.log
+            ${{ runner.temp }}/storage-lock-diagnostic/parallel-one.status
+            ${{ runner.temp }}/storage-lock-diagnostic/parallel-two.log
+            ${{ runner.temp }}/storage-lock-diagnostic/parallel-two.status
+          if-no-files-found: error
+          retention-days: 14
