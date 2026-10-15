@@ -140,9 +140,9 @@ async fn roundtrip(
             exchange_outcome(&mut client, challenge, caller, request).await
         }
     };
-    let (served, response) = tokio::join!(serving, requesting);
+    let (publication, response) = tokio::join!(serving, requesting);
     if response.is_ok() {
-        assert!(served.is_ok());
+        assert!(publication.is_ok());
     }
     response
 }
