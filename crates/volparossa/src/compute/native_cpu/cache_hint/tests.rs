@@ -24,7 +24,10 @@ fn bound(options: &Options) -> CacheHint {
 #[test]
 fn hint_requires_known_shortage_without_changing_admission() {
     let required = 10 * 1024 * 1024 * 1024 + 512 * 1024 * 1024;
-    assert_eq!(resources::limits(PROFILE).admission_headroom, Some(required));
+    assert_eq!(
+        resources::limits(PROFILE).admission_headroom,
+        Some(required)
+    );
     for (available, hint, admitted) in [
         (None, false, false),
         (Some(0), true, false),
@@ -50,7 +53,11 @@ fn hint_binding_requires_the_same_owner_authorized_native_request() {
     let (_root, mut options) = fixture();
     let request = options.request(PROFILE).unwrap();
     assert!(request.cache_hint(&options, PROFILE).is_some());
-    assert!(request.cache_hint(&options, ModelProfile::Qwen600).is_none());
+    assert!(
+        request
+            .cache_hint(&options, ModelProfile::Qwen600)
+            .is_none()
+    );
     assert!(request.cache_hint(&Options::default(), PROFILE).is_none());
     options.native_backend_sha256 = Some("0".repeat(64));
     assert!(request.cache_hint(&options, PROFILE).is_none());
@@ -165,12 +172,7 @@ fn replaced_same_size_file_is_never_advised() {
     fs::write(&model, b"x").unwrap();
     fs::set_permissions(&model, fs::Permissions::from_mode(0o600)).unwrap();
     assert!(!hint.unchanged());
-    hint.after_supervisor_with(
-        &Ok(()),
-        PROFILE,
-        || Some(0),
-        |_, _| panic!("replacement"),
-    );
+    hint.after_supervisor_with(&Ok(()), PROFILE, || Some(0), |_, _| panic!("replacement"));
 }
 
 #[test]
@@ -189,12 +191,7 @@ fn changed_metadata_and_parent_identity_are_never_advised() {
             _ => fs::set_permissions(root.path(), fs::Permissions::from_mode(0o755)).unwrap(),
         }
         assert!(!hint.unchanged());
-        hint.after_supervisor_with(
-            &Ok(()),
-            PROFILE,
-            || Some(0),
-            |_, _| panic!("changed"),
-        );
+        hint.after_supervisor_with(&Ok(()), PROFILE, || Some(0), |_, _| panic!("changed"));
     }
     let (_root, options) = fixture();
     let mut hint = bound(&options);
