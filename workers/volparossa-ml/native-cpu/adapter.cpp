@@ -26,6 +26,7 @@ struct state : vp::session_state {
     vp_abort_v1 abort = nullptr;
     void * opaque = nullptr;
     uint32_t capacity = 0;
+    uint32_t threads = 0;
     std::unique_ptr<vp::tool_constraint> constraint;
     ~state() {
         if (context) { llama_synchronize(context); }
@@ -40,6 +41,23 @@ bool aborted(void * pointer) {
     return value->abort(value->opaque) != 0;
 }
 bool load_progress(float, void * pointer) { return !aborted(pointer); }
+llama_context * create_context(state * value, uint32_t capacity) {
+    auto params = llama_context_default_params();
+    params.n_ctx = capacity;
+    params.n_batch = max_batch;
+    params.n_ubatch = max_batch;
+    params.n_seq_max = 1;
+    params.n_threads = static_cast<int32_t>(value->threads);
+    params.n_threads_batch = static_cast<int32_t>(value->threads);
+    params.type_k = GGML_TYPE_BF16;
+    params.type_v = GGML_TYPE_BF16;
+    params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    params.offload_kqv = false;
+    params.op_offload = false;
+    params.abort_callback = aborted;
+    params.abort_callback_data = value;
+    return llama_init_from_model(value->model, params);
+}
 bool token_piece(const llama_vocab * vocab, llama_token token, std::string & piece) {
     std::array<char, vp::tool_json_wire_bytes> bytes{};
     const auto size = llama_token_to_piece(vocab, token, bytes.data(), bytes.size(), 0, true);
@@ -95,6 +113,34 @@ extern "C" const char * vp_llama_source_v1(void) { return source; }
 extern "C" uint32_t vp_llama_open_stage_v1(void) { return open_stage; }
 extern "C" uint32_t vp_llama_output_constraint_abi_v1(void) { return 1; }
 extern "C" uint32_t vp_llama_native_session_abi_v1(void) { return 1; }
+extern "C" uint32_t vp_llama_context_capacity_abi_v1(void) { return 1; }
+
+extern "C" int32_t vp_llama_reserve_context_v1(void * handle, uint32_t capacity,
+                                               vp_abort_v1 abort, void * opaque) {
+    auto * value = static_cast<state *>(handle);
+    if (!value) { return VP_INVALID; }
+    if (!abort || !value->context || !value->model || !value->sampler) {
+        value->ready = false;
+        value->failed = true;
+        return VP_INVALID;
+    }
+    // Replace the expired previous turn's callback before any owner check.
+    value->abort = abort;
+    value->opaque = opaque;
+    return vp::grow_session_context(*value, value->capacity, capacity,
+        [&] { return aborted(value); },
+        [&] { llama_synchronize(value->context); },
+        [&] {
+            value->constraint.reset();
+            llama_sampler_reset(value->sampler);
+            llama_free(value->context);
+            value->context = nullptr;
+        },
+        [&](uint32_t requested) {
+            value->context = create_context(value, requested);
+            return value->context != nullptr;
+        });
+}
 
 extern "C" int32_t vp_llama_begin_turn_v1(void * handle, uint32_t retained,
                                           uint32_t mode, uint32_t count,
@@ -183,6 +229,7 @@ extern "C" int32_t vp_llama_open_v1(const char * path, uint32_t capacity,
         value->abort = abort;
         value->opaque = opaque;
         value->capacity = capacity;
+        value->threads = threads;
         if (aborted(value.get())) { return VP_ABORTED; }
         auto model_params = llama_model_default_params();
         model_params.n_gpu_layers = 0;
@@ -199,22 +246,8 @@ extern "C" int32_t vp_llama_open_v1(const char * path, uint32_t capacity,
         if (llama_vocab_n_tokens(vocab) != vocabulary || llama_vocab_eos(vocab) != 151645) {
             return VP_INVALID;
         }
-        auto context_params = llama_context_default_params();
-        context_params.n_ctx = capacity;
-        context_params.n_batch = max_batch;
-        context_params.n_ubatch = max_batch;
-        context_params.n_seq_max = 1;
-        context_params.n_threads = static_cast<int32_t>(threads);
-        context_params.n_threads_batch = static_cast<int32_t>(threads);
-        context_params.type_k = GGML_TYPE_BF16;
-        context_params.type_v = GGML_TYPE_BF16;
-        context_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
-        context_params.offload_kqv = false;
-        context_params.op_offload = false;
-        context_params.abort_callback = aborted;
-        context_params.abort_callback_data = value.get();
         open_stage = VP_OPEN_CONTEXT;
-        value->context = llama_init_from_model(value->model, context_params);
+        value->context = create_context(value.get(), capacity);
         if (aborted(value.get())) { return VP_ABORTED; }
         if (!value->context) { return VP_BACKEND; }
         open_stage = VP_OPEN_SAMPLER;

@@ -55,4 +55,34 @@ int32_t begin_session_turn(session_state & value, uint32_t retained, uint32_t ca
         return VP_BACKEND;
     }
 }
+
+// The single model is outside this transition. Destroying the old context must
+// complete before creating another; a failed or cancelled transition can only
+// be closed. This is capacity growth, never a retry of an admitted generation.
+template<class Cancelled, class Synchronize, class Destroy, class Create>
+int32_t grow_session_context(session_state & value, uint32_t & capacity, uint32_t requested,
+    Cancelled cancelled, Synchronize synchronize, Destroy destroy, Create create) {
+    value.ready = false;
+    if (value.failed || !value.session_active || value.used > capacity ||
+        requested <= capacity || requested > 13312) {
+        value.failed = true;
+        return VP_INVALID;
+    }
+    try {
+        if (cancelled()) { value.failed = true; return VP_ABORTED; }
+        synchronize();
+        if (cancelled()) { value.failed = true; return VP_ABORTED; }
+        destroy();
+        if (cancelled()) { value.failed = true; return VP_ABORTED; }
+        if (!create(requested)) { value.failed = true; return VP_BACKEND; }
+        if (cancelled()) { value.failed = true; return VP_ABORTED; }
+        capacity = requested;
+        value.used = 0;
+        value.generated = 0;
+        return VP_OK;
+    } catch (...) {
+        value.failed = true;
+        return VP_BACKEND;
+    }
+}
 }

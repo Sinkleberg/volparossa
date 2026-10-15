@@ -36,6 +36,15 @@ uint32_t vp_llama_native_session_abi_v1(void);
 int32_t vp_llama_begin_turn_v1(void * handle, uint32_t retained_tokens,
                               uint32_t constraint_mode, uint32_t tool_count,
                               vp_abort_v1 abort, void * opaque);
+// Optional context-capacity extension for an already active session. Grow only,
+// at most 13312 tokens, under the new turn's callback. Synchronize and destroy
+// the old context before allocating its replacement around the SAME model.
+// Success discards all previous KV/logits; begin_turn_v1(..., 0, ...) and the
+// entire new prompt must follow. Any failure poisons the handle until close.
+// Callers lacking this extension keep their original fixed-capacity behavior.
+uint32_t vp_llama_context_capacity_abi_v1(void);
+int32_t vp_llama_reserve_context_v1(void * handle, uint32_t context_tokens,
+                                   vp_abort_v1 abort, void * opaque);
 int32_t vp_llama_open_v1(const char * model_path, uint32_t context_tokens,
                          uint32_t threads, vp_abort_v1 abort, void * opaque,
                          void ** handle);

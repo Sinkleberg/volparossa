@@ -120,7 +120,82 @@ class PrefixTests(unittest.TestCase):
         state.tokens = [1, 2, 3]
         self.assertEqual(self.begin(state, [9, 2, 3])[1], 0)
         self.assertEqual(self.model_type.call_count, 1)
-        self.assertEqual(self.model_type.call_args.args[1], 12288 + 1024)
+        self.assertEqual(self.model_type.call_args.args[1], 1280)
+        self.assertTrue(self.model_type.call_args.kwargs["context_capacity"])
+
+    def test_initial_capacity_covers_complete_prompt_and_unchanged_output_bound(self):
+        for length, capacity in ((1, 1280), (256, 1280), (257, 1536), (4572, 5632), (12288, 13312)):
+            with self.subTest(length=length):
+                state = native.RetainedModel()
+                self.assertEqual(self.begin(state, [1] * length)[1], 0)
+                self.assertEqual(state.capacity, capacity)
+                self.assertEqual(self.model_type.call_args.args[1], capacity)
+                self.assertGreaterEqual(capacity, length + 1024)
+                state.close()
+
+    def test_invalid_full_prompt_is_rejected_before_model_allocation(self):
+        for prompt in ([], [1] * 12289, [True], [151936], [-1], (1, 2)):
+            with self.subTest(length=len(prompt)), self.assertRaisesRegex(WORKER.JobError, "NATIVE_PROMPT_BOUND"):
+                self.begin(native.RetainedModel(), prompt)
+        self.model_type.assert_not_called()
+
+    def test_fit_keeps_prefix_and_growth_keeps_model_but_recomputes_entire_prompt(self):
+        state = native.RetainedModel()
+        model, _ = self.begin(state, [1] * 256)
+        state.tokens = [1] * 256
+        self.assertEqual(self.begin(state, [1] * 256)[1], 255)
+        model.reserve_context.assert_not_called()
+        state.tokens = [1] * 256
+        def grow(capacity, _probe):
+            self.assertEqual(capacity, 1536)
+            self.assertEqual(state.tokens, [])
+        model.reserve_context.side_effect = grow
+        prompt = [1] * 257
+        same, prefix = self.begin(state, prompt)
+        self.assertIs(same, model)
+        self.assertEqual(prefix, 0)
+        self.assertEqual(self.model_type.call_count, 1)
+        model.close.assert_not_called()
+        model.sample.return_value = 151645
+        native.generate(model, prompt, SimpleNamespace(eos_token_id=151645, decode=lambda *a, **k: ""),
+                        WORKER.model_profile(native.PROFILE), mock.Mock(), WORKER, retained_tokens=prefix)
+        self.assertEqual([token for call in model.decode.call_args_list for token in call.args[0]], prompt)
+        self.assertEqual([len(call.args[0]) for call in model.decode.call_args_list], [128, 128, 1])
+        state.tokens = prompt
+        self.assertEqual(self.begin(state, [1, 1])[1], 1)
+        self.assertEqual(state.capacity, 1536)  # No shrink/reallocation on a shorter turn.
+        model.reserve_context.assert_called_once()
+
+    def test_failed_or_cancelled_growth_clears_tokens_closes_and_cannot_retry(self):
+        for code in ("NATIVE_CONTEXT_INITIALIZATION_FAILED", "JOB_CANCELLED"):
+            with self.subTest(code=code):
+                self.model_type.reset_mock(return_value=True)
+                state = native.RetainedModel()
+                model, _ = self.begin(state, [1] * 256)
+                state.tokens = [1] * 256
+                model.reserve_context.side_effect = WORKER.JobError(code)
+                with self.assertRaisesRegex(WORKER.JobError, code):
+                    self.begin(state, [1] * 257)
+                self.assertEqual(state.tokens, [])
+                self.assertIsNone(state.model)
+                self.assertTrue(state.failed)
+                model.close.assert_called_once()
+                self.assertEqual(model.begin_turn.call_count, 1)
+                with self.assertRaisesRegex(WORKER.JobError, "NATIVE_SESSION_PREFIX_RESET_FAILED"):
+                    self.begin(state, [1] * 257)
+                self.assertEqual(self.model_type.call_count, 1)
+
+    def test_grown_context_begin_failure_also_closes_without_retry(self):
+        state = native.RetainedModel()
+        model, _ = self.begin(state, [1] * 256)
+        state.tokens = [1] * 256
+        model.begin_turn.side_effect = WORKER.JobError("NATIVE_SESSION_PREFIX_RESET_FAILED")
+        with self.assertRaisesRegex(WORKER.JobError, "NATIVE_SESSION_PREFIX_RESET_FAILED"):
+            self.begin(state, [1] * 257)
+        model.reserve_context.assert_called_once()
+        model.close.assert_called_once()
+        self.assertEqual(state.tokens, [])
+        self.assertTrue(state.failed)
 
     def test_no_cross_instance_identity_or_failed_handle_replacement(self):
         first, second = native.RetainedModel(), native.RetainedModel()
@@ -157,7 +232,71 @@ class PrefixTests(unittest.TestCase):
 class AbiTests(unittest.TestCase):
     def open(self, value, **kwargs):
         with mock.patch.object(native.ctypes, "CDLL", return_value=value):
-            return native.NativeModel(Path("/inert"), 12288 + 1024, 2, mock.Mock(), WORKER.require, **kwargs)
+            return native.NativeModel(Path("/inert"), kwargs.pop("capacity", 12288 + 1024),
+                                      2, mock.Mock(), WORKER.require, **kwargs)
+
+    def capacity_library(self, version=1):
+        value = library()
+        value.vp_llama_native_session_abi_v1 = mock.Mock(return_value=1)
+        value.vp_llama_begin_turn_v1 = mock.Mock(return_value=0)
+        if version is not None:
+            value.vp_llama_context_capacity_abi_v1 = mock.Mock(return_value=version)
+            value.vp_llama_reserve_context_v1 = mock.Mock(return_value=0)
+        return value
+
+    def test_capacity_extension_required_only_for_explicit_internal_selection(self):
+        for version in (None, 0, 2, True):
+            value = self.capacity_library(version)
+            with self.subTest(version=version), self.assertRaisesRegex(WORKER.JobError, "NATIVE_SESSION_ABI_MISMATCH"):
+                self.open(value, native_session=True, context_capacity=True)
+            value.vp_llama_open_v1.assert_not_called()
+            self.open(value, native_session=True).close()  # Old callers retain the original v1 ABI.
+        value = library()
+        self.open(value).close()  # Cold/legacy needs neither session nor capacity symbols.
+        value.vp_llama_open_v1.reset_mock()
+        with self.assertRaisesRegex(WORKER.JobError, "NATIVE_SESSION_ABI_MISMATCH"):
+            self.open(value, context_capacity=True)
+        value.vp_llama_open_v1.assert_not_called()
+
+    def test_capacity_handover_uses_new_callback_and_no_model_reopen(self):
+        value = self.capacity_library()
+        model = self.open(value, native_session=True, context_capacity=True, capacity=1280)
+        previous, current = model.probe, mock.Mock()
+        def grow(handle, capacity, callback, opaque):
+            self.assertIs(model.probe, previous)  # Old owner object stays alive until native returns.
+            self.assertIs(handle, model.handle)
+            self.assertEqual(capacity, 1536)
+            self.assertIs(callback, current.callback)
+            self.assertIsNone(opaque)
+            return 0
+        value.vp_llama_reserve_context_v1.side_effect = grow
+        model.reserve_context(1536, current)
+        self.assertIs(model.probe, current)
+        self.assertEqual(model.capacity, 1536)
+        current.joined.assert_called_once()
+        value.vp_llama_open_v1.assert_called_once()
+        value.vp_llama_close_v1.assert_not_called()
+        for capacity in (True, 1536, 1280, 13313):
+            with self.subTest(capacity=capacity), self.assertRaisesRegex(WORKER.JobError, "NATIVE_SESSION_PREFIX_BOUND"):
+                model.reserve_context(capacity, current)
+        value.vp_llama_reserve_context_v1.assert_called_once()
+        model.close()
+        value.vp_llama_close_v1.assert_called_once()
+
+    def test_capacity_failure_or_pending_cancel_never_commits_capacity(self):
+        for status, cancelled in ((3, False), (2, False), (0, True)):
+            value = self.capacity_library()
+            value.vp_llama_reserve_context_v1.return_value = status
+            model = self.open(value, native_session=True, context_capacity=True, capacity=1280)
+            current = mock.Mock()
+            if cancelled:
+                current.joined.side_effect = WORKER.JobError("JOB_CANCELLED")
+            with self.subTest(status=status, cancelled=cancelled), self.assertRaises(WORKER.JobError):
+                model.reserve_context(1536, current)
+            self.assertIs(model.probe, current)
+            self.assertEqual(model.capacity, 1280)
+            model.close()
+            value.vp_llama_close_v1.assert_called_once()
 
     def test_new_manifest_never_loads_old_or_mismatched_session_abi(self):
         for version in (None, 0, 2, True):

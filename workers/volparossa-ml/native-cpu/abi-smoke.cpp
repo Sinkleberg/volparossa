@@ -14,6 +14,8 @@ int main() {
     assert(vp_llama_abi_v1() == 1);
     assert(vp_llama_output_constraint_abi_v1() == 1);
     assert(vp_llama_native_session_abi_v1() == 1);
+    assert(vp_llama_context_capacity_abi_v1() == 1);
+    assert(vp_llama_reserve_context_v1(nullptr, 2048, nullptr, nullptr) == VP_INVALID);
     assert(vp_llama_begin_turn_v1(nullptr, 0, 0, 0, nullptr, nullptr) == VP_INVALID);
     assert(vp_llama_set_output_constraint_v1(nullptr, 1, 1) == VP_INVALID);
     assert(vp_llama_open_stage_v1() == VP_OPEN_NONE);
