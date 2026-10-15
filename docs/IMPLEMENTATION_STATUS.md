@@ -79,12 +79,32 @@ are not exported. Wire responses, cleanup/cancellation precedence, retry policy,
 model, resources and acceptance are unchanged. This is not a fix or a causal
 explanation for the six observed failures.
 
-The core's closed collector passes 23 Python checks; Code passes 25 smoke
-contracts and already uses that collector from its pinned core. Three new Rust
-tests cover real pre-supervisor admission failure, report rejection, logging
-enabled/disabled, privacy canaries and unchanged cleanup/cancellation behavior;
-hosted execution remains pending. No actual trial has been repeated on this
-diagnostic candidate.
+The core's closed collector passes 23 Python checks. Three new Rust tests cover
+real pre-supervisor admission failure, report rejection, logging enabled/disabled,
+privacy canaries and unchanged cleanup/cancellation behavior. All three pass in
+[Quality `38678859785`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38678859785)
+on the direct checkout `5607f1177dc230a71414e7468c221b950f43bca6`, together with
+all thirteen output-constraint Rust cases, 60 native Python contracts, formatting,
+strict Clippy, the workspace (3,561 distinct passes, seven ignored) and non-mutating
+harness. Skipped namespace proofs remain skips, not datapath evidence. Original
+job-log ZIP SHA-256:
+`60e43c4a0a63a250b4af601245d9e41772135149e47663a730a511866347d1b9`.
+Earlier run `38678595442` stopped at one test assertion's formatting; `5607f117`
+corrects only that layout. Its skipped Rust steps are not passing evidence.
+
+Code `e39267343612ed8b594d15db3e161465c25b8c2f` now pins this verified diagnostic
+source without changing its model, resource or acceptance settings. The pin
+change passes 103 targeted Python checks with two explicit retained-source
+skips. [Code source CI `38681259931`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38681259931)
+also passes: 405 checks and four explicit skips, including a missing-runner-bwrap
+synthetic namespace check. All 114 source blobs in merge checkout `3580a655`
+match the candidate. Original log ZIP SHA-256:
+`0b9d42a5f0526ada26cf56166b2698d48b83510a3d6ffb5d5950a113d3b9e93c`.
+
+One [actual follow-up `38681471469`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38681471469)
+is dispatched against that exact Code/core pair and the same explicit Qwen4B
+native profile. Its result is pending; the completed partial-read failure above
+remains the latest actual outcome, not a successful coding loop.
 
 [Source-only native run `38671551374`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38671551374)
 on `b8bd8228` passes the normal build and all five check targets. ABI, loader,
