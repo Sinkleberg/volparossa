@@ -12,7 +12,8 @@ import re
 NAME = "weather-android-inner-diagnostic.json"
 MAX_BYTES = 8192
 LEGACY_WEATHER_COMMIT = "f6ee829961da387d9c0cd71b7163b47baab434fa"
-WEATHER_COMMIT = "0a31bf180f1a42b96b0ceaec3715f56496a559a5"
+FIRST_DRIVER_WEATHER_COMMIT = "0a31bf180f1a42b96b0ceaec3715f56496a559a5"
+WEATHER_COMMIT = "3b90442a9d5be4db73ccf83cba2028364980c3ca"
 LEGACY_INPUTS = {
     "emulator": "build/overmorrow-hosted-android-live-proof/emulator-diagnostic.json",
     "guest_network": "build/overmorrow-hosted-android-live-proof/guest-network-diagnostic.json",
@@ -79,7 +80,8 @@ def encoded(value):
 def identity(value, schema):
     exact(value, ("core_commit", "weather_commit", "run_id", "run_attempt"))
     require(type(value["core_commit"]) is str and re.fullmatch("[0-9a-f]{40}", value["core_commit"])
-        and value["weather_commit"] == (LEGACY_WEATHER_COMMIT if schema == 1 else WEATHER_COMMIT))
+        and value["weather_commit"] in ((LEGACY_WEATHER_COMMIT,) if schema == 1
+            else (FIRST_DRIVER_WEATHER_COMMIT, WEATHER_COMMIT)))
     for key in ("run_id", "run_attempt"):
         require(type(value[key]) is str and re.fullmatch("[1-9][0-9]{0,19}", value[key]))
 
@@ -242,6 +244,8 @@ def project_record(name, value):
 
 
 def receipt(expected_identity, records):
+    identity(expected_identity, 2)
+    require(expected_identity["weather_commit"] == WEATHER_COMMIT)
     value = dict(schema=2, kind="weather-android-inner-diagnostic", identity=expected_identity,
         records=records, diagnostic_only=True, cause_established=False, joined_core_acceptance=False,
         physical_device=False, production_authority=False)

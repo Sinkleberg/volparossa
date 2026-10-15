@@ -21,7 +21,7 @@ defaults:
     shell: bash
 
 env:
-  VOLPAROSSA_WEATHER_SOURCE_SHA: 0a31bf180f1a42b96b0ceaec3715f56496a559a5
+  VOLPAROSSA_WEATHER_SOURCE_SHA: 3b90442a9d5be4db73ccf83cba2028364980c3ca
 
 jobs:
   joined:
@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: VOLPAROSSA/volparossa-weather
-          ref: 0a31bf180f1a42b96b0ceaec3715f56496a559a5
+          ref: 3b90442a9d5be4db73ccf83cba2028364980c3ca
           path: .cache/weather-android-source
           persist-credentials: false
       - name: Check combined resources before acquiring toolchains

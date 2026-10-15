@@ -23,7 +23,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / '.github/workflows/weather-android-delivery.yml').read_text()
-WEATHER = '0a31bf180f1a42b96b0ceaec3715f56496a559a5'
+WEATHER = '3b90442a9d5be4db73ccf83cba2028364980c3ca'
 
 
 def embedded(name):
@@ -64,6 +64,8 @@ class AndroidHostedWiring(unittest.TestCase):
                 'weather-android-driver-diagnostic.py'):
             module = runpy.run_path(str(ROOT / 'tests/integration' / name))
             self.assertEqual(module['WEATHER_COMMIT'], WEATHER)
+            if name != 'weather-android-native.py':
+                self.assertEqual(module['FIRST_DRIVER_WEATHER_COMMIT'], '0a31bf180f1a42b96b0ceaec3715f56496a559a5')
         inner = runpy.run_path(str(ROOT / 'tests/integration/weather-android-inner-diagnostic.py'))
         self.assertEqual(inner['LEGACY_WEATHER_COMMIT'], 'f6ee829961da387d9c0cd71b7163b47baab434fa')
         self.assertEqual(set(admission['artifacts']), {'decoder', 'abi'})

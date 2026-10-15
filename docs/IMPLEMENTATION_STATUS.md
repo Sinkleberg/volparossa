@@ -548,6 +548,43 @@ ZIP SHA-256:
 original job-log ZIP SHA-256:
 `c0b14c60e80d7f659af75048a37826c176a372698ddf03855c89243ecf60178b`.
 
+#### Live refresh observation within the original total deadline
+
+Weather [PR24](https://github.com/VOLPAROSSA/volparossa-weather/pull/24) is merged
+at `79e76878`, with source `3b90442a9d5be4db73ccf83cba2028364980c3ca`.
+Source review finds that all live rounds require two serial product responses,
+but only the first round received a 120-second operational observation window;
+refresh rounds inherited the 15-second UI-poll window. The correction gives all
+three live rounds that same 120-second window, still capped by the original
+absolute 180-second driver deadline, including earlier setup and observation.
+
+This is an explicit observer-policy change, not an increase in the total trial,
+HTTP/SSH/request or publication budgets. Synthetic and UI waits remain at their
+original limits. The six-request cap, two taps, immutable response checks, exact
+native rows, freshness, real lifecycle and cleanup gates are unchanged. Final
+counts in the preceding actual trial do not prove that this mismatch uniquely
+caused its failure; the corrected candidate still needs an actual joined trial.
+
+A regression with the production waiter and virtual time fails on the original
+code and passes on the correction: two valid serial responses taking ten seconds
+each no longer fail solely at the former refresh cutoff. Separate negative cases
+reject an answer at the operational or absolute deadline, an exhausted total
+budget and an extra request. All 126 focused Node driver/live checks pass.
+[Hosted components `38678860888`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38678860888)
+passes 749 checks (252 Node, including the 32-case live suite, and 497 Python),
+with zero skips; the tested merge tree matches the exact source candidate.
+CodeQL `38678858614` also passes. Original component log ZIP SHA-256:
+`596d4413bf28e7c6be09975ea4f87bc3846c1c9e9eca1a64656a6189fd326581`.
+These are source and inert timing checks, not Android/network delivery evidence.
+
+The core candidate pins that published Weather source across its workflow,
+launcher, bundle and diagnostic collectors. All 187 focused core checks pass;
+the 39 bundle entries and artifact bindings are unchanged, and the twenty
+tracked Weather bundle sources match their pinned hashes. Historical schema-1
+`f6ee8299` and schema-2 `0a31bf18` diagnostics remain readable unchanged; only
+`3b90442a` can authorize a new diagnostic export. This compatibility does not
+promote old receipts into new delivery evidence.
+
 #### Deterministic relay-cache test inputs
 
 [Quality `38641559561`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38641559561)

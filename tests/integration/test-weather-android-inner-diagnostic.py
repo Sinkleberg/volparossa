@@ -257,6 +257,9 @@ class Projection(unittest.TestCase):
         for schema in (True, 0, 3):
             changed = copy.deepcopy(original); changed["schema"] = schema
             with self.assertRaises(ValueError): M["validate_receipt"](changed)
+        for commit in (M["FIRST_DRIVER_WEATHER_COMMIT"], M["WEATHER_COMMIT"]):
+            changed = copy.deepcopy(original); changed["identity"]["weather_commit"] = commit
+            with self.assertRaises(ValueError): M["validate_receipt"](changed)
         # A future producer pin cannot broaden historical schema-one identity.
         globals_ = M["identity"].__globals__; before = globals_["WEATHER_COMMIT"]
         try:
@@ -265,6 +268,23 @@ class Projection(unittest.TestCase):
             changed = copy.deepcopy(original); changed["identity"]["weather_commit"] = "b" * 40
             with self.assertRaises(ValueError): M["validate_receipt"](changed)
         finally: globals_["WEATHER_COMMIT"] = before
+
+    def test_historical_schema_two_readable_but_not_current_export(self):
+        original = M["receipt"](IDENTITY, records_fixture())
+        original["identity"]["weather_commit"] = M["FIRST_DRIVER_WEATHER_COMMIT"]
+        raw = M["encoded"](original)
+        self.assertEqual(M["encoded"](M["validate_receipt"](json.loads(raw))), raw)
+        for commit in (M["LEGACY_WEATHER_COMMIT"], M["FIRST_DRIVER_WEATHER_COMMIT"], "b" * 40):
+            expected = dict(IDENTITY, weather_commit=commit)
+            with self.subTest(commit=commit), self.assertRaises(ValueError):
+                M["receipt"](expected, records_fixture())
+        for commit in (M["LEGACY_WEATHER_COMMIT"], "b" * 40):
+            changed = copy.deepcopy(original); changed["identity"]["weather_commit"] = commit
+            with self.subTest(commit=commit), self.assertRaises(ValueError):
+                M["validate_receipt"](changed)
+        downgraded = copy.deepcopy(original); downgraded["schema"] = 1
+        del downgraded["records"]["driver"]
+        with self.assertRaises(ValueError): M["validate_receipt"](downgraded)
 
     def test_static_paths_and_original_limits(self):
         self.assertEqual(M["NAME"], "weather-android-inner-diagnostic.json")

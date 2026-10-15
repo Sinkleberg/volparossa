@@ -283,11 +283,13 @@ class DriverDiagnosticTests(unittest.TestCase):
             with self.assertRaises(ValueError): D["validate_receipt"](value)
 
     def test_historical_pin_remains_readable_but_cannot_authorize_current_export(self):
-        original = copy.deepcopy(self.receipt())
-        original["identity"]["weather_commit"] = D["LEGACY_WEATHER_COMMIT"]
-        raw = D["encoded"](original)
-        self.assertEqual(D["encoded"](D["validate_receipt"](json.loads(raw))), raw)
-        for commit in (D["LEGACY_WEATHER_COMMIT"], "b" * 40):
+        for commit in (D["LEGACY_WEATHER_COMMIT"], D["FIRST_DRIVER_WEATHER_COMMIT"]):
+            original = copy.deepcopy(self.receipt())
+            original["identity"]["weather_commit"] = commit
+            raw = D["encoded"](original)
+            with self.subTest(commit=commit):
+                self.assertEqual(D["encoded"](D["validate_receipt"](json.loads(raw))), raw)
+        for commit in (D["LEGACY_WEATHER_COMMIT"], D["FIRST_DRIVER_WEATHER_COMMIT"], "b" * 40):
             expected = dict(IDENTITY, weather_commit=commit)
             owner = owner_fixture(); owner["identity"] = expected
             self.write("weather-android-owner-failure.json", owner)

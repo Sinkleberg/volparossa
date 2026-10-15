@@ -31,7 +31,7 @@ D = O["D"]
 KF = runpy.run_path(str(HERE / "test-weather-android-kvm.py"))
 DF = runpy.run_path(str(HERE / "test-weather-android-inner-diagnostic.py"))
 CORE_COMMIT = "a" * 40
-WEATHER_COMMIT = "0a31bf180f1a42b96b0ceaec3715f56496a559a5"
+WEATHER_COMMIT = "3b90442a9d5be4db73ccf83cba2028364980c3ca"
 IDENTITY = dict(core_commit=CORE_COMMIT, weather_commit=WEATHER_COMMIT, run_id="123", run_attempt="1")
 ENV = dict(GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="1")
 NATIVE_RESULT = dict(schema=1, kind="hosted-android-protected-core-installed-trial", phase="complete", success=True,
