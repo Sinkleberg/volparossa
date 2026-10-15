@@ -482,10 +482,11 @@ published artifact is the independently validated host receipt confirming QEMU
 termination/join and private VM-state removal. This is not guest-topology cleanup
 or route acceptance. Source review finds a concrete mismatch: the quote driver
 does not build the content/HTTPS transfer examples, while the shared provider
-preflight requires both. Quote-only now skips only those two executable checks;
-ordinary providers retain them, as an executed inert preflight regression proves.
+preflight requires both. Quote-only now skips those two executable checks and
+their later staging calls; ordinary providers retain both. Executed inert
+preflight and all-scenario build/staging regressions verify that distinction.
 The original guest stderr was not exported, so this mismatch is not an observed
-inner error message. The resulting 12 wiring cases pass locally; a corrected
+inner error message. The resulting 13 wiring cases pass locally; a corrected
 actual trial remains pending. Separately, source run `38754168513` on the original
 commit passes 230 Python cases, 55 unique Rust cases, formatting and strict Clippy.
 

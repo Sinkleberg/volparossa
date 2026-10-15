@@ -2982,14 +2982,18 @@ install -o root -g "$AGENT_GID" -m 0555 \
     "$WORK/bin/examples/tls-policy-acceptance-fixture"
 if [ "$scenario" = content ] || [ "$scenario" = content-message ] || [ "$scenario" = content-provider ] \
     || [ "$scenario" = content-replication ] || [ "$scenario" = content-repair ]; then
-    install -o root -g "$AGENT_GID" -m 0555 \
-        "$binary_directory/examples/content-acceptance-fixture" \
-        "$WORK/bin/examples/content-acceptance-fixture"
+    if [ "$protected_quote" = no ]; then
+        install -o root -g "$AGENT_GID" -m 0555 \
+            "$binary_directory/examples/content-acceptance-fixture" \
+            "$WORK/bin/examples/content-acceptance-fixture"
+    fi
 fi
 if [ "$scenario" = content-https ] || [ "$scenario" = content-provider ]; then
-    install -o root -g "$AGENT_GID" -m 0555 \
-        "$binary_directory/examples/https-content-acceptance-fixture" \
-        "$WORK/bin/examples/https-content-acceptance-fixture"
+    if [ "$protected_quote" = no ]; then
+        install -o root -g "$AGENT_GID" -m 0555 \
+            "$binary_directory/examples/https-content-acceptance-fixture" \
+            "$WORK/bin/examples/https-content-acceptance-fixture"
+    fi
 fi
 if [ "$scenario" = content-provider ]; then
     install -o root -g root -m 0555 "$source_directory/tests/integration/content-provider-readiness.py" \

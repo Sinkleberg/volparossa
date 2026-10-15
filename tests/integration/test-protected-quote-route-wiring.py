@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tarfile
 import tempfile
@@ -76,6 +77,51 @@ class Wiring(unittest.TestCase):
             self.assertEqual(run("no").returncode, 0)
             # Quote still requires the existing provider source fixtures.
             self.assertEqual(run("yes", source_directory=directory).returncode, 69)
+
+    def test_all_scenarios_stage_exactly_the_examples_the_guest_driver_builds(self):
+        host, guest = HOST.read_text(), GUEST.read_text()
+        start = host.index('if [ "$scenario" = content ] || [ "$scenario" = content-message ] || [ "$scenario" = content-provider ]')
+        end = host.index('\nif [ "$scenario" = uplink-link ]; then', start)
+        builds = host[start:end]
+        # Redirect only the fixed private build log into the inert temporary
+        # directory. The cargo function records argv and never invokes a compiler.
+        builds = builds.replace('/home/vpci/cargo-build.log', '"$TRACE"')
+        start = guest.index('if [ "$scenario" = content ] || [ "$scenario" = content-message ] || [ "$scenario" = content-provider ]',
+            guest.index('for staged_executable in'))
+        end = guest.index('\nif [ "$scenario" = content-provider ]; then', start)
+        stages = guest[start:end]
+        declared = re.search(r'case \$scenario in (weather-decoder-abi\|alpha\|[^\n]+?)\) ;;', host)
+        self.assertIsNotNone(declared)
+        scenarios = declared.group(1).split('|')
+        self.assertEqual(len(scenarios), len(set(scenarios)))
+        self.assertIn('protected-quote', scenarios)
+        content = {'content', 'content-message', 'content-provider', 'content-replication', 'content-repair'}
+        https = {'content-https', 'content-provider'}
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / 'builds'
+            for selected in scenarios:
+                with self.subTest(scenario=selected):
+                    expected = []
+                    if selected in content:
+                        expected.append('content-acceptance-fixture')
+                    if selected in https:
+                        expected.append('https-content-acceptance-fixture')
+                    trace.write_bytes(b'')
+                    env = dict(os.environ, scenario=selected, TRACE=str(trace),
+                        binary_directory='/inert/bin', WORK='/inert/work', AGENT_GID='999',
+                        protected_quote='yes' if selected == 'protected-quote' else 'no')
+                    built = subprocess.run(['sh', '-eu', '-c',
+                        'cargo() { printf "%s\\n" "$@"; }\n' + builds],
+                        env=env, capture_output=True, timeout=5)
+                    self.assertEqual(built.returncode, 0, built.stderr)
+                    self.assertEqual([line for line in trace.read_text().splitlines()
+                        if line.endswith('-acceptance-fixture')], expected)
+                    staged = subprocess.run(['sh', '-eu', '-c',
+                        'install() { for arg do case "$arg" in /inert/bin/examples/*) printf "%s\\n" "${arg##*/}" ;; esac; done; }\n' + stages],
+                        env=dict(env, scenario='content-provider' if selected == 'protected-quote' else selected),
+                        capture_output=True, text=True, timeout=5)
+                    self.assertEqual(staged.returncode, 0, staged.stderr)
+                    self.assertEqual(staged.stdout.splitlines(), expected)
 
     def case(self, name, status, failures, output):
         with tempfile.TemporaryDirectory() as directory:
