@@ -11,10 +11,12 @@ fn constrained_manifest() -> Value {
 }
 
 fn input() -> Vec<u8> {
-    serde_json::to_vec(&json!({"version":1,"visibility":"private_local","instructions":"Reply.",
+    serde_json::to_vec(
+        &json!({"version":1,"visibility":"private_local","instructions":"Reply.",
         "history":[{"type":"message","role":"user","text":"Read."}],
         "tools":[{"type":"custom","name":"PRIVATE_CANARY","description":"Read."}],
-        "generation_policy":"greedy_v1","output_constraint":CONSTRAINT}))
+        "generation_policy":"greedy_v1","output_constraint":CONSTRAINT}),
+    )
     .unwrap()
 }
 

@@ -154,10 +154,16 @@ fn arguments(value: &Value) -> bool {
 fn constrained_argument_depth(value: &Value, depth: u8) -> bool {
     match value {
         Value::Object(values) => {
-            depth <= 16 && values.values().all(|value| constrained_argument_depth(value, depth + 1))
+            depth <= 16
+                && values
+                    .values()
+                    .all(|value| constrained_argument_depth(value, depth + 1))
         }
         Value::Array(values) => {
-            depth <= 16 && values.iter().all(|value| constrained_argument_depth(value, depth + 1))
+            depth <= 16
+                && values
+                    .iter()
+                    .all(|value| constrained_argument_depth(value, depth + 1))
         }
         _ => true,
     }

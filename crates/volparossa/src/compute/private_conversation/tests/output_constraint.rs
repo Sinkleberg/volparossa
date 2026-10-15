@@ -36,7 +36,13 @@ fn constraint_is_explicit_nonnull_qwen4b_greedy_with_offered_tools_only() {
         serde_json::from_slice::<Value>(&decoded.bytes_profile(PROFILE).unwrap()).unwrap(),
         value
     );
-    for invalid in [Value::Null, json!(true), json!(1), json!([]), json!("other")] {
+    for invalid in [
+        Value::Null,
+        json!(true),
+        json!(1),
+        json!([]),
+        json!("other"),
+    ] {
         let mut bad = value.clone();
         bad["output_constraint"] = invalid;
         assert!(decode_selected(&bad).is_err());
@@ -45,7 +51,10 @@ fn constraint_is_explicit_nonnull_qwen4b_greedy_with_offered_tools_only() {
         assert!(Input::decode_profile(&serde_json::to_vec(&value).unwrap(), profile).is_err());
     }
     let mut no_policy = value.clone();
-    no_policy.as_object_mut().unwrap().remove("generation_policy");
+    no_policy
+        .as_object_mut()
+        .unwrap()
+        .remove("generation_policy");
     assert!(decode_selected(&no_policy).is_err());
     let mut no_tools = value.clone();
     no_tools["tools"] = json!([]);
@@ -73,7 +82,9 @@ fn constraint_aliases_are_core_derived_bounded_and_contiguous() {
         .unwrap();
     assert_eq!(
         aliases,
-        (0..32).map(|index| format!("vp_{index}")).collect::<Vec<_>>()
+        (0..32)
+            .map(|index| format!("vp_{index}"))
+            .collect::<Vec<_>>()
     );
     assert!(
         !serde_json::to_string(&aliases)
@@ -158,7 +169,10 @@ fn constrained_argument_nesting_limit_is_exact_and_does_not_change_legacy() {
     for depth in 1..=17 {
         let text = format!("<tool_call>{{\"name\":\"vp_0\",\"arguments\":{nested}}}</tool_call>");
         let result = report(&text);
-        assert_eq!(result["conversation"]["type"] == "function_call", depth <= 16);
+        assert_eq!(
+            result["conversation"]["type"] == "function_call",
+            depth <= 16
+        );
         let mut legacy = selected();
         legacy.as_object_mut().unwrap().remove("output_constraint");
         let input = decode_selected(&legacy).unwrap();
