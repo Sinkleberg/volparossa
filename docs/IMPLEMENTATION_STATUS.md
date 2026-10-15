@@ -35,7 +35,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38766434111` fails during Image FINALIZE with `stream_open / flow_acquire`; the inner cause was not retained. The bounded flow-detail contract passes 167 targeted tests, including all 27 new cases. Final lint/format acceptance and full profile-9 integration checks remain pending. Image/Cloud adapters and the consumer evidence chain are joined in the candidate; complete those source gates before another actual trial. The previous Cloud-catalog failure remains unresolved; combined repair, restoration, remote cleanup and reciprocal capacity are not yet established. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Actual `38788802469` identifies `compute_memory_budget` before any tool call; cleanup passes. Candidate `95ef4541` allocates KV capacity for the complete current prompt and output allowance, retaining bounded growth and all original limits. Its normal native targets and owned sanitizer targets pass; the same upstream all-type sanitizer failure remains open. Validate the exact Code coupling before a scoped BF16 actual experiment. Memory savings and successful coding-agent execution remain unproven; this does not complete protected peer execution or the shared brain. |
+| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Actual `38788802469` identifies `compute_memory_budget` before any tool call; cleanup passes. Candidate `95ef4541` allocates KV capacity for the complete current prompt and output allowance, retaining bounded growth and all original limits. Its normal native targets and owned sanitizer targets pass; the same upstream all-type sanitizer failure remains open. Code `ffc7c3ef` passes its source check; paired BF16 trial `38797816570` is the next acceptance gate. Memory savings and successful coding-agent execution remain unproven; this does not complete protected peer execution or the shared brain. |
 | Protected remote compute — `volparossa`, then Code/Browser | Bind an approved private workload to verified protection and the confirmed key. | PR258's authenticated refusal path has actual route evidence. PR262 integrates explicit same-connection key confirmation after targeted source, full Quality and CodeQL acceptance. Possession confirmation is not private-task admission. Production authority, current vendor appraisal, approved workloads and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 Detailed earlier Android and storage checkpoints remain in the
@@ -152,6 +152,23 @@ The latest completed outcomes are summarized below.
   Artifact and log ZIP SHA-256 values are respectively
   `1761ae75f0414f3a39df31f5735ff5e9f3e39d296fa8f87f1b305c03e393a1c4`
   and `4e8009c367d3beb1fb045244b4ee2c9993cecef1f48726aa10d67266ba643b9a`.
+
+  [Run `38798034905`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38798034905)
+  on `56683ab4` again passes the same 167 unique cases, then Clippy identifies
+  a 29,576-byte future in the actual Unix-transfer diagnostic test. Revision
+  `0e17aff5` uses `Box::pin` around that future, in the same task and diagnostic
+  scope; the test body, assertions, production code and limits are unchanged.
+  Formatting is not reached in that targeted run. Original artifact and log ZIP
+  SHA-256 values are respectively
+  `a71aaff913b899cbaf0a2d607740634a659b465dd77764f036888048fbfe7ebc`
+  and `ec46f1b9f6a8f579c023405c6f7a51dbf04fdba63b2d6c56e8462b667d105b59`.
+  Profile 9's separate [Quality run `38798321440`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38798321440)
+  on `42c1710c` reaches the same Clippy finding after passing formatting and
+  shell checks. Its original log ZIP SHA-256 is
+  `93f7fa12fcf490b63b43c6733f69149fc6213a052f92cf1b39f269897e4fa8b9`.
+  The same two-line test correction is now integrated into the
+  candidate. Final targeted and full Quality acceptance remain required before
+  another actual storage trial.
 
 - **Same-connection key confirmation passes targeted source checks.**
   [Run `38781307814`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38781307814)
