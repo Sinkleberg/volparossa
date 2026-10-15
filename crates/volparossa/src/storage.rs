@@ -53,6 +53,31 @@ pub(crate) enum Command {
     },
 }
 
+impl Command {
+    fn validate_diagnostics(&self) -> Result<(), clap::Error> {
+        // Global values can arrive from different subcommand scopes. Recheck
+        // the final selection before constructing or polling any storage work.
+        if matches!(
+            self,
+            Self::Replicas {
+                append_diagnostics_v7: true,
+                flow_acquire_diagnostics_v8: true,
+                ..
+            } | Self::Fragments {
+                append_diagnostics_v7: true,
+                flow_acquire_diagnostics_v8: true,
+                ..
+            }
+        ) {
+            return Err(clap::Error::raw(
+                clap::error::ErrorKind::ArgumentConflict,
+                "--append-diagnostics-v7 conflicts with --flow-acquire-diagnostics-v8",
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Subcommand)]
 pub(crate) enum LocalCommand {
     /// Create a new private, non-evicting store; refuses an existing directory.
@@ -122,6 +147,7 @@ pub(crate) enum LocalCommand {
 }
 
 pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
+    command.validate_diagnostics()?;
     let command = match command {
         Command::Local { command } => command,
         Command::Peer { command } => return peer::run(*command, socket).await,

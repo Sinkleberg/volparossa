@@ -333,8 +333,8 @@ fn flow_acquire_v8_fragment_join_keeps_summaries_and_original_eight_failure_boun
     assert!(serde_json::from_value::<Diagnostics>(oversized).is_err());
 }
 
-#[test]
-fn flow_acquire_v8_cli_is_explicit_and_mutually_exclusive_with_v7() {
+#[tokio::test]
+async fn flow_acquire_v8_cli_is_explicit_and_mutually_exclusive_with_v7() {
     for group in ["replicas", "fragments"] {
         for (flag, expected) in [
             (None, (false, false)),
@@ -376,18 +376,34 @@ fn flow_acquire_v8_cli_is_explicit_and_mutually_exclusive_with_v7() {
             } else {
                 "--append-diagnostics-v7"
             };
-            let error = crate::Cli::try_parse_from([
-                "volparossa",
-                "storage",
-                group,
-                first,
-                "status",
-                "--state",
-                "/not-opened",
-                second,
-            ])
-            .unwrap_err();
-            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+            for (first_before, second_before) in
+                [(true, true), (true, false), (false, true), (false, false)]
+            {
+                let mut args = vec!["volparossa", "storage", group];
+                if first_before {
+                    args.push(first);
+                }
+                if second_before {
+                    args.push(second);
+                }
+                args.extend(["status", "--state", "/not-opened"]);
+                if !first_before {
+                    args.push(first);
+                }
+                if !second_before {
+                    args.push(second);
+                }
+                let kind = match crate::Cli::try_parse_from(args) {
+                    Err(error) => error.kind(),
+                    Ok(cli) => crate::dispatch(cli)
+                        .await
+                        .expect_err("conflict must precede all storage work")
+                        .downcast::<clap::Error>()
+                        .expect("typed argument conflict, not a later state or socket error")
+                        .kind(),
+                };
+                assert_eq!(kind, clap::error::ErrorKind::ArgumentConflict);
+            }
         }
     }
     for group in ["local", "peer"] {
