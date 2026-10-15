@@ -35,8 +35,8 @@ The immediate milestones build on the retained candidates and evidence below:
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | PR232's `32458165` adds separate catalog and client-close diagnostics and passes Quality `38762587601` / CodeQL `38762581523`. Evaluate actual `38766434111` with the same pinned consumers and limits. The preceding trial stops at `cloud_catalog`; its independently passing base lifecycle does not establish combined consumer repair, restore, remote cleanup or reciprocal capacity. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Actual `38742699743` completes two native reads, then reaches the third request's deadline without an edit/test. PR212 and Code PR11 now implement connection- and task-bound model/prefix reuse. Finish the core source checks, pin Code to that exact accepted revision, then run the same 4B/BF16 task with the ordinary toolset and unchanged limits. This efficiency slice does not complete protected peer execution or the shared brain. |
-| Protected remote compute — `volparossa`, then Code/Browser | Bind an approved workload and private-input release to verified protection on another node. | PR258 is merged as `71209145`. Actual `38766299588` passes on `2ed91039`: wrong-requester/repeat rejection, authenticated device-unavailable refusal, protected routing and cleanup. Targeted checks, Quality and CodeQL pass. Production authority, current vendor appraisal, approved workloads and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
+| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Actual `38742699743` completes two native reads, then reaches the third request's deadline without an edit/test. PR212 and Code PR11 implement connection- and task-bound model/prefix reuse. Core `0de65f42` passes Quality and CodeQL; Code `266d1a03` pins that exact revision. After Code's checks, run the same 4B/BF16 task with the ordinary toolset and unchanged limits. The upstream sanitizer failure below remains open; this efficiency slice does not complete protected peer execution or the shared brain. |
+| Protected remote compute — `volparossa`, then Code/Browser | Keep the live owner from verified quote through key confirmation, then bind an approved private workload to that protection. | PR258 is merged as `71209145`. Actual `38766299588` passes on `2ed91039`: wrong-requester/repeat rejection, authenticated device-unavailable refusal, protected routing and cleanup. Targeted checks, Quality and CodeQL pass. Key confirmation is the next software step, not private-task admission. Production authority, current vendor appraisal, approved workloads and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
@@ -108,9 +108,23 @@ The latest completed outcomes are summarized below.
   across owners or projects. Code `97dfa4ad` passes source run `38759140548`
   with 455 checks and four skips. Core `00a4d73b` passes 83 targeted Rust checks,
   including all 21 new session cases, before three Clippy errors stop Quality
-  `38763979390`. The corrections end at `0de65f42`; full source acceptance and
-  the paired actual task remain pending. This is not demonstrated acceleration
-  or protected remote execution.
+  `38763979390`. The corrections end at `0de65f42`, which passes full Quality
+  `38766972432` and all four CodeQL analyses in `38766966694`. The original
+  Quality checkout `9396878dd99326439619b759a14661086604b4d1` has the exact
+  candidate tree `3d54c5aaff167396ca691971be70fc3b0274ac29`. Its seven ignored
+  Rust cases, three unavailable namespace probes and one opt-in CLI harness
+  skip remain separate from passing source checks. Original Quality and CodeQL
+  log ZIP SHA-256 values are respectively
+  `067ff87e054b732e3c9a7d048939330f4ec34a2fc83ac49657884cf909093ddb`
+  and `c07d075eeb8268d983b48aa294597c202340b57baacdecb693c57316d4d562cf`.
+
+  Code `266d1a03f0b327cc7221610372a8c626fe4b50d9` changes only the trial's
+  core pin and its literal test expectation to that revision. Its inert native
+  contract check passes 43 cases, including import of the exact retained core
+  builder; one test requiring separately retained patched loader source is
+  explicitly skipped. It loads no library or model. The paired actual task is
+  still required to prove model loading, prefix reuse and the complete coding
+  loop; source checks are not demonstrated acceleration or protected execution.
 
   Native C++ run `38759834612` on `2439892e` passes all six normal targets and
   five sanitizer targets, including the session checks. The upstream all-type
