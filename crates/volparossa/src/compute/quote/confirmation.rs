@@ -48,11 +48,17 @@ async fn finish(
     deadline: Instant,
     refusal: bool,
 ) -> Result<()> {
-    ensure!(Instant::now() < deadline, "quote_confirmation_handoff_deadline");
+    ensure!(
+        Instant::now() < deadline,
+        "quote_confirmation_handoff_deadline"
+    );
     let finished = timeout_at(deadline, crate::control::finish_request(stream, id))
         .await
         .context("quote_confirmation_handoff_deadline")??;
-    ensure!(Instant::now() < deadline, "quote_confirmation_handoff_deadline");
+    ensure!(
+        Instant::now() < deadline,
+        "quote_confirmation_handoff_deadline"
+    );
     check_terminal(&finished, refusal)
 }
 

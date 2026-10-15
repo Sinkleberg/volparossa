@@ -469,7 +469,9 @@ impl LiveSession<'_> {
         self.deadline
     }
 
-    pub(in crate::provider::compute) fn finish(self) -> Result<BoundSessionEvidence, EvidenceError> {
+    pub(in crate::provider::compute) fn finish(
+        self,
+    ) -> Result<BoundSessionEvidence, EvidenceError> {
         self.check()?;
         Ok(self.evidence)
     }

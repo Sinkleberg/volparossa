@@ -164,7 +164,8 @@ impl ContentRuntime {
             .await?;
             flow.shutdown();
             stage = "QUOTE_FINAL_POLICY_FAILED";
-            exchange::finish_before(deadline, checked_route(context, &policy, control, peer)).await?;
+            exchange::finish_before(deadline, checked_route(context, &policy, control, peer))
+                .await?;
             if provider.offer.validity().expires <= now() {
                 return Err(ContentError::Unavailable);
             }

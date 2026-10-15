@@ -6,7 +6,9 @@ async fn quote_confirmation_bridge_selects_only_the_explicit_wire_profile() {
     for (version, selector) in [(None, 1), (Some(1), 2)] {
         let (mut client, mut provider) = tokio::io::duplex(128);
         let exchange = tokio::spawn(async move {
-            Exchange::begin(&mut client, &[1; 32], version).await.is_err()
+            Exchange::begin(&mut client, &[1; 32], version)
+                .await
+                .is_err()
         });
         assert_eq!(provider.read_u32().await.unwrap(), 4);
         let mut bytes = [0; 4];
@@ -42,7 +44,9 @@ async fn quote_confirmation_bridge_rejects_invalid_remote_challenge_framing() {
     ] {
         let (mut client, mut provider) = tokio::io::duplex(128);
         let exchange = tokio::spawn(async move {
-            Exchange::begin(&mut client, &[1; 32], Some(1)).await.is_err()
+            Exchange::begin(&mut client, &[1; 32], Some(1))
+                .await
+                .is_err()
         });
         assert_eq!(provider.read_u32().await.unwrap(), 4);
         provider.read_exact(&mut [0; 4]).await.unwrap();

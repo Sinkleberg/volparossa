@@ -216,7 +216,9 @@ pub async fn write_probe<S: AsyncWrite + Unpin>(
 /// Read signed proof framing; only the live owner can confirm the random echo.
 /// # Errors
 /// Rejects malformed/oversized private records.
-pub async fn read_reply<S: AsyncRead + Unpin>(stream: &mut S) -> Result<ConfirmationReply, QuoteError> {
+pub async fn read_reply<S: AsyncRead + Unpin>(
+    stream: &mut S,
+) -> Result<ConfirmationReply, QuoteError> {
     ConfirmationReply::decode(&protocol::read(stream, MAX_REPLY_BYTES).await?)
 }
 

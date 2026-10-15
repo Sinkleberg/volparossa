@@ -49,9 +49,7 @@ impl<'a, S: AsyncRead + AsyncWrite + Unpin> Exchange<'a, S> {
         local: &mut UnixStream,
     ) -> Result<QuoteRequest, ContentError> {
         let result = match self {
-            Self::Legacy(_, _) => {
-                timeout(Duration::from_secs(30), wire::read_request(local)).await
-            }
+            Self::Legacy(_, _) => timeout(Duration::from_secs(30), wire::read_request(local)).await,
             Self::Confirmation(relay) => {
                 timeout_at(relay.deadline(), wire::read_request(local)).await
             }
@@ -69,13 +67,15 @@ impl<'a, S: AsyncRead + AsyncWrite + Unpin> Exchange<'a, S> {
         stage: &mut &'static str,
     ) -> Result<Response, ContentError> {
         match self {
-            Self::Legacy(stream, challenge) => until_requester_closed(local, async {
-                wire::exchange_outcome(stream, challenge, signer, request)
-                    .await
-                    .map(Response::Legacy)
-                    .map_err(|_| ContentError::Unavailable)
-            })
-            .await,
+            Self::Legacy(stream, challenge) => {
+                until_requester_closed(local, async {
+                    wire::exchange_outcome(stream, challenge, signer, request)
+                        .await
+                        .map(Response::Legacy)
+                        .map_err(|_| ContentError::Unavailable)
+                })
+                .await
+            }
             Self::Confirmation(mut relay) => {
                 let deadline = relay.deadline();
                 timeout_at(deadline, async {
