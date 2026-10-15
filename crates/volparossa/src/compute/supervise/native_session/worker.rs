@@ -277,6 +277,11 @@ impl Live {
                     if value["kind"] == "result" {
                         ensure!(result.is_none(), "compute_output_after_result");
                         controls.terminal()?;
+                        if let Some(error) = supervisor::diagnostic::native_worker_failure(&value, &request.id) {
+                            // A correlated worker error is not proof of its exit,
+                            // cleanup, adapter invalidity or a retry entitlement.
+                            return Err(error);
+                        }
                         // There is no invented successful exit status here.
                         supervisor::check_successful_result(&value, request)?;
                         controls.check_report(&value)?;

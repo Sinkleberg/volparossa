@@ -294,7 +294,7 @@ const WORKER_CODES: &[&str] = &[
     "INVALID_NATIVE_CONTROL",
 ];
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 pub(super) struct Detail {
     code: &'static str,
     io_kind: &'static str,
@@ -304,6 +304,12 @@ pub(super) struct Detail {
 }
 
 pub(super) fn describe(error: &Error) -> Detail {
+    if let Some(detail) = super::native_session::diagnostic(error) {
+        return detail;
+    }
+    if let Some(error) = error.downcast_ref::<ReceivedNativeWorkerFailure>() {
+        return error.0;
+    }
     let io_kind = error
         .chain()
         .find_map(|cause| cause.downcast_ref::<std::io::Error>())
@@ -346,6 +352,95 @@ pub(super) fn describe(error: &Error) -> Detail {
     detail
 }
 
+// Selected-session diagnostics only. Legacy FIXED_CODES/WORKER_CODES and their
+// historical projections remain unchanged. Exact literals, never a code prefix
+// or arbitrary uppercase text, are the complete additional export authority.
+const SESSION_CODES: &[&str] = &[
+    "compute_native_session_child_exited",
+    "compute_native_session_cpu_backwards",
+    "compute_native_session_cpu_bound",
+    "compute_native_session_cpu_budget",
+    "compute_native_session_cpu_clock",
+    "compute_native_session_cpu_identity",
+    "compute_native_session_cpu_stat",
+    "compute_native_session_receiver",
+    "compute_native_session_report",
+    "compute_native_session_request_bound",
+    "compute_native_session_root",
+    "compute_native_session_stderr",
+    "compute_native_session_stderr_closed",
+    "compute_native_session_stdout_closed",
+    "compute_native_session_turn_root",
+    "compute_native_session_unrequested_idle",
+    "compute_native_session_unsupported",
+    "compute_native_session_worker",
+    "compute_worker_invalid_json",
+    "compute_output_after_result",
+    "compute_result_missing",
+];
+const SESSION_WORKER_CODES: &[&str] = &[
+    "NATIVE_DECODE_FAILED",
+    "NATIVE_SAMPLE_FAILED",
+    "NATIVE_SESSION_PREFIX_RESET_FAILED",
+    "NATIVE_SESSION_CPU_OBSERVATION",
+    "NATIVE_SESSION_CPU_BOUND",
+    "NATIVE_SESSION_DEADLINE",
+    "NATIVE_SESSION_MODEL_CHANGED",
+    "NATIVE_SESSION_PREFIX_BOUND",
+    "INVALID_NATIVE_SESSION_FINISH",
+    "INVALID_NATIVE_SESSION_SEQUENCE",
+];
+
+pub(super) fn native_session_detail(error: &Error) -> Detail {
+    let mut detail = describe(error);
+    if detail.code == "unclassified" {
+        for cause in error.chain() {
+            let message = cause.to_string();
+            if let Some(code) = SESSION_CODES.iter().copied().find(|code| *code == message) {
+                detail.code = code;
+                break;
+            }
+        }
+    }
+    detail
+}
+
+// Unlike WorkerFailure, this has no exit-status, adapter-quarantine, request-ID
+// or cleanup authority. It retains only the independently closed projection.
+#[derive(Debug)]
+struct ReceivedNativeWorkerFailure(Detail);
+
+impl std::fmt::Display for ReceivedNativeWorkerFailure {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        output.write_str("compute_native_worker_error")
+    }
+}
+
+impl std::error::Error for ReceivedNativeWorkerFailure {}
+
+pub(super) fn native_worker_failure(value: &Value, id: &str) -> Option<Error> {
+    if value.get("version") != Some(&Value::from(1))
+        || value.get("id").and_then(Value::as_str) != Some(id)
+        || value.get("kind").and_then(Value::as_str) != Some("result")
+        || value.get("status").and_then(Value::as_str) != Some("error")
+    {
+        return None;
+    }
+    let code = WORKER_CODES
+        .iter()
+        .chain(SESSION_WORKER_CODES)
+        .copied()
+        .find(|code| value.get("code").and_then(Value::as_str) == Some(*code))
+        .unwrap_or("worker_other");
+    Some(Error::new(ReceivedNativeWorkerFailure(Detail {
+        code,
+        io_kind: "none",
+        exit_code: None,
+        signal: None,
+        stderr_class: None,
+    })))
+}
+
 pub(in crate::compute) fn failure(phase: &'static str, error: &Error) {
     emit(phase, &describe(error));
 }
@@ -374,6 +469,79 @@ fn emit(phase: &'static str, detail: &Detail) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_codes_are_exact_and_do_not_change_legacy_error_projection() {
+        for code in SESSION_CODES {
+            let original = anyhow::anyhow!("PRIVATE_CANARY /private/prompt").context(*code);
+            assert_eq!(describe(&original).code, "unclassified");
+            let detail = native_session_detail(&original);
+            assert_eq!(detail.code, *code);
+            let raw = serde_json::to_string(&detail).unwrap();
+            assert!(!raw.contains("PRIVATE_CANARY") && !raw.contains("/private/"));
+            let altered = anyhow::anyhow!("{code} PRIVATE_CANARY");
+            assert_eq!(native_session_detail(&altered).code, "unclassified");
+        }
+    }
+
+    #[test]
+    fn received_native_codes_require_exact_correlation_and_never_invent_exit_facts() {
+        let base = serde_json::json!({"version":1,"id":"PRIVATE_REQUEST_CANARY",
+            "kind":"result","status":"error","code":"NATIVE_DECODE_FAILED"});
+        for code in WORKER_CODES.iter().chain(SESSION_WORKER_CODES) {
+            let mut value = base.clone();
+            value["code"] = (*code).into();
+            let error = native_worker_failure(&value, "PRIVATE_REQUEST_CANARY").unwrap();
+            assert_eq!(
+                describe(&error),
+                Detail {
+                    code,
+                    io_kind: "none",
+                    exit_code: None,
+                    signal: None,
+                    stderr_class: None,
+                }
+            );
+            assert_eq!(error.chain().count(), 1);
+            assert!(super::super::adapter_violation(&error).is_none());
+            assert!(super::super::native_session::cleanup(&error).is_none());
+        }
+        for (key, changed) in [
+            ("version", serde_json::json!(true)),
+            ("version", serde_json::json!(2)),
+            ("id", serde_json::json!("OTHER_PRIVATE_REQUEST")),
+            ("kind", serde_json::json!("progress")),
+            ("status", serde_json::json!("ok")),
+        ] {
+            let mut value = base.clone();
+            value[key] = changed;
+            assert!(native_worker_failure(&value, "PRIVATE_REQUEST_CANARY").is_none());
+        }
+    }
+
+    #[test]
+    fn native_worker_unknown_codes_and_extra_private_fields_never_escape_projection() {
+        for code in [
+            serde_json::json!("PRIVATE_CANARY"),
+            serde_json::json!("NATIVE_DECODE_FAILED /private/PRIVATE_CANARY"),
+            serde_json::json!("NATIVE_DECODE_FAILED\nPRIVATE_CANARY"),
+            serde_json::json!(true),
+            serde_json::json!({"private":"PRIVATE_CANARY"}),
+            Value::Null,
+        ] {
+            let value = serde_json::json!({"version":1,"id":"PRIVATE_REQUEST_CANARY",
+                "kind":"result","status":"error","code":code,
+                "message":"PRIVATE_CANARY /private/input", "exit_code":42, "signal":9,
+                "cleanup":{"child_reaped":true}});
+            let error = native_worker_failure(&value, "PRIVATE_REQUEST_CANARY").unwrap();
+            let detail = describe(&error);
+            assert_eq!(detail.code, "worker_other");
+            assert_eq!(detail.exit_code, None);
+            assert_eq!(detail.signal, None);
+            let raw = serde_json::to_string(&detail).unwrap();
+            assert!(!raw.contains("CANARY") && !raw.contains("/private/") && !raw.contains("42"));
+        }
+    }
 
     fn progress(stage: &str, observation: &str, elapsed_ms: u64) -> Value {
         let index = PRIVATE_STAGES

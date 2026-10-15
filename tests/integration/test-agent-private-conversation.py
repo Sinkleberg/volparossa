@@ -438,7 +438,7 @@ class FixtureTests(unittest.TestCase):
     def test_service_diagnostic_vocabulary_matches_source_and_log_is_not_exported(self):
         source = (HERE.parents[1] / 'crates/volparossa/src/compute/supervise/diagnostic.rs').read_text()
         expected = {'unclassified', 'worker_other', 'startup_missing_result', 'result_observed', 'panic', 'join_cancelled'}
-        for name in ('FIXED_CODES', 'WORKER_CODES'):
+        for name in ('FIXED_CODES', 'WORKER_CODES', 'SESSION_CODES', 'SESSION_WORKER_CODES'):
             array = source.split(f'const {name}: &[&str] = &[', 1)[1].split('];', 1)[0]
             expected.update(re.findall(r'"([A-Za-z_]+)"', array))
         self.assertEqual(FIX['SERVICE_CODES'], expected)
@@ -470,7 +470,9 @@ class FixtureTests(unittest.TestCase):
             self.assertNotIn('column', json.dumps(result))
 
     def test_native_load_diagnostics_preserve_only_closed_phases(self):
-        codes = {code for code in FIX['SERVICE_CODES'] if 'NATIVE' in code}
+        source = (HERE.parents[1] / 'crates/volparossa/src/compute/supervise/diagnostic.rs').read_text()
+        historical = source.split('const WORKER_CODES: &[&str] = &[', 1)[1].split('];', 1)[0]
+        codes = {code for code in re.findall(r'"([A-Za-z_]+)"', historical) if 'NATIVE' in code}
         self.assertEqual(len(codes), 13)
         events = [dict(version=1, phase='execution', detail=dict(code=code, io_kind='none',
             exit_code=None, signal=None, stderr_class=None)) for code in sorted(codes)]
@@ -485,6 +487,38 @@ class FixtureTests(unittest.TestCase):
             self.assertTrue(result['unrecognized_record'])
             self.assertFalse(result['truncated'])
             self.assertNotIn('CANARY', json.dumps(result))
+
+    def test_native_session_codes_are_closed_bounded_and_preserve_receipt_shape(self):
+        source = (HERE.parents[1] / 'crates/volparossa/src/compute/supervise/diagnostic.rs').read_text()
+        codes = []
+        for name, count in [('SESSION_CODES', 21), ('SESSION_WORKER_CODES', 10)]:
+            array = source.split(f'const {name}: &[&str] = &[', 1)[1].split('];', 1)[0]
+            selected = re.findall(r'"([A-Za-z_]+)"', array)
+            self.assertEqual(len(selected), count)
+            codes.extend(selected)
+        self.assertEqual(len(set(codes)), 31)
+        with tempfile.TemporaryDirectory(prefix='native-session-diagnostic-', dir=HERE) as directory:
+            path = Path(directory) / 'private.log'
+            for start in range(0, len(codes), 15):
+                events = [dict(version=1, phase='task', detail=dict(code=code, io_kind='none',
+                    exit_code=None, signal=None, stderr_class=None)) for code in codes[start:start + 15]]
+                invalid = dict(events[0], detail=dict(events[0]['detail'], code='NATIVE_PRIVATE_CANARY'))
+                raw = 'PRIVATE_CANARY /private/prompt\n' + ''.join(
+                    'DEBUG private_execution_diagnostic ' + json.dumps(value) + '\n'
+                    for value in [*events, invalid])
+                path.write_text(raw)
+                path.chmod(0o600)
+                result = FIX['service_diagnostic'](path)
+                self.assertEqual(result, dict(version=1, events=events,
+                    truncated=False, unrecognized_record=True))
+                self.assertNotIn('CANARY', json.dumps(result))
+                self.assertNotIn('cleanup', json.dumps(result))
+            line = 'DEBUG private_execution_diagnostic ' + json.dumps(events[0]) + '\n'
+            path.write_text(line * 17)
+            result = FIX['service_diagnostic'](path)
+            self.assertEqual(len(result['events']), 16)
+            self.assertTrue(result['truncated'])
+            self.assertFalse(result['unrecognized_record'])
 
     def test_terminal_execution_state_distinguishes_gate_pause_from_completed_model_load(self):
         value = dict(version=1, last_phase='paused', substage=dict(stage='owner_gate', state='begin', elapsed_ms=0),

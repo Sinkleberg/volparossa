@@ -43,6 +43,17 @@ pub(in crate::compute) enum Event {
 #[derive(Debug)]
 struct Failure {
     cause: anyhow::Error,
+    diagnostic: super::diagnostic::Detail,
+}
+
+impl Failure {
+    // Called only after the original process join and private-root removal.
+    // Keep the cause private for the existing deadline predicate; its chain is
+    // deliberately not exposed through Error::source or public wire messages.
+    fn after_cleanup(cause: anyhow::Error) -> Self {
+        let diagnostic = super::diagnostic::native_session_detail(&cause);
+        Self { cause, diagnostic }
+    }
 }
 
 impl fmt::Display for Failure {
@@ -52,6 +63,12 @@ impl fmt::Display for Failure {
 }
 
 impl std::error::Error for Failure {}
+
+pub(super) fn diagnostic(error: &anyhow::Error) -> Option<super::diagnostic::Detail> {
+    error
+        .downcast_ref::<Failure>()
+        .map(|failure| failure.diagnostic)
+}
 
 fn cleanup_record() -> Value {
     json!({"version":1,"child_reaped":true,"private_state_removed":true})
@@ -309,7 +326,7 @@ pub(in crate::compute) async fn run(
     root.close()?;
     let result = result
         .map(|()| cleanup_record())
-        .map_err(|cause| anyhow::Error::new(Failure { cause }));
+        .map_err(|cause| anyhow::Error::new(Failure::after_cleanup(cause)));
     if let Some(hints) = resident.hints.take() {
         hints.finish(&result);
     }
