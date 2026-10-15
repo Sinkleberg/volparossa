@@ -254,6 +254,7 @@ async fn flow_acquire_requester_cancellation_clears_the_same_request_observation
 async fn flow_acquire_already_closed_requester_does_not_start_the_observer() {
     let (client, mut local) = UnixStream::pair().unwrap();
     drop(client);
+    local.readable().await.unwrap();
     let observation = Observation::new(true);
     let mut polled = false;
     let result = observation
