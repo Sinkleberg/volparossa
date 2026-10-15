@@ -693,9 +693,9 @@ impl NativeSession {
             let mut reply = wire::error(Some(id), code);
             reply["session_cleanup"] = cleanup.clone().unwrap_or(Value::Null);
             let mut replies = vec![reply];
-            if let Some(cleanup) = cleanup.filter(|_| {
-                self.pending.is_some() && self.close_id.is_some() && !gate.is_closed()
-            }) {
+            if let Some(cleanup) = cleanup
+                .filter(|_| self.pending.is_some() && self.close_id.is_some() && !gate.is_closed())
+            {
                 replies.push(self.closed(cleanup));
             }
             return replies;
