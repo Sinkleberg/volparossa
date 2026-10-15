@@ -12,7 +12,7 @@ use volparossa_exit::{
     ActiveTcpEgressRoute, ActiveTcpRoute, ExitNativeRouteAuthorization, ExitService,
     TcpEgressLimits,
 };
-use volparossa_mptcp::MptcpInfo;
+use volparossa_mptcp::{MptcpAcceptError, MptcpInfo};
 use volparossa_tcp_proxy::{
     StreamTransferLimits, StreamTransferStats, Tls13MptcpClient, Tls13MptcpServer,
     Tls13MptcpStream, VerifiedMptcpRoute, proxy_bidirectional, write_open_tcp,
@@ -78,6 +78,10 @@ enum ExitRuntimeEvent<A, T> {
     FlowCompleted(Result<T, tokio::task::JoinError>),
     MaintainPaths,
     ExtendPath(path_extension::PathCommand),
+}
+
+fn accept_failure_ends_route(error: &MptcpAcceptError) -> bool {
+    matches!(error, MptcpAcceptError::Listener(_))
 }
 
 async fn next_exit_runtime_event<A, T: 'static>(
@@ -241,7 +245,7 @@ impl ProductionMptcpExitRuntime {
                     event = next_exit_runtime_event(
                         Duration::from_millis(remaining),
                         accepting,
-                        transport.listener().accept(),
+                        transport.listener().accept_classified(),
                         &mut flows,
                         &mut maintenance,
                     ) => event,
@@ -270,9 +274,16 @@ impl ProductionMptcpExitRuntime {
                         .unwrap_or(Err(ProductionMptcpExitError::Accept))
                     });
                 }
-                ExitRuntimeEvent::Accepted(Err(_)) => {
+                ExitRuntimeEvent::Accepted(Err(error)) => {
                     failed = true;
-                    break;
+                    if accept_failure_ends_route(&error) {
+                        break;
+                    }
+                    // The rejected stream is already closed. Preserve this same listener and
+                    // the independently owned flows, but never hide the failed acceptance or
+                    // let repeated rejections monopolize the executor. The next iteration
+                    // still checks shutdown, route expiry, capacity and path maintenance.
+                    tokio::task::yield_now().await;
                 }
                 ExitRuntimeEvent::FlowCompleted(result) => {
                     report_exit_flow_result(result, &mut failed, &mut flow_completed).await;
@@ -974,6 +985,80 @@ mod tests {
 
         assert_eq!(reports, [true]);
         assert!(!failed);
+    }
+
+    #[test]
+    fn only_listener_accept_failure_ends_reusable_exit_route() {
+        for kind in [io::ErrorKind::ConnectionAborted, io::ErrorKind::Other] {
+            assert!(accept_failure_ends_route(&MptcpAcceptError::Listener(
+                io::Error::from(kind)
+            )));
+            assert!(!accept_failure_ends_route(&MptcpAcceptError::RejectedStream(
+                io::Error::from(kind)
+            )));
+        }
+    }
+
+    #[tokio::test]
+    async fn rejected_exit_accept_returns_to_cancellation_and_expiry_checks() {
+        let mut flows = JoinSet::<()>::new();
+        let mut maintenance = time::interval_at(
+            time::Instant::now() + Duration::from_secs(30),
+            Duration::from_secs(1),
+        );
+        let (shutdown, receiver) = watch::channel(false);
+        let mut failed = false;
+        let rejection = || {
+            std::future::ready(Err::<(), _>(MptcpAcceptError::RejectedStream(
+                io::Error::from(io::ErrorKind::ConnectionAborted),
+            )))
+        };
+        for _ in 0..2 {
+            let event = next_exit_runtime_event(
+                Duration::from_secs(60),
+                true,
+                rejection(),
+                &mut flows,
+                &mut maintenance,
+            )
+            .await;
+            let ExitRuntimeEvent::Accepted(Err(error)) = event else {
+                panic!("expected only the consumed stream rejection");
+            };
+            failed = true;
+            assert!(!accept_failure_ends_route(&error));
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            failed,
+            "a rejected acceptance must not become a successful route outcome"
+        );
+        shutdown.send(true).unwrap();
+        assert!(
+            until_exit_shutdown(
+                receiver,
+                next_exit_runtime_event(
+                    Duration::from_secs(60),
+                    true,
+                    rejection(),
+                    &mut flows,
+                    &mut maintenance,
+                )
+            )
+            .await
+            .is_none()
+        );
+        assert!(matches!(
+            next_exit_runtime_event(
+                Duration::ZERO,
+                false,
+                rejection(),
+                &mut flows,
+                &mut maintenance,
+            )
+            .await,
+            ExitRuntimeEvent::RouteExpired
+        ));
     }
 
     #[test]
