@@ -218,7 +218,7 @@ fn successful_supervisor_allows_one_exact_range_hint_without_reading_model() {
         },
     );
     assert_eq!(calls.get(), 1);
-    assert_eq!(result.unwrap(), "original result");
+    assert!(matches!(result, Ok("original result")));
 }
 
 #[test]
@@ -231,7 +231,7 @@ fn hint_failure_does_not_change_success_or_claim_reclaimed_memory() {
         || Some(0),
         |_, _| Err(nix::errno::Errno::EIO),
     );
-    assert_eq!(result.unwrap(), "original result");
+    assert!(matches!(result, Ok("original result")));
 }
 
 #[test]
@@ -251,7 +251,9 @@ fn errors_including_unconfirmed_cleanup_never_sample_or_hint() {
             || panic!("error sample"),
             |_, _| panic!("error hint"),
         );
-        let error = result.unwrap_err();
+        let Err(error) = &result else {
+            panic!("original error replaced");
+        };
         assert_eq!(error.to_string(), original);
         assert_eq!(
             error.is::<crate::compute::private_task::CleanupUnconfirmed>(),
