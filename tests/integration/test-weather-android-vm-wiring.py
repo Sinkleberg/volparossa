@@ -238,6 +238,7 @@ class CleanupReceipt(unittest.TestCase):
                 (output / D["NAME"]).write_bytes(inner_raw)
             script = '''set -eu
 umask 077
+scenario=content-provider
 RUN_DIRECTORY_PARENT=$1
 RUN_DIRECTORY=$1/weather-client-kvm.ABC123
 RUN_DIRECTORY_PREFIX=weather-client-kvm
@@ -317,6 +318,7 @@ FINISHED=no
                         output = parent / "evidence"; output.mkdir(mode=0o700)
                         script = '''set -eu
 umask 077
+scenario=content-provider
 RUN_DIRECTORY_PARENT=$1
 RUN_DIRECTORY=$1/weather-client-kvm.ABC123
 RUN_DIRECTORY_PREFIX=weather-client-kvm
@@ -375,6 +377,7 @@ exit "$GUEST_STATUS"
                     (work / "guest-key").write_text("INERT PRIVATE CANARY")
                     script = '''set -eu
 umask 077
+scenario=content-provider
 RUN_DIRECTORY_PARENT=$1
 RUN_DIRECTORY=$1/weather-client-kvm.ABC123
 RUN_DIRECTORY_PREFIX=weather-client-kvm
@@ -522,6 +525,7 @@ set +e
             output = parent / "evidence"; output.mkdir(mode=0o700)
             script = '''set -eu
 umask 077
+scenario=content-provider
 RUN_DIRECTORY_PARENT=$1
 RUN_DIRECTORY=$1/weather-client-kvm.ABC123
 RUN_DIRECTORY_PREFIX=weather-client-kvm

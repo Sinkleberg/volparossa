@@ -165,6 +165,7 @@ output_directory=$2
 OUTPUT_UID=$3
 OUTPUT_GID=$4
 scenario=$5
+protected_quote=no
 weather_client_bundle=/selected
 browser_filter_bundle=
 weather_client_delivery_copy_artifacts() { return "$6"; }

@@ -83,6 +83,7 @@ content_provider_control_underlay() {
 content_provider_start_control_observer() {
     provider_control_prefix=$1
     case $provider_control_prefix in
+        protected-quote-control-privacy) [ "${protected_quote:-no}" = yes ] || return 1 ;;
         content-provider-*|weather-client-delivery-control|weather-products-delivery-weather-control|weather-products-delivery-air-quality-control|weather-android-delivery-control) ;;
         *) return 1 ;;
     esac
