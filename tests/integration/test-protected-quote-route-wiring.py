@@ -46,6 +46,37 @@ class Wiring(unittest.TestCase):
         self.assertIn("client_log_baseline_ms", source)
         self.assertIn("client_event_count_after", source)
 
+    def test_quote_preflight_does_not_require_unbuilt_unrelated_examples(self):
+        text = GUEST.read_text()
+        start = text.index('if [ "$scenario" = content-provider ]; then\n    for provider_fixture')
+        end = text.index('\nif [ "$scenario" = content-https ]; then', start)
+        block = text[start:end]
+        self.assertNotIn("content-acceptance-fixture", SHELL.read_text())
+        self.assertNotIn("https-content-acceptance-fixture", SHELL.read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            binaries = Path(directory) / "examples"
+            binaries.mkdir()
+            env = dict(os.environ, scenario="content-provider", source_directory=str(ROOT),
+                binary_directory=directory)
+
+            def run(selected, **overrides):
+                return subprocess.run(["sh", "-eu", "-c", block],
+                    env=dict(env, protected_quote=selected, **overrides),
+                    capture_output=True, timeout=5)
+
+            # The actual quote driver builds neither unrelated example. This
+            # executes the original preflight block, not a duplicated predicate.
+            self.assertEqual(run("yes").returncode, 0)
+            self.assertEqual(run("no").returncode, 69)
+            for name in ("content-acceptance-fixture", "https-content-acceptance-fixture"):
+                self.assertEqual(run("no").returncode, 69)
+                path = binaries / name
+                path.write_bytes(b"inert-never-executed\n")
+                path.chmod(0o700)
+            self.assertEqual(run("no").returncode, 0)
+            # Quote still requires the existing provider source fixtures.
+            self.assertEqual(run("yes", source_directory=directory).returncode, 69)
+
     def case(self, name, status, failures, output):
         with tempfile.TemporaryDirectory() as directory:
             env = dict(os.environ, WORK=directory, CASE=name, CASE_STATUS=str(status),

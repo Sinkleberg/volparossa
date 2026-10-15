@@ -476,6 +476,19 @@ The complete preflight's 99 Python invocations and 58 shell syntax checks now
 exit successfully locally. Four Node-dependent cases also pass with the existing
 verified runtime; the optional real CLI/GPG and three namespace cases stay skipped.
 
+The replacement route trial, `38754172447` on `2dfe81e0`, passes that preflight
+and starts the VM, but returns status 69 without a guest route report. Its only
+published artifact is the independently validated host receipt confirming QEMU
+termination/join and private VM-state removal. This is not guest-topology cleanup
+or route acceptance. Source review finds a concrete mismatch: the quote driver
+does not build the content/HTTPS transfer examples, while the shared provider
+preflight requires both. Quote-only now skips only those two executable checks;
+ordinary providers retain them, as an executed inert preflight regression proves.
+The original guest stderr was not exported, so this mismatch is not an observed
+inner error message. The resulting 12 wiring cases pass locally; a corrected
+actual trial remains pending. Separately, source run `38754168513` on the original
+commit passes 230 Python cases, 55 unique Rust cases, formatting and strict Clippy.
+
 #### Integrated quote exchange
 
 The new quote-only path connects guest-owned evidence collection to the existing

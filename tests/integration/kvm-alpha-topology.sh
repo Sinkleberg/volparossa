@@ -1390,10 +1390,13 @@ if [ "$scenario" = content-provider ]; then
             exit 69
         fi
     done
-    [ -x "$binary_directory/examples/content-acceptance-fixture" ] \
-        || { printf '%s\n' 'content provider executable unavailable' >&2; exit 69; }
-    [ -x "$binary_directory/examples/https-content-acceptance-fixture" ] \
-        || { printf '%s\n' 'content provider HTTPS executable unavailable' >&2; exit 69; }
+    if [ "$protected_quote" = no ]; then
+        # Quote-only uses production attach/verify, not these transfer examples.
+        [ -x "$binary_directory/examples/content-acceptance-fixture" ] \
+            || { printf '%s\n' 'content provider executable unavailable' >&2; exit 69; }
+        [ -x "$binary_directory/examples/https-content-acceptance-fixture" ] \
+            || { printf '%s\n' 'content provider HTTPS executable unavailable' >&2; exit 69; }
+    fi
 fi
 if [ "$scenario" = content-https ]; then
     for https_fixture in content-https-smoke.sh content-https-smoke.py content-network-smoke.py; do
