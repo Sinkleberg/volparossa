@@ -19,10 +19,10 @@ Last updated: 2026-10-15
 ### Execution priorities and next milestones
 
 The shared cache and actual Weather delivery into Drizz.li and Overmorrow are
-integrated. The installed Android refresh/background-expiry trial is now also
-integrated. Shared private storage maintenance and protected compute remain the
-next core dependencies; further Weather expansion does not automatically take
-precedence over core blockers. Choose slices by shared dependencies,
+integrated. The installed Android refresh/background-expiry trial with synthetic
+products is also integrated. Shared private storage maintenance and protected
+compute remain the next core dependencies; further Weather expansion does not
+automatically take precedence over core blockers. Choose slices by shared dependencies,
 architectural uncertainty and a demonstrable end-to-end result, not by application
 order or change count. Develop core functions with their actual consumers.
 
@@ -31,642 +31,81 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | Quality `38674811413` passes. Actual `38674805209` on `89c91156` now preserves the first driver failure: `actual-refresh/product_count_wait/observation_deadline`. Four tunnel exchanges complete before owner cleanup; their timing relative to that observer failure is unknown. Inner process/policy cleanup and owner/VM/ACL cleanup pass their stated boundaries. Joined delivery, background/resume, live expiry, physical devices and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38653857407` on `7b27d13d` passes the separate base lifecycle, but a later Cloud upload fails before READY while reading/verifying the provider challenge. Less than one second precedes that exchange; the operation deadline expires after 90–120 seconds inside it. Consumer repair, restoration and remote cleanup remain unproved. Cloud PR234 waits for this shared integration. |
+| Native Overmorrow — `volparossa`, `volparossa-weather` | Complete actual core delivery through Android's initial, refresh and background/resume lifecycle; then verify expiry behavior with real products. | The installed-app lifecycle, including expiry, passes with synthetic products (Weather PR19). The actual installed-app trial also returns success, but guest evidence verification rejects finalization. PR248 corrects two independently reproduced byte-comparison errors; a new joined trial must verify the complete result. Actual expiry, physical devices and iOS remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized maintenance after restart, then publish, repair and restore through actual consumers after provider replacement. | The base lifecycle passes, but the latest completed trial fails Cloud RESERVE operations at TLS handshake and flow acquisition. PR232 corrects an export bug that hid receiving-side activity; this does not fix the transport failure. Consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 and PR247 are merged; main `17afa3f0` contains the finite operator grants, guest module, protected exchange and CLI verifier. Corrected source `09b0d3cc` passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`. Software evidence does not establish production-route execution, production authority, current vendor appraisal, an approved measured workload or actual private execution. Suitable confidential-computing hardware is unavailable; storage and Android integration continue in parallel. |
-
-### Android-to-core integration boundary
-
-Weather [PR22](https://github.com/VOLPAROSSA/volparossa-weather/pull/22) is merged.
-Source `f6ee829961da387d9c0cd71b7163b47baab434fa` passes component run
-[`38585280869`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38585280869)
-(246 Node and 497 Python checks) and CodeQL `38585272621`. The production bridge
-can serve its fixed APIs over an exclusively owned private Unix socket. Its
-explicit proof mode retains bounded original CLI receipts only after actual
-requests, content validation and process/scratch cleanup. It performs no prefetch
-and retains nothing by default. Shutdown tests cover an outstanding file open
-without allowing directory-descriptor reuse to redirect a write.
-
-The core candidate's v6 input bundle contains only 39 explicitly admitted source,
-Node and decoder members. It excludes a browser, SDK, APK and synthetic provider.
-Its archive validation alone is not runtime proof. The separate Android/VM
-dispatcher now admits profile 6 only with the exact prepared Weather source;
-profiles 1–5 retain their existing dispatch and evidence contracts.
-The API-only tunnel is bounded and preserves the live socket through final
-Android identity checks; its local tests use owned processes and Unix sockets,
-not SSH, a VM, real peers or an Android device.
-
-The separate preparation helper builds the production bridge configuration from
-the already selected publications. It does not start a process, fetch a product
-or create a cache. A root-staged, agent-owned cache parent keeps this access
-separate from private agent state. Acquisition receipts have their own schema 6;
-historical cold-transfer and browser evidence cannot be relabeled as Android
-evidence. Independent review checks all 39 admitted inputs against the exact
-Weather source and previously admitted decoder artifacts.
-
-Core guest candidate `709ec8aa` passes the complete hosted Quality run
-[`38597941234`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38597941234).
-It adds the owned worker-service lifecycle, fixed guest control handshake and
-guest dispatch after publisher cleanup. Its receipt verifier
-preserves the six original CLI operations and joins HTTP body hashes to the
-installed app's observations. Both products share a capture window; this is not
-the older proof's pair of independent captures. Local synthetic contract tests
-do not establish Android-to-core delivery.
-
-The required next joined proof must bind an Android-initiated first GET to its
-original cold core receipt, actual protected paths and the same response bytes
-shown by the app. Native build preparation must precede publication. Fresh
-background/resume follows two tap refreshes without an extra fetch; it is not
-live-expiry proof. The next candidate connects host orchestration and the separate
-native preparation/live entrypoints. It admits the combined guest and emulator
-only with at least 10 GiB available memory and bounded execution time; publication
-lifetimes are not extended. A shell-only cancellation must stop and join the
-owned coordinator before destroying the guest. Final acceptance requires original
-CLI/HTTP/UI evidence from this run, completed VM destruction and byte-identical
-restoration of the hosted runner's temporary KVM ACL. Only explicitly named,
-closed evidence is exported, never raw private receipts or native state.
-
-Actual [trial `38607507096`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38607507096)
-on `13c74fbf11ddefb7ff6b6c080242029ae5a0c53e` passes APK preparation,
-pinned mqvpn compilation and image verification, then stops in the owner's
-`native` phase with exit 1. The owner joins its children without forced killing
-and removes its socket; the outer runner destroys the VM, removes private guest
-state and restores the original 77-byte KVM ACL exactly. The underlying native
-error and the native runtime's own cleanup records were not exported, so this
-run establishes neither their cause nor installed-app delivery. Its original
-ten-member artifact matches SHA-256
-`bc7bd8e6d4e4c6008b0ec7b7929f19f630d04eb369f3140262d0dc61fcd633a5`.
-
-[Quality `38607515064`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38607515064)
-passes on PR merge `e69a9b68`; only README.md differs from the trial's source.
-All 215 Android contract checks run without skips, alongside successful Clippy
-and workspace tests. The workspace reports 3,661 passes and seven ignored tests;
-runner-policy namespace skips and one separate CLI fixture skip are not actual
-datapath evidence. [CodeQL `38607507812`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38607507812)
-also passes. These checks do not replace the failed joined trial.
-
-The diagnostic candidate preserves the pinned native runtime and all execution
-budgets while exposing a bounded, closed failure diagnostic, including guards
-that run before native phase receipts exist. Raw native output remains private;
-an error record cannot satisfy the delivery or cleanup acceptance gates.
-Local inert checks pass: 44 owner, ten native-launcher, sixteen hosted-workflow
-and sixteen VM-wiring tests. They verify error visibility, redaction, cleanup
-ordering and rejection of malformed or stale records, not actual native delivery.
-No local native build or host-network change was performed for these components.
-
-#### Earlier Android guard failure
-
-The closed diagnostic now identifies the failing guard in
-[run `38615075140`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38615075140),
-on exact `d9c2f67599e43c8a2c4c73c39543e40326d7592c`: native category `value`, code
-`KVM_REQUIRED_NO_TCG`. The unchanged Weather `f6ee8299` guard requires `/dev/kvm`
-to be a character device with read/write access for that process. It rejects
-before new live output, scoped policy installation or emulator execution.
-Successful earlier preparation and outer QEMU startup do not prove continued
-access at this later point. Source and timestamp review find no early ACL
-restoration or host identity change; the reason for the rejection remains
-unknown, not evidence that the runner lacks KVM hardware.
-
-Owner children are joined without forced killing, output is drained and its
-socket is removed. The VM is destroyed and private guest state removed. Original
-and restored 77-byte KVM ACLs match SHA-256
-`1e4f78ad9620be770ef90f96d7235e9c4f9be95014122d28899ac95266d57f6d`.
-Native live/result/emulator-cleanup records are absent, rather than inferred
-successful. There is no joined delivery acceptance.
-
-Original artifact `11921581259` has ZIP SHA-256
-`668999658b7b2a9d0678491887051c8d6129d3b172d69c1867f78af149a92408`;
-original logs ZIP SHA-256 is
-`70b6c1a4ee99f8e6ec19324ef5c4606cb97368ef635e7808c11f17720475de84`.
-Independent readback verifies both archives and the limited cleanup evidence.
-
-[Quality `38615083080`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38615083080)
-passes on PR merge `838dde7a`; only README differs from the actual candidate.
-Its 233 Android contract checks pass without skips. The Rust workspace reports
-3,661 passes, zero failures and seven explicit ignores; three namespace skips
-and a separate CLI compatibility skip remain non-acceptance.
-[CodeQL `38615075887`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38615075887)
-also passes. These results do not replace the failed actual trial.
-
-The follow-up checks KVM access before guest publication and retains a private
-baseline for comparison with the actual native process. A separate, closed
-diagnostic receipt reports device/access categories and identity-change
-booleans, never numeric identities, raw ACLs, paths or native logs. It performs
-no permission repair, device I/O, VM creation or ioctl; the pinned Weather
-guard, signed publication lifetimes and execution budgets remain unchanged.
-This observer is not a fix for the unknown access failure or a new acceptance
-source. A fresh actual result remains necessary.
-
-All 104 focused inert checks pass: seven observer, fifteen native-wrapper,
-fifty owner, sixteen hosted-wiring and sixteen VM-wiring cases. Independent
-review, shell syntax, ShellCheck and diff checks pass. The older VM shell
-access check can still stop earlier with generic exit 77; this observer does
-not diagnose that boundary. Its comparison baseline starts before the owner
-launches the guest driver, not at the original ACL grant.
-
-#### KVM continuity correction
-
-Actual [run `38624043886`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38624043886)
-on `ca292e4166e013a1964b412e91358bd52721fe73` fails before starting the driver,
-tunnel or native process. Pre-QEMU access succeeds at 19:49:19.416Z; the owner
-probe at 19:50:00.043Z has no real/effective read/write access and open returns
-`EACCES`. The earlier receipt compares identity and device to its own owner
-baseline, not to preflight. It cannot prove continuity across that interval.
-Owner and VM cleanup and original ACL restoration pass. Artifact `11923868858`
-ZIP SHA-256 is `48c74caa8c3402c440989a7c3cbad354602e6ee34e4af7612349adee0e6aeb98`;
-original logs ZIP SHA-256 is
-`f6cb9aa9eeccf11a20a19eb72707d3ab96a15c4da0239153bb9b87efe5164405`.
-Quality `38624052635` and CodeQL `38624048007` pass on that source; this is not
-actual Android acceptance.
-
-Source review finds a concrete possible mechanism: KVM VM creation can emit a
-device change event, and the runner's systemd uaccess path clears named-user
-ACL entries while retaining named-group entries. The original run does not
-record that mutation or identify its actor; causality remains unproven.
-See the [KVM event implementation](https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/v6.8/virt/kvm/kvm_main.c),
-[systemd ACL implementation](https://raw.githubusercontent.com/systemd/systemd/v255/src/shared/devnode-acl.c)
-and [exact runner image manifest](https://github.com/actions/runner-images/blob/ubuntu24/20261012.334/images/ubuntu/Ubuntu2404-Readme.md).
-
-The candidate grants only the existing non-root primary runner group after
-checking its exclusive account/group membership and rejecting aliases or any
-pre-existing extended ACL. This prevents mask recomputation from unmasking
-other named grants. It does not change group membership, install udev rules,
-grant world access or repeatedly regrant permissions. After owned children
-join, bounded privileged udev settling precedes byte-exact original ACL restore;
-settle failure still attempts restoration and prevents a cleanup success claim.
-
-A private pre-QEMU baseline now supplies real continuity comparisons in the
-closed diagnostic schema 2. Schema 1 remains readable; the native guard,
-Weather pin, success schema 6 and publication/execution budgets are unchanged.
-Only finite access and comparison fields are exported, never the private
-baseline, numeric identities or raw ACLs. Independent source review and all
-118 focused inert tests pass (12 KVM, 15 native, 56 owner, 19 hosted and 16 VM),
-with shell syntax, ShellCheck and diff checks. The actual result below verifies
-group suitability and access across these boundaries, not joined delivery.
-
-#### Earlier Android installed trial failure
-
-Actual [run `38634359589`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38634359589)
-checks out exact `85978d551ecdd8d41636919dff53c866b452cc81` and retains Weather
-`f6ee829961da387d9c0cd71b7163b47baab434fa`. Its schema-2 KVM receipt verifies
-read/write access and unchanged device and process identity from the original
-pre-QEMU baseline through owner startup. Native entry also opens the device
-with read/write access. The previous KVM guard no longer stops this run.
-
-The native process now reaches `installed-emulator-trial` and returns
-`CHILD_FAILED`. In the pinned Weather helper this means its owned child returned
-a nonzero status. The original emulator cleanup records show that the inner
-trial started but did not complete. They do not identify which command or check
-failed. The existing closed `emulator-diagnostic.json` and optional guest-network
-diagnostic were not projected into this run's artifact; raw logs stay private.
-The next change retains those bounded observations without changing native
-guards, product lifetimes, resource limits or delivery acceptance.
-
-The native wrapper records process drain, policy cleanup and unchanged host
-network namespace. Inner cleanup joins its direct children and removes its
-private AVD and Android home. The owner joins children without forced killing,
-drains output and removes its socket. The outer runner joins QEMU and removes
-private guest state; the original and restored 77-byte KVM ACLs match SHA-256
-`1e4f78ad9620be770ef90f96d7235e9c4f9be95014122d28899ac95266d57f6d`.
-No guest artifact, joined delivery result or final hosted acceptance is present.
-The later failed guest-archive retrieval is not the first native failure.
-
-Original artifact `11928963707` contains 12 explicitly named files. Its ZIP
-SHA-256 is `11fa0128c37125a09cd84ab5d35793ff7967ac8fe1c30fa583f61404e08a0bb1`;
-original logs ZIP SHA-256 is
-`fffb3a11df48801e5e219d1799c4239d538acbc95adfa7b2c93385bb960fb151`.
-Independent readback verifies the archives, source binding and cleanup scope.
-
-[Quality `38634369314`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38634369314)
-passes on PR merge `b7f7bc53b66ce110f00182c1265b777c017b2a26`. Android source
-bytes match the actual candidate; the whole tree also includes main's integrated
-dependency backports and documentation. The Android contract step passes 265
-checks and the workspace passes 3,661 tests with seven ignores. Three namespace
-skips and one CLI compatibility skip remain non-acceptance. These checks do not
-replace the failed installed trial.
-
-The follow-up adds one optional `weather-android-inner-diagnostic.json` receipt,
-separate from the unchanged schema-6 delivery evidence. After child cleanup, the
-owner reads only the two fixed, previously absent Weather diagnostic paths. It
-admits exact emulator schema 3 and guest-network schema 9 within their original
-1 KiB and 2 KiB bounds. The export contains only closed categories, booleans and
-bounded counts; missing or rejected input remains explicit. No success or
-cleanup gate consumes this diagnostic, and raw private logs remain excluded.
-All 112 focused inert checks pass: 12 parser, 63 owner, 20 hosted-wiring and
-17 VM-wiring cases. This establishes the observation contract, not the cause of
-the prior inner failure or actual Android delivery.
-
-#### Earlier Android interruption
-
-Actual [run `38641552623`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38641552623)
-uses exact `ac2a7c7f8ebc2ead7c83263b82fd8f0437cfb362` and the same Weather
-`f6ee8299` source. KVM continuity and native entry access pass again. During
-`installed-emulator-trial`, Weather records `HOSTED_ANDROID_CORE_INTERRUPTED`;
-its cleanup then reports `CLEANUP_UNCONFIRMED`. Native process drain and policy
-cleanup are explicitly false, and the inner emulator cleanup record is absent.
-The new inner diagnostic is valid, but both original observations are absent;
-it does not identify a failing emulator command.
-
-The owner exits its native wait before recording any stage status. Its exported
-failure instead contains statuses observed after child cleanup, which cannot
-identify whether a deadline, an earlier driver/tunnel exit, an I/O error or
-cancellation stopped the wait. The correction must retain that original stop
-before cleanup. There is no evidence yet that changing a timeout would fix it.
-
-Outer cleanup remains distinct: owner children are joined without forced
-killing, output is drained, the socket is removed and its network namespace is
-unchanged. QEMU is joined, private guest state removed and the original 77-byte
-KVM ACL restored exactly. These results do not establish native cleanup or
-Android delivery. The later missing guest archive is a secondary failure.
-
-The original 13-file artifact ZIP has SHA-256
-`0315a902b48c42034d98896f735b14486b0e2312f21a0e5afc7e0fbf7a2f07bf`;
-the original logs ZIP has SHA-256
-`18cb7e9a232cb31f2fe25bf0f1e4b711682b4fb6973075f22369c9c50763230d`.
-
-The follow-up retains the owner's stop reason, stage, expired budget categories
-and already-observed child statuses **before** cleanup. Failure schema 7 adds
-this closed observation to the existing failure file; success, delivery and
-join records remain schema 6. Neither historical nor new failure records can
-authorize acceptance. Missing diagnostic capture cannot replace the original
-failed result or prevent cleanup. No raw exception text, process identifiers,
-private paths or streams are exported.
-
-All 136 focused inert checks pass: 72 owner, 20 hosted-workflow, 17 VM-wiring,
-12 inner-diagnostic and 15 native-launcher tests. They cover deadline sources,
-early driver/tunnel exit, cancellation, I/O failure and pre-cleanup status
-retention. Execution limits, publication lifetimes, Weather source and cleanup
-ordering are unchanged. The following actual trial verifies the new observation,
-but does not establish joined delivery.
-
-#### Earlier Android tunnel interruption
-
-[Quality `38647964779`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38647964779)
-passes all 295 Android checks, including 72 owner cases, and 3,661 workspace
-tests with seven ignores. Its original checkout `742dae8e` merges main
-`7b728846` and `bae082b5`; Android files and the corrected discovery test match
-the head, but the whole checkout does not. Three namespace proofs and one
-optional CLI compatibility case skip. Log ZIP SHA-256:
-`0b8d12a84d8f4b59cb817c0e441b0a1a3d41fd2d2d066c67003bf9b7bda95a0d`.
-
-Actual [run `38647976460`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38647976460)
-checks exact `bae082b580cc57723ceef22890e0418d49455328`, tree
-`36d2f396d65f3f12b14765beca787e1dfdfaeb3f`, with the same Weather pin. Its schema-7
-owner record now establishes the first stop before cleanup: `tunnel-exited`
-during `native-wait`, tunnel status 1 with both output pipes closed. Driver and
-native are still running; the expired-budget list is empty and output overflow
-is false. APK preparation and KVM admission pass. This identifies the failed
-component, not the tunnel's underlying error.
-
-Native interruption and `CLEANUP_UNCONFIRMED` follow that stop. Native process
-drain and policy cleanup remain false; emulator cleanup and the two inner
-diagnostic observations are absent. Owner children join without forced killing,
-output drains and its socket is removed with the network namespace unchanged.
-QEMU joins and private guest state is removed, but the driver does not finish.
-The original 77-byte KVM ACL is restored exactly at SHA-256
-`1e4f78ad9620be770ef90f96d7235e9c4f9be95014122d28899ac95266d57f6d`.
-These outer cleanup facts do not establish native cleanup or acceptance.
-
-Original artifact `11935480319` contains thirteen files, ZIP SHA-256
-`7a0e55d83f976d4b7160148f191996ca99b35e5ebe3957cba483f880823d8dfd`;
-log ZIP SHA-256
-`28f4714654a5b36b354b74d4c8d9ffbf7009806e6dcb7359f116ba0c90e6d87e`.
-No acceptance receipt exists. That revision's tunnel collapses request, child and
-HTTP-response failures into one fixed message and emits no failure receipt.
-Neither a timeout increase nor an unchanged retry is supported by this result.
-
-#### Tunnel failure observation
-
-Candidate `de5091e2` preserves the first tunnel failure before cleanup. A closed,
-failure-only record contains its phase, error category, product and bounded
-request counters, observed SSH exit status and an allowlisted HTTP status.
-Cleanup observations remain separate. No response body, header, URL, identity,
-exception text or raw child output is exported; the complete marked record is
-limited to 4,096 bytes.
-
-The owner admits this optional record only after all child groups have joined
-and output has drained. Missing, duplicate, truncated or invalid records remain
-unknown. Failure schema 8 adds the nullable record without changing the earlier
-owner-stop observation; success and joined acceptance retain schema 6. Existing
-deadlines, six-request limits, source pins, authorization and cleanup operations
-are unchanged. The following hosted results validate this observation contract,
-but do not establish successful Android delivery.
-
-All 39 tunnel, 80 owner, twenty hosted-workflow and seventeen VM-wiring checks
-pass locally without a native build. They cover a private Unix-socket HTTP 503,
-child failure, client disconnect, deadlines, preservation of the first error
-across cleanup failures, malformed and duplicate records, and unchanged success
-receipts. These controlled process/contract tests are not Android-to-core
-delivery evidence.
-
-#### First forecast response and writable cache correction
-
-[Quality `38654744521`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38654744521)
-passes all 314 Android contract checks, formatting, strict Clippy and workspace
-tests. Checkout `8e7b52d3` combines main `7b728846` with `de5091e2`; the four
-changed Android source/test files match the head, not the entire checkout.
-The workspace has 3,655 passes and seven ignores; three namespace proofs and
-one separate CLI fixture skip. Log ZIP SHA-256:
-`46dc7f71e55c0dd2b7e35716189431175e887c7fcd31ad005b2809989276a58f`.
-
-Actual [run `38655062763`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38655062763)
-uses exact `de5091e22785e2c0af160efc7c84f4d7e7b7c444` and Weather `f6ee8299`.
-The first forecast request reaches the guest through SSH, which exits 0, but
-returns HTTP 503. The tunnel correctly rejects it at `response-observe`; no
-forecast request completes and no air-quality request starts. The owner records
-`tunnel-exited` during `native-wait` before cleanup, with no expired budget or
-output overflow. The closed receipt does not expose the underlying core error.
-
-Owner children and the tunnel exchange child are joined and their sockets
-removed. QEMU is joined, private guest state removed and the original KVM ACL
-restored byte-for-byte. Native process drain and policy cleanup remain false,
-and emulator cleanup is absent. These outer cleanup results do not establish
-native cleanup or delivery. Original 13-file artifact ZIP SHA-256:
-`4a00efefd04c45ae026e5192bd4ee2a87433cbed2b81bcba4591502cea0d4197`;
-log ZIP SHA-256:
-`9ed12bbb58ab8f2babcc74fb86988513ad53414ab7b2a3b7efa37ff662448b86`.
-
-Source review identifies a writable-mount mismatch: the profile-6 cache parent
-was created outside agent state, after service startup, while
-`ProtectSystem=strict` allowed writes only to that state. The agent creates the
-cold cache before discovery or route setup, so the separate parent also needs
-an explicit writable mount. A read-only-filesystem failure is expected from this
-configuration; its errno was not measured in the original run.
-
-The correction stages only the empty, agent-owned `0710` parent before client
-startup, selected from the fully verified profile-6 archive. Only that client
-gets the exact additional writable path. The directory identity is checked
-before launch and app preparation; both product caches must still be absent.
-Worker access remains search-only, private agent state remains inaccessible,
-and profiles 1–5 retain their original mounts. No prefetch, new request, retry,
-longer lifetime or weaker response gate is introduced. All 112 focused inert
-checks pass: 17 Android shell, 31 preparation, 17 VM-wiring, 20 hosted-wiring,
-12 legacy shell and 15 product-shell cases. They exercise exact unit arguments,
-startup order, unchanged historical profiles and rejection of a replaced or
-misconfigured parent. Shell syntax and scoped ShellCheck pass. These checks do
-not create a real service mount. The following hosted results preserve that
-distinction; the correction is not yet proven by successful joined delivery.
-
-#### Earlier guest-driver exit and bounded observation
-
-[Quality `38661129133`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38661129133)
-passes all 319 Android contract checks and 3,655 workspace tests, with zero
-failures and seven ignores. Checkout `755b509d` merges main `7b728846` with
-`5fd43b03`; the four changed code/test files match exactly. Three namespace
-proofs and one optional CLI fixture explicitly skip. Log ZIP SHA-256:
-`cade127ea4ab3b3c79bd7ad062520dd77bb41728177a734b8c94732f720d870e`.
-
-Actual [run `38661883390`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38661883390)
-uses exact `5fd43b030bcd48608a4a8cf198a2924531d22b33`, tree
-`ef1069dad159554b7180f2fca40de9305fc7d1f4`, and the unchanged Weather pin. Its
-first stop is `driver-exited` during `read-ready`, driver exit 1. Neither tunnel
-nor native starts; no owner budget expires and no output overflows. This is
-earlier than the previous HTTP 503 and proves neither its recurrence nor repair.
-The original hosted artifact does not expose the underlying guest-driver cause.
-
-Owner children are joined, output drained, its socket removed and the host
-network namespace unchanged. The outer VM receipt confirms normal archive
-retrieval completed, QEMU joined and private guest state was removed; this does
-not establish the guest's final phase or successful delivery. The original 77-byte KVM ACL is
-restored exactly. Guest-network, emulator and native receipts are absent, not
-additional cleanup evidence. Original thirteen-file artifact ZIP SHA-256:
-`7dc56a1073b35a74e523df78ebc7699f12206022ae5a6cd24376e44a9e61b6e2`;
-log ZIP SHA-256:
-`ca679d161a96a93e3f7a815c72e0b2224e0fa4c28cd811cb7971e623a3f9cf01`.
-
-The next candidate projects only fixed phases and failure categories from
-already retrieved guest records, after VM and ACL cleanup. It runs only for a
-current-run early driver failure; absent, rejected and unknown observations stay
-explicit. A terminal provider blocker may have been replaced during cleanup;
-it is not relabeled as the first cause. The separate diagnostic cannot authorize
-acceptance or establish an underlying cause. Raw logs, private paths and topology
-identities stay private.
-Owner schemas, source pins, SSH commands, deadlines and original failure records
-remain unchanged. This closes an observation gap, not the runtime failure.
-All 155 focused inert checks pass: 25 new driver-projection, 21 hosted-wiring,
-17 VM-wiring, 80 owner and 12 inner-diagnostic cases. The actual original
-owner-failure record passes the new gate; no missing guest report is fabricated.
-Independent source/privacy review and diff checks pass. No local Rust or native
-build was run.
-
-[Quality `38666214957`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38666214957)
-on `f14cfedf` passes all 345 Android contract tests and 3,655 workspace tests,
-with zero failures and seven ignores. Checkout `e9a4ed88` merges main `7b728846`
-with that head; all fourteen executed Android test scripts and the delivery
-shell match exactly. Only existing main additions explain the workflow and
-status-document differences. Formatter, strict Clippy, audits and the integration
-harness pass. Three namespace proofs and one optional CLI fixture skip.
-Original log ZIP SHA-256:
-`5624041b347f5aec691e72768e02bc12d69cc96cea17f45925ecd3e7ac253029`.
-These checks do not establish installed-app delivery.
-
-Actual [run `38666209135`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38666209135)
-checks out exact `f14cfedfb49edf387cb34569cb3d31720b052064` with the unchanged
-Weather `f6ee829961da387d9c0cd71b7163b47baab434fa` pin. Unlike the preceding
-read-ready failure, it reaches the native stage. The first owner stop is
-`tunnel-exited` during `native-wait`, with no exhausted owner budget. The tunnel
-records three completed exchanges, two admitted weather requests and two admitted
-air-quality requests. Its fourth exchange, air-quality ordinal 2, stops at
-`exchange-client` with `client-disconnected`; HTTP and SSH status are absent.
-This establishes client EOF while waiting, not its underlying cause, successful
-six-request delivery or repair of the earlier HTTP 503.
-
-The driver and native child are still running at the first stop. Their later
-exit statuses, `CLEANUP_UNCONFIRMED` and interruption diagnostics are cleanup
-observations, not the first cause. Owner groups are joined and drained without
-SIGKILL, owner/tunnel sockets removed, QEMU joined, private guest state removed
-and the original KVM ACL restored exactly. Normal guest archive completion and
-inner emulator/policy cleanup are not established; joined acceptance is skipped.
-The early-driver projection correctly emits no record for this native-stage
-failure. Original artifact `11944515097` ZIP SHA-256:
-`e53a596073d55e4f5c47c8e64aee92f876a3768b7cbd5a8139f1da9583b41430`;
-original log ZIP SHA-256:
-`22f6b5ec0bcd08573c11aef2ad34d51d148b7dec120df642813186db7a4e4128`.
-Original owner, tunnel, inner-diagnostic and KVM schemas validate. The next
-investigation is the client-disconnect boundary, without changing acceptance,
-deadlines or source pins to turn this failure into a pass.
-
-#### Preserve the first Android driver failure
-
-Weather [PR23](https://github.com/VOLPAROSSA/volparossa-weather/pull/23) is merged.
-Its source `0a31bf180f1a42b96b0ceaec3715f56496a559a5` writes a closed,
-at-most-2-KiB first-failure record before native cleanup can terminate the app
-and its outstanding exchange. Only finite phase/error categories are retained;
-raw output, app contents and private identities are excluded. This addresses a
-diagnostic gap, not a demonstrated cause of the preceding disconnect.
-
-The current core candidate pins that exact Weather source consistently across
-the workflow, input admission, native launcher and diagnostic collectors. The
-owner reads the new private file only after child groups are joined and output
-is drained. Inner-diagnostic schema 2 adds the optional driver record; historical
-schema 1 remains bound to the original `f6ee8299` source and its two records.
-Historical early-driver diagnostics remain readable, but new exports require
-the current source. No execution deadline or delivery/cleanup acceptance gate
-has changed.
-
-All 186 focused core Python checks pass. Weather's matching published sources
-pass 120 focused Node checks, plus hosted component and CodeQL checks. Independent
-review verifies all 20 admitted Weather source blobs and the unchanged 39-member
-bundle bindings. An inert child-process trial retains the first failure when
-the tunnel exits before the driver's final report; the original historical
-artifact still validates. These checks do not prove installed-app delivery.
-
-[Quality `38674811413`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38674811413)
-passes all 352 Android contract checks, shell checks, formatting, strict Clippy
-and 3,669 workspace tests, with seven ignored tests. Checkout `5227d373` merges
-main `87f8c31d` and candidate `89c91156`; all ten changed Android source,
-workflow, pin and test files match the candidate. Three namespace proofs
-explicitly skip because user namespaces are denied, not because real datapaths
-passed. Original job-log ZIP SHA-256:
-`4c633ad36dee7986d1bd2a7266968f3505637925a8cde55d964889f417724749`.
-
-[Actual run `38674805209`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38674805209)
-uses exact core `89c91156472ba2b7328f3c001dfd309afb913c8c` and Weather
-`0a31bf180f1a42b96b0ceaec3715f56496a559a5`. The new first-failure record is
-available: `NATIVE_TRIAL_PHASE_FAILED` in `actual-refresh`, with observer
-`product_count_wait/observation_deadline`, before native cleanup. No ADB exit
-status or signal is reported. This identifies the observer's failed wait, not
-whether forwarding was slow or a completion counter was wrong.
-
-The first owner stop is now `native-result/native-exited`, with native status 1;
-the tunnel and guest driver are still running and no owner budget has expired.
-The tunnel later reports four completed exchanges, two weather and two
-air-quality requests, followed by interruption while accepting the next request.
-Those final counts do not establish completion before the earlier observer
-deadline. The previous run's client EOF is not the first failure of this run.
-No successful six-request delivery or joined Android acceptance is claimed.
-
-Native process drain and scoped policy cleanup complete; the emulator reports
-its direct children reaped and private Android home/AVD removed, while retaining
-the requirement for enclosing-namespace cleanup. The owner joins and drains all
-children without forced killing and removes its socket. QEMU joins, private
-guest state is removed and the original 77-byte KVM ACL is restored exactly.
-Normal guest-driver completion remains false. Original artifact `11946790434`
-ZIP SHA-256:
-`38835fde753b2dfb12191532ea749e25ad8cd79fbabde23ea5cef82c88c134a3`;
-original job-log ZIP SHA-256:
-`c0b14c60e80d7f659af75048a37826c176a372698ddf03855c89243ecf60178b`.
-
-#### Live refresh observation within the original total deadline
-
-Weather [PR24](https://github.com/VOLPAROSSA/volparossa-weather/pull/24) is merged
-at `79e76878`, with source `3b90442a9d5be4db73ccf83cba2028364980c3ca`.
-Source review finds that all live rounds require two serial product responses,
-but only the first round received a 120-second operational observation window;
-refresh rounds inherited the 15-second UI-poll window. The correction gives all
-three live rounds that same 120-second window, still capped by the original
-absolute 180-second driver deadline, including earlier setup and observation.
-
-This is an explicit observer-policy change, not an increase in the total trial,
-HTTP/SSH/request or publication budgets. Synthetic and UI waits remain at their
-original limits. The six-request cap, two taps, immutable response checks, exact
-native rows, freshness, real lifecycle and cleanup gates are unchanged. Final
-counts in the preceding actual trial do not prove that this mismatch uniquely
-caused its failure; the corrected candidate still needs an actual joined trial.
-
-A regression with the production waiter and virtual time fails on the original
-code and passes on the correction: two valid serial responses taking ten seconds
-each no longer fail solely at the former refresh cutoff. Separate negative cases
-reject an answer at the operational or absolute deadline, an exhausted total
-budget and an extra request. All 126 focused Node driver/live checks pass.
-[Hosted components `38678860888`](https://github.com/VOLPAROSSA/volparossa-weather/actions/runs/38678860888)
-passes 749 checks (252 Node, including the 32-case live suite, and 497 Python),
-with zero skips; the tested merge tree matches the exact source candidate.
-CodeQL `38678858614` also passes. Original component log ZIP SHA-256:
-`596d4413bf28e7c6be09975ea4f87bc3846c1c9e9eca1a64656a6189fd326581`.
-These are source and inert timing checks, not Android/network delivery evidence.
-
-The core candidate pins that published Weather source across its workflow,
-launcher, bundle and diagnostic collectors. All 187 focused core checks pass;
-the 39 bundle entries and artifact bindings are unchanged, and the twenty
-tracked Weather bundle sources match their pinned hashes. Historical schema-1
-`f6ee8299` and schema-2 `0a31bf18` diagnostics remain readable unchanged; only
-`3b90442a` can authorize a new diagnostic export. This compatibility does not
-promote old receipts into new delivery evidence.
-
-#### Deterministic relay-cache test inputs
-
-[Quality `38641559561`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38641559561)
-on `ac2a7c7f` passes all 286 Android contract checks and strict Clippy, then fails one
-discovery test in the agent library (687 passed, one failed). Its expected
-same-sequence conflict is generated with a new random envelope nonce, but the
-fixture selects the payload's network from only the first nonce byte. Equal
-first bytes can therefore produce identical payloads, for which acceptance is
-correct. This is a fixture defect, not evidence that contradictory signed
-capabilities should be accepted.
-
-The correction gives those cache fixtures explicit network discriminators. It
-checks both acceptance of an identical signed payload and rejection of a
-different payload at the same sequence, while retaining peer limits, authenticated
-identity, expiry, policy and rollback checks. Only test inputs and assertions
-change; production cache rules and the Android workflow remain unchanged. The
-corrected Rust test passes in the subsequent Quality run above.
-
-The failing checkout `2302f068` merges `ac2a7c7f` with main `7b728846`. Its
-`discovery.rs` blob is identical to the earlier successful `85978d55` Quality
-checkout. Original logs ZIP SHA-256:
-`02d7deaaed1ca9ac3a1c2ef04bf4d4df1a5b00e13d8a0c2c5d276de9869085e0`.
-The actual Android trial `38641552623` failed on original `ac2a7c7f` as described
-above; this test correction does not change that result or establish delivery.
-
-### Latest storage trial
-
-Actual run [`38519187504`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38519187504)
-on `a7e574fe4cc733853d0cb9944294cbf409502d67` fails the combined consumer gate.
-Cloud's first fragment, second copy reaches FINALIZE and receives an I/O failure
-while exchanging the signed request and receipt, after the local READY response.
-This boundary does not identify whether the provider committed the operation.
-The client event ring has wrapped; an uncorrelated provider request-read error
-does not establish the cause. A per-request, short-lived local outcome is the
-next diagnostic step; increasing timeouts or repeating the run is not a fix.
-
-Candidate `8ea8a059` now joins this outcome to the failed local request and Unix
-user. The closed diagnostic is bounded, short-lived and consumed once; it does
-not retry a storage operation or establish whether a provider committed it.
-Profile 5 pins Image `ec6b9dca` and Cloud `4409c086` to the same version-4 error
-contract while retaining the historical profile contracts. Hosted
-[Quality `38592307081`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38592307081)
-and [CodeQL `38592303405`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38592303405)
-pass, including the outcome registry, actual Unix-UID query, CLI diagnostics and
-stream-close-before-query tests. Quality tests the PR merge candidate; the actual
-[consumer trial `38595365736`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38595365736)
-runs directly on `8ea8a059bc66ac38dbc920d156a018ee2038e767` and fails before the
-topology starts. Its isolated `cargo test -p volparossa-agent --lib maintenance`
-build cannot compile the outcome tests: Tokio `advance` and `start_paused` require
-the missing `test-util` feature. The broad workspace build had obtained that
-feature through another test dependency; its pass did not prove this isolated
-build. The topology exit code is 101, not a new storage-operation failure.
-
-Correction `d22f7892` explicitly adds Tokio `test-util` only to the agent's
-development dependencies and adds the isolated outcome-test command to Quality.
-[Quality `38601264906`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38601264906)
-passes, including all seven isolated outcome tests after the workspace suite.
-One new [actual trial `38607252325`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38607252325)
-is dispatched on `d22f7892c76020a3addaf360a3b01507ff7164fd`; its result is pending.
-The correction does not change production Tokio features, add a FINALIZE retry,
-alter the profile-5 acceptance conditions or resolve the original Cloud I/O
-failure. Neither the diagnostics nor passing component tests establish consumer
-restoration.
-
-The failed run `38519187504` completes the separate base-maintenance lifecycle, two whole-archive
-verified restores, deletion of all eleven base copies and the foreground copy,
-and zero final usage at all three base providers. Local consumer processes and
-the disposable topology are cleaned up, with unchanged guest-root networking.
-Consumer restoration and remote cleanup remain unproved because publication did
-not finish. These base results do not turn the combined run into a pass.
-
-The retained original artifact ZIP is
-`4140ed5b6b67498812fd5a0c00eb40d0d67063fd8fca5a047196d29df956fce8`;
-the original log ZIP is
-`f60455097f2e5699b3bc5bcd48a7c0776a5e9e67274a8d25ecd02c498ce4d8d2`.
-Independent reconstruction and root replay validate the exact source, consumer
-pins and closed failure receipts without inventing a missing request timeline.
-
-### Latest integration evidence — 14 October
-
-The older checkpoints in the workstream table are superseded by these original
-results; the older checkpoints are retained as history, not as currently running trials.
+| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | One native model-generated read completes, but six subsequent requests are refused by memory admission. Core PR212 and Code PR11 now identify that refusal; safe release of unused model-file cache after confirmed worker cleanup is the next candidate, not a proven cause or fix. Model, task and memory limits remain unchanged. This development executor is not confidential peer execution or completion of the shared-brain requirement. |
+| Protected remote compute — `volparossa`, then Code/Browser | Verify quote exchange on the production route, then execute a private task on another node with verified protection. | PR246 and PR247 are merged. The quote-only slice passes appraisal, guest, agent/control/CLI and quote software checks. Production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is still unavailable; local coding and storage integration continue without substituting for this requirement. |
+
+Detailed earlier Android and storage checkpoints remain in the
+[pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
+The latest completed outcomes are summarized below.
+
+### Latest completed integration evidence — 15 October
+
+- **Android reaches finalization, but joined delivery remains incomplete.**
+  [Trial `38684878727`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38684878727)
+  on core `7fced6cf` / Weather `3b90442a` records a successful actual installed-app
+  trial and zero native/tunnel exit statuses. The guest driver then fails at
+  `weather-android-delivery-verify`; the bounded diagnostic identifies the guest
+  evidence verifier. Owner/VM cleanup and exact KVM ACL restoration pass, but
+  joined acceptance and actual expiry remain unproven. Original artifact ZIP
+  SHA-256: `166039662e74c8fabeb83d50aae7ae6c131cb6e8fb1f72689f9eddcd61a41392`.
+  Source review reproduces two unconditional `TypeError`s: the JSON comparison
+  helper receives raw prepared/config bytes. Correction `2f3fa117` compares those
+  bytes directly, preserving hashes, ownership and strict JSON checks. Five new
+  regressions cover guest input checks and strict JSON equality; all 366 inert
+  Android checks pass. The valid-input case intentionally stops at lifecycle
+  rejection, not at invented delivery success. The original artifact cannot exclude an additional earlier
+  failure; complete joined acceptance still requires a new actual trial.
+- **Storage consumer maintenance remains incomplete.**
+  [Trial `38682910244`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38682910244)
+  on `db50e01f` passes the base core-loss/restart, pause/resume, replacement,
+  two-restore and delete lifecycle, then fails Cloud publication. Fragment 1,
+  copy 1 RESERVE reports a TLS handshake deadline; fragment 2, copy 0 RESERVE
+  reports stream acquisition failure at `flow_acquire`. These are not the earlier
+  FINALIZE challenge timeout. Local cleanup completes; remote cleanup and
+  provider usage remain unproven. Original artifact ZIP SHA-256:
+  `ab673a13864ffbf177f26b1df8c3a74e3907762f7001c4718f2545cf96b8b6b7`.
+  Receiving-side activity is absent: the exporter references an undefined `HERE`
+  and suppresses the resulting exception. Correction `b7e63589` resolves the
+  sampler beside its own script. All 134 targeted inert tests pass, including
+  real exporter subprocess cases. This restores diagnostic export, not storage
+  transport or consumer acceptance; storage authority, timeouts and pinned
+  consumers remain unchanged.
+- **OpenCode reaches one real read, then refuses memory admission.**
+  [Trial `38681471469`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38681471469)
+  on Code `e3926734` / core `5607f117` passes native build, conversion and
+  provisioning. One of seven submitted requests produces a function call and
+  the actual OpenCode runtime completes its read. The six subsequent task events
+  report `compute_model_memory_headroom`. This identifies an admission refusal,
+  not whether host memory, a cgroup ancestor or unavailable measurements caused
+  it. The reported core memory peak is 5,849,735,168 bytes under an
+  11,811,160,064-byte limit, with zero OOM kills. File-cache occupancy at admission
+  is not measured. The task ends after 564,911 ms without an edit, test or changed
+  fixture. Reported runtime, project, VM and owned-runner cleanup complete.
+  Original artifact ZIP SHA-256:
+  `29f93f53de70c6ce7dbbac261916289010743cd3b4cb3fae6dce6a7493561810`.
+  The next candidate targets unused model cache after confirmed worker cleanup,
+  while preserving the existing admission guard and memory limits.
+
+See the follow-up results in [Storage PR232](https://github.com/VOLPAROSSA/volparossa/pull/232),
+[Android PR248](https://github.com/VOLPAROSSA/volparossa/pull/248) and
+[Code PR11](https://github.com/VOLPAROSSA/volparossa-code/pull/11).
+Starting a follow-up does not supersede the last completed outcome above.
+
+Earlier 15 October checkpoints remain retained: Android
+[`38674805209`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38674805209)
+stopped at refresh observation (`observation_deadline`); Code
+[`38675278393`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38675278393)
+completed one read without identifying the six execution failures. Weather PR24
+and core task diagnostics made the later observations above possible; they do
+not by themselves establish either complete use case.
+
+### Earlier integration evidence — 14 October
+
+These earlier results remain historical evidence. They are not current running
+trials or substitutes for the later completed outcomes above.
 
 - **Android core delivery remains open.** On `ca292e41`, actual run
   [`38624043886`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38624043886)
@@ -721,20 +160,18 @@ direction resets the shared read-idle timer, but cannot extend a blocked write.
 Eight new regressions bring the focused streaming suite to twelve cases. They
 cover simultaneous backpressure, real nested TLS, half-close, cancellation,
 read-idle and blocked-write bounds, reverse-only progress and the reverse byte
-limit. The focused hosted step in
-[Quality `38661788072`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38661788072)
-passes on `ea6efddb`; the full run and original terminal-log audit are still
-pending. The standalone main-based change retains those exact source/test blobs
-and adds only the early focused test step to main's existing Quality workflow.
-It preserves the resolver backport, locked dependency graphs and prior checks.
+limit. [PR252](https://github.com/VOLPAROSSA/volparossa/pull/252) integrates the
+correction in main as `87f8c31d`. Its
+[Quality `38663438337`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38663438337)
+passes on `3cfbaba1`, including the twelve focused streaming tests; CodeQL also
+passes. The change preserves the resolver backport, locked dependency graphs
+and prior checks.
 
 This fixes a reproducible streaming defect, not a proven cause of the earlier
-Storage challenge timeout. Shared consumer maintenance remains separately
-unproven: [actual trial `38662571845`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38662571845)
-is running on the unchanged Storage candidate `ea6efddb`. Neither the in-memory
-tests nor this transport correction establish consumer repair, restore or
-remote cleanup. The independent OpenCloud upload trial still waits for that
-shared integration.
+Storage challenge timeout. The later actual storage failure above already
+contains the corrected streaming code. Neither the in-memory tests nor this
+transport correction establishes consumer repair, restore or remote cleanup.
+The independent OpenCloud upload trial still waits for that shared integration.
 
 ### Integrated Hickory resolver security backport
 
