@@ -358,11 +358,12 @@ processes. The [implementation ledger](../IMPLEMENTATION_STATUS.md#guest-owned-p
 retains the artifact hashes and earlier failed attempts; neither software success
 nor a compiled firmware call proves execution inside an approved confidential guest.
 
-The quote service below connects an authorized caller to this module over the existing
-protected provider stream. An approved guest image and model/runtime assets, full
-report appraisal and protected task-input/output handling remain required. The
-guest module itself installs no daemon, changes no host configuration and starts
-no listener or scheduler. A compiled firmware call does not enable private work.
+The integrated quote-only service below connects an authorized caller to this
+module over the existing protected provider stream. An approved guest image and
+model/runtime assets, full report appraisal and protected task-input/output
+handling remain required. The guest module itself installs no daemon, changes no
+host configuration and starts no listener or scheduler. A compiled firmware call
+does not enable private work.
 
 Source references: the pinned [firmware API](https://github.com/virtee/sev/blob/a966d06d9bf0e68afe2733e7bfbf278fd7fd65b5/src/firmware/guest/mod.rs)
 and the [Linux SEV guest interface](https://www.kernel.org/doc/html/latest/virt/coco/sev-guest.html).
@@ -378,9 +379,9 @@ also executes all eight new agent/control/CLI tests and passes; CodeQL
 `38512218075` passes. Independent reconstruction and root replay bind these
 results to original artifacts, source and the unchanged lockfile. Earlier failed
 attempts retain their revision-specific evidence in the implementation ledger.
-The production protected-route exchange still needs an actual trial; software
-tests do not prove confidential hardware or private-task execution. No suitable
-confidential-computing hardware is currently available.
+These are software checks, not proof of a working production quote route or
+confidential hardware. Suitable hardware is still unavailable for the required
+protected-execution trial.
 
 ### Operator authority and cancellation
 
@@ -426,7 +427,7 @@ Reference verification keeps `complete_appraisal`, `worker_admission` and
 `private_input_released` false. The receiving authorized requester necessarily
 processes the report in memory; this exchange is not anonymous quote disclosure.
 
-### Evidence required for integration
+### Software evidence and remaining route proof
 
 Twelve content regressions cover message separation, exact authorization,
 bounded framing, retained-key expiry, delivery failure, cancellation during
@@ -440,7 +441,9 @@ The separate quote software receipt requires the original source and lock bindin
 twelve quote results. It does not treat these tests as proof of production-route
 execution, confidential hardware, complete appraisal or private-task execution.
 The [implementation ledger](../IMPLEMENTATION_STATUS.md#authorized-quote-exchange-candidate)
-tracks both integrated software slices and the remaining runtime proof separately.
+tracks software integration separately from the outstanding route and hardware
+proofs. A follow-up signed device-refusal candidate does not turn lack of
+attestation into permission to run a private task.
 
 ## What is still needed before private tasks can run remotely
 

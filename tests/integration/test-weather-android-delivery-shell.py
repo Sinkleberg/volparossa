@@ -203,12 +203,27 @@ fail() { exit 97; }
                 target = Path(directory) / "weather-android-cache"
                 if kind == "directory": target.mkdir(mode=0o710)
                 elif kind == "file": target.write_text("preserve")
-                else: target.symlink_to(Path(directory) / "absent")
+                else:
+                    target.symlink_to(Path(directory) / "absent")
+                    # Make a relatime update eligible without sleeping. The
+                    # shell's -e check follows this dangling link; that read can
+                    # update its atime even though preparation rejects it.
+                    os.utime(target, ns=(1, target.lstat().st_mtime_ns), follow_symlinks=False)
                 before = target.lstat()
                 result = self.call(self.mocks(prepare=False) +
                     "weather_client_agent_cache_prepare || exit 77\n", extra=dict(WORK=directory))
                 self.assertEqual(result.returncode, 77, result.stderr)
-                self.assertEqual(target.lstat(), before)
+                after = target.lstat()
+                # Read access time is not a no-clobber invariant. Keep inode,
+                # ownership, permissions and nanosecond modification/change
+                # times strict, and verify the original content separately.
+                for field in ("st_dev", "st_ino", "st_mode", "st_nlink", "st_uid", "st_gid",
+                        "st_size", "st_mtime_ns", "st_ctime_ns"):
+                    self.assertEqual(getattr(after, field), getattr(before, field), field)
+                if kind == "directory": self.assertEqual(list(target.iterdir()), [])
+                elif kind == "file": self.assertEqual(target.read_bytes(), b"preserve")
+                else: self.assertEqual(target.readlink(), Path(directory) / "absent")
+                self.assertFalse((Path(directory) / "install.args").exists())
 
     def test_client_sandbox_allows_only_exact_profile6_cache_parent(self):
         topology = TOPOLOGY.read_text()
