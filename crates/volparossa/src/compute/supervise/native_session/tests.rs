@@ -45,8 +45,7 @@ fn received_worker_error_cannot_construct_exit_adapter_or_cleanup_authority() {
     let value = json!({"version":1,"id":"PRIVATE_REQUEST_CANARY","kind":"result",
         "status":"error","code":"NATIVE_DECODE_FAILED"});
     let received =
-        super::super::diagnostic::native_worker_failure(&value, "PRIVATE_REQUEST_CANARY")
-            .unwrap();
+        super::super::diagnostic::native_worker_failure(&value, "PRIVATE_REQUEST_CANARY").unwrap();
     assert_eq!(cleanup(&received), None);
     assert!(!execution_deadline(&received));
     assert!(super::super::adapter_violation(&received).is_none());
@@ -74,8 +73,7 @@ fn closed_projected_failure_is_accepted_by_both_collector_versions() {
         "status":"error","code":"NATIVE_SAMPLE_FAILED"});
     let errors = [
         anyhow::anyhow!("PRIVATE_CANARY /private/prompt").context("compute_memory_budget"),
-        super::super::diagnostic::native_worker_failure(&worker, "PRIVATE_REQUEST_CANARY")
-            .unwrap(),
+        super::super::diagnostic::native_worker_failure(&worker, "PRIVATE_REQUEST_CANARY").unwrap(),
         anyhow::anyhow!("PRIVATE_CANARY /private/prompt"),
     ];
     let mut log = tempfile::NamedTempFile::new().unwrap();
@@ -90,7 +88,10 @@ fn closed_projected_failure_is_accepted_by_both_collector_versions() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/integration/agent-private-conversation.py");
     let output = std::process::Command::new("python3")
-        .args(["-B", "-c", r"
+        .args([
+            "-B",
+            "-c",
+            r"
 import runpy, sys
 from pathlib import Path
 fixture = runpy.run_path(sys.argv[1])
@@ -103,7 +104,8 @@ for enabled in (False, True):
     if enabled:
         expected['memory'] = []
     assert value == expected
-"])
+",
+        ])
         .arg(fixture)
         .arg(log.path())
         .output()
