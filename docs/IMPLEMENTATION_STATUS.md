@@ -184,6 +184,9 @@ original manifest and signed placement. Independent source review passes;
 hosted compilation/execution is still required. This is a source-supported
 counterexample, not an explanation of the previous actual failure or proof of
 the daemon's complete restart lifecycle.
+Quality `38668784174` on `2ce60073` stopped at formatting, before Rust compilation
+or execution. Its three formatter changes are applied without changing the test
+semantics; fresh hosted execution remains required.
 
 Original lifecycle, route, provider-event, supervisor and control-transition
 diagnostics validate. Provider snapshots cover their baselines without recorded

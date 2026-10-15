@@ -339,7 +339,14 @@ async fn pending_handoff_retention_waits_for_its_fragment_renewal_rotation() {
         // Existing signed-authority caps fix expiry ordering across second boundaries;
         // no mocked clock, sleeps, edited journals or invented provider receipts.
         let mut set = transfer::with_maintenance_expiry(now + 600, async {
-            LockedFragments::create(&archive, &owner, &mut input, plan(&bytes), &grants[..3], 600)
+            LockedFragments::create(
+                &archive,
+                &owner,
+                &mut input,
+                plan(&bytes),
+                &grants[..3],
+                600,
+            )
         })
         .await
         .unwrap();
@@ -392,7 +399,10 @@ async fn pending_handoff_retention_waits_for_its_fragment_renewal_rotation() {
         enrollment.lifetime = 1800;
         enrollment.renew_before = 7200;
         let directory = temp.path().join("maintenance");
-        fs::DirBuilder::new().mode(0o700).create(&directory).unwrap();
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
         let directory = state::directory(&directory).unwrap();
         let signature = hex::encode(owner.sign(&signing(&enrollment).unwrap()).to_bytes());
         save(
@@ -474,7 +484,10 @@ async fn pending_handoff_retention_waits_for_its_fragment_renewal_rotation() {
         assert_eq!(finished["pending_retirements"], 0);
         assert_eq!(finished["fragment_outcomes"][0]["index"], 0);
         assert_eq!(finished["fragment_outcomes"][0]["operation_complete"], true);
-        assert_eq!(finished["fragment_outcomes"][0]["handoff_stage"], "complete");
+        assert_eq!(
+            finished["fragment_outcomes"][0]["handoff_stage"],
+            "complete"
+        );
         let set = LockedFragments::open(&archive).unwrap();
         {
             let fragment = set.fragment(0).unwrap();
