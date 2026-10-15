@@ -358,13 +358,15 @@ mod tests {
             in_receipt_read: None,
         };
         for status in [0, 1, 3] {
-            assert!(PrivateStorageOutcome {
-                status,
-                append_timing: Some(timing),
-                ..PrivateStorageOutcome::default()
-            }
-            .validate()
-            .is_err());
+            assert!(
+                PrivateStorageOutcome {
+                    status,
+                    append_timing: Some(timing),
+                    ..PrivateStorageOutcome::default()
+                }
+                .validate()
+                .is_err()
+            );
         }
     }
 

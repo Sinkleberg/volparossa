@@ -548,22 +548,16 @@ async fn read_append_payload<S: AsyncRead + Unpin>(
 ) -> Result<Vec<u8>, WireError> {
     // Preserve the exact existing header/body reads, bounds and error result. Only
     // the ErrorKind at an already failed read is projected; no additional I/O occurs.
-    let length = stream
-        .read_u32()
-        .await
-        .inspect_err(|error| {
-            observation.payload_read_error(diagnostic::PayloadBoundary::Header, error.kind());
-        })? as usize;
+    let length = stream.read_u32().await.inspect_err(|error| {
+        observation.payload_read_error(diagnostic::PayloadBoundary::Header, error.kind());
+    })? as usize;
     if length == 0 || length > CHUNK_BYTES {
         return Err(WireError::Invalid);
     }
     let mut bytes = vec![0; length];
-    stream
-        .read_exact(&mut bytes)
-        .await
-        .inspect_err(|error| {
-            observation.payload_read_error(diagnostic::PayloadBoundary::Body, error.kind());
-        })?;
+    stream.read_exact(&mut bytes).await.inspect_err(|error| {
+        observation.payload_read_error(diagnostic::PayloadBoundary::Body, error.kind());
+    })?;
     Ok(bytes)
 }
 

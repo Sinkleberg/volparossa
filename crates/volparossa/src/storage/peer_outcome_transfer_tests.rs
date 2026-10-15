@@ -33,11 +33,7 @@ async fn append_timing_v7_preserves_signed_transfer_error_query_and_fragment_pro
 async fn wire_failure_case(timed: bool) {
     use sha2::{Digest as _, Sha256};
 
-    let payload = if timed {
-        vec![23; 32]
-    } else {
-        Vec::new()
-    };
+    let payload = if timed { vec![23; 32] } else { Vec::new() };
     let operation = if timed {
         StorageOperation::Append {
             offset: 0,
@@ -185,10 +181,7 @@ async fn wire_failure_case(timed: bool) {
         let mut fragments = Diagnostics::default();
         for index in 0..10 {
             fragments
-                .append_fragment(
-                    index,
-                    &serde_json::json!({"deposit_diagnostics": report}),
-                )
+                .append_fragment(index, &serde_json::json!({"deposit_diagnostics": report}))
                 .unwrap();
         }
         let fragments = serde_json::to_value(fragments).unwrap();
