@@ -32,9 +32,9 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Complete actual core delivery through Android's initial, refresh and background/resume lifecycle; then verify expiry behavior with real products. | The installed-app lifecycle, including expiry, passes with synthetic products (Weather PR19). Actual `38705213351` fails source-owner binding. Source Quality `38714089083` passes on `aac5be7f`; follow-up actual `38717988016` is still running at this checkpoint. Joined delivery, actual expiry, physical devices and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete Cloud APPEND and the consumer repair/restore sequence, using request-bound diagnostics and bounded VM shutdown. | Actual `38688661444` passes the separate base lifecycle but fails while awaiting an APPEND receipt; its later hosted shutdown also times out. APPEND diagnostics on `ab0e5471` pass 99 Rust and 82 Python tests. Explicit consumer profile 8 passes 250 inert integration checks and pins the tested Image/Cloud adapters; no new actual trial has started. QEMU shutdown PR255 is integrated in main `2491b8ca`, but real Storage VM cleanup, consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete Cloud APPEND and the consumer repair/restore sequence, using request-bound diagnostics and bounded VM shutdown. | Actual `38688661444` passes the separate base lifecycle but fails while awaiting an APPEND receipt; its later hosted shutdown also times out. APPEND diagnostics on `ab0e5471` pass 99 Rust and 82 Python tests. Integrated profile-8 Quality `38721329999` stops at one stale preflight fixture after 249 passing checks; later Rust gates did not run. Correct the fixture and pass source checks before another actual trial. QEMU shutdown PR255 is integrated in main `2491b8ca`, but real Storage VM cleanup, consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the shared storage milestone, using explicit source pins without rewriting historical profiles. |
-| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Actual `38709341304` completes one read, then records six refusals limited by the executor's own cgroup memory headroom. Cache-release candidate `3146d2b4` passes the targeted Rust step in Quality `38719959058`; the full run is still pending and no actual acceptance follows. Model, task and memory limits remain unchanged. This development executor is not confidential peer execution or completion of the shared-brain requirement. |
+| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Actual `38709341304` completes one read, then records six refusals limited by the executor's own cgroup memory headroom. Cache-release candidate `3146d2b4` passes 62 targeted Rust tests in Quality `38719959058`, which then fails four strict-Clippy checks. Correct these before the next source gate and actual trial. Model, task and memory limits remain unchanged. This development executor is not confidential peer execution or completion of the shared-brain requirement. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify quote exchange on the production route, then execute a private task on another node with verified protection. | PR246 and PR247 are merged. The quote-only slice passes appraisal, guest, agent/control/CLI and quote software checks. Production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is still unavailable; local coding and storage integration continue without substituting for this requirement. |
 
 ### Current checkpoint — 15 October
@@ -68,19 +68,37 @@ The immediate milestones build on the retained candidates and evidence below:
   Provider export 3 retains only finite
   APPEND header/body I/O categories; client timings use the original operation
   clock. Historical profiles 1–7, deadlines, retries and acceptance remain
-  unchanged. The candidate passes 126 core consumer-harness, 83 outer-report
-  and 41 wiring checks: 250 inert checks in total. No new actual trial has
-  started, and the original Cloud APPEND failure remains unexplained.
+  unchanged. Before the final profile-8 staging change, local checks passed
+  126 core consumer-harness, 83 outer-report and 41 wiring cases. The integrated
+  [Quality run `38721329999`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38721329999)
+  on `a8d85d5df028019d48c085d3bedce025cae5d438` instead records **249 passes
+  and one failure**: the valid preflight fixture omits the newly required v8
+  manifest, so the production preflight correctly rejects it with status 69.
+  Later formatting, Rust, Clippy and isolated Storage gates did not run.
+  The test-only correction adds that manifest to the fixture and retains its
+  missing-file and symlink rejection checks; it does not weaken the preflight.
+  All 41 wiring checks pass locally after this correction; the corrected source
+  still needs its hosted integration gates.
+  The hosted merge checkout `bf5b04ded184c1b943209ab746b6f8f747e1e3c1`
+  has the exact candidate tree `49c1127919e7cf4c349d3bcc2209b6a1dc0331a7`.
+  Original log ZIP SHA-256:
+  `1c137b5c0318484860863ba95faa3ae2aeefb168fe88a98c2a166af915ee4f76`.
+  No new actual trial has started, and the original Cloud APPEND failure remains
+  unexplained.
 - **Native coding still stops after one real read.**
   [Actual `38709341304`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38709341304)
   on Code `0c28e818` / core `60a7386b` records six subsequent memory-admission
   refusals, each limited by the executor's own cgroup. This narrows the admission
   boundary; it does not prove that cached model pages caused the shortage or
-  that cache release repairs the complete task. Candidate `3146d2b4` is under
+  that cache release repairs the complete task. Candidate `3146d2b4` fails
   [Quality `38719959058`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38719959058).
-  Its targeted Rust step passes; full Quality is still running at this checkpoint.
-  No new actual acceptance, edit or independently
-  verified coding test is established.
+  All 62 targeted Rust tests pass, including the 20 new source-weight cases;
+  strict Clippy then rejects one permission-mask expression and three test
+  expressions. Workspace and namespace acceptance did not run. The correction
+  must retain the permission check, result propagation and existing budgets;
+  no new actual acceptance, edit or independently verified coding test is
+  established. Original log ZIP SHA-256:
+  `e7ad3e067ce089134304aa55a4df86962290088d111dd51d1dcfaf59e8cbc498`.
 - **Bounded QEMU shutdown is integrated, with actual Storage cleanup still open.**
   [PR255](https://github.com/VOLPAROSSA/volparossa/pull/255) is merged in main
   `2491b8ca` after [Quality `38708178755`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38708178755)
@@ -89,7 +107,7 @@ The immediate milestones build on the retained candidates and evidence below:
   do not replace the next actual Storage VM exit, join and cleanup proof. After
   integration with the Storage candidate, 25 QEMU-child and eight VM-diagnostic
   checks pass. The nine consumer-shell checks also pass and are already included
-  in the 250-check total above. ShellCheck introduces no new diagnostics compared
+  in the consumer-harness totals above. ShellCheck introduces no new diagnostics compared
   with the pre-merge source, but existing diagnostics remain; this is not an
   unconditional ShellCheck pass.
 
