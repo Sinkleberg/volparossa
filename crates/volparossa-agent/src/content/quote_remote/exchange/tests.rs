@@ -13,7 +13,7 @@ async fn quote_confirmation_bridge_selects_only_the_explicit_wire_profile() {
         assert_eq!(provider.read_u32().await.unwrap(), 4);
         let mut bytes = [0; 4];
         provider.read_exact(&mut bytes).await.unwrap();
-        assert_eq!(bytes, [8, selector, 16, 7]);
+        assert_eq!(bytes, [8, selector, 24, 7]);
         // No signed challenge: EOF rejects instead of reconnecting/falling back.
         drop(provider);
         assert!(exchange.await.unwrap());
