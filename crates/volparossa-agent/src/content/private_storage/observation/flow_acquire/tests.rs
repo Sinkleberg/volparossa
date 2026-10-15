@@ -120,7 +120,10 @@ fn flow_acquire_projection_is_opt_in_bounded_and_omits_missing_history() {
 
 #[tokio::test]
 async fn flow_acquire_observation_retains_original_failure_and_legacy_bytes() {
-    use prost::Message as _;
+    use volparossa_local_control::{
+        CONTROL_PROTOCOL_VERSION, ControlResponse, ControlResult, Empty, control_response::Payload,
+        decode_response, encode_response,
+    };
 
     for enabled in [false, true] {
         let observation = Observation::new(enabled);
@@ -142,7 +145,22 @@ async fn flow_acquire_observation_retains_original_failure_and_legacy_bytes() {
         );
         assert_eq!(detail.deadline_scope, Deadline::None as i32);
         if !enabled {
-            assert_eq!(detail.encode_to_vec(), [8, 6, 32, 4]);
+            let response = ControlResponse {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                request_id: vec![7; 16],
+                result: ControlResult::Unavailable as i32,
+                diagnostic_code: "CONTENT_UNAVAILABLE".into(),
+                private_storage_remote_detail: Some(detail),
+                payload: Some(Payload::Ack(Empty {})),
+            };
+            let mut expected = vec![8, 2, 18, 16];
+            expected.extend_from_slice(&[7; 16]);
+            expected.extend_from_slice(&[24, 5, 34, 19]);
+            expected.extend_from_slice(b"CONTENT_UNAVAILABLE");
+            // Detail tag five retains the exact original four bytes; then Ack tag ten.
+            expected.extend_from_slice(&[42, 4, 8, 6, 32, 4, 82, 0]);
+            assert_eq!(encode_response(&response).unwrap(), expected);
+            assert_eq!(decode_response(&expected).unwrap(), response);
         } else {
             let flow = detail.flow_acquire.unwrap();
             assert_eq!(flow.rounds, 2);
