@@ -31,12 +31,12 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Join core-delivered products to the now-proven installed Android refresh/background-expiry lifecycle. | PR19 is merged as `ad10d7d9`, with the exact tested tree of `576550f3`. Original Android `38497919547` and component `38497925414` pass; the Android proof includes real tap refresh, background/resume, hidden expired tables, unchanged three requests per product and full cleanup. Products are synthetic in this trial. Actual core delivery into Android, physical devices and iOS remain open; separate web evidence is unchanged. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Quality `38644244295` passes the new diagnostics and corrected assertion. Actual `38643001237` on `b996160c` again proves the separate base lifecycle, but Image publication fails on an append before READY: the overall operation deadline expires during the provider challenge exchange. This does not establish how much time was spent preparing the route or waiting for the challenge. Consumer repair, restoration and remote cleanup remain unproved; Cloud PR234 waits for this shared integration. |
+| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | Quality `38654744521` passes. Actual `38655062763` on `de5091e2` records HTTP 503 on the first forecast GET, with SSH exit 0 and no expired owner budget. PR248 corrects the separate cache parent missing from the client agent's writable mount allowlist. Actual recovery, native cleanup, joined delivery, live expiry, physical devices and iOS remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Quality `38653565238` passes all nineteen new Rust diagnostic tests. Actual `38653857407` on `7b27d13d` passes the separate base lifecycle, but a later Cloud upload stops before READY while reading/verifying the provider challenge. Less than one second precedes that exchange; the operation deadline expires after 90–120 seconds inside it. A separately identified bidirectional backpressure correction needs hosted tests. Consumer repair, restoration and remote cleanup remain unproved; Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR247 is merged as `17afa3f0`, with the exact tested tree of `09b0d3cc`. Targeted run `38512217556` passes 52 appraisal, 16 guest and twelve quote tests; Quality `38512223814` also executes all eight new agent/control/CLI cases and passes. CodeQL `38512218075` passes. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
 
-### Current storage challenge diagnostic candidate
+### Storage challenge progress and latest actual result
 
 PR232 now adds request-local progress within the provider challenge exchange:
 selector write/flush, grant write/flush and challenge read/verification. Coarse
@@ -60,17 +60,66 @@ Cloud adapter checks. Bash syntax, ShellCheck and independent source/provenance
 review pass. Historical adapter comparisons preserve version-1–5 acceptance and
 serialization across 47,280 inputs. Nineteen new Rust tests cover progress,
 original deadlines, cancellation, wire compatibility and correlated CLI output;
-they still require hosted compilation and execution. The diagnostics do not
+the following hosted Quality run executes all nineteen successfully. The diagnostics do not
 change I/O, authorization, retries, time limits, custody or cleanup. They are
 not yet evidence of a transport fix or successful consumer restoration.
 
 The first hosted Quality run, [`38652893003`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38652893003),
 stops at three Rust formatting differences before compilation or Rust tests.
-The three whitespace-only corrections are applied; fresh hosted validation is
-required. Its checkout `67dc79cb` combines main `7b728846` with candidate
+The three whitespace-only corrections are applied. Its checkout `67dc79cb` combines main `7b728846` with candidate
 `f6a83924`; all three affected source files match the candidate exactly.
 Original log ZIP SHA-256:
 `3c4a132aca7bded0a6cd8b950de877c39f2b844e26e377e9a05ca03c8dfd1eaa`.
+
+[Quality `38653565238`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38653565238)
+passes formatting, strict Clippy, workspace tests, the nineteen new Rust tests,
+and isolated agent/wire suites of seven and 28 tests. Three namespace proofs,
+seven workspace ignores and one CLI fixture skip remain non-acceptance.
+Checkout `75274332` combines main `7b728846` with `7b27d13d`; audited branch
+source files match the head, while root manifests/locks match main. Original
+log ZIP SHA-256:
+`e380460a322e1846592a8ec38afcf8ee1d3c1c5407457cbd60eb6de9bda6b361`.
+
+Actual [run `38653857407`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38653857407)
+checks exact `7b27d13d63ed8e15bdf3dfc55f14444102f2f35c`. The separate base
+maintenance proof passes restart/resume, withdrawal, repeated restores and
+deletion of all eleven copies plus the foreground archive, ending with zero
+provider usage. The later Cloud publication fails on fragment 0, copy 1, while
+preparing a finalize operation. No READY challenge arrives, so the signed
+finalize request has not been sent to the provider.
+
+The original diagnostic records `challenge_read_verify`, less than one second
+before the challenge exchange and 90–120 seconds inside it, ending at the
+unchanged operation deadline. Successful local selector/grant flushes do not
+prove provider receipt. Uncorrelated provider events cannot identify the failed
+request or establish a transport cause. The combined consumer proof stops before
+maintenance and restoration, and does not confirm remote cleanup or provider
+usage. Local fixture cleanup completes; no owned network objects remain and
+the guest root network state is byte-identical before and after the trial.
+
+The original artifact contains 76 files. ZIP SHA-256:
+`84ad2a9c657cc03f23b73959e8b0c33c669984b20e54e3eab94f53ab31d27566`;
+log ZIP SHA-256:
+`c1cd237e469eb2fc1ff28a075c93eb6798ef087ee795ef54d8f627c91a16a374`.
+Cloud PR234's exact-source Quality `38656306237` also passes, but its actual
+upload-to-repair trial remains gated on successful shared consumer maintenance.
+
+### Bidirectional stream backpressure correction
+
+Source review finds a separate forwarding defect: awaiting an entire write and
+flush inside one selected read branch prevents the reverse direction from being
+polled. Two bounded peers writing before they read can therefore stall each
+other. Existing request-then-reply tests do not exercise this sequence. The
+original Storage receipt does not prove that this caused its challenge timeout.
+
+The correction polls two owned directional futures concurrently, with the same
+two bounded buffers, directional byte limits, shared read-idle observation and
+individually bounded write/flush/shutdown operations. It preserves half-close
+and drops both directions on error or cancellation; it spawns no detached task.
+New regressions cover simultaneous backpressure, nested real TLS, cancellation,
+half-close, byte limits and timer behavior. Hosted compilation and execution are
+still required. A component result will not by itself establish genuine MPTCP,
+provider authorization or a successful shared Storage/Cloud trial.
 
 ### Earlier protected storage stream diagnostics
 
