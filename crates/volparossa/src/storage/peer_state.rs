@@ -239,3 +239,66 @@ pub(super) fn private_output(path: &Path, bytes: &[u8]) -> Result<()> {
     File::open(parent)?.sync_all()?;
     Ok(())
 }
+
+#[cfg(test)]
+mod directory_lock_tests {
+    use super::*;
+
+    #[test]
+    fn directory_lock_remains_exclusive_until_owner_scope_ends() {
+        let root = tempfile::tempdir().unwrap();
+        let owner = directory(root.path()).unwrap();
+        assert!(directory(root.path()).is_err());
+        assert!(anchored(&owner).is_dir());
+        drop(owner);
+        let replacement = directory(root.path()).unwrap();
+        assert!(directory(root.path()).is_err());
+        drop(replacement);
+        assert!(directory(root.path()).is_ok());
+    }
+
+    #[test]
+    fn directory_lock_drop_releases_shared_description_without_unlocking_successor() {
+        let root = tempfile::tempdir().unwrap();
+        let owner = directory(root.path()).unwrap();
+        // A fork before exec inherits the same open file description even
+        // with CLOEXEC. A duplicate deterministically retains that description
+        // without spawning a process or depending on scheduler timing.
+        let inherited = owner.try_clone().unwrap();
+        assert!(
+            rustix::io::fcntl_getfd(&inherited)
+                .unwrap()
+                .contains(rustix::io::FdFlags::CLOEXEC)
+        );
+        assert!(directory(root.path()).is_err());
+        drop(owner);
+        let replacement = directory(root.path())
+            .expect("ending the owner scope must release its lock even before a child execs");
+        assert!(inherited.metadata().unwrap().is_dir());
+        assert!(directory(root.path()).is_err());
+        drop(inherited);
+        assert!(directory(root.path()).is_err());
+        drop(replacement);
+        assert!(directory(root.path()).is_ok());
+    }
+
+    #[test]
+    fn directory_lock_error_cleanup_releases_shared_description() {
+        let root = tempfile::tempdir().unwrap();
+        let mut inherited = None;
+        let result: Result<()> = (|| {
+            let owner = directory(root.path())?;
+            inherited = Some(owner.try_clone()?);
+            anyhow::bail!("injected operation failure after acquiring the guard");
+        })();
+        assert!(result.is_err());
+        assert!(inherited.as_ref().unwrap().metadata().unwrap().is_dir());
+        let replacement = directory(root.path())
+            .expect("error unwinding must release the owner lock before inherited descriptors close");
+        assert!(directory(root.path()).is_err());
+        drop(inherited);
+        assert!(directory(root.path()).is_err());
+        drop(replacement);
+        assert!(directory(root.path()).is_ok());
+    }
+}
