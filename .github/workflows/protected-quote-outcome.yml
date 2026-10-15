@@ -52,6 +52,7 @@ jobs:
       - name: Check formatting and unchanged historical evidence contracts
         run: |
           set -euo pipefail
+          python3 -B scripts/test-public-rsa-scope.py
           cargo +1.85.0 fmt --all -- --check
           python3 -B tests/integration/test-protected-compute-admission.py
           python3 -B tests/integration/test-protected-compute-guest.py

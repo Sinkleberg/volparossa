@@ -420,6 +420,12 @@ logs confirm the exact checkout/tree and unchanged lockfile; their ZIP SHA-256 i
 `e5eca7df32573713d3c04e5a376b786a4e77eaaab1ca638a2517323c503ddd43`.
 Earlier runs `38737101441` (formatting), `38737643834` and `38739086162`
 (Clippy) remain separate failed source checks, not successful acceptances.
+The later full Quality run `38742834852` stops at the unchanged exact-source
+advisory guard: the guest wrapper's reviewed cancellation/error ordering needs
+its new hash. The guard is rebound to that exact wrapper after independent
+source review; no RSA operation, dependency, feature or advisory scope is added.
+All twelve inert source/metadata mutation tests pass locally. Full hosted
+integration remains pending; the targeted workflow now checks this guard too.
 
 This remains a source candidate pending integration and a disposable
 production-route trial. These software checks do not prove a new hardware report,
