@@ -355,7 +355,7 @@ fn source_advice_requires_successful_supervisor_and_checked_provenance() {
     for outcome in ["supervisor_error", "provenance_unconfirmed"] {
         let (_root, binding) = fixture();
         let result = if outcome == "supervisor_error" {
-            Err(super::super::super::private_task::CleanupUnconfirmed.into())
+            Err(private_task::CleanupUnconfirmed.into())
         } else {
             Ok(json!({"model":{"files":{},"weights":{}}}))
         };
