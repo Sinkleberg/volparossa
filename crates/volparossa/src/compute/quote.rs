@@ -340,7 +340,6 @@ async fn verify(args: &Verify, socket: &Path) -> Result<VerifyReport> {
             // Consume the original live challenge after the final ACK, without
             // accepting evidence or a key. The command still exits unsuccessfully.
             pending.finish_without_evidence()?;
-            drop(owner);
             return Ok(VerifyReport::ProviderRefusal(
                 RefusalReport::device_unavailable(),
             ));
