@@ -588,9 +588,17 @@ and its three provenance references are updated to
 That correction alone did not prove resolver execution. The subsequent hosted
 acceptance above supplies the previously missing locked-fetch and Rust results.
 
-### Authorized quote exchange candidate
+<a id="authorized-quote-exchange-candidate"></a>
 
-#### Signed device refusal candidate
+### Authorized quote exchange and authenticated refusal
+
+#### Integrated signed device refusal
+
+PR258 is integrated as `71209145` after full source checks and the actual
+production-route refusal trial pass. See the
+[latest completed evidence](#latest-completed-integration-evidence--15-october)
+for the final result and its boundaries. The following checkpoints retain the
+earlier source and fixture failures; they are not outstanding acceptance gates.
 
 The follow-up preserves successful quote encoding and adds a separate,
 request-bound provider claim: `fixed_quote_device_unavailable`. The provider may
@@ -624,11 +632,12 @@ advisory guard: the guest wrapper's reviewed cancellation/error ordering needs
 its new hash. The guard is rebound to that exact wrapper after independent
 source review; no RSA operation, dependency, feature or advisory scope is added.
 All twelve inert source/metadata mutation tests pass locally. Full hosted
-integration remains pending; the targeted workflow now checks this guard too.
+integration was still pending at that checkpoint; the targeted workflow was
+extended to check this guard too.
 
-This remains a source candidate pending integration and a disposable
-production-route trial. These software checks do not prove a new hardware report,
-protected task or working route.
+These source checks alone did not prove a hardware report, protected task or
+working route. The later actual supplies refusal-route evidence, not protected
+task execution.
 
 The new `protected-quote` topology scenario prepares that negative route trial:
 wrong-requester rejection, an authenticated device-unavailable claim, and rejection
@@ -638,7 +647,7 @@ it does not substitute firmware or admit private work. Fourteen inert checker
 tests, eleven wiring tests and four existing VM-diagnostic tests pass locally.
 Only a closed guest report and a separate original host-side VM-cleanup receipt
 may be published. These tests validate the harness, not an executed topology;
-actual route, physical privacy captures and cleanup acceptance remain pending.
+actual route and cleanup acceptance were still pending at this checkpoint.
 
 Full Quality run `38747335446` on `5f7e8f3a` stops in the historical Weather
 export fixture: it invokes the extracted exporter under `set -u` without the
@@ -686,8 +695,9 @@ their later staging calls; ordinary providers retain both. Executed inert
 preflight and all-scenario build/staging regressions verify that distinction.
 The original guest stderr was not exported, so this mismatch is not an observed
 inner error message. The resulting 13 wiring cases pass locally; a corrected
-actual trial remains pending. Separately, source run `38754168513` on the original
-commit passes 230 Python cases, 55 unique Rust cases, formatting and strict Clippy.
+actual trial was still pending at this checkpoint. Separately, source run
+`38754168513` on the original commit passes 230 Python cases, 55 unique Rust cases,
+formatting and strict Clippy.
 
 #### Integrated quote exchange
 
