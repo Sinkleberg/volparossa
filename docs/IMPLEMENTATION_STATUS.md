@@ -33,16 +33,77 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | PR232's `32458165` passes source checks, but actual `38766434111` fails during Image FINALIZE with `stream_open / flow_acquire`. The original receipts do not retain the inner acquisition cause. Preserve typed request-local failures and test the existing acquisition/retirement boundaries before another trial. The previous Cloud-catalog failure remains unresolved; the passing base lifecycle does not establish combined consumer repair, restore, remote cleanup or reciprocal capacity. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38766434111` fails during Image FINALIZE with `stream_open / flow_acquire`; the inner cause was not retained. The new bounded flow-detail contract passes all 27 new cases, but complete source acceptance remains pending after a workflow inventory error. Image/Cloud adapters and consumer profile 9 are prepared and tested separately. Integrate these diagnostics before another actual trial. The previous Cloud-catalog failure remains unresolved; combined repair, restoration, remote cleanup and reciprocal capacity are not yet established. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Core `0de65f42` and Code `266d1a03` pass source checks. Their paired actual `38771413590` fails on its first request without a completed tool action; cleanup passes. The session wrapper loses the underlying diagnostic category, so preserve closed typed errors before choosing an execution fix or another trial. Keep the ordinary toolset, 4B/BF16 model and limits unchanged. The upstream sanitizer failure remains open; this efficiency slice does not complete protected peer execution or the shared brain. |
-| Protected remote compute — `volparossa`, then Code/Browser | Keep the live owner from verified quote through key confirmation, then bind an approved private workload to that protection. | PR258's authenticated refusal path is integrated and has actual route evidence. Candidate `6bc31925` passes targeted source acceptance for explicit same-connection key confirmation, with original-expiry checks through final acknowledgement. Full integration checks remain pending. This is not private-task admission. Production authority, current vendor appraisal, approved workloads and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
+| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Actual `38788802469` on core `01c90c57` / Code `a15a5524` identifies `compute_memory_budget`: the process-RSS guard stops the first request before any tool call. Cleanup passes. Reduce avoidable allocation without weakening the normal toolset, 4B/BF16 model, context or resource limits. The upstream sanitizer failure remains open; this efficiency slice does not complete protected peer execution or the shared brain. |
+| Protected remote compute — `volparossa`, then Code/Browser | Bind an approved private workload to verified protection and the confirmed key. | PR258's authenticated refusal path has actual route evidence. PR262 integrates explicit same-connection key confirmation after targeted source, full Quality and CodeQL acceptance. Possession confirmation is not private-task admission. Production authority, current vendor appraisal, approved workloads and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
 The latest completed outcomes are summarized below.
 
 ### Latest completed integration evidence — 15 October
+
+- **Key confirmation is integrated; protected task execution remains open.**
+  [PR262](https://github.com/VOLPAROSSA/volparossa/pull/262) merges as `30a40a65`.
+  Its final source `798f8c4f` passes
+  [targeted checks](https://github.com/VOLPAROSSA/volparossa/actions/runs/38788841314)
+  with 97 unique Rust tests and 233 Python tests, without targeted skips.
+  [Full Quality](https://github.com/VOLPAROSSA/volparossa/actions/runs/38788850703)
+  passes 3,728 unique workspace Rust tests, with zero failures and seven existing
+  ignored cases; six repeated child-process results are not double-counted.
+  Its merge checkout has the exact candidate tree. All four
+  [CodeQL analyses](https://github.com/VOLPAROSSA/volparossa/actions/runs/38788843810)
+  pass on the final head. Namespace wrappers explicitly skip live proof, so these
+  source checks do not establish confidential hardware or private-task admission.
+
+  The preceding Quality run `38783560296` fails in a deadline test that compares
+  projections at two different instants. The final test-only correction uses one
+  observation instant; production deadlines and budgets are unchanged. Original
+  Quality and CodeQL log ZIP SHA-256 values are respectively
+  `78195a02e2170f0ac0709c2f07dffef2bb8f672454df1769d56e55d562e61e93`
+  and `7e95442ded158971e860d07e2dcd7ef90aebc223c4f65d8e23884d453ccee949`.
+
+- **The next native coding trial identifies the memory guard.**
+  [Trial `38788802469`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38788802469)
+  uses Code `a15a55243679cd6749ae7a1f2bab0919fbc05237` and core
+  `01c90c574cf3e0e39a90aa7931a90b7c37811995`, after their source gates pass.
+  The single admitted request returns `compute_memory_budget`: the supervisor's
+  10 GiB sum-of-process-RSS limit, not an observed cgroup OOM kill or request
+  timeout. The last retained generation observation records a 4,572-token prompt
+  and one generated token. No tool call, edit, independent test or successful
+  model turn completes. Runtime/session cleanup, private project removal, guest
+  units, QEMU join, VM scratch removal and CI host restoration are confirmed.
+  `original_test_unchanged=false` reflects an unreached final check, not evidence
+  that the test changed. Artifact and log ZIP SHA-256 values are respectively
+  `f62286861c3c2fa2148797c9ea86e6ce1ba1df8eeeb22fdc3319d02c5dc0c6b8`
+  and `77cfdd6766530fb33d5107768767c807007d4a213e24fb37e6690002a40187b7`.
+
+  Source review identifies avoidable initial KV-cache allocation: the retained
+  session reserves the full 13,312-token context, while this complete prompt plus
+  its existing output allowance needs 5,632 padded tokens. In the pinned BF16
+  implementation that difference is 1,080 MiB. This is a source-derived saving
+  opportunity, not proof of the exact overshooting RSS sample. Request-sized
+  contexts with bounded growth are the next efficiency candidate; no resource
+  limit, model, toolset or accepted context length is reduced or enlarged.
+
+- **Storage flow diagnostics have partial source acceptance.**
+  [Run `38792234897`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38792234897)
+  on `eb92bae7` passes all 27 new cases and 61 historical cases, with no failures
+  or ignores. It then stops before historical CLI execution because Cargo's
+  substring filter includes an unrelated compute module. The strict inventory
+  check correctly refuses those 21 extra cases. The workflow correction keeps
+  all 77 intended historical CLI cases and the strict scope/count checks; full
+  source acceptance, Clippy and formatting remain pending. Earlier failed runs
+  `38783188054`, `38789158345` and `38790196633` respectively expose an undeclared
+  test dependency, missing EOF readiness in a fixture and a real cross-subcommand
+  diagnostic-option conflict. Their focused corrections remain in history.
+
+  Image `9694a2b9` and Cloud `47b0f03b` publish the same opt-in adapter, with
+  69 and 20 targeted tests passing respectively. Consumer profile 9 pins those
+  exact sources and carries only bounded typed diagnostics; old report versions
+  remain separate. These are component checks, not another actual storage trial
+  or proof that the underlying acquisition failure has been fixed.
 
 - **Same-connection key confirmation passes targeted source checks.**
   [Run `38781307814`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38781307814)
@@ -58,8 +119,8 @@ The latest completed outcomes are summarized below.
   unsupported confirmation instead of downgrading. Possession is separate from
   approved key origin, complete appraisal and private-task authority; the
   [command contract](development/PROTECTED_COMPUTE_VERIFIER.md#explicit-key-confirmation)
-  keeps those limits explicit. Full integration and actual hardware execution
-  remain outstanding.
+  keeps those limits explicit. This checkpoint preceded the full source
+  integration above; actual hardware execution remains outstanding.
 
   Earlier source attempts remain failures, not additional acceptances.
   [Source run `38775482837`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38775482837)
