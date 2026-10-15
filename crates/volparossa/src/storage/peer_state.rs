@@ -242,11 +242,19 @@ pub(super) fn private_output(path: &Path, bytes: &[u8]) -> Result<()> {
 
 #[cfg(test)]
 mod directory_lock_tests {
+    use std::os::unix::fs::PermissionsExt as _;
+
     use super::*;
+
+    fn private_directory() -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        root
+    }
 
     #[test]
     fn directory_lock_remains_exclusive_until_owner_scope_ends() {
-        let root = tempfile::tempdir().unwrap();
+        let root = private_directory();
         let owner = directory(root.path()).unwrap();
         assert!(directory(root.path()).is_err());
         assert!(anchored(&owner).is_dir());
@@ -259,7 +267,7 @@ mod directory_lock_tests {
 
     #[test]
     fn directory_lock_drop_releases_shared_description_without_unlocking_successor() {
-        let root = tempfile::tempdir().unwrap();
+        let root = private_directory();
         let owner = directory(root.path()).unwrap();
         // A fork before exec inherits the same open file description even
         // with CLOEXEC. A duplicate deterministically retains that description
@@ -284,17 +292,21 @@ mod directory_lock_tests {
 
     #[test]
     fn directory_lock_error_cleanup_releases_shared_description() {
-        let root = tempfile::tempdir().unwrap();
+        let root = private_directory();
         let mut inherited = None;
         let result: Result<()> = (|| {
             let owner = directory(root.path())?;
             inherited = Some(owner.try_clone()?);
             anyhow::bail!("injected operation failure after acquiring the guard");
         })();
-        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "injected operation failure after acquiring the guard"
+        );
         assert!(inherited.as_ref().unwrap().metadata().unwrap().is_dir());
-        let replacement = directory(root.path())
-            .expect("error unwinding must release the owner lock before inherited descriptors close");
+        let replacement = directory(root.path()).expect(
+            "error unwinding must release the owner lock before inherited descriptors close",
+        );
         assert!(directory(root.path()).is_err());
         drop(inherited);
         assert!(directory(root.path()).is_err());
