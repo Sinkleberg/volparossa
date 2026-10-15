@@ -126,10 +126,9 @@ impl Fixture {
                     let mut outer = connect(client, self.exit_peer, &self.exit_offer)
                         .await
                         .unwrap();
-                    let mut inner =
-                        connect(&mut outer, self.provider_peer, &self.provider_offer)
-                            .await
-                            .unwrap();
+                    let mut inner = connect(&mut outer, self.provider_peer, &self.provider_offer)
+                        .await
+                        .unwrap();
                     let challenge = wire::begin(&mut inner, &self.grant).await.unwrap();
                     challenge_sender.send(challenge.clone()).unwrap();
                     let bridged = wire::bridge(&mut agent, &mut inner, &self.grant, &challenge)
@@ -240,7 +239,9 @@ async fn signed_append_receipts_cross_nested_tls_without_extra_write_or_eof() {
         );
         assert!(appended.ciphertext.is_empty());
     }
-    let finalized = fixture.exchange(owned, StorageOperation::Finalize, &[]).await;
+    let finalized = fixture
+        .exchange(owned, StorageOperation::Finalize, &[])
+        .await;
     assert_eq!(finalized.receipt.result().state, ReceiptState::Committed);
     let restored = fixture
         .exchange(
