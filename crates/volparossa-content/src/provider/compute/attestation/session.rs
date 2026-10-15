@@ -307,6 +307,22 @@ impl PendingSession<'_> {
     /// Discard this challenge; its total attempt remains consumed.
     pub fn cancel(self) {}
 
+    /// Consume a still-live challenge without authenticating evidence or accepting a key.
+    /// A caller handling refusal uses this after its final transport handoff, so a
+    /// delayed acknowledgement cannot extend the original owner/challenge lifetime.
+    /// This checks only local lifecycle; it does not authenticate a provider's claim.
+    ///
+    /// # Errors
+    /// Consumes the attempt on cancellation, original expiry, clock rollback or
+    /// unavailable time. Success returns no evidence, capability or worker permit.
+    pub fn finish_without_evidence(self) -> Result<(), EvidenceError> {
+        self.finish_without_evidence_at(Stamp::now()?)
+    }
+
+    fn finish_without_evidence_at(self, now: Stamp) -> Result<(), EvidenceError> {
+        self.check_time(&now)
+    }
+
     /// Verify reference signatures, the supported Milan path and the supplied
     /// complete ARK CRL for that ASK. Check certificate/CRL validity at the owner's current
     /// clock, explicit local TCB/SMT/measurement/SVN policy, no debug/migration,
@@ -422,5 +438,105 @@ impl BoundSessionEvidence {
     /// Outstanding requirements cannot be cleared by constructing a boolean.
     pub const fn outstanding_appraisal(&self) -> &'static [OutstandingAppraisal] {
         &BOUND_OUTSTANDING
+    }
+}
+
+#[cfg(test)]
+mod outcome_tests {
+    use super::*;
+    use crate::provider::compute::attestation::{MilanTcb, SmtPolicy, TcbMinimums};
+
+    fn fixture(at: Stamp) -> SessionOwner {
+        let minimum = MilanTcb {
+            bootloader: 0,
+            tee: 0,
+            snp: 0,
+            microcode: 0,
+        };
+        let policy = LocalPolicy::new(
+            [3; 48],
+            0,
+            TcbMinimums {
+                current: minimum,
+                reported: minimum,
+                committed: minimum,
+                launch: minimum,
+            },
+            SmtPolicy::Allow,
+        )
+        .unwrap();
+        SessionOwner::new_at(
+            [4; 32],
+            policy,
+            SessionLimits {
+                expires_at: at.unix + 60,
+                maximum_pending: 1,
+                maximum_attempts: 1,
+            },
+            at,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn quote_refusal_completion_releases_slot_without_refunding_attempt() {
+        let at = Stamp {
+            unix: 100,
+            monotonic: Instant::now(),
+        };
+        let owner = fixture(at);
+        let pending = owner.begin_at(at).unwrap();
+        assert_eq!(owner.pending.load(Ordering::SeqCst), 1);
+        assert!(pending.finish_without_evidence_at(at).is_ok());
+        assert_eq!(owner.pending.load(Ordering::SeqCst), 0);
+        assert_eq!(owner.remaining.load(Ordering::SeqCst), 0);
+        assert!(matches!(owner.begin_at(at), Err(EvidenceError::Budget)));
+    }
+
+    #[test]
+    fn quote_refusal_completion_rejects_delayed_terminal_and_clock_rollback() {
+        let at = Stamp {
+            unix: 100,
+            monotonic: Instant::now(),
+        };
+        let cases = [
+            Stamp {
+                unix: 130,
+                monotonic: at.monotonic + Duration::from_secs(1),
+            },
+            Stamp {
+                unix: 101,
+                monotonic: at.monotonic + Duration::from_secs(30),
+            },
+            Stamp {
+                unix: 99,
+                monotonic: at.monotonic + Duration::from_secs(1),
+            },
+            Stamp {
+                unix: 101,
+                monotonic: at.monotonic.checked_sub(Duration::from_secs(1)).unwrap(),
+            },
+        ];
+        for terminal in cases {
+            let owner = fixture(at);
+            let pending = owner.begin_at(at).unwrap();
+            assert!(matches!(
+                pending.finish_without_evidence_at(terminal),
+                Err(EvidenceError::Expired)
+            ));
+            assert_eq!(owner.pending.load(Ordering::SeqCst), 0);
+            assert_eq!(owner.remaining.load(Ordering::SeqCst), 0);
+        }
+    }
+
+    #[test]
+    fn quote_refusal_completion_rejects_owner_cancellation() {
+        let at = Stamp::now().unwrap();
+        let owner = fixture(at);
+        let pending = owner.begin().unwrap();
+        owner.cancel();
+        assert!(pending.finish_without_evidence().is_err());
+        assert_eq!(owner.pending.load(Ordering::SeqCst), 0);
+        assert_eq!(owner.remaining.load(Ordering::SeqCst), 0);
     }
 }

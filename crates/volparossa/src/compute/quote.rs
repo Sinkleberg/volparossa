@@ -202,7 +202,7 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
                 _ = terminate.recv() => return Err(anyhow::anyhow!("quote_exchange_cancelled")),
             };
             println!("{}", serde_json::to_string(&report)?);
-            Ok(())
+            report.require_evidence()
         }
     }
 }
@@ -222,7 +222,73 @@ struct Report {
     outstanding_appraisal: Vec<&'static str>,
 }
 
-async fn verify(args: &Verify, socket: &Path) -> Result<Report> {
+/// Local projection of the agent-verified provider claim, not hardware evidence.
+/// The CLI cannot independently authenticate this projection. Even the original
+/// provider signature would only bind a claim, not establish its truth.
+#[derive(Serialize)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "The closed refusal explicitly denies evidence and execution authority"
+)]
+struct RefusalReport {
+    version: u32,
+    provider_claim: &'static str,
+    provider_assertion_verified_by: &'static str,
+    quote_exchange: bool,
+    bound_reference_evidence: bool,
+    complete_appraisal: bool,
+    worker_admission: bool,
+    private_input_released: bool,
+}
+
+impl RefusalReport {
+    const fn device_unavailable() -> Self {
+        Self {
+            version: 2,
+            provider_claim: "fixed_quote_device_unavailable",
+            provider_assertion_verified_by: "local_agent",
+            quote_exchange: false,
+            bound_reference_evidence: false,
+            complete_appraisal: false,
+            worker_admission: false,
+            private_input_released: false,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum VerifyReport {
+    Evidence(Report),
+    ProviderRefusal(RefusalReport),
+}
+
+impl VerifyReport {
+    fn require_evidence(&self) -> Result<()> {
+        ensure!(
+            matches!(self, Self::Evidence(_)),
+            "quote_provider_reported_device_unavailable"
+        );
+        Ok(())
+    }
+}
+
+fn check_terminal(
+    outcome: &wire::QuoteOutcome,
+    finished: &volparossa_local_control::ControlResponse,
+) -> Result<()> {
+    let expected = match outcome {
+        wire::QuoteOutcome::Evidence(_) => "QUOTE_EXCHANGE_OK",
+        wire::QuoteOutcome::DeviceUnavailable => "QUOTE_DEVICE_UNAVAILABLE",
+    };
+    ensure!(
+        finished.diagnostic_code == expected && matches!(finished.payload, Some(Payload::Ack(_))),
+        "quote_final_handoff"
+    );
+    Ok(())
+}
+
+async fn verify(args: &Verify, socket: &Path) -> Result<VerifyReport> {
     let (policy_id, policy) =
         PublicExpectations::decode(&super::read_file(&args.public_policy, 4096)?)?;
     let vcek = super::read_file(&args.vcek, MAX_VCEK_BYTES as u64)?;
@@ -262,21 +328,30 @@ async fn verify(args: &Verify, socket: &Path) -> Result<Report> {
     let pending = owner.begin()?;
     let request = QuoteRequest::from_challenge(pending.challenge_bytes())?;
     wire::write_request(&mut stream, &request).await?;
-    let response = wire::read_response(&mut stream, &request).await?;
+    let outcome = wire::read_outcome(&mut stream, &request).await?;
     let finished = crate::control::finish_request(&mut stream, &id).await?;
-    ensure!(
-        finished.diagnostic_code == "QUOTE_EXCHANGE_OK"
-            && matches!(finished.payload, Some(Payload::Ack(_))),
-        "quote_final_handoff"
-    );
+    check_terminal(&outcome, &finished)?;
     drop(stream);
+    let response = match outcome {
+        wire::QuoteOutcome::Evidence(response) => response,
+        wire::QuoteOutcome::DeviceUnavailable => {
+            // The local agent verified the signed provider claim; the CLI has no
+            // portable signature proof and cannot independently authenticate it.
+            // Consume the original live challenge after the final ACK, without
+            // accepting evidence or a key. The command still exits unsuccessfully.
+            pending.finish_without_evidence()?;
+            return Ok(VerifyReport::ProviderRefusal(
+                RefusalReport::device_unavailable(),
+            ));
+        }
+    };
     // One foreground CLI verification, never on the async reactor. Its borrowed one-use
     // pending owner remains in scope; real pre/post crypto checks enforce the same deadline.
     let bound = tokio::task::block_in_place(|| {
         pending.verify_and_bind(response.report(), &vcek, &crl, *response.public_key())
     })
     .context("quote_reference_evidence_rejected")?;
-    Ok(Report {
+    Ok(VerifyReport::Evidence(Report {
         version: 1,
         quote_exchange: true,
         bound_reference_evidence: true,
@@ -289,7 +364,7 @@ async fn verify(args: &Verify, socket: &Path) -> Result<Report> {
             .copied()
             .map(obligation)
             .collect(),
-    })
+    }))
 }
 
 fn obligation(value: OutstandingAppraisal) -> &'static str {
@@ -342,7 +417,7 @@ mod tests {
 
     #[test]
     fn quote_cli_output_preserves_obligations_without_hardware_identifiers() {
-        let report = Report {
+        let report = VerifyReport::Evidence(Report {
             version: 1,
             quote_exchange: true,
             bound_reference_evidence: true,
@@ -358,7 +433,8 @@ mod tests {
             .into_iter()
             .map(obligation)
             .collect(),
-        };
+        });
+        assert!(report.require_evidence().is_ok());
         let encoded = serde_json::to_value(report).unwrap();
         assert_eq!(encoded.as_object().unwrap().len(), 7);
         assert_eq!(
@@ -375,5 +451,46 @@ mod tests {
         ] {
             assert!(encoded.get(field).is_none());
         }
+    }
+
+    #[test]
+    fn quote_cli_device_refusal_is_closed_and_cannot_report_success() {
+        let refusal = VerifyReport::ProviderRefusal(RefusalReport::device_unavailable());
+        assert!(refusal.require_evidence().is_err());
+        assert_eq!(
+            serde_json::to_value(&refusal).unwrap(),
+            serde_json::json!({
+                "version": 2,
+                "provider_claim": "fixed_quote_device_unavailable",
+                "provider_assertion_verified_by": "local_agent",
+                "quote_exchange": false,
+                "bound_reference_evidence": false,
+                "complete_appraisal": false,
+                "worker_admission": false,
+                "private_input_released": false,
+            })
+        );
+    }
+
+    #[test]
+    fn quote_cli_refusal_rejects_success_or_mismatched_terminal_messages() {
+        use volparossa_local_control::{CONTROL_PROTOCOL_VERSION, ControlResponse, ControlResult};
+
+        let outcome = wire::QuoteOutcome::DeviceUnavailable;
+        let mut finished = ControlResponse {
+            protocol_version: CONTROL_PROTOCOL_VERSION,
+            request_id: vec![1; 16],
+            result: ControlResult::Ok.into(),
+            diagnostic_code: "QUOTE_DEVICE_UNAVAILABLE".into(),
+            payload: Some(Payload::Ack(Empty {})),
+        };
+        assert!(check_terminal(&outcome, &finished).is_ok());
+        for code in ["QUOTE_EXCHANGE_OK", "QUOTE_READY", "", "UNAVAILABLE"] {
+            finished.diagnostic_code = code.into();
+            assert!(check_terminal(&outcome, &finished).is_err());
+        }
+        finished.diagnostic_code = "QUOTE_DEVICE_UNAVAILABLE".into();
+        finished.payload = None;
+        assert!(check_terminal(&outcome, &finished).is_err());
     }
 }

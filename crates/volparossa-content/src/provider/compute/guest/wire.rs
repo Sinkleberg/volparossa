@@ -74,7 +74,7 @@ impl QuoteRequest {
         Sha256::digest(&self.challenge).into()
     }
 
-    pub(super) fn check_time(&self, now: u64) -> Result<(), GuestError> {
+    pub(in crate::provider::compute) fn check_time(&self, now: u64) -> Result<(), GuestError> {
         if self.created_at == 0 || now < self.created_at || now >= self.expires_at {
             return Err(GuestError::Expired);
         }

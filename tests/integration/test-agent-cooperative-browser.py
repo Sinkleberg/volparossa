@@ -1333,11 +1333,14 @@ agent_jobs_cgroup_empty() { return 0; }
         source = (HERE / "run-alpha-topology-vm.sh").read_text()
         driver = source.split("<<'GUEST_DRIVER_SCRIPT'\n", 1)[1].split("\nGUEST_DRIVER_SCRIPT\n", 1)[0]
         subprocess.run(["sh", "-n"], input=driver, text=True, check=True)
-        export_blocks = re.findall(r'^(if [^\n]+; then)\n(.*?)(?=^elif |^fi$)', driver,
+        export_blocks = re.findall(r'^((?:if|elif) [^\n]+; then)\n(.*?)(?=^elif |^fi$)', driver,
                                    re.MULTILINE | re.DOTALL)
         matching = [(gate, body) for gate, body in export_blocks if 'cooperative-export.list' in body]
         self.assertEqual(len(matching), 1)
         gate, selected_export = matching[0]
+        # Execute this branch independently even when another closed exporter
+        # precedes it in the guest driver's existing if/elif chain.
+        gate = re.sub(r'^elif ', 'if ', gate, count=1)
         condition = r'\[ "\$scenario" = [a-z-]+ \]'
         self.assertRegex(gate, r'^if ' + condition + r'(?: \|\| ' + condition + r')*; then$')
         cohorts = {"agent-cooperative-browser", "agent-cooperative-browser-discovered",
@@ -1345,7 +1348,7 @@ agent_jobs_cgroup_empty() { return 0; }
         selected_cohorts = re.findall(r'= ([a-z-]+) \]', gate)
         self.assertEqual(len(selected_cohorts), 4)
         self.assertEqual(set(selected_cohorts), cohorts)
-        for scenario in sorted(cohorts) + ["transaction-abci", "agent-public-document", "agent-jobs", "unknown", ""]:
+        for scenario in sorted(cohorts) + ["protected-quote", "transaction-abci", "agent-public-document", "agent-jobs", "unknown", ""]:
             script = 'set -eu\nscenario=$1\n' + gate + '\n printf selected\nelse\n printf rejected\nfi\n'
             result = subprocess.run(["sh", "-c", script, "test", scenario], env={"PATH": os.defpath},
                                     capture_output=True, text=True, timeout=3, check=True)

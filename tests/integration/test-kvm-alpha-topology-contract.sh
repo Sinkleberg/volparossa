@@ -16,6 +16,8 @@ RECIPROCITY_PY=$HERE/reciprocity-smoke.py
 
 # Pure decisions and preview wiring only: never run a runner network probe here.
 python3 -B "$HERE/test-qemu-outer-uplink.py"
+python3 -B "$HERE/test-protected-quote-route.py"
+python3 -B "$HERE/test-protected-quote-route-wiring.py"
 
 # This pressure fixture requires actual nonshared mounts; PrivateMounts alone
 # intentionally keeps systemd's inbound/slave propagation. Other fixtures do not.
