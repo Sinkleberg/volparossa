@@ -528,7 +528,7 @@ fn wire_detail() -> PrivateStorageRemoteDetail {
 #[tokio::test]
 async fn flow_acquire_v8_real_transfer_sets_only_opted_request_and_projects_correlated_failure() {
     for (append, flow, version) in [(false, false, 6), (true, false, 7), (false, true, 8)] {
-        with_diagnostics(append, flow, async {
+        Box::pin(with_diagnostics(append, flow, async {
             let directory = tempfile::tempdir().unwrap();
             let socket = directory.path().join("private-canary.sock");
             let listener = tokio::net::UnixListener::bind(&socket).unwrap();
@@ -594,7 +594,7 @@ async fn flow_acquire_v8_real_transfer_sets_only_opted_request_and_projects_corr
             }
             assert_eq!(replay(actual.clone()), actual);
             assert!(!actual.to_string().contains("private-canary"));
-        })
+        }))
         .await;
     }
 }
