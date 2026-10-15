@@ -551,12 +551,16 @@ def export_failure(value, result, pool, preexisting, stop):
     write(canonical(value["output_directory"], directory=True) / FAILURE_NAME, failure)
 
 
-def export_inner_diagnostic(value, expected_identity, preexisting):
+def export_inner_diagnostic(value, expected_identity, preexisting, cleanup):
     """Optional finite facts after child cleanup, never raw child output."""
     records = {}
     for name, relative in D["INPUTS"].items():
         path = Path(value["weather_root"]) / relative
-        if preexisting[name]:
+        # A driver receipt may have preceded APK force-stop and an interrupted
+        # inner launcher. Read its host-bound inode only after all owned child
+        # groups and output pipes are closed, never from a still-writing child.
+        if preexisting[name] or name == "driver" and not (
+                cleanup.get("children_joined") is True and cleanup.get("output_drained") is True):
             records[name] = dict(state="rejected", facts=None)
             continue
         try:
@@ -710,7 +714,7 @@ def run(value):
     write(Path(value["output_directory"]) / K["NAME"], K["continuity_receipt"](result["identity"], kvm_before,
         acl_before, baseline_state, initial, observed["state"], observed["record"]))
     if not success:
-        try: export_inner_diagnostic(value, result["identity"], inner_preexisting)
+        try: export_inner_diagnostic(value, result["identity"], inner_preexisting, result["cleanup"])
         except (OSError, ValueError, KeyError, TypeError, RecursionError):
             # Diagnostic persistence cannot change the original failed result,
             # replace its cleanup record, or introduce acceptance authority.

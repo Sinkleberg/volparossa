@@ -487,6 +487,32 @@ Original owner, tunnel, inner-diagnostic and KVM schemas validate. The next
 investigation is the client-disconnect boundary, without changing acceptance,
 deadlines or source pins to turn this failure into a pass.
 
+#### Preserve the first Android driver failure
+
+Weather [PR23](https://github.com/VOLPAROSSA/volparossa-weather/pull/23) is merged.
+Its source `0a31bf180f1a42b96b0ceaec3715f56496a559a5` writes a closed,
+at-most-2-KiB first-failure record before native cleanup can terminate the app
+and its outstanding exchange. Only finite phase/error categories are retained;
+raw output, app contents and private identities are excluded. This addresses a
+diagnostic gap, not a demonstrated cause of the preceding disconnect.
+
+The current core candidate pins that exact Weather source consistently across
+the workflow, input admission, native launcher and diagnostic collectors. The
+owner reads the new private file only after child groups are joined and output
+is drained. Inner-diagnostic schema 2 adds the optional driver record; historical
+schema 1 remains bound to the original `f6ee8299` source and its two records.
+Historical early-driver diagnostics remain readable, but new exports require
+the current source. No execution deadline or delivery/cleanup acceptance gate
+has changed.
+
+All 186 focused core Python checks pass. Weather's matching published sources
+pass 120 focused Node checks, plus hosted component and CodeQL checks. Independent
+review verifies all 20 admitted Weather source blobs and the unchanged 39-member
+bundle bindings. An inert child-process trial retains the first failure when
+the tunnel exits before the driver's final report; the original historical
+artifact still validates. These checks do not prove installed-app delivery;
+the updated core's hosted checks and a new actual joined trial remain pending.
+
 #### Deterministic relay-cache test inputs
 
 [Quality `38641559561`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38641559561)

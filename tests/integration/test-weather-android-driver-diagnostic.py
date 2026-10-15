@@ -282,6 +282,20 @@ class DriverDiagnosticTests(unittest.TestCase):
             value = copy.deepcopy(result); value[key] = change
             with self.assertRaises(ValueError): D["validate_receipt"](value)
 
+    def test_historical_pin_remains_readable_but_cannot_authorize_current_export(self):
+        original = copy.deepcopy(self.receipt())
+        original["identity"]["weather_commit"] = D["LEGACY_WEATHER_COMMIT"]
+        raw = D["encoded"](original)
+        self.assertEqual(D["encoded"](D["validate_receipt"](json.loads(raw))), raw)
+        for commit in (D["LEGACY_WEATHER_COMMIT"], "b" * 40):
+            expected = dict(IDENTITY, weather_commit=commit)
+            owner = owner_fixture(); owner["identity"] = expected
+            self.write("weather-android-owner-failure.json", owner)
+            with self.subTest(commit=commit), self.assertRaises(ValueError): D["export"](self.root, expected)
+            self.assertFalse((self.root / D["NAME"]).exists())
+        changed = copy.deepcopy(original); changed["identity"]["weather_commit"] = "b" * 40
+        with self.assertRaises(ValueError): D["validate_receipt"](changed)
+
     def test_cli_host_binding_and_environment_identity(self):
         env = dict(GITHUB_ACTIONS="true", RUNNER_ENVIRONMENT="github-hosted", GITHUB_REPOSITORY="VOLPAROSSA/volparossa",
             GITHUB_WORKFLOW="Weather Android protected core delivery", GITHUB_SHA=IDENTITY["core_commit"],

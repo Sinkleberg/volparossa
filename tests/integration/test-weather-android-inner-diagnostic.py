@@ -37,9 +37,16 @@ def network_fixture():
         link_relation=dict(status="unobserved"))
 
 
+def driver_fixture():
+    return dict(schema=1, kind="overmorrow-native-first-failure", profile="protected-core", phase="actual-refresh",
+        failure="NATIVE_TRIAL_PHASE_FAILED", observer=dict(source_schema=5, subphase="product_count_wait",
+            code="observation_deadline", adb_exit_status=None, adb_signal=None), before_cleanup=True,
+        diagnostic_only=True, cause_established=False, joined_core_acceptance=False, raw_output_retained=False)
+
+
 def records_fixture():
     return {name: dict(state="available", facts=factory())
-        for name, factory in (("emulator", emulator_fixture), ("guest_network", network_fixture))}
+        for name, factory in (("emulator", emulator_fixture), ("guest_network", network_fixture), ("driver", driver_fixture))}
 
 
 class Projection(unittest.TestCase):
@@ -48,14 +55,15 @@ class Projection(unittest.TestCase):
             M["project_record"](name, value)
         self.assertNotIn("PRIVATE_CANARY", str(context.exception))
 
-    def test_original_exact_f6_shapes_and_detached_output(self):
-        for name, factory in (("emulator", emulator_fixture), ("guest_network", network_fixture)):
+    def test_exact_producer_shapes_and_detached_output(self):
+        for name, factory in (("emulator", emulator_fixture), ("guest_network", network_fixture), ("driver", driver_fixture)):
             original = factory()
             result = M["project_record"](name, original)
             self.assertEqual(result, original)
             self.assertIsNot(result, original)
             self.assertLessEqual(len(M["encoded"](result)), M["INPUT_LIMITS"][name])
         value = M["receipt"](IDENTITY, records_fixture())
+        self.assertEqual(value["schema"], 2)
         self.assertEqual(M["validate_receipt"](value), value)
         self.assertLess(len(M["encoded"](value)), M["MAX_BYTES"])
         self.assertTrue(value["diagnostic_only"])
@@ -89,7 +97,7 @@ class Projection(unittest.TestCase):
             if type(value) is dict:
                 yield value
                 for item in value.values(): yield from objects(item)
-        for name, factory in (("emulator", emulator_fixture), ("guest_network", network_fixture)):
+        for name, factory in (("emulator", emulator_fixture), ("guest_network", network_fixture), ("driver", driver_fixture)):
             value = factory()
             for row in list(objects(value)):
                 row["PRIVATE_CANARY"] = "private path / account / exception"
@@ -205,13 +213,67 @@ class Projection(unittest.TestCase):
             selected = dict(IDENTITY); selected[field] = invalid
             with self.assertRaises(ValueError): M["receipt"](selected, records_fixture())
 
+    def test_driver_closed_domains_startup_binding_and_unknown_observer(self):
+        for phase in M["DRIVER_PHASES"]:
+            value = driver_fixture(); value["phase"] = phase
+            value["observer"]["source_schema"] = 1 if phase in M["DRIVER_STARTUP_PHASES"] else 5
+            self.assertEqual(M["project_record"]("driver", value), value)
+            value["observer"]["source_schema"] = 5 if phase in M["DRIVER_STARTUP_PHASES"] else 1
+            self.rejected("driver", value)
+        for field, domain in (("subphase", "DRIVER_SUBPHASES"), ("code", "DRIVER_CODES")):
+            for item in M[domain]:
+                value = driver_fixture(); value["observer"][field] = item
+                self.assertEqual(M["project_record"]("driver", value), value)
+        for status in (None, 0, 1, 255):
+            for observed_signal in (None, "SIGKILL", "SIGTERM"):
+                value = driver_fixture(); value["observer"].update(adb_exit_status=status, adb_signal=observed_signal)
+                self.assertEqual(M["project_record"]("driver", value), value)
+        value = driver_fixture(); value["observer"] = None
+        self.assertEqual(M["project_record"]("driver", value), value)
+
+    def test_driver_cannot_export_raw_data_or_claim_authority(self):
+        for field, bad in (("schema", True), ("schema", 2), ("phase", "PRIVATE_CANARY"),
+                ("phase", "background-resume-expiry"), ("profile", "synthetic"), ("failure", "PRIVATE_CANARY"),
+                ("before_cleanup", False), ("before_cleanup", 1), ("diagnostic_only", 1),
+                ("cause_established", True), ("joined_core_acceptance", True), ("raw_output_retained", True)):
+            value = driver_fixture(); value[field] = bad; self.rejected("driver", value)
+        for field, bad in (("source_schema", True), ("subphase", "PRIVATE_CANARY"), ("code", "PRIVATE_CANARY"),
+                ("adb_exit_status", True), ("adb_exit_status", -1), ("adb_exit_status", 256),
+                ("adb_exit_status", 0.5), ("adb_signal", True), ("adb_signal", "PRIVATE_CANARY")):
+            value = driver_fixture(); value["observer"][field] = bad; self.rejected("driver", value)
+        value = driver_fixture(); value["observer"] = {}
+        self.rejected("driver", value)
+
+    def test_historical_schema_one_keeps_exact_fields_and_weather_binding(self):
+        original = M["receipt"](IDENTITY, records_fixture())
+        original["schema"] = 1; del original["records"]["driver"]
+        original["identity"]["weather_commit"] = M["LEGACY_WEATHER_COMMIT"]
+        raw = M["encoded"](original)
+        self.assertEqual(M["encoded"](M["validate_receipt"](original)), raw)
+        extended = copy.deepcopy(original); extended["records"]["driver"] = dict(state="absent", facts=None)
+        with self.assertRaises(ValueError): M["validate_receipt"](extended)
+        downgraded = copy.deepcopy(original); downgraded["schema"] = 2
+        with self.assertRaises(ValueError): M["validate_receipt"](downgraded)
+        for schema in (True, 0, 3):
+            changed = copy.deepcopy(original); changed["schema"] = schema
+            with self.assertRaises(ValueError): M["validate_receipt"](changed)
+        # A future producer pin cannot broaden historical schema-one identity.
+        globals_ = M["identity"].__globals__; before = globals_["WEATHER_COMMIT"]
+        try:
+            globals_["WEATHER_COMMIT"] = "b" * 40
+            self.assertEqual(M["validate_receipt"](original), original)
+            changed = copy.deepcopy(original); changed["identity"]["weather_commit"] = "b" * 40
+            with self.assertRaises(ValueError): M["validate_receipt"](changed)
+        finally: globals_["WEATHER_COMMIT"] = before
+
     def test_static_paths_and_original_limits(self):
         self.assertEqual(M["NAME"], "weather-android-inner-diagnostic.json")
-        self.assertEqual(M["INPUT_LIMITS"], dict(emulator=1024, guest_network=2048))
+        self.assertEqual(M["INPUT_LIMITS"], dict(emulator=1024, guest_network=2048, driver=2048))
         self.assertEqual(M["MAX_BYTES"], 8192)
-        for name, relative in M["INPUTS"].items():
+        for name, relative in M["LEGACY_INPUTS"].items():
             self.assertEqual(Path(relative).parent.as_posix(), "build/overmorrow-hosted-android-live-proof")
             self.assertEqual(Path(relative).name, "emulator-diagnostic.json" if name == "emulator" else "guest-network-diagnostic.json")
+        self.assertEqual(M["INPUTS"]["driver"], "build/overmorrow-hosted-android-live-proof/driver/first-failure.json")
         for name in ("other", "../private.log", True, None):
             with self.assertRaises(ValueError): M["project_record"](name, emulator_fixture())
 

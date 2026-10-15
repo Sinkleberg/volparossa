@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Closed optional observations from the unchanged Weather f6 inner trial.
+"""Closed optional observations from the pinned Weather inner trial.
 
 No Weather code is executed here. The owner supplies original, fresh, bounded
 private files only after joining its children. Missing/rejected observations
@@ -11,12 +11,14 @@ import re
 
 NAME = "weather-android-inner-diagnostic.json"
 MAX_BYTES = 8192
-WEATHER_COMMIT = "f6ee829961da387d9c0cd71b7163b47baab434fa"
-INPUTS = {
+LEGACY_WEATHER_COMMIT = "f6ee829961da387d9c0cd71b7163b47baab434fa"
+WEATHER_COMMIT = "0a31bf180f1a42b96b0ceaec3715f56496a559a5"
+LEGACY_INPUTS = {
     "emulator": "build/overmorrow-hosted-android-live-proof/emulator-diagnostic.json",
     "guest_network": "build/overmorrow-hosted-android-live-proof/guest-network-diagnostic.json",
 }
-INPUT_LIMITS = {"emulator": 1024, "guest_network": 2048}
+INPUTS = dict(LEGACY_INPUTS, driver="build/overmorrow-hosted-android-live-proof/driver/first-failure.json")
+INPUT_LIMITS = {"emulator": 1024, "guest_network": 2048, "driver": 2048}
 
 
 def words(value):
@@ -43,6 +45,10 @@ UNKNOWN_CLASSES = words("linked_device linked_index linked_namespace master xdp 
 REJECTION_COUNTS = words("default_route gateway device_count device_value non_loopback")
 ROUTE_COUNTS = words("unreachable blackhole prohibit throw unicast_or_unspecified other")
 DEVICE_COUNTS = words("lo ethernet wifi other missing_or_invalid")
+DRIVER_PHASES = words("installed-app read-only-observer initial-native-products actual-refresh background-resume-fresh")
+DRIVER_STARTUP_PHASES = words("installed-app read-only-observer")
+DRIVER_SUBPHASES = words("unobserved logcat_read vm_address forward_create forward_port websocket_create websocket_connect get_vm isolate_identity get_isolate native_snapshot isolate_wait package_check force_stop app_start pidof pid_validation control_request control_status control_body control_decode control_schema product_counts product_count_wait product_snapshot product_metadata product_tables products_unobserved swipe swipe_settle refresh_snapshot refresh_target refresh_unobserved refresh_wait post_tap_snapshot tap missing_values expiry_snapshot expiry_labels expiry_wait before_background background_home background_snapshot background_wait background_pause resume_start resume_snapshot resume_wait expired_labels expired_tables final_requests clock_window clock_guest_read clock_guest_decode clock_validity clock_wait lifecycle_baseline lifecycle_read lifecycle_validate")
+DRIVER_CODES = words("unknown validation_failed response_type_invalid adb_exit adb_signal adb_output_bound adb_spawn_failed adb_failed websocket_deadline websocket_failed vm_request_rejected vm_request_deadline vm_connection_closed vm_response_invalid vm_response_type vm_response_bound vm_response_json observation_deadline trial_deadline interrupted clock_expired clock_host_before_acquisition")
 
 
 def require(condition):
@@ -70,10 +76,10 @@ def encoded(value):
     return (json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode()
 
 
-def identity(value):
+def identity(value, schema):
     exact(value, ("core_commit", "weather_commit", "run_id", "run_attempt"))
     require(type(value["core_commit"]) is str and re.fullmatch("[0-9a-f]{40}", value["core_commit"])
-        and value["weather_commit"] == WEATHER_COMMIT)
+        and value["weather_commit"] == (LEGACY_WEATHER_COMMIT if schema == 1 else WEATHER_COMMIT))
     for key in ("run_id", "run_attempt"):
         require(type(value[key]) is str and re.fullmatch("[1-9][0-9]{0,19}", value[key]))
 
@@ -207,17 +213,36 @@ def guest_network(value):
         boolean(relation["admin_down"]); boolean(relation["operstate_down"])
 
 
+def driver(value):
+    exact(value, ("schema", "kind", "profile", "phase", "failure", "observer", "before_cleanup",
+        "diagnostic_only", "cause_established", "joined_core_acceptance", "raw_output_retained"))
+    integer(value["schema"], 1, 1)
+    require(value["kind"] == "overmorrow-native-first-failure" and value["profile"] == "protected-core"
+        and value["failure"] == "NATIVE_TRIAL_PHASE_FAILED")
+    enum(value["phase"], DRIVER_PHASES)
+    require(value["before_cleanup"] is True and value["diagnostic_only"] is True
+        and all(value[key] is False for key in ("cause_established", "joined_core_acceptance", "raw_output_retained")))
+    observer = value["observer"]
+    if observer is None: return
+    exact(observer, ("source_schema", "subphase", "code", "adb_exit_status", "adb_signal"))
+    expected = 1 if value["phase"] in DRIVER_STARTUP_PHASES else 5
+    integer(observer["source_schema"], expected, expected)
+    enum(observer["subphase"], DRIVER_SUBPHASES); enum(observer["code"], DRIVER_CODES)
+    if observer["adb_exit_status"] is not None: integer(observer["adb_exit_status"], 0, 255)
+    enum(observer["adb_signal"], words("SIGKILL SIGTERM"), nullable=True)
+
+
 def project_record(name, value):
     require(type(name) is str and name in INPUTS)
     # Check the producer's original finite bound too, even when called with an
     # already decoded object. Return a detached, validated closed projection.
     require(len(encoded(value)) <= INPUT_LIMITS[name])
-    (emulator if name == "emulator" else guest_network)(value)
+    {"emulator": emulator, "guest_network": guest_network, "driver": driver}[name](value)
     return json.loads(encoded(value))
 
 
 def receipt(expected_identity, records):
-    value = dict(schema=1, kind="weather-android-inner-diagnostic", identity=expected_identity,
+    value = dict(schema=2, kind="weather-android-inner-diagnostic", identity=expected_identity,
         records=records, diagnostic_only=True, cause_established=False, joined_core_acceptance=False,
         physical_device=False, production_authority=False)
     return validate_receipt(value)
@@ -226,10 +251,11 @@ def receipt(expected_identity, records):
 def validate_receipt(value):
     exact(value, ("schema", "kind", "identity", "records", "diagnostic_only", "cause_established",
         "joined_core_acceptance", "physical_device", "production_authority"))
-    integer(value["schema"], 1, 1)
+    integer(value["schema"], 1, 2)
     require(value["kind"] == "weather-android-inner-diagnostic" and value["diagnostic_only"] is True
         and all(value[key] is False for key in ("cause_established", "joined_core_acceptance", "physical_device", "production_authority")))
-    identity(value["identity"]); exact(value["records"], INPUTS)
+    identity(value["identity"], value["schema"])
+    exact(value["records"], LEGACY_INPUTS if value["schema"] == 1 else INPUTS)
     for name, row in value["records"].items():
         exact(row, ("state", "facts")); enum(row["state"], words("available absent rejected"))
         if row["state"] == "available": project_record(name, row["facts"])

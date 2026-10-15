@@ -23,7 +23,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / '.github/workflows/weather-android-delivery.yml').read_text()
-WEATHER = 'f6ee829961da387d9c0cd71b7163b47baab434fa'
+WEATHER = '0a31bf180f1a42b96b0ceaec3715f56496a559a5'
 
 
 def embedded(name):
@@ -60,6 +60,12 @@ class AndroidHostedWiring(unittest.TestCase):
         self.assertEqual(admission['scope'], 'disposable-joined-android-core-only')
         self.assertIn('.scope == "disposable-joined-android-core-only"', SOURCE)
         self.assertEqual(admission['sources'], dict(weather=dict(commit=WEATHER)))
+        for name in ('weather-android-native.py', 'weather-android-inner-diagnostic.py',
+                'weather-android-driver-diagnostic.py'):
+            module = runpy.run_path(str(ROOT / 'tests/integration' / name))
+            self.assertEqual(module['WEATHER_COMMIT'], WEATHER)
+        inner = runpy.run_path(str(ROOT / 'tests/integration/weather-android-inner-diagnostic.py'))
+        self.assertEqual(inner['LEGACY_WEATHER_COMMIT'], 'f6ee829961da387d9c0cd71b7163b47baab434fa')
         self.assertEqual(set(admission['artifacts']), {'decoder', 'abi'})
         self.assertEqual(len(admission['files']), 39)
         self.assertIn('(.files | length) == 39', SOURCE)

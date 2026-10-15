@@ -4,7 +4,7 @@
   "scope": "disposable-joined-android-core-only",
   "sources": {
     "weather": {
-      "commit": "f6ee829961da387d9c0cd71b7163b47baab434fa"
+      "commit": "0a31bf180f1a42b96b0ceaec3715f56496a559a5"
     }
   },
   "artifacts": {

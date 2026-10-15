@@ -19,7 +19,8 @@ E = runpy.run_path(str(HERE / "weather-android-evidence.py"))
 require, exact, same = E["require"], E["exact"], E["same"]
 NAME = "weather-android-driver-diagnostic.json"
 MAX_BYTES = 8192
-WEATHER_COMMIT = "f6ee829961da387d9c0cd71b7163b47baab434fa"
+LEGACY_WEATHER_COMMIT = "f6ee829961da387d9c0cd71b7163b47baab434fa"
+WEATHER_COMMIT = "0a31bf180f1a42b96b0ceaec3715f56496a559a5"
 ROOTS = {"normal": "", "published": "published", **{f"work_{n}": f"work-{n}" for n in range(1, 5)}}
 ERRORS = (OSError, ValueError, KeyError, TypeError, RecursionError)
 STATES = frozenset(("available", "absent", "rejected"))
@@ -58,7 +59,7 @@ def encoded(value):
 def identity(value):
     exact(value, ("core_commit", "weather_commit", "run_id", "run_attempt"))
     require(type(value["core_commit"]) is str and re.fullmatch("[a-f0-9]{40}", value["core_commit"])
-        and value["weather_commit"] == WEATHER_COMMIT)
+        and value["weather_commit"] in (LEGACY_WEATHER_COMMIT, WEATHER_COMMIT))
     for key in ("run_id", "run_attempt"):
         require(type(value[key]) is str and re.fullmatch("[1-9][0-9]{0,19}", value[key]))
 
@@ -261,6 +262,9 @@ def validate_receipt(value):
 
 def export(root, expected):
     identity(expected)
+    # Historical schema-one diagnostics remain readable; only the current
+    # exactly pinned source may produce a new workflow diagnostic export.
+    same(expected["weather_commit"], WEATHER_COMMIT)
     root = root_directory(root)
     try:
         stop = owner_gate(E["decode"](private_read(root, "weather-android-owner-failure.json", 65536), 65536), expected)

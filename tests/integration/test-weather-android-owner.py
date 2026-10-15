@@ -31,7 +31,7 @@ D = O["D"]
 KF = runpy.run_path(str(HERE / "test-weather-android-kvm.py"))
 DF = runpy.run_path(str(HERE / "test-weather-android-inner-diagnostic.py"))
 CORE_COMMIT = "a" * 40
-WEATHER_COMMIT = "f6ee829961da387d9c0cd71b7163b47baab434fa"
+WEATHER_COMMIT = "0a31bf180f1a42b96b0ceaec3715f56496a559a5"
 IDENTITY = dict(core_commit=CORE_COMMIT, weather_commit=WEATHER_COMMIT, run_id="123", run_attempt="1")
 ENV = dict(GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="1")
 NATIVE_RESULT = dict(schema=1, kind="hosted-android-protected-core-installed-trial", phase="complete", success=True,
@@ -78,6 +78,8 @@ elif role == 'tunnel':
     if mode == 'tunnel-exit': finish()
     while True:
         if mode == 'tunnel-exit-native' and (root / 'native-started').exists(): finish()
+        if mode == 'tunnel-exit-first-driver-failure' and (root / 'first-driver-failure-written').exists():
+            path.unlink(); stream.close(); sys.exit(1)
         if mode.startswith('tunnel-diagnostic') and (root / 'native-started').exists():
             path.unlink(); stream.close()
             print('PRIVATE tunnel stdout https://example.invalid/private-key', flush=True)
@@ -90,6 +92,13 @@ elif role == 'native':
     # This role never connects to the socket or creates an Android process.
     # Only coordinator ownership, ordering and failure propagation are tested.
     (root / 'native-started').touch()
+    if mode == 'tunnel-exit-first-driver-failure':
+        path = Path(data['inner_paths']['driver']); path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # Original finite first failure is written before simulated APK cleanup
+        # breaks the exchange. The owner interrupts us before any final report.
+        with path.open('x') as out: out.write(json.dumps(data['inner_records']['driver']))
+        path.chmod(0o600); (root / 'first-driver-failure-written').touch()
+        time.sleep(30)
     if mode in ('driver-exit-native', 'tunnel-exit-native') or mode.startswith('tunnel-diagnostic'): time.sleep(30)
     if mode == 'native-fail': sys.exit(2)
     if mode.startswith('native-diagnostic'):
@@ -365,9 +374,10 @@ class AcceptanceTests(RecordFixture):
 
 
 class FailureRecordTests(RecordFixture):
-    def inner_export(self, preexisting=None):
+    def inner_export(self, preexisting=None, cleanup=None):
         O["export_inner_diagnostic"](self.config, IDENTITY,
-            dict.fromkeys(D["INPUTS"], False) if preexisting is None else preexisting)
+            dict.fromkeys(D["INPUTS"], False) if preexisting is None else preexisting,
+            dict(children_joined=True, output_drained=True) if cleanup is None else cleanup)
         path = self.output / D["NAME"]
         raw = path.read_bytes(); path.unlink()
         self.assertLessEqual(len(raw), D["MAX_BYTES"])
@@ -376,7 +386,7 @@ class FailureRecordTests(RecordFixture):
         return D["validate_receipt"](json.loads(raw))
 
     def test_inner_originals_are_closed_optional_records_not_acceptance(self):
-        originals = dict(emulator=DF["emulator_fixture"](), guest_network=DF["network_fixture"]())
+        originals = dict(emulator=DF["emulator_fixture"](), guest_network=DF["network_fixture"](), driver=DF["driver_fixture"]())
         for name, value in originals.items(): save(self.weather / D["INPUTS"][name], value)
         result = self.inner_export()
         self.assertEqual(result["identity"], IDENTITY)
@@ -417,13 +427,43 @@ class FailureRecordTests(RecordFixture):
         (linked_weather / "build").mkdir(mode=0o700)
         (linked_weather / "build/overmorrow-hosted-android-live-proof").symlink_to(target, target_is_directory=True)
         config = dict(self.config, weather_root=str(linked_weather))
-        O["export_inner_diagnostic"](config, IDENTITY, dict.fromkeys(D["INPUTS"], False))
+        cleanup = dict(children_joined=True, output_drained=True)
+        O["export_inner_diagnostic"](config, IDENTITY, dict.fromkeys(D["INPUTS"], False), cleanup)
         path = self.output / D["NAME"]; before = path.read_bytes()
         self.assertEqual(json.loads(before)["records"]["emulator"], dict(state="rejected", facts=None))
         with self.assertRaises(FileExistsError):
-            O["export_inner_diagnostic"](config, IDENTITY, dict.fromkeys(D["INPUTS"], False))
+            O["export_inner_diagnostic"](config, IDENTITY, dict.fromkeys(D["INPUTS"], False), cleanup)
         self.assertEqual(path.read_bytes(), before)
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+    def test_driver_record_is_not_read_until_children_and_pipes_are_closed(self):
+        path = self.weather / D["INPUTS"]["driver"]; original = DF["driver_fixture"]()
+        save(path, original)
+        for cleanup in ({}, dict(children_joined=False, output_drained=True),
+                dict(children_joined=True, output_drained=False), dict(children_joined=1, output_drained=True),
+                dict(children_joined=True, output_drained=1)):
+            with self.subTest(cleanup=cleanup), patch.dict(G, document=lambda *_: self.fail("read before joined/drained")):
+                result = self.inner_export(cleanup=cleanup)
+            self.assertEqual(result["records"]["driver"], dict(state="rejected", facts=None))
+        result = self.inner_export()
+        self.assertEqual(result["records"]["driver"], dict(state="available", facts=original))
+        self.assertEqual(result["schema"], 2)
+        self.assertEqual(self.inner_export(dict.fromkeys(D["INPUTS"], True))["records"]["driver"],
+            dict(state="rejected", facts=None))
+
+    def test_driver_private_inode_validation_is_not_weakened_for_optional_failure(self):
+        path = self.weather / D["INPUTS"]["driver"]; path.parent.mkdir(mode=0o700)
+        target = self.root / "original-driver.json"; save(target, DF["driver_fixture"]())
+        raw = target.read_bytes().rstrip()
+        for index, create in enumerate((lambda: path.symlink_to(target), lambda: os.link(target, path),
+                lambda: os.mkfifo(path, 0o600), lambda: save(path, DF["driver_fixture"](), 0o644),
+                lambda: save(path, b"PRIVATE" * D["INPUT_LIMITS"]["driver"]),
+                lambda: save(path, raw[:-1] + b',"schema":1}'),
+                lambda: save(path, dict(DF["driver_fixture"](), private="PRIVATE")))):
+            with self.subTest(index=index):
+                create()
+                try: self.assertEqual(self.inner_export()["records"]["driver"], dict(state="rejected", facts=None))
+                finally: path.unlink()
 
     def native_job(self, raw=None, *, status=1, opened=(), limit=2 * 1024**2):
         if raw is None:
@@ -1028,15 +1068,16 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(inner["records"], dict.fromkeys(D["INPUTS"], dict(state="absent", facts=None)))
 
     def test_inner_failure_receipt_is_written_after_children_join_and_preserves_original_run_schema_six(self):
-        originals = dict(emulator=DF["emulator_fixture"](), guest_network=DF["network_fixture"]())
+        originals = dict(emulator=DF["emulator_fixture"](), guest_network=DF["network_fixture"](), driver=DF["driver_fixture"]())
         mutate(self.root / "inert-roles.json", lambda value: value.update(inner_records=originals,
             inner_paths={name: str(self.weather / relative) for name, relative in D["INPUTS"].items()}))
         original_export = O["export_inner_diagnostic"]
-        def export(value, expected_identity, preexisting):
+        def export(value, expected_identity, preexisting, cleanup):
             self.assertEqual(Path(f"/proc/self/task/{os.getpid()}/children").read_text().strip(), "")
+            self.assertTrue(cleanup["children_joined"] and cleanup["output_drained"])
             self.assertTrue((self.output / O["FAILURE_NAME"]).is_file())
             self.assertTrue((self.output / K["NAME"]).is_file())
-            return original_export(value, expected_identity, preexisting)
+            return original_export(value, expected_identity, preexisting, cleanup)
         with patch.dict(G, export_inner_diagnostic=export): result = self.run_owner("native-diagnostic-inner")
         self.assertFalse(result["success"])
         receipt = D["validate_receipt"](json.loads((self.output / D["NAME"]).read_bytes()))
@@ -1048,6 +1089,28 @@ class CoordinatorTests(unittest.TestCase):
         self.assertNotIn("inner", failure)
         self.assertNotIn("PRIVATE", json.dumps(receipt))
         self.assertFalse((self.root / "finalized").exists())
+        with self.assertRaises(ValueError): O["join"](self.value)
+
+    def test_first_driver_failure_survives_exchange_exit_and_early_native_cleanup(self):
+        original = DF["driver_fixture"]()
+        mutate(self.root / "inert-roles.json", lambda value: value.update(inner_records=dict(driver=original),
+            inner_paths={name: str(self.weather / relative) for name, relative in D["INPUTS"].items()}))
+        result = self.run_owner("tunnel-exit-first-driver-failure")
+        self.assertFalse(result["success"])
+        self.assertTrue(result["cleanup"]["children_joined"] and result["cleanup"]["output_drained"])
+        receipt = D["validate_receipt"](json.loads((self.output / D["NAME"]).read_bytes()))
+        self.assertEqual(receipt["schema"], 2)
+        self.assertEqual(receipt["records"]["driver"], dict(state="available", facts=original))
+        self.assertEqual(receipt["records"]["emulator"], dict(state="absent", facts=None))
+        self.assertEqual(receipt["records"]["guest_network"], dict(state="absent", facts=None))
+        self.assertFalse(receipt["cause_established"] or receipt["joined_core_acceptance"])
+        failure = json.loads((self.output / O["FAILURE_NAME"]).read_bytes())
+        self.assertEqual((failure["schema"], failure["owner_stop"]["reason"]), (8, "tunnel-exited"))
+        self.assertEqual(failure["owner_stop"]["children"]["native"]["state"], "running")
+        self.assertEqual(failure["statuses"]["native"], -signal.SIGTERM)
+        self.assertFalse((self.weather / "build/overmorrow-hosted-android-live-proof/driver/report.json").exists())
+        self.assertFalse((self.root / "finalized").exists())
+        self.assertFalse((self.output / "weather-android-owner-join.json").exists())
         with self.assertRaises(ValueError): O["join"](self.value)
 
     def test_preexisting_inner_file_cannot_be_reported_as_this_native_attempt(self):
