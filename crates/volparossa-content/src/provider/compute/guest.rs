@@ -383,8 +383,9 @@ impl GuestSession {
         self.check_at(Stamp::now()?)?;
         let data = session_report_data(&self.request.challenge, &self.public_key)
             .map_err(|_| GuestError::Encoding)?;
-        let report = source.fetch(data)?;
+        let report = source.fetch(data);
         self.check_at(Stamp::now()?)?;
+        let report = report?;
         let response = QuoteResponse::new(&self.request, self.public_key, report)?;
         self.check_at(Stamp::now()?)?;
         Ok(GuestQuoteSession {

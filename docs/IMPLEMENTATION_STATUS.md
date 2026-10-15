@@ -590,6 +590,107 @@ acceptance above supplies the previously missing locked-fetch and Rust results.
 
 ### Authorized quote exchange candidate
 
+#### Signed device refusal candidate
+
+The follow-up preserves successful quote encoding and adds a separate,
+request-bound provider claim: `fixed_quote_device_unavailable`. The provider may
+send it only after authenticating the authorized requester, attempting collection
+through the fixed guest device and rechecking cancellation, expiry and authority.
+Other firmware errors, transport failures and authorization failures do not
+become this claim. The requester checks its signature and original request
+binding before the agent closes the exchange streams and rechecks policy.
+
+The CLI exposes the refusal as a closed version-two result and exits
+unsuccessfully. It rechecks the original challenge lifetime after the final
+acknowledgement. Its result names the local agent as the signature verifier;
+the CLI receives no portable signature proof and does not independently
+authenticate that claim. Quote verification, appraisal, worker admission and
+private-input release remain false. A provider signature authenticates the claim, not the
+physical absence of hardware; an inaccessible device can also cause this refusal.
+The existing version-one success result is unchanged. Older callers reject the
+new refusal rather than treating it as evidence.
+
+Targeted hosted source checks now pass in
+[run 38740806726](https://github.com/VOLPAROSSA/volparossa/actions/runs/38740806726)
+on `92271e9e`: 87 Python tests and 55 unique Rust tests across guest collection,
+signed outcomes, pending-session completion, agent handoff and CLI results.
+Formatting and strict Clippy for the three affected packages also pass. Original
+logs confirm the exact checkout/tree and unchanged lockfile; their ZIP SHA-256 is
+`e5eca7df32573713d3c04e5a376b786a4e77eaaab1ca638a2517323c503ddd43`.
+Earlier runs `38737101441` (formatting), `38737643834` and `38739086162`
+(Clippy) remain separate failed source checks, not successful acceptances.
+The later full Quality run `38742834852` stops at the unchanged exact-source
+advisory guard: the guest wrapper's reviewed cancellation/error ordering needs
+its new hash. The guard is rebound to that exact wrapper after independent
+source review; no RSA operation, dependency, feature or advisory scope is added.
+All twelve inert source/metadata mutation tests pass locally. Full hosted
+integration remains pending; the targeted workflow now checks this guard too.
+
+This remains a source candidate pending integration and a disposable
+production-route trial. These software checks do not prove a new hardware report,
+protected task or working route.
+
+The new `protected-quote` topology scenario prepares that negative route trial:
+wrong-requester rejection, an authenticated device-unavailable claim, and rejection
+after the single authorized attempt. It uses the production provider path and
+observes the fixed device's absence in the provider service's mount namespace;
+it does not substitute firmware or admit private work. Fourteen inert checker
+tests, eleven wiring tests and four existing VM-diagnostic tests pass locally.
+Only a closed guest report and a separate original host-side VM-cleanup receipt
+may be published. These tests validate the harness, not an executed topology;
+actual route, physical privacy captures and cleanup acceptance remain pending.
+
+Full Quality run `38747335446` on `5f7e8f3a` stops in the historical Weather
+export fixture: it invokes the extracted exporter under `set -u` without the
+new scenario flag that the real runner initializes. The fixture now explicitly
+selects `protected_quote=no`; its expected exports and failure assertions are
+unchanged. A separate inert test checks that the quote scenario returns before
+any general export. The failed run is not integration acceptance.
+
+Quality run `38748458971` on `46564f39` passes that Weather step, then stops
+in the Android VM-cleanup fixtures: four extracted-shell fixtures omit the
+`scenario` initialized by the real runner. They now explicitly select
+`content-provider`, with the original exit-status, join, private-state and
+no-overwrite assertions unchanged. The targeted workflow also runs this
+existing 18-test suite. This second fixture failure is retained separately
+from the successful source-only run `38747325606`; neither proves a live route.
+
+Quality run `38749561548` on `7fa4dee3` passes both corrected steps, then
+finds the same missing `scenario` in the older QEMU lifecycle test's extracted
+cleanup fixture. That fixture now explicitly selects `alpha`, without changing
+its shutdown, status or scratch-retention assertions. The targeted workflow also
+runs its 25 cases; no production shutdown path is changed by these corrections.
+
+The first dispatched route trial, `38752117836` on `4a39e38f`, stops before
+VM preparation in the cooperative-browser preflight test. Its extractor only
+recognizes `if`, while the preceding quote-export branch makes the unchanged
+cooperative selector an `elif`. The test now recognizes both branch forms and
+executes the same four-cohort gate independently; `protected-quote` is also
+explicitly rejected by that cooperative gate. The targeted workflow adds the
+existing browser and Code VM-contract suites. No VM starts, no route or refusal
+is observed, and no cleanup reports are produced by this failed run. Separately,
+source-only run `38750363249` passes 190 Python cases, 55 unique Rust cases,
+formatting and strict Clippy on the same commit.
+The complete preflight's 99 Python invocations and 58 shell syntax checks now
+exit successfully locally. Four Node-dependent cases also pass with the existing
+verified runtime; the optional real CLI/GPG and three namespace cases stay skipped.
+
+The replacement route trial, `38754172447` on `2dfe81e0`, passes that preflight
+and starts the VM, but returns status 69 without a guest route report. Its only
+published artifact is the independently validated host receipt confirming QEMU
+termination/join and private VM-state removal. This is not guest-topology cleanup
+or route acceptance. Source review finds a concrete mismatch: the quote driver
+does not build the content/HTTPS transfer examples, while the shared provider
+preflight requires both. Quote-only now skips those two executable checks and
+their later staging calls; ordinary providers retain both. Executed inert
+preflight and all-scenario build/staging regressions verify that distinction.
+The original guest stderr was not exported, so this mismatch is not an observed
+inner error message. The resulting 13 wiring cases pass locally; a corrected
+actual trial remains pending. Separately, source run `38754168513` on the original
+commit passes 230 Python cases, 55 unique Rust cases, formatting and strict Clippy.
+
+#### Integrated quote exchange
+
 The new quote-only path connects guest-owned evidence collection to the existing
 protected provider stream. An operator must explicitly authorize one requester
 identity, a lifetime of at most ten minutes and at most 64 attempts. Registration
