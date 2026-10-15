@@ -12,7 +12,7 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-14
+Last updated: 2026-10-15
 
 ## Current integration and active work
 
@@ -80,6 +80,34 @@ results; the older checkpoints are retained as history, not as currently running
   quote route, full appraisal, worker admission or private-input release.
   [PR247](https://github.com/VOLPAROSSA/volparossa/pull/247) retains the original
   artifact hashes and failed attempts alongside current-source acceptance.
+
+### TCP streaming under simultaneous backpressure
+
+The proxy now polls both forwarding directions independently. A blocked request
+write no longer prevents reading a response that the destination must finish
+before it can read more request bytes. Both copy futures remain owned by the
+proxy; cancellation drops both without leaving detached tasks or byte queues.
+The two fixed buffers, directional byte limits, TLS flushing, half-close and
+independent write/flush/shutdown deadlines remain unchanged. Progress in either
+direction resets the shared read-idle timer, but cannot extend a blocked write.
+
+Eight new regressions bring the focused streaming suite to twelve cases. They
+cover simultaneous backpressure, real nested TLS, half-close, cancellation,
+read-idle and blocked-write bounds, reverse-only progress and the reverse byte
+limit. The focused hosted step in
+[Quality `38661788072`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38661788072)
+passes on `ea6efddb`; the full run and original terminal-log audit are still
+pending. The standalone main-based change retains those exact source/test blobs
+and adds only the early focused test step to main's existing Quality workflow.
+It preserves the resolver backport, locked dependency graphs and prior checks.
+
+This fixes a reproducible streaming defect, not a proven cause of the earlier
+Storage challenge timeout. Shared consumer maintenance remains separately
+unproven: [actual trial `38662571845`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38662571845)
+is running on the unchanged Storage candidate `ea6efddb`. Neither the in-memory
+tests nor this transport correction establish consumer repair, restore or
+remote cleanup. The independent OpenCloud upload trial still waits for that
+shared integration.
 
 ### Integrated Hickory resolver security backport
 
