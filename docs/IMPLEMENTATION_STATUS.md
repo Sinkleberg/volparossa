@@ -19,8 +19,9 @@ Last updated: 2026-10-15
 ### Execution priorities and next milestones
 
 The shared cache and actual Weather delivery into Drizz.li and Overmorrow are
-integrated. The installed Android refresh/background-expiry trial with synthetic
-products is also integrated. Shared private storage maintenance and protected
+integrated. The installed Android app now also passes on-demand core delivery,
+refresh and background/resume with real products in an emulator. Expiry behavior
+has only been demonstrated with synthetic products. Shared private storage maintenance and protected
 compute remain the next core dependencies; further Weather expansion does not
 automatically take precedence over core blockers. Choose slices by shared dependencies,
 architectural uncertainty and a demonstrable end-to-end result, not by application
@@ -31,10 +32,10 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa`, `volparossa-weather` | Complete actual core delivery through Android's initial, refresh and background/resume lifecycle; then verify expiry behavior with real products. | The installed-app lifecycle, including expiry, passes with synthetic products (Weather PR19). Actual run `38705213351` narrows the guest rejection to source verification. PR248 corrects the root verifier's incompatibility with the fixed worker-owned source and incorporates the bounded VM shutdown from main; targeted inert tests pass, but the updated candidate still needs hosted checks and actual joined acceptance. Actual expiry, physical devices and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized maintenance after restart, then publish, repair and restore through actual consumers after provider replacement. | The base lifecycle passes, but the latest Cloud publication fails while awaiting an APPEND receipt. Receiving-side activity is retained without request correlation. PR255 integrates bounded VM shutdown after the separate 150-minute hosted overrun. A signed nested-TLS receipt test passes; closed APPEND timing and receiving-side read diagnostics are the next step. Consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
+| Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete Cloud APPEND and the consumer repair/restore sequence with request-bound diagnostics and bounded VM shutdown. | The base lifecycle passes, but the latest actual Cloud publication fails while awaiting an APPEND receipt. PR255 integrates bounded VM shutdown. Targeted APPEND diagnostics pass 99 Rust and 82 Python tests; PR232 connects explicit consumer profile 8 to the tested Image/Cloud adapters. Its first integrated Quality stops at a stale test fixture, corrected in `16692f1e` with 41 local wiring checks passing; full Quality `38722691110` remains pending. Consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Core PR212 and Code PR11 pass their source gates. Actual run `38709341304` still completes one read and refuses six later requests. The new observations identify the service's own cgroup headroom as the limiting input, even after model-cache advice succeeds. Review the remaining charged file cache and lifecycle before changing the candidate; do not lower the admission requirement or enlarge the trial. This development executor is not confidential peer execution or completion of the shared-brain requirement. |
+| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Actual `38709341304` completes one read and refuses six later requests because of its own cgroup headroom. Cache-release candidate `3146d2b4` passes 62 targeted Rust tests but fails four Clippy checks. Correction `2dd38983` is under Quality `38722825812`; Code `4fc36928` pins it and passes 410 source checks with four skips. No new actual trial is started before the core gates pass. Model, task and admission limits remain unchanged. This executor is not confidential peer execution or completion of the shared-brain requirement. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify quote exchange on the production route, then execute a private task on another node with verified protection. | PR246 and PR247 are merged. The quote-only slice passes appraisal, guest, agent/control/CLI and quote software checks. Production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is still unavailable; local coding and storage integration continue without substituting for this requirement. |
 
 Detailed earlier Android and storage checkpoints remain in the
@@ -43,7 +44,35 @@ The latest completed outcomes are summarized below.
 
 ### Latest completed integration evidence — 15 October
 
-- **Android reaches finalization, but joined delivery remains incomplete.**
+- **Actual Android-to-core delivery passes in an emulator.**
+  [Trial `38717988016`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38717988016)
+  passes on core `aac5be7f602fae9754153cdcb5c401ecb9ee7cb6` and Weather
+  `3b90442a9d5be4db73ccf83cba2028364980c3ca`, after exact-source Quality
+  `38714089083` and CodeQL `38714082172` pass. The installed Overmorrow app
+  initiates cold retrieval of real weather and air-quality products through the
+  core. Original receipt, HTTP-response and native-table hashes are joined for
+  all six requests: three per product, with four weather rows and five air-quality
+  rows. Initial peer transfers carry 12,282 and 8,774 bytes; subsequent requests
+  reuse the cache. All six record zero origin bytes and zero origin range requests.
+  Actual taps trigger refresh; the app then backgrounds and resumes with the
+  same still-fresh products and no additional product requests.
+
+  The original closed validators and final acceptance reconstruction pass.
+  The 39 admitted inputs match the exact v6 manifest; all 20 Weather source
+  files are also checked against their Git objects. Packet checks bind both
+  products to one capture window, require two different selected relay paths
+  and reject direct client-to-exit traffic. They do not establish bulk distribution
+  across two simultaneously active subflows. Private HTTP bodies, UI records and
+  captures were validated inside the disposable trial, then removed rather than
+  exported. Owner children and QEMU are joined, private guest state is removed,
+  and the original 77-byte KVM ACL is restored exactly. Original artifact ZIP
+  SHA-256: `7a3f92eb5d921267ecffaeff82215bb2b6f32e9a3cdcfbf5d349a8eb7cae0232`;
+  log ZIP SHA-256:
+  `fab33fb1e4baf8fbb0339dcb682f810d36f4ee63e77eba64e811520c74e03ee9`.
+  This proves the scoped joined delivery, not expired-product recovery, visible
+  pixel rendering, physical-device operation, iOS or production authority.
+
+- **Earlier Android failures remain part of the evidence.**
   [Trial `38693605028`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38693605028)
   on core `75da4143` / Weather `3b90442a` records successful actual installed-app
   execution and zero native/tunnel exit statuses. The owner rejects guest-driver
@@ -70,8 +99,8 @@ The latest completed outcomes are summarized below.
   pass, including 57 in the two changed suites independently rerun. They reproduce
   the ownership incompatibility, not the deleted private inputs of the failed run.
   The merge with bounded VM shutdown passes 18 Android wiring, 25 lifecycle and
-  four VM diagnostic checks. Updated hosted checks and actual joined delivery
-  remain required; these software results do not prove actual expiry.
+  four VM diagnostic checks. These source checks preceded the passing actual
+  trial above; neither result proves actual expiry.
 - **Storage publication and hosted shutdown have separate failures.**
   [Trial `38688661444`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38688661444)
   on `b7e63589` retains a passing base restart/resume, replacement, two-restore
