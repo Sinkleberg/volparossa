@@ -33,9 +33,9 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38766434111` fails during Image FINALIZE with `stream_open / flow_acquire`; the inner cause was not retained. The new bounded flow-detail contract passes all 27 new cases, but complete source acceptance remains pending after a workflow inventory error. Image/Cloud adapters and consumer profile 9 are prepared and tested separately. Integrate these diagnostics before another actual trial. The previous Cloud-catalog failure remains unresolved; combined repair, restoration, remote cleanup and reciprocal capacity are not yet established. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38766434111` fails during Image FINALIZE with `stream_open / flow_acquire`; the inner cause was not retained. The bounded flow-detail contract passes 167 targeted tests, including all 27 new cases. Final lint/format acceptance and full profile-9 integration checks remain pending. Image/Cloud adapters and the consumer evidence chain are joined in the candidate; complete those source gates before another actual trial. The previous Cloud-catalog failure remains unresolved; combined repair, restoration, remote cleanup and reciprocal capacity are not yet established. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Actual `38788802469` on core `01c90c57` / Code `a15a5524` identifies `compute_memory_budget`: the process-RSS guard stops the first request before any tool call. Cleanup passes. Reduce avoidable allocation without weakening the normal toolset, 4B/BF16 model, context or resource limits. The upstream sanitizer failure remains open; this efficiency slice does not complete protected peer execution or the shared brain. |
+| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Actual `38788802469` identifies `compute_memory_budget` before any tool call; cleanup passes. Candidate `95ef4541` allocates KV capacity for the complete current prompt and output allowance, retaining bounded growth and all original limits. Its normal native targets and owned sanitizer targets pass; the same upstream all-type sanitizer failure remains open. Validate the exact Code coupling before a scoped BF16 actual experiment. Memory savings and successful coding-agent execution remain unproven; this does not complete protected peer execution or the shared brain. |
 | Protected remote compute — `volparossa`, then Code/Browser | Bind an approved private workload to verified protection and the confirmed key. | PR258's authenticated refusal path has actual route evidence. PR262 integrates explicit same-connection key confirmation after targeted source, full Quality and CodeQL acceptance. Possession confirmation is not private-task admission. Production authority, current vendor appraisal, approved workloads and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 Detailed earlier Android and storage checkpoints remain in the
@@ -83,18 +83,52 @@ The latest completed outcomes are summarized below.
   session reserves the full 13,312-token context, while this complete prompt plus
   its existing output allowance needs 5,632 padded tokens. In the pinned BF16
   implementation that difference is 1,080 MiB. This is a source-derived saving
-  opportunity, not proof of the exact overshooting RSS sample. Request-sized
-  contexts with bounded growth are the next efficiency candidate; no resource
-  limit, model, toolset or accepted context length is reduced or enlarged.
+  opportunity, not proof of the exact overshooting RSS sample. Candidate
+  `95ef4541` now sizes the context for the complete current prompt and output
+  allowance. Growth destroys the old context before allocating a larger one
+  around the same model; that turn refills the complete prompt rather than
+  reusing its old prefix. No resource limit, model, toolset or accepted context
+  length is reduced or enlarged.
 
-- **Storage flow diagnostics have partial source acceptance.**
-  [Run `38792234897`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38792234897)
-  on `eb92bae7` passes all 27 new cases and 61 historical cases, with no failures
-  or ignores. It then stops before historical CLI execution because Cargo's
-  substring filter includes an unrelated compute module. The strict inventory
-  check correctly refuses those 21 extra cases. The workflow correction keeps
-  all 77 intended historical CLI cases and the strict scope/count checks; full
-  source acceptance, Clippy and formatting remain pending. Earlier failed runs
+  [Source run `38795606001`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38795606001)
+  passes all six normal native targets and all five owned sanitizer targets,
+  including the new capacity ABI and ten session-transition test groups. Both
+  modes pass the same 91 unique Python cases without skips; repeating them in
+  two modes does not make 182 unique cases. Exact source hashes and post-run
+  source checks pass. The upstream all-type sanitizer target still fails at
+  `quants.c:590`; its failure tail is byte-identical to run `38759834612`.
+  The total sanitizer result remains failed. The implicated Q1_0 kernel is
+  outside the selected BF16/F32 path, permitting a bounded normal-mode experiment
+  without claiming full native acceptance. Actual model execution, observed
+  memory savings and complete coding behavior still require that experiment.
+  Original normal, sanitizer and log ZIP SHA-256 values are respectively
+  `10482199f2a789e08ced3391777aad6b06d91995d6ed141eeef1bcc3a7d73b6a`,
+  `a1228f80fd11f58f2e78c76b808cd3bbbaf5137ddff2453fcb070276566b0062`
+  and `434e92a6916e8e7d7ba0856e8165c4f02df05d49766a89714371f039c365a5ad`.
+
+  Code `ffc7c3ef` changes only its two core-pin literals. Its
+  [source check](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38797117801)
+  passes 455 cases with four explicit fixture/source skips; the merge checkout
+  and candidate have the same tree. Original log ZIP SHA-256:
+  `8081e1b880f28e72cb83ad6052c54101aff4d90b8b43e549046434a32a80d617`.
+  The paired [actual trial](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38797816570)
+  has been dispatched with the same full toolset, BF16 model and resource bounds;
+  a completed coding-agent result remains outstanding.
+
+- **Storage flow diagnostics pass all targeted cases; integration remains open.**
+  [Run `38794822447`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38794822447)
+  on `14a512b3` passes 167 unique Rust tests: 27 new cases and 140 historical
+  cases, without failures or ignored tests. Strict Clippy then rejects three
+  missing code markings in API comments; the formatting step is not reached.
+  Artifact and log ZIP SHA-256 values are respectively
+  `58bc36cf3e0d40e2869121600ef2ef925d6381d0a48aa54e287897fca19a2621`
+  and `b523a498b59a3f1ec0d45a39faf0f55957f46dd5a4358a7385acff18d701cd77`.
+
+  Earlier runs `38792234897` and `38793350071` stop after 88 and 165 passing
+  tests because Cargo's substring filters include unrelated compute modules.
+  The corrected inventory keeps all 77 historical storage CLI cases and both
+  intended control cases, with the original strict scope and count checks.
+  Earlier failed runs
   `38783188054`, `38789158345` and `38790196633` respectively expose an undeclared
   test dependency, missing EOF readiness in a fixture and a real cross-subcommand
   diagnostic-option conflict. Their focused corrections remain in history.
@@ -102,8 +136,22 @@ The latest completed outcomes are summarized below.
   Image `9694a2b9` and Cloud `47b0f03b` publish the same opt-in adapter, with
   69 and 20 targeted tests passing respectively. Consumer profile 9 pins those
   exact sources and carries only bounded typed diagnostics; old report versions
-  remain separate. These are component checks, not another actual storage trial
-  or proof that the underlying acquisition failure has been fixed.
+  remain separate. Its first full Quality run `38793812077` on `779e4f2c` passes
+  the 276 storage consumer checks (228 Python and 48 Node), then stops at Rust
+  formatting before `check-shell.sh`, Rust compilation or workspace tests. Revision
+  `de8b9719` applies the original formatter's 19 hunks and the three comment
+  corrections without changing runtime behavior. Final targeted acceptance and
+  full integration checks remain pending. These are component checks, not another
+  actual storage trial or proof that the underlying acquisition failure is fixed.
+
+  [Run `38796320282`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38796320282)
+  on that revision again passes all 167 cases, then reaches one further Clippy
+  finding in the observation test's negative `if/else` layout. The focused
+  correction puts the positive condition first while preserving both branch
+  bodies and every assertion. It changes no production code or test budget.
+  Artifact and log ZIP SHA-256 values are respectively
+  `1761ae75f0414f3a39df31f5735ff5e9f3e39d296fa8f87f1b305c03e393a1c4`
+  and `4e8009c367d3beb1fb045244b4ee2c9993cecef1f48726aa10d67266ba643b9a`.
 
 - **Same-connection key confirmation passes targeted source checks.**
   [Run `38781307814`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38781307814)
