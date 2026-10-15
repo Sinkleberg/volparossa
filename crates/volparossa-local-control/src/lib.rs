@@ -878,14 +878,7 @@ fn validate_response(response: &ControlResponse) -> Result<(), ControlProtocolEr
         .ok_or(ControlProtocolError::Invalid("missing response payload"))?;
     match payload {
         control_response::Payload::ContentProviderActivity(snapshot) => {
-            snapshot.validate()?;
-            if response.result != ControlResult::Ok as i32
-                || response.diagnostic_code != "CONTENT_PROVIDER_ACTIVITY"
-            {
-                return Err(ControlProtocolError::Invalid(
-                    "content provider activity envelope",
-                ));
-            }
+            validate_provider_activity_response(response, snapshot)?;
         }
         control_response::Payload::Peers(list) => {
             list_len(list.peers.len())?;
@@ -969,6 +962,21 @@ fn validate_response(response: &ControlResponse) -> Result<(), ControlProtocolEr
         control_response::Payload::Ack(_)
         | control_response::Payload::Status(_)
         | control_response::Payload::Roles(_) => {}
+    }
+    Ok(())
+}
+
+fn validate_provider_activity_response(
+    response: &ControlResponse,
+    snapshot: &ContentProviderActivity,
+) -> Result<(), ControlProtocolError> {
+    snapshot.validate()?;
+    if response.result != ControlResult::Ok as i32
+        || response.diagnostic_code != "CONTENT_PROVIDER_ACTIVITY"
+    {
+        return Err(ControlProtocolError::Invalid(
+            "content provider activity envelope",
+        ));
     }
     Ok(())
 }
