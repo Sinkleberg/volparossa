@@ -94,6 +94,10 @@ jobs:
           cargo fmt --all -- --check
           ./scripts/check-shell.sh
 
+      - name: Check bounded bidirectional streaming before audit tool builds
+        # In-memory duplex and real TLS only; no host sockets or namespace setup.
+        run: cargo test --locked -p volparossa-tcp-proxy --test streaming
+
       - name: Install pinned dependency-audit tools
         run: |
           tool_root="${RUNNER_TEMP}/cargo-tools"

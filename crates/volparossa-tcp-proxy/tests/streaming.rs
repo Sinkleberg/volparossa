@@ -141,7 +141,8 @@ async fn nested_tls_flushes_both_requests_and_reverse_traffic_under_backpressure
     .await
     .unwrap();
     let (proxy_exit, provider_io) = tokio::io::duplex(128);
-    let limits = StreamTransferLimits::new(512, 64 * 1024, 64 * 1024, Duration::from_secs(1)).unwrap();
+    let limits =
+        StreamTransferLimits::new(512, 64 * 1024, 64 * 1024, Duration::from_secs(1)).unwrap();
     let proxy = tokio::spawn(proxy_bidirectional(outer_exit.unwrap(), proxy_exit, limits));
     let exchanged = tokio::time::timeout(Duration::from_secs(3), async {
         // Both handshake futures must return before either application starts.

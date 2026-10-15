@@ -116,10 +116,20 @@ The correction polls two owned directional futures concurrently, with the same
 two bounded buffers, directional byte limits, shared read-idle observation and
 individually bounded write/flush/shutdown operations. It preserves half-close
 and drops both directions on error or cancellation; it spawns no detached task.
-New regressions cover simultaneous backpressure, nested real TLS, cancellation,
-half-close, byte limits and timer behavior. Hosted compilation and execution are
-still required. A component result will not by itself establish genuine MPTCP,
-provider authorization or a successful shared Storage/Cloud trial.
+Eight new regressions bring the streaming suite to twelve tests, covering
+simultaneous backpressure, nested real TLS, cancellation, half-close, byte limits
+and timer behavior. Quality now runs this focused suite before building the
+dependency-audit tools, without removing any later gates. A component result
+will not by itself establish genuine MPTCP, provider authorization or a
+successful shared Storage/Cloud trial.
+
+The first [Quality run `38661475337`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38661475337)
+on `71aab29d` stops at one test-formatting difference, before Rust compilation or
+test execution. The exact whitespace correction is applied; no behavior changes.
+Its original checkout `210a3d22` combines main `7b728846` with that head.
+Original logs ZIP SHA-256:
+`9e765901d287d4c966a70541a8258fb0ea2903e95ddbad352c4b3414f42cdb3b`.
+Fresh hosted compilation and execution remain required.
 
 ### Earlier protected storage stream diagnostics
 
