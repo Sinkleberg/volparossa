@@ -53,6 +53,7 @@ jobs:
           python3 -B tests/integration/test-weather-android-native.py
           python3 -B tests/integration/test-weather-android-kvm.py
           python3 -B tests/integration/test-weather-android-inner-diagnostic.py
+          python3 -B tests/integration/test-weather-android-driver-diagnostic.py
           python3 -B tests/integration/test-weather-android-tunnel.py
           sh -n tests/integration/run-alpha-topology-vm.sh
           sh -n tests/integration/weather-android-delivery.sh
@@ -352,6 +353,15 @@ jobs:
           # END ACL_CLEANUP
           PY
           fi
+      - name: Project closed early guest-driver failure observations
+        if: always() && env.WEATHER_OUTPUT != ''
+        run: |
+          set -euo pipefail
+          umask 077
+          # Existing retrieved observations only; no VM command, raw log or retry.
+          timeout --signal=TERM --kill-after=1s 10s python3 -B tests/integration/weather-android-driver-diagnostic.py export \
+            --output "$WEATHER_OUTPUT" --core-commit "$GITHUB_SHA" \
+            --weather-commit "$VOLPAROSSA_WEATHER_SOURCE_SHA"
       - name: Require joined Android observations and completed VM cleanup
         run: |
           set -euo pipefail
@@ -376,6 +386,7 @@ jobs:
             ${{ env.WEATHER_OUTPUT }}/weather-android-owner-failure.json
             ${{ env.WEATHER_OUTPUT }}/weather-android-kvm-observation.json
             ${{ env.WEATHER_OUTPUT }}/weather-android-inner-diagnostic.json
+            ${{ env.WEATHER_OUTPUT }}/weather-android-driver-diagnostic.json
             ${{ env.WEATHER_OUTPUT }}/weather-android-vm-cleanup.json
             ${{ env.WEATHER_OUTPUT }}/weather-android-hosted-acceptance.json
             ${{ env.WEATHER_INPUTS }}/kvm-cleanup.json

@@ -102,6 +102,7 @@ jobs:
           python3 -B tests/integration/test-weather-android-native.py
           python3 -B tests/integration/test-weather-android-kvm.py
           python3 -B tests/integration/test-weather-android-inner-diagnostic.py
+          python3 -B tests/integration/test-weather-android-driver-diagnostic.py
           python3 -B tests/integration/test-weather-android-vm-wiring.py
           python3 -B tests/integration/test-weather-android-hosted-wiring.py
           sh -n tests/integration/weather-android-delivery.sh

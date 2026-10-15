@@ -31,7 +31,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | Quality `38654744521` passes. Actual `38655062763` on `de5091e2` records the first forecast GET returning HTTP 503, with SSH exit 0 and no expired owner budget. The candidate corrects a separate cache directory missing from the agent's writable mount allowlist; actual recovery still needs proof. Owner/VM/ACL cleanup passes, but native cleanup, joined delivery, live expiry, physical devices and iOS remain open. |
+| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | Quality `38661129133` passes. Actual `38661883390` on `5fd43b03` stops earlier, at `driver-exited/read-ready`, before tunnel or native startup. The retrieved guest-driver error was not exported; a closed diagnostic projection is being added. The earlier HTTP 503 remains unresolved. Owner/VM/ACL cleanup passes its own boundaries; joined delivery, live expiry, physical devices and iOS remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38653857407` on `7b27d13d` passes the separate base lifecycle, but a later Cloud upload fails before READY while reading/verifying the provider challenge. Less than one second precedes that exchange; the operation deadline expires after 90–120 seconds inside it. Consumer repair, restoration and remote cleanup remain unproved. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 and PR247 are merged; main `17afa3f0` contains the finite operator grants, guest module, protected exchange and CLI verifier. Corrected source `09b0d3cc` passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`. Software evidence does not establish production-route execution, production authority, current vendor appraisal, an approved measured workload or actual private execution. Suitable confidential-computing hardware is unavailable; storage and Android integration continue in parallel. |
@@ -405,8 +405,50 @@ checks pass: 17 Android shell, 31 preparation, 17 VM-wiring, 20 hosted-wiring,
 12 legacy shell and 15 product-shell cases. They exercise exact unit arguments,
 startup order, unchanged historical profiles and rejection of a replaced or
 misconfigured parent. Shell syntax and scoped ShellCheck pass. These checks do
-not create a real service mount; hosted validation and a fresh joined trial are
-still required for this correction.
+not create a real service mount. The following hosted results preserve that
+distinction; the correction is not yet proven by successful joined delivery.
+
+#### Earlier guest-driver exit and bounded observation
+
+[Quality `38661129133`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38661129133)
+passes all 319 Android contract checks and 3,655 workspace tests, with zero
+failures and seven ignores. Checkout `755b509d` merges main `7b728846` with
+`5fd43b03`; the four changed code/test files match exactly. Three namespace
+proofs and one optional CLI fixture explicitly skip. Log ZIP SHA-256:
+`cade127ea4ab3b3c79bd7ad062520dd77bb41728177a734b8c94732f720d870e`.
+
+Actual [run `38661883390`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38661883390)
+uses exact `5fd43b030bcd48608a4a8cf198a2924531d22b33`, tree
+`ef1069dad159554b7180f2fca40de9305fc7d1f4`, and the unchanged Weather pin. Its
+first stop is `driver-exited` during `read-ready`, driver exit 1. Neither tunnel
+nor native starts; no owner budget expires and no output overflows. This is
+earlier than the previous HTTP 503 and proves neither its recurrence nor repair.
+The original hosted artifact does not expose the underlying guest-driver cause.
+
+Owner children are joined, output drained, its socket removed and the host
+network namespace unchanged. The outer VM receipt confirms normal archive
+retrieval completed, QEMU joined and private guest state was removed; this does
+not establish the guest's final phase or successful delivery. The original 77-byte KVM ACL is
+restored exactly. Guest-network, emulator and native receipts are absent, not
+additional cleanup evidence. Original thirteen-file artifact ZIP SHA-256:
+`7dc56a1073b35a74e523df78ebc7699f12206022ae5a6cd24376e44a9e61b6e2`;
+log ZIP SHA-256:
+`ca679d161a96a93e3f7a815c72e0b2224e0fa4c28cd811cb7971e623a3f9cf01`.
+
+The next candidate projects only fixed phases and failure categories from
+already retrieved guest records, after VM and ACL cleanup. It runs only for a
+current-run early driver failure; absent, rejected and unknown observations stay
+explicit. A terminal provider blocker may have been replaced during cleanup;
+it is not relabeled as the first cause. The separate diagnostic cannot authorize
+acceptance or establish an underlying cause. Raw logs, private paths and topology
+identities stay private.
+Owner schemas, source pins, SSH commands, deadlines and original failure records
+remain unchanged. This closes an observation gap, not the runtime failure.
+All 155 focused inert checks pass: 25 new driver-projection, 21 hosted-wiring,
+17 VM-wiring, 80 owner and 12 inner-diagnostic cases. The actual original
+owner-failure record passes the new gate; no missing guest report is fabricated.
+Independent source/privacy review and diff checks pass. Hosted execution of
+this candidate remains pending; no local Rust or native build was run.
 
 #### Deterministic relay-cache test inputs
 

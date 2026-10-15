@@ -348,6 +348,7 @@ getfacl() { printf 'original inert ACL\\n'; }
             '${{ env.WEATHER_OUTPUT }}/weather-android-owner-failure.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-kvm-observation.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-inner-diagnostic.json',
+            '${{ env.WEATHER_OUTPUT }}/weather-android-driver-diagnostic.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-vm-cleanup.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-hosted-acceptance.json',
             '${{ env.WEATHER_INPUTS }}/kvm-cleanup.json',
@@ -365,6 +366,30 @@ getfacl() { printf 'original inert ACL\\n'; }
         self.assertEqual(SOURCE.count(output), 1)
         self.assertNotIn('inner-diagnostic', block('Require joined Android observations and completed VM cleanup'))
         for raw in ('emulator-diagnostic.json', 'guest-network-diagnostic.json'):
+            self.assertNotIn(raw, block('Upload only closed evidence and pinned-input provenance'))
+
+    def test_early_driver_projection_is_bounded_local_only_after_cleanup(self):
+        name = 'Project closed early guest-driver failure observations'
+        section = block(name)
+        self.assertIn("if: always() && env.WEATHER_OUTPUT != ''", section)
+        self.assertIn('timeout --signal=TERM --kill-after=1s 10s python3 -B '
+            'tests/integration/weather-android-driver-diagnostic.py export', section)
+        self.assertIn('--output "$WEATHER_OUTPUT" --core-commit "$GITHUB_SHA"', section)
+        self.assertIn('--weather-commit "$VOLPAROSSA_WEATHER_SOURCE_SHA"', section)
+        self.assertLess(SOURCE.index('- name: Restore exact original hosted KVM ACL'), SOURCE.index('- name: ' + name))
+        self.assertLess(SOURCE.index('- name: ' + name),
+            SOURCE.index('- name: Require joined Android observations and completed VM cleanup'))
+        self.assertLess(SOURCE.index('- name: ' + name),
+            SOURCE.index('- name: Upload only closed evidence and pinned-input provenance'))
+        for forbidden in ('ssh ', 'scp ', 'sudo ', 'curl ', 'continue-on-error', '|| true'):
+            self.assertNotIn(forbidden, section)
+        parser_test = 'python3 -B tests/integration/test-weather-android-driver-diagnostic.py'
+        self.assertIn(parser_test, SOURCE)
+        self.assertIn(parser_test, (ROOT / '.github/workflows/quality.yml').read_text())
+        output = '${{ env.WEATHER_OUTPUT }}/weather-android-driver-diagnostic.json'
+        self.assertEqual(SOURCE.count(output), 1)
+        self.assertNotIn('driver-diagnostic', block('Require joined Android observations and completed VM cleanup'))
+        for raw in ('vm-incomplete.json', 'guest-phase.txt', 'current-phase', 'content-provider-smoke.json', 'runner.stderr'):
             self.assertNotIn(raw, block('Upload only closed evidence and pinned-input provenance'))
 
     def test_embedded_python_and_every_run_block_are_syntactically_valid(self):
