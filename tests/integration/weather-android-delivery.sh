@@ -111,6 +111,38 @@ weather_android_controller_cleanup() {
     return "$weather_android_controller_status"
 }
 
+weather_android_evidence_failure() {
+    # Only this exact verifier's finite statuses name a rejected check group.
+    # No stderr parsing, dynamic blocker suffix or success fallback is allowed.
+    case $1 in
+        20) fail WEATHER_ANDROID_EVIDENCE_BOUNDARY_INVALID ;;
+        21) fail WEATHER_ANDROID_EVIDENCE_SOURCE_INVALID ;;
+        22) fail WEATHER_ANDROID_EVIDENCE_PREPARED_INVALID ;;
+        23) fail WEATHER_ANDROID_EVIDENCE_SELECTION_INVALID ;;
+        24) fail WEATHER_ANDROID_EVIDENCE_CONFIGURATION_INVALID ;;
+        25) fail WEATHER_ANDROID_EVIDENCE_API_LIFECYCLE_INVALID ;;
+        26) fail WEATHER_ANDROID_EVIDENCE_API_PRIVATE_CLEANUP_INVALID ;;
+        27) fail WEATHER_ANDROID_EVIDENCE_RECEIPT_CUSTODY_INVALID ;;
+        28) fail WEATHER_ANDROID_EVIDENCE_RECEIPT_SHAPE_INVALID ;;
+        29) fail WEATHER_ANDROID_EVIDENCE_RECEIPT_TIMING_INVALID ;;
+        30) fail WEATHER_ANDROID_EVIDENCE_RECEIPT_PUBLICATION_INVALID ;;
+        31) fail WEATHER_ANDROID_EVIDENCE_RECEIPT_COUNTERS_INVALID ;;
+        32) fail WEATHER_ANDROID_EVIDENCE_ACQUISITION_INVALID ;;
+        33) fail WEATHER_ANDROID_EVIDENCE_TOPOLOGY_INPUTS_INVALID ;;
+        34) fail WEATHER_ANDROID_EVIDENCE_CACHE_CUSTODY_INVALID ;;
+        35) fail WEATHER_ANDROID_EVIDENCE_PUBLICATION_FILES_INVALID ;;
+        36) fail WEATHER_ANDROID_EVIDENCE_PACKET_CONTROL_ROUTE_INVALID ;;
+        37) fail WEATHER_ANDROID_EVIDENCE_PUBLISHER_CLEANUP_INVALID ;;
+        38) fail WEATHER_ANDROID_EVIDENCE_SOURCE_SNAPSHOT_INVALID ;;
+        39) fail WEATHER_ANDROID_EVIDENCE_EXPORT_SHAPE_INVALID ;;
+        124) fail WEATHER_ANDROID_EVIDENCE_TIMEOUT ;;
+        125) fail WEATHER_ANDROID_EVIDENCE_INTERRUPTED ;;
+        129|1[3-8][0-9]|19[0-2])
+            fail WEATHER_ANDROID_EVIDENCE_SIGNAL ;;
+        *) fail WEATHER_ANDROID_EVIDENCE_INVALID ;;
+    esac
+}
+
 # Overrides the historical browser trap only for explicit profile 6. Private
 # proof stays in the disposable guest for the evidence join, never public logs.
 weather_client_delivery_cleanup() {
@@ -211,9 +243,13 @@ weather_android_delivery_run() {
     weather_client_verify_tree >"$WORK/weather-products-delivery-tree-after.json" || fail WEATHER_PRODUCTS_SOURCE_CHANGED
     # This fail-closed gate is intentionally required even while the new guest
     # verifier is being wired. Lifecycle success alone is not network evidence.
-    python3 -B "$WORK/bin/weather-android-evidence.py" guest "$WORK" "$weather_client_manifest_sha256" \
+    if python3 -B "$WORK/bin/weather-android-evidence.py" guest "$WORK" "$weather_client_manifest_sha256" \
         "$weather_core_sha256" "$WEATHER_ANDROID_PREPARED_SHA" \
-        >"$WORK/weather-android-delivery-evidence.json" || fail WEATHER_ANDROID_EVIDENCE_INVALID
+        >"$WORK/weather-android-delivery-evidence.json"; then
+        :
+    else
+        weather_android_evidence_failure "$?"
+    fi
     weather_android_controller_cleanup || fail WEATHER_ANDROID_CONTROLLER_CLEANUP_FAILED
     PHASE=weather-android-delivery-complete
 }

@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import runpy
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -460,6 +462,141 @@ class DriverDiagnosticTests(unittest.TestCase):
         with self.assertRaises(FileExistsError): D["export"](self.root, IDENTITY)
         self.assertEqual(path.read_bytes(), raw)
         self.assertEqual({path: path.read_bytes() for path in originals}, originals)
+
+    def test_all_finite_guest_groups_require_schema_three_and_never_grant_authority(self):
+        self.assertEqual(len(D["GUEST_BLOCKERS"]), 23)
+        source = Path(__file__).with_name("weather-android-delivery.sh").read_text()
+        for literal, blocker in D["GUEST_BLOCKERS"].items():
+            with self.subTest(literal=literal):
+                self.assertIn("fail " + literal, source)
+                value = provider_fixture(); value.update(phase=D["GUEST_PHASE"], observed_blocker=literal)
+                self.write("content-provider-smoke.json", value)
+                result = self.late_receipt()
+                self.assertEqual(result["schema"], 3)
+                self.assertEqual(result["sources"]["normal"]["report"], dict(state="available", facts=dict(
+                    phase=D["GUEST_PHASE"], blocker=blocker, runner_exit_status=1)))
+                self.assertEqual(D["validate_receipt"](result), result)
+                self.assertLessEqual(len(D["encoded"](result)), 8192)
+                for key in ("success", "joined_core_acceptance", "cause_established", "cleanup_verified",
+                        "physical_device", "production_authority"):
+                    self.assertIs(result[key], False)
+
+    def test_historical_schema_one_two_keep_exact_finite_meaning(self):
+        for literal in D["GUEST_BLOCKERS"]:
+            value = provider_fixture(); value.update(phase=D["GUEST_PHASE"], observed_blocker=literal)
+            for schema in (1, 2):
+                projected = D["provider"](D["encoded"](value), IDENTITY, schema)
+                self.assertEqual(projected["facts"]["blocker"], "unknown")
+            self.write("content-provider-smoke.json", value)
+            early = self.receipt()
+            self.assertEqual(early["schema"], 1)
+            self.assertEqual(early["sources"]["normal"]["report"]["facts"]["blocker"], "unknown")
+            late = self.late_receipt(); late["schema"] = 2
+            with self.assertRaises(ValueError): D["validate_receipt"](late)
+        value["observed_blocker"] = "WEATHER_ANDROID_EVIDENCE_INVALID"
+        self.write("content-provider-smoke.json", value)
+        old = self.late_receipt(); raw = D["encoded"](old)
+        self.assertEqual(old["schema"], 2)
+        self.assertEqual(D["encoded"](D["validate_receipt"](json.loads(raw))), raw)
+        old["schema"] = 3
+        with self.assertRaises(ValueError): D["validate_receipt"](old)
+
+    def test_guest_group_requires_exact_verifier_phase_and_nonzero_exit(self):
+        good = provider_fixture()
+        good.update(phase=D["GUEST_PHASE"], observed_blocker="WEATHER_ANDROID_EVIDENCE_API_LIFECYCLE_INVALID")
+        for key, change in (("phase", "weather-android-delivery-installed-app"), ("phase", CANARY),
+                ("runner_exit_status", 0), ("runner_exit_status", True), ("runner_exit_status", -15)):
+            value = dict(good, **{key: change}); self.write("content-provider-smoke.json", value)
+            with self.subTest(key=key, change=change):
+                result = self.late_receipt()
+                self.assertEqual(result["schema"], 2)
+                self.assertEqual(result["sources"]["normal"]["report"], dict(state="rejected", facts=None))
+                self.assertNotIn(CANARY.encode(), D["encoded"](result))
+
+    def test_schema_three_rejects_tampering_owner_downgrade_and_privacy_fields(self):
+        value = provider_fixture()
+        value.update(phase=D["GUEST_PHASE"], observed_blocker="WEATHER_ANDROID_EVIDENCE_SOURCE_INVALID")
+        self.write("content-provider-smoke.json", value)
+        original = self.late_receipt()
+        for path, replacement in (("schema", 1), ("schema", 2), ("schema", True), ("schema", 4),
+                ("owner_stop", dict(reason="driver-exited", stage="read-ready", driver_status=1)),
+                ("identity", dict(IDENTITY, weather_commit=D["FIRST_DRIVER_WEATHER_COMMIT"])),
+                *((key, True) for key in ("success", "joined_core_acceptance", "cause_established",
+                    "cleanup_verified", "physical_device", "production_authority"))):
+            changed = copy.deepcopy(original); changed[path] = replacement
+            with self.subTest(path=path, replacement=replacement), self.assertRaises(ValueError):
+                D["validate_receipt"](changed)
+        for key, replacement in (("phase", "weather-android-delivery-prepare"),
+                ("blocker", CANARY), ("runner_exit_status", 0), ("runner_exit_status", True), ("private", CANARY)):
+            changed = copy.deepcopy(original)
+            changed["sources"]["normal"]["report"]["facts"][key] = replacement
+            with self.subTest(key=key), self.assertRaises(ValueError): D["validate_receipt"](changed)
+
+    def test_unknown_group_text_and_conflicting_reports_never_invent_a_stage(self):
+        value = provider_fixture()
+        value.update(phase=D["GUEST_PHASE"], observed_blocker="WEATHER_ANDROID_EVIDENCE_SOURCE_INVALID")
+        self.write("content-provider-smoke.json", value)
+        other = dict(value, observed_blocker="WEATHER_ANDROID_EVIDENCE_PREPARED_INVALID")
+        self.write("work-1/content-provider-smoke.json", other)
+        result = self.late_receipt()
+        self.assertEqual(result["schema"], 2)
+        self.assertEqual(result["provider_consistency"], "rejected")
+        self.assertTrue(all(row["report"]["facts"] is None for row in result["sources"].values()))
+        (self.root / "work-1/content-provider-smoke.json").unlink()
+        value["observed_blocker"] += CANARY
+        self.write("content-provider-smoke.json", value)
+        result = self.late_receipt()
+        self.assertEqual(result["schema"], 2)
+        self.assertEqual(result["sources"]["normal"]["report"]["facts"]["blocker"], "unknown")
+        self.assertNotIn(CANARY.encode(), D["encoded"](result))
+
+    def test_actual_guest_subprocess_through_original_shell_mapping_to_closed_json(self):
+        here = Path(__file__).resolve().parent
+        # Execute the real verifier on its complete synthetic private fixture.
+        # Only guest accounts/source admission use the documented fixture seams;
+        # no lifecycle/receipt/acquisition/packet/export validator is replaced.
+        code = '''import runpy, sys
+m = runpy.run_path(sys.argv[1])
+fixture = m["FullGuestVerificationTests"]("test_complete_synthetic_guest_verification_reaches_final_export")
+try:
+    fixture.setUp()
+    fixture.final["success"] = False
+    fixture.save_lifecycle()
+    status = m["E"]["command_status"](fixture.input.invoke)
+finally:
+    fixture.doCleanups()
+raise SystemExit(status)
+'''
+        source = (here / "weather-android-delivery.sh").read_text()
+        extract = runpy.run_path(str(here / "test-weather-android-delivery-shell.py"))["shell_function"]
+        shell = "set -eu\n" + extract(source, "weather_android_evidence_failure") + '''
+fail() { printf '%s\\n' "$1"; exit 77; }
+if "$PYTHON" -B -c "$FIXTURE_CODE" "$FIXTURE_PATH"; then
+    exit 90
+else
+    weather_android_evidence_failure "$?"
+fi
+'''
+        run = subprocess.run(["/bin/sh", "-s"], input=shell, text=True, capture_output=True, timeout=20,
+            env=dict(PATH="/usr/bin:/bin", PYTHON=sys.executable, FIXTURE_CODE=code,
+                FIXTURE_PATH=str(here / "test-weather-android-evidence.py")))
+        self.assertEqual(run.returncode, 77, run.stderr)
+        self.assertEqual(run.stderr, "weather_android_evidence_failed\n")
+        self.assertEqual(run.stdout, "WEATHER_ANDROID_EVIDENCE_API_LIFECYCLE_INVALID\n")
+        self.write("weather-android-owner-failure.json", late_owner_fixture())
+        value = provider_fixture(); value.update(phase=D["GUEST_PHASE"], observed_blocker=run.stdout.strip())
+        self.write("content-provider-smoke.json", value)
+        self.write("current-phase", (D["GUEST_PHASE"] + "\n").encode())
+        originals = {path: path.read_bytes() for path in self.root.iterdir()}
+        self.assertTrue(D["export"](self.root, IDENTITY))
+        path = self.root / D["NAME"]
+        result = D["validate_receipt"](json.loads(path.read_bytes()))
+        self.assertEqual(result["schema"], 3)
+        self.assertEqual(result["sources"]["normal"]["report"]["facts"]["blocker"], "android-evidence-api-lifecycle")
+        self.assertFalse(result["success"] or result["cause_established"] or result["joined_core_acceptance"])
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual({path: path.read_bytes() for path in originals}, originals)
+        with self.assertRaises(FileExistsError): D["export"](self.root, IDENTITY)
 
     def test_cli_host_binding_and_environment_identity(self):
         env = dict(GITHUB_ACTIONS="true", RUNNER_ENVIRONMENT="github-hosted", GITHUB_REPOSITORY="VOLPAROSSA/volparossa",

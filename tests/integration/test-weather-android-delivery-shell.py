@@ -114,6 +114,39 @@ fail() { exit 97; }
         self.assertTrue((self.work / "viewer/prepared.json").exists())
         self.assertEqual(list((self.work / "weather-android-cache").iterdir()), [])
 
+    def test_closed_guest_exit_mapping_never_copies_arbitrary_input(self):
+        stages = ("BOUNDARY", "SOURCE", "PREPARED", "SELECTION", "CONFIGURATION",
+            "API_LIFECYCLE", "API_PRIVATE_CLEANUP", "RECEIPT_CUSTODY", "RECEIPT_SHAPE",
+            "RECEIPT_TIMING", "RECEIPT_PUBLICATION", "RECEIPT_COUNTERS", "ACQUISITION",
+            "TOPOLOGY_INPUTS", "CACHE_CUSTODY", "PUBLICATION_FILES", "PACKET_CONTROL_ROUTE",
+            "PUBLISHER_CLEANUP", "SOURCE_SNAPSHOT", "EXPORT_SHAPE")
+        expected = {status: "WEATHER_ANDROID_EVIDENCE_" + stage + "_INVALID"
+            for status, stage in enumerate(stages, 20)}
+        expected.update({124: "WEATHER_ANDROID_EVIDENCE_TIMEOUT", 125: "WEATHER_ANDROID_EVIDENCE_INTERRUPTED"})
+        expected.update({status: "WEATHER_ANDROID_EVIDENCE_SIGNAL" for status in (129, 130, 143, 192)})
+        expected.update({status: "WEATHER_ANDROID_EVIDENCE_INVALID"
+            for status in (0, 1, 19, 40, 126, 127, 128, 193, 255, "PRIVATE-CANARY/secret")})
+        for status, literal in expected.items():
+            with self.subTest(status=status):
+                result = self.call('fail() { printf "%s\\n" "$1"; exit 77; }\n'
+                    'weather_android_evidence_failure "$STATUS"\n', extra=dict(STATUS=str(status)))
+                self.assertEqual(result.returncode, 77)
+                self.assertEqual(result.stdout, literal + "\n")
+                self.assertEqual(result.stderr, "")
+
+    def test_specific_guest_rejection_still_exits_and_cleans_up_once(self):
+        result = self.call(self.mocks() + "weather_android_delivery_run\nprintf 'invalid-success\\n'\n",
+            extra=dict(TEST_FAILURE="evidence", TEST_EVIDENCE_STATUS="28"))
+        self.assertEqual(result.returncode, 77)
+        self.assertIn("WEATHER_ANDROID_EVIDENCE_RECEIPT_SHAPE_INVALID", result.stderr)
+        self.assertNotIn("invalid-success", result.stdout)
+        calls = (self.work / "calls").read_text().splitlines()
+        self.assertEqual(calls.count("evidence-guest"), 1)
+        self.assertLess(calls.index("privacy-stop"), calls.index("evidence-guest"))
+        self.assertIn("controller-remove", calls)
+        self.assertIn("publisher-cleanup", calls)
+        self.assertFalse((self.work / "weather-android-delivery-evidence.json").read_bytes())
+
     def test_guest_evidence_failure_is_not_promoted_to_success(self):
         result = self.call(self.mocks() + "weather_android_delivery_run\n", extra=dict(TEST_FAILURE="evidence"))
         self.assertEqual(result.returncode, 77, result.stderr)
@@ -406,7 +439,7 @@ python3() {
         */weather-android-control.py:remove)
             record controller-remove; printf '{"inert_removed":true}\n' ;;
         */weather-android-evidence.py:guest)
-            record evidence-guest; [ "$TEST_FAILURE" != evidence ] || return 1; printf '{"inert_evidence":true}\n' ;;
+            record evidence-guest; [ "$TEST_FAILURE" != evidence ] || return "${TEST_EVIDENCE_STATUS:-1}"; printf '{"inert_evidence":true}\n' ;;
         *) return 98 ;;
     esac
 }

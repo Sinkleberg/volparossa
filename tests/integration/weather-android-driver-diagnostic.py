@@ -61,6 +61,15 @@ POSTFLIGHT_BLOCKER_GROUPS = {
 LATE_BLOCKERS = dict(BLOCKERS, **{literal: category
     for category, literals in POSTFLIGHT_BLOCKER_GROUPS.items() for literal in literals.split()})
 LATE_BLOCKER_VALUES = BLOCKER_VALUES | frozenset(POSTFLIGHT_BLOCKER_GROUPS)
+# The verifier emits only these finite statuses; the shell maps them to these
+# exact blockers. Historical schema one/two never acquire this extra meaning.
+GUEST_BLOCKERS = {"WEATHER_ANDROID_EVIDENCE_" + stage.upper().replace("-", "_") + "_INVALID":
+    "android-evidence-" + stage for stage in E["GUEST_FAILURE_CODES"]}
+GUEST_BLOCKERS.update(WEATHER_ANDROID_EVIDENCE_TIMEOUT="android-evidence-timeout",
+    WEATHER_ANDROID_EVIDENCE_INTERRUPTED="android-evidence-interrupted",
+    WEATHER_ANDROID_EVIDENCE_SIGNAL="android-evidence-signal")
+GUEST_BLOCKER_VALUES = frozenset(GUEST_BLOCKERS.values())
+GUEST_PHASE = "weather-android-delivery-verify"
 REPORT_FLAGS = frozenset("general_nat_reachability_claimed full_c02_claimed explicit_origin_authenticated_https normal_user_publication native_name_retrieval native_static_site public_filter_snapshot adaptive_provider_workers pressure late_provider_recovery requester_cancellation browser_integration_claimed arbitrary_https_integration_claimed speed_improvement_claimed full_alpha_acceptance_claimed".split())
 REPORT_KEYS = REPORT_FLAGS | {"schema_version", "report_kind", "source_revision", "run_id", "phase", "success", "transfer", "runner_exit_status", "observed_blocker", "cleanup", "host_state", "scope"}
 
@@ -204,7 +213,7 @@ def diagnostic_schema(stop):
 
 
 def provider(raw, expected, schema=1):
-    E["integer"](schema, 1, 2)
+    E["integer"](schema, 1, 3)
     value = E["decode"](raw, 1048576)
     exact(value, REPORT_KEYS)
     same(value["schema_version"], 4)
@@ -222,7 +231,9 @@ def provider(raw, expected, schema=1):
     phase = finite(value["phase"], TOPOLOGY_PHASES)
     blocker = value["observed_blocker"]
     require(blocker is None or type(blocker) is str and len(blocker) <= 256)
-    blockers = BLOCKERS if schema == 1 else LATE_BLOCKERS
+    blockers = BLOCKERS if schema == 1 else LATE_BLOCKERS if schema == 2 else dict(LATE_BLOCKERS, **GUEST_BLOCKERS)
+    if schema == 3 and blocker in GUEST_BLOCKERS:
+        same(phase, GUEST_PHASE); require(value["runner_exit_status"] != 0)
     facts = dict(phase=phase, blocker="none" if blocker is None else blockers.get(blocker, "unknown"),
         runner_exit_status=value["runner_exit_status"])
     # Compare original selected facts and private run binding before projecting.
@@ -263,7 +274,7 @@ def receipt(root, expected, stop):
     sources, originals = {}, []
     for label, relative in ROOTS.items():
         report = read_source(root, str(Path(relative) / "content-provider-smoke.json"), 1048576,
-            lambda raw: provider(raw, expected, schema))
+            lambda raw: provider(raw, expected, 3 if schema == 2 else schema))
         if report["state"] == "available":
             originals.append(report["facts"]["binding"])
             report["facts"] = report["facts"]["facts"]
@@ -272,6 +283,9 @@ def receipt(root, expected, stop):
     if conflict:
         for row in sources.values():
             if row["report"]["state"] != "absent": row["report"] = observation("rejected")
+    if schema == 2 and any(row["report"]["state"] == "available"
+            and row["report"]["facts"]["blocker"] in GUEST_BLOCKER_VALUES for row in sources.values()):
+        schema = 3
     result = dict(schema=schema, kind="weather-android-driver-diagnostic", identity=expected, owner_stop=stop,
         sources=sources, provider_consistency="rejected" if conflict else "absent" if not originals else "single" if len(originals) == 1 else "consistent",
         vm=read_source(root, "vm-incomplete.json", 65536, lambda raw: vm(raw, expected)),
@@ -291,10 +305,10 @@ def validate_observation(value, validator):
 def validate_receipt(value):
     exact(value, ("schema", "kind", "identity", "owner_stop", "sources", "provider_consistency", "vm",
         "diagnostic_only", "success", "joined_core_acceptance", "cause_established", "cleanup_verified", "physical_device", "production_authority"))
-    E["integer"](value["schema"], 1, 2)
-    same(value["schema"], diagnostic_schema(value["owner_stop"]))
+    E["integer"](value["schema"], 1, 3)
+    same(2 if value["schema"] == 3 else value["schema"], diagnostic_schema(value["owner_stop"]))
     same(value["kind"], "weather-android-driver-diagnostic"); identity(value["identity"])
-    if value["schema"] == 2: same(value["identity"]["weather_commit"], WEATHER_COMMIT)
+    if value["schema"] in (2, 3): same(value["identity"]["weather_commit"], WEATHER_COMMIT)
     same(value["diagnostic_only"], True)
     for key in ("success", "joined_core_acceptance", "cause_established", "cleanup_verified", "physical_device", "production_authority"):
         same(value[key], False)
@@ -305,8 +319,11 @@ def validate_receipt(value):
     def check_report(facts):
         exact(facts, ("phase", "blocker", "runner_exit_status")); check_phase(dict(phase=facts["phase"]))
         blockers = BLOCKER_VALUES if value["schema"] == 1 else LATE_BLOCKER_VALUES
+        if value["schema"] == 3: blockers |= GUEST_BLOCKER_VALUES
         require(type(facts["blocker"]) is str and facts["blocker"] in blockers)
         E["integer"](facts["runner_exit_status"], 0, 255)
+        if facts["blocker"] in GUEST_BLOCKER_VALUES:
+            same(facts["phase"], GUEST_PHASE); require(facts["runner_exit_status"] != 0)
     exact(value["sources"], ROOTS)
     states, reports = [], []
     for row in value["sources"].values():
@@ -316,6 +333,8 @@ def validate_receipt(value):
     expected = "rejected" if "rejected" in states else "absent" if not reports else "single" if len(reports) == 1 else "consistent"
     same(value["provider_consistency"], expected)
     require(not ("rejected" in states and reports) and all(row == reports[0] for row in reports))
+    if value["schema"] == 3:
+        require(any(row["blocker"] in GUEST_BLOCKER_VALUES for row in reports))
     def check_vm(facts):
         exact(facts, ("driver_phase", "topology_phase", "blocker", "guest_exit_status"))
         require(facts["driver_phase"] is None or type(facts["driver_phase"]) is str and facts["driver_phase"] in DRIVER_PHASES | {"unknown"})

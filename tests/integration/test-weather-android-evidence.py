@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Inert rejection tests only; synthetic records are never runtime acceptance."""
 import copy
+from contextlib import redirect_stderr
 import datetime
+import io
 import json
 import os
 from pathlib import Path
@@ -293,9 +295,10 @@ class GuestInputBytesTests(unittest.TestCase):
         prepared_module.update(fixture_module["G"])
         api.update(D=prepared_module, P=prepared_module["P"], B=prepared_module["B"],
             validate_record=self.validate_record)
+        self.api = api
         original_reader = E["private_bytes"]
         def fixture_reader(path, limit, uid, mode=0o600):
-            self.assertIn(uid, (0, 985))
+            self.assertIn(uid, (0, 985, os.getuid()))
             return original_reader(path, limit, os.getuid(), mode)
         def load_api(path):
             self.assertEqual(Path(path).resolve(), here / "weather-android-api.py")
@@ -341,6 +344,366 @@ class GuestInputBytesTests(unittest.TestCase):
         for actual, expected in ((True, 1), (1, True), ({"schema": True}, {"schema": 1}),
                 ({"counts": [False]}, {"counts": [0]})):
             with self.subTest(actual=actual), self.assertRaises(ValueError): E["same"](actual, expected)
+
+
+class FullGuestVerificationTests(unittest.TestCase):
+    """Exercise the entire guest verifier on private, synthetic input files.
+
+    Only guest identities and admitted inert source bytes use the preparation
+    fixture's explicit seams. All receipt, lifecycle, acquisition, publication,
+    capture and final-export validators execute unchanged. No executable runs.
+    """
+    def setUp(self):
+        self.input = GuestInputBytesTests("test_identical_prepared_and_config_bytes_reach_real_lifecycle_validation")
+        self.input.setUp(); self.addCleanup(self.input.doCleanups)
+        self.work, self.layout = self.input.work, self.input.layout
+        self.api = self.input.api
+        self.products = self.api["P"]
+        self.selection = self.input.fixture.selection
+        self.publications = {key: row["publication"] for key, row in self.selection["products"].items()}
+        self.now = int(E["time"].time() * 1000)
+        here = Path(__file__).resolve().parent
+        packets = runpy.run_path(str(here / "test-content-provider-filter-smoke.py"))["fixture"]()
+        text = json.dumps(packets)
+        for index, peer in enumerate(packets["expected_peers"].values(), 1):
+            text = text.replace('"' + peer + '"', '"AbC' + str(index) + '"')
+        self.packets = json.loads(text)
+
+        original_owned = self.api["D"]["owned"]
+        def fixture_owned(path, kind, mode, uid, gid=None):
+            self.assertIn(uid, (0, 985, os.getuid()))
+            return original_owned(path, kind, mode, os.getuid(), gid)
+        identity = patch.dict(self.api["D"], owned=fixture_owned)
+        identity.start(); self.addCleanup(identity.stop)
+        original_proof = E["proof_receipts"]
+        def fixture_proof(directory, selected, work, window):
+            return original_proof(directory, selected, work, window, uid=os.getuid())
+        proof_identity = patch.dict(E["guest"].__globals__, proof_receipts=fixture_proof)
+        proof_identity.start(); self.addCleanup(proof_identity.stop)
+
+        self.ready = dict(schema=6, kind="weather-android-api-ready", profile=E["PROFILE"],
+            manifest_sha256=self.input.fixture.digest, prepared_sha256=self.input.prepared_sha,
+            config_sha256=self.input.prepared["config_sha256"], core_sha256=self.input.prepared["core_sha256"],
+            socket=dict(device=1, inode=2, user_uid=985, mode="0600"),
+            started_at_ms=self.now - 12000, ready_at_ms=self.now - 11000,
+            expires_at=min(row["expires_unix_seconds"] for row in self.publications.values()),
+            cold_caches_absent=True, helper_requests=0, joined_delivery_proven=False)
+        self.final = dict(schema=6, kind="weather-android-api-final", profile=E["PROFILE"],
+            manifest_sha256=self.input.fixture.digest, prepared_sha256=self.input.prepared_sha,
+            success=True, reason="finalized", ready=True, exit_status=0,
+            cleanup=dict(child_reaped=True, descendants_reaped=True, forced_kill=False,
+                drain_checked=True, inputs_and_private_directories_checked=True),
+            retained_files=12, stdout_bytes=17, stderr_bytes=0, helper_requests=0,
+            native_android_proven=False, joined_delivery_proven=False)
+        self.save_lifecycle()
+        for product_index, key in enumerate(E["PRODUCTS"]):
+            selected = self.publications[key]
+            for ordinal in (1, 2, 3):
+                value = receipt(key, ordinal)
+                value.update({name: selected[name] for name in ("publisher_key", "name", "revision", "manifest_id", "sha256", "bytes")})
+                value.update(publication_expires_unix_seconds=selected["expires_unix_seconds"],
+                    peer_bytes=selected["bytes"] if ordinal == 1 else 0,
+                    provider_peer_ids=[self.packets["expected_peers"]["relay4"]] if ordinal == 1 else [],
+                    control_relay_peer_id=self.packets["layout"]["control_relay_peer_id"] if ordinal == 1 else "",
+                    cache=str(self.layout["cache_parent"] / E["CACHES"][key]),
+                    local_output=str(self.layout["scratch"] / f"forecast-{ordinal}BC123/forecast.json"))
+                raw = encoded(value)
+                observed = observation(raw, key, ordinal)
+                started = self.now - 9000 + 1000 * (product_index * 3 + ordinal)
+                observed.update(started_at_ms=started, completed_at_ms=started + 500)
+                self.input.fixture.save(self.layout["proof"] / f"{key}-{ordinal}.receipt.json", raw)
+                self.input.fixture.save(self.layout["proof"] / f"{key}-{ordinal}.observation.json", encoded(observed))
+            (self.layout["cache_parent"] / E["CACHES"][key]).mkdir(mode=0o700)
+
+        acquisition = dict(schema=6, success=True, origin_https=True, acquisition_outside_overlay=True,
+            upstream_signature_attested=False, synthetic_weather=False, synthetic_air_quality=False,
+            independent_product_runs=True, decoder_sha256=self.products["B"]["decoder_sha"](6), products={})
+        for key, product in self.products["PRODUCTS"].items():
+            selected = self.publications[key]
+            acquisition["products"][key] = dict(forecast_sha256=selected["sha256"], forecast_bytes=selected["bytes"],
+                fields=[dict(lead_hours=step, parameter=parameter, index_sha256="a" * 64, field_sha256="b" * 64)
+                    for step in product["steps"] for parameter in product["parameters"]])
+            self.save(self.products["artifact"](self.work, "publish", key),
+                dict(operation="offline_content_publish", network_publication=False,
+                    publisher_key_hex=selected["publisher_key"], content_type="application/json", chunks=1,
+                    **{name: selected[name] for name in ("name", "revision", "bytes", "manifest_id", "expires_unix_seconds")}))
+            for node in self.packets["layout"]["provider_nodes"]:
+                self.save(self.products["artifact"](self.work, node + "-import", key),
+                    dict(self.packets["imports"][node], manifest_id=selected["manifest_id"],
+                        content_bytes=selected["bytes"], agent_cache=str(self.work / f"state-{node}" / product["cache"])))
+                self.save(self.products["artifact"](self.work, node + "-serve", key),
+                    dict(self.packets["serves"][node], publications=4 if key == "weather" else 5))
+        self.save(self.work / "weather-products-delivery-acquisition.json", acquisition)
+        self.save(self.work / "a01-expected-peers.json", self.packets["expected_peers"])
+        self.save(self.work / "content-provider-layout.json", self.packets["layout"])
+        self.save(self.work / "weather-android-delivery-control.json", self.packets["cold"]["control_privacy"])
+        self.save(self.work / "weather-android-delivery-selection.json", self.packets["selected_route"])
+        for role, capture in self.packets["cold"]["privacy"].items():
+            self.save(self.work / f"weather-android-delivery-privacy-{role}.json", capture)
+        self.save(self.work / "weather-products-delivery-publisher-cleanup.json",
+            dict(directory_removed=True, files_removed=True))
+        self.save(self.work / "weather-products-delivery-tree-before.json",
+            dict(version=1, action="verify-tree", manifest_sha256=self.input.fixture.digest,
+                files=len(self.products["B"]["FIXED_V6"]), runtime_executed=False))
+
+    def save(self, path, value):
+        self.input.fixture.save(path, encoded(value))
+
+    def save_lifecycle(self):
+        self.input.fixture.save(self.work / "weather-android-delivery-api.jsonl",
+            encoded(self.ready) + b"\n" + encoded(self.final) + b"\n")
+
+    def test_complete_synthetic_guest_verification_reaches_final_export(self):
+        result = self.input.invoke()
+        self.assertEqual(result["kind"], "weather-android-guest-evidence")
+        self.assertEqual({key: len(rows) for key, rows in result["transfers"].items()}, dict(weather=3, air_quality=3))
+        self.assertTrue(result["captures_validated"] and result["source_acquisition_validated"])
+        self.assertFalse(result["native_android_proven"] or result["joined_core_acceptance"])
+        self.assertNotIn(str(self.work), json.dumps(result))
+        self.assertEqual(self.input.validate_record.call_count, 2)
+
+    def assert_stage(self, stage, invoke=None):
+        with self.assertRaises(E["GuestVerificationFailure"]) as raised:
+            (invoke or self.input.invoke)()
+        self.assertEqual(raised.exception.stage, stage)
+        self.assertEqual(str(raised.exception), "weather_android_evidence_rejected")
+
+    def test_all_twenty_groups_reached_with_real_private_fixture_mutations(self):
+        covered = {"boundary"}
+        self.assert_stage("boundary", lambda: E["guest"](self.work, "invalid-hash",
+            self.input.prepared["core_sha256"], self.input.prepared_sha))
+        # Each case begins from the same complete passing fixture. No validator
+        # is replaced, and later failures cannot mask the first failing group.
+        cases = (
+            ("source", self.work / "weather-products-delivery-manifest.json", b"{}"),
+            ("prepared", self.layout["viewer"] / "prepared.json", self.input.prepared_raw + b"\n"),
+            ("selection", self.layout["viewer"] / "selection.json", b"{}"),
+            ("configuration", self.layout["config"], b"{}"),
+            ("api-lifecycle", self.work / "weather-android-delivery-api.jsonl", b"{}\n{}\n"),
+            ("receipt-shape", self.layout["proof"] / "weather-1.observation.json", b"{}"),
+            ("acquisition", self.work / "weather-products-delivery-acquisition.json", b"{}"),
+            ("topology-inputs", self.work / "a01-expected-peers.json", b"{"),
+            ("publication-files", self.products["artifact"](self.work, "publish", "weather"), b"{}"),
+            ("packet-control-route", self.work / "weather-android-delivery-selection.json", b"{}"),
+            ("publisher-cleanup", self.work / "weather-products-delivery-publisher-cleanup.json", b"{}"),
+            ("source-snapshot", self.work / "weather-products-delivery-tree-before.json", b"{}"),
+        )
+        for stage, path, raw in cases:
+            original_raw, mode = path.read_bytes(), path.stat().st_mode & 0o777
+            with self.subTest(stage=stage):
+                try:
+                    self.input.fixture.save(path, raw, mode)
+                    self.assert_stage(stage); covered.add(stage)
+                finally: self.input.fixture.save(path, original_raw, mode)
+        for stage, path in (("receipt-custody", self.layout["proof"]),
+                ("cache-custody", self.layout["cache_parent"])):
+            mode = path.stat().st_mode & 0o777
+            try:
+                path.chmod(0o755); self.assert_stage(stage); covered.add(stage)
+            finally: path.chmod(mode)
+        self.input.fixture.save(self.layout["socket"], b"private fixture")
+        try: self.assert_stage("api-private-cleanup"); covered.add("api-private-cleanup")
+        finally: self.layout["socket"].unlink()
+        for stage, field, value in (("receipt-publication", "revision", True),
+                ("receipt-counters", "peer_bytes", 0)):
+            path = self.layout["proof"] / "weather-1.receipt.json"
+            meta = self.layout["proof"] / "weather-1.observation.json"
+            raw, observed = path.read_bytes(), meta.read_bytes()
+            changed, observation_value = json.loads(raw), json.loads(observed)
+            changed[field] = value; replacement = encoded(changed)
+            observation_value.update(stdout_bytes=len(replacement), stdout_sha256=E["digest"](replacement))
+            try:
+                self.input.fixture.save(path, replacement); self.save(meta, observation_value)
+                self.assert_stage(stage); covered.add(stage)
+            finally:
+                self.input.fixture.save(path, raw); self.input.fixture.save(meta, observed)
+        path = self.layout["proof"] / "weather-2.observation.json"
+        original_raw = path.read_bytes()
+        first = json.loads((self.layout["proof"] / "weather-1.observation.json").read_bytes())
+        for stage, started in (("receipt-timing", self.ready["ready_at_ms"] - 1),
+                ("export-shape", first["completed_at_ms"] - 1)):
+            value = json.loads(original_raw); value["started_at_ms"] = started
+            try:
+                self.save(path, value); self.assert_stage(stage); covered.add(stage)
+            finally: self.input.fixture.save(path, original_raw)
+        self.assertEqual(covered, set(E["GUEST_FAILURE_CODES"]))
+        self.assertEqual(self.input.invoke()["schema"], 6)
+
+    def test_first_group_preserved_and_unknown_timeout_interrupt_not_misclassified(self):
+        path = self.work / "weather-products-delivery-publisher-cleanup.json"
+        original_raw = path.read_bytes()
+        try:
+            self.save(path, {})  # A later failure must not replace the earlier one.
+            self.final["success"] = False; self.save_lifecycle()
+            self.assert_stage("api-lifecycle")
+        finally:
+            self.input.fixture.save(path, original_raw)
+            self.final["success"] = True; self.save_lifecycle()
+        read = E["guest"].__globals__["private_bytes"]
+        for exception, status in ((RuntimeError, 1), (TimeoutError, 124), (InterruptedError, 125)):
+            def fault(path, *args):
+                if Path(path).name == "weather-android-delivery-api.jsonl":
+                    raise exception("private canary")
+                return read(path, *args)
+            with self.subTest(exception=exception.__name__), patch.dict(E["guest"].__globals__, private_bytes=fault):
+                with self.assertRaises(exception): self.input.invoke()
+                output = io.StringIO()
+                with redirect_stderr(output): self.assertEqual(E["command_status"](self.input.invoke), status)
+                self.assertEqual(output.getvalue(), "weather_android_evidence_failed\n")
+
+    def reject_document(self, path, mutate):
+        original_raw = path.read_bytes()
+        value = json.loads(original_raw)
+        mutate(value)
+        try:
+            self.save(path, value)
+            with self.assertRaises(ValueError): self.input.invoke()
+        finally:
+            self.input.fixture.save(path, original_raw)
+
+    def test_full_guest_rejects_lifecycle_success_and_count_substitutions(self):
+        for field, value in (("success", False), ("retained_files", 11), ("retained_files", True),
+                ("helper_requests", False), ("joined_delivery_proven", True)):
+            original_value = self.final[field]
+            with self.subTest(field=field, value=value):
+                self.final[field] = value; self.save_lifecycle()
+                with self.assertRaises(ValueError): self.input.invoke()
+            self.final[field] = original_value
+        self.save_lifecycle()
+        self.assertEqual(self.input.invoke()["schema"], 6)
+
+    def test_full_guest_rejects_remaining_socket_scratch_or_wrong_cache_custody(self):
+        for path in (self.layout["socket"], self.layout["scratch"] / "unretired.json"):
+            with self.subTest(path=path.name):
+                self.input.fixture.save(path, b"synthetic private content")
+                try:
+                    # A nonempty Path list cannot be JSON-encoded by same();
+                    # main also rejects that TypeError, without deleting it.
+                    with self.assertRaises((ValueError, TypeError)): self.input.invoke()
+                    self.assertTrue(path.exists())
+                finally: path.unlink()
+        for path, mode in ((self.layout["proof"], 0o755),
+                (self.layout["proof"] / "weather-1.receipt.json", 0o644),
+                (self.layout["cache_parent"], 0o700),
+                (self.layout["cache_parent"] / "weather-cache", 0o755)):
+            original_mode = path.stat().st_mode & 0o777
+            with self.subTest(path=path.name, mode=mode):
+                path.chmod(mode)
+                try:
+                    with self.assertRaises(ValueError): self.input.invoke()
+                finally: path.chmod(original_mode)
+
+    def test_full_guest_checks_original_receipt_fields_after_matching_observation_hash(self):
+        for ordinal, field, value in ((1, "chunks", 2), (1, "revision", True),
+                (1, "manifest_id", "f" * 64), (1, "cache", "/private/other-cache"),
+                (1, "local_output", "/private/other-output"), (1, "peer_bytes", 0),
+                (1, "origin_body_bytes", 1), (2, "peer_bytes", 1),
+                (2, "providers_used", 1), (3, "unexpected", "private canary")):
+            path = self.layout["proof"] / f"weather-{ordinal}.receipt.json"
+            obs_path = self.layout["proof"] / f"weather-{ordinal}.observation.json"
+            old_raw, old_obs = path.read_bytes(), obs_path.read_bytes()
+            changed = json.loads(old_raw); changed[field] = value
+            raw = encoded(changed)
+            obs = json.loads(old_obs); obs.update(stdout_bytes=len(raw), stdout_sha256=E["digest"](raw))
+            with self.subTest(ordinal=ordinal, field=field):
+                try:
+                    self.input.fixture.save(path, raw); self.save(obs_path, obs)
+                    with self.assertRaises(ValueError): self.input.invoke()
+                finally:
+                    self.input.fixture.save(path, old_raw); self.input.fixture.save(obs_path, old_obs)
+
+    def test_full_guest_rejects_receipt_observation_time_and_type_substitutions(self):
+        path = self.layout["proof"] / "air_quality-2.observation.json"
+        for field, value in (("started_at_ms", self.ready["ready_at_ms"] - 1),
+                ("completed_at_ms", self.ready["expires_at"] * 1000),
+                ("ordinal", True), ("reuse_cache", 1), ("stdout_sha256", "f" * 64)):
+            with self.subTest(field=field):
+                self.reject_document(path, lambda row: row.update({field: value}))
+
+    def test_full_guest_requires_exact_acquisition_and_native_field_coverage(self):
+        path = self.work / "weather-products-delivery-acquisition.json"
+        for field, value in (("schema", 4), ("origin_https", False),
+                ("upstream_signature_attested", True), ("decoder_sha256", "f" * 64)):
+            with self.subTest(field=field):
+                self.reject_document(path, lambda row: row.update({field: value}))
+        self.reject_document(path, lambda row: row["products"]["weather"]["fields"].pop())
+        self.reject_document(path, lambda row: row["products"]["air_quality"].update(forecast_sha256="f" * 64))
+
+    def test_full_guest_requires_each_published_imported_and_served_product(self):
+        for key in E["PRODUCTS"]:
+            for suffix, field, value in (("publish", "network_publication", True),
+                    ("relay4-import", "manifest_id", "f" * 64),
+                    ("relay5-import", "complete", False),
+                    ("relay4-serve", "publications", 0),
+                    ("relay5-serve", "replication_enabled", True)):
+                with self.subTest(product=key, suffix=suffix):
+                    self.reject_document(self.products["artifact"](self.work, suffix, key),
+                        lambda row: row.update({field: value}))
+
+    def test_full_guest_rejects_packet_loss_direct_exit_and_wrong_route(self):
+        for role, field, value in (("client", "direct_client_exit_packets", 1),
+                ("exit", "packet_socket_drops", 1), ("relay0", "unexpected_outer_packets", 1)):
+            with self.subTest(role=role, field=field):
+                self.reject_document(self.work / f"weather-android-delivery-privacy-{role}.json",
+                    lambda row: row.update({field: value}))
+        self.reject_document(self.work / "weather-android-delivery-privacy-exit.json",
+            lambda row: row["provider_application"]["relay4"].update(response_payload_bytes=0))
+        self.reject_document(self.work / "weather-android-delivery-selection.json",
+            lambda row: row.update(transport="ordinary-tcp"))
+        self.reject_document(self.work / "content-provider-layout.json",
+            lambda row: row.update(control_relay_peer_id=self.packets["expected_peers"]["exit"]))
+
+    def test_full_guest_requires_original_removal_and_exact_verified_tree_summary(self):
+        self.reject_document(self.work / "weather-products-delivery-publisher-cleanup.json",
+            lambda row: row.update(files_removed=False))
+        publisher = self.work / "client-fixtures/weather-publisher"
+        publisher.mkdir(mode=0o700)
+        with self.assertRaises(ValueError): self.input.invoke()
+        self.assertTrue(publisher.is_dir()); publisher.rmdir()
+        path = self.work / "weather-products-delivery-tree-before.json"
+        for field, value in (("version", True), ("files", 1), ("runtime_executed", True),
+                ("manifest_sha256", "f" * 64)):
+            with self.subTest(field=field):
+                self.reject_document(path, lambda row: row.update({field: value}))
+
+    def test_full_guest_does_not_accept_duplicate_json_or_noncanonical_config_bytes(self):
+        path = self.work / "weather-products-delivery-publisher-cleanup.json"
+        old = path.read_bytes()
+        self.input.fixture.save(path, old[:-1] + b',"files_removed":true}')
+        with self.assertRaises(ValueError): self.input.invoke()
+        self.input.fixture.save(path, old)
+        raw = self.layout["config"].read_bytes() + b"\n"
+        self.input.fixture.save(self.layout["config"], raw)
+        self.input.prepared["config_sha256"] = E["digest"](raw)
+        self.input.save_prepared()
+        self.ready.update(prepared_sha256=self.input.prepared_sha, config_sha256=self.input.prepared["config_sha256"])
+        self.final["prepared_sha256"] = self.input.prepared_sha
+        self.save_lifecycle()
+        with self.assertRaises(ValueError): self.input.invoke()
+
+
+class GuestStatusTests(unittest.TestCase):
+    def test_closed_status_domain_and_nested_first_failure(self):
+        self.assertEqual(list(E["GUEST_FAILURE_CODES"].values()), list(range(20, 40)))
+        for stage, expected in E["GUEST_FAILURE_CODES"].items():
+            def reject():
+                with E["guest_group"]("receipt-custody"):
+                    with E["guest_group"](stage): raise ValueError("private canary")
+            output = io.StringIO()
+            with self.subTest(stage=stage), redirect_stderr(output):
+                self.assertEqual(E["command_status"](reject), expected)
+            self.assertEqual(output.getvalue(), "weather_android_evidence_failed\n")
+        self.assertEqual(E["command_status"](lambda: None), 0)
+
+    def test_unclassified_errors_and_interruption_have_no_group_or_private_text(self):
+        for kind, expected in ((RuntimeError, 1), (RecursionError, 1),
+                (TimeoutError, 124), (InterruptedError, 125), (KeyboardInterrupt, 130)):
+            def reject():
+                with E["guest_group"]("api-lifecycle"): raise kind("private canary")
+            output = io.StringIO()
+            with self.subTest(kind=kind.__name__), redirect_stderr(output):
+                self.assertEqual(E["command_status"](reject), expected)
+            self.assertEqual(output.getvalue(), "weather_android_evidence_failed\n")
 
 
 class GuestExportTests(unittest.TestCase):

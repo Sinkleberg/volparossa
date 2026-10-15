@@ -7,6 +7,7 @@ are hashed in the owner tunnel, never copied into public evidence. Matching thes
 records still requires the separate source, process, capture and cleanup gates.
 """
 import datetime
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -34,6 +35,29 @@ RECEIPT_KEYS = {"operation", "bytes", "chunks", "publisher_key", "name", "revisi
 TRANSFER_KEYS = {"product", "ordinal", "stdout_sha256", "observation_sha256", "started_at_ms", "completed_at_ms",
     "reuse_cache", "forecast_sha256", "forecast_bytes", "peer_bytes", "providers_used", "origin_body_bytes", "origin_range_requests"}
 PREFIX = "weather-android-delivery"
+GUEST_FAILURE_CODES = dict(zip(("boundary", "source", "prepared", "selection", "configuration",
+    "api-lifecycle", "api-private-cleanup", "receipt-custody", "receipt-shape", "receipt-timing",
+    "receipt-publication", "receipt-counters", "acquisition", "topology-inputs", "cache-custody",
+    "publication-files", "packet-control-route", "publisher-cleanup", "source-snapshot", "export-shape"), range(20, 40)))
+
+
+class GuestVerificationFailure(ValueError):
+    """A fixed rejected check group, not the private exception or root cause."""
+    def __init__(self, stage):
+        if stage not in GUEST_FAILURE_CODES: raise ValueError("weather_android_unknown_check_group")
+        self.stage = stage
+        super().__init__("weather_android_evidence_rejected")
+
+
+@contextmanager
+def guest_group(stage):
+    if stage not in GUEST_FAILURE_CODES: raise ValueError("weather_android_unknown_check_group")
+    try:
+        yield
+    except (GuestVerificationFailure, TimeoutError, InterruptedError):
+        raise
+    except (OSError, ValueError, TypeError, KeyError):
+        raise GuestVerificationFailure(stage) from None
 
 
 def require(value):
@@ -135,47 +159,51 @@ def validate_response(value):
 
 def receipt_observation(raw, observation_raw, key, ordinal, selected, work, window):
     """Validate original private bytes; callers must also prove file/worker custody."""
-    publication(selected, key, size=True)
-    integer(ordinal, 1, 3)
-    receipt = decode(raw, MAX_RECEIPT); exact(receipt, RECEIPT_KEYS)
-    observation = decode(observation_raw, 2048)
-    exact(observation, ("schema", "kind", "profile", "product", "ordinal", "started_at_ms", "completed_at_ms",
-        "reuse_cache", "stdout_bytes", "stdout_sha256"))
-    same(observation["schema"], 1); same(observation["kind"], "weather-android-core-receipt-observation")
-    same(observation["profile"], PROFILE); same(observation["product"], key); same(observation["ordinal"], ordinal)
-    same(observation["reuse_cache"], ordinal > 1)
-    same(observation["stdout_bytes"], len(raw)); same(observation["stdout_sha256"], digest(raw))
-    require(type(window) in (tuple, list) and len(window) == 2)
-    start, end = window
-    integer(start, 1); integer(end, start)
-    integer(observation["started_at_ms"], start, end)
-    integer(observation["completed_at_ms"], observation["started_at_ms"], min(end, observation["started_at_ms"] + 185000))
-    require(observation["completed_at_ms"] < selected["expires_unix_seconds"] * 1000)
-    for field in ("publisher_key", "name", "revision", "manifest_id", "sha256", "bytes"):
-        same(receipt[field], selected[field])
-    same(receipt["publication_expires_unix_seconds"], selected["expires_unix_seconds"])
-    same(receipt["operation"], "named_content_download"); same(receipt["chunks"], 1)
-    same(receipt["local_delivery"], True); same(receipt["output_mode"], "0600")
-    for field in ("ownership_changed", "origin_authenticated", "globally_latest", "cache_only"):
-        same(receipt[field], False)
-    same(receipt["origin_body_bytes"], 0); same(receipt["origin_range_requests"], 0)
-    work = Path(work)
-    require(work.is_absolute() and str(work) == str(Path(str(work))) and ".." not in work.parts)
-    same(receipt["cache"], str(work / "weather-android-cache" / CACHES[key]))
-    output = receipt["local_output"]
-    require(type(output) is str and re.fullmatch(re.escape(str(work / "client-fixtures/weather-viewer/scratch"))
-        + r"/forecast-[A-Za-z0-9]{6}/forecast\.json", output))
-    peers = receipt["provider_peer_ids"]
-    require(type(peers) is list and all(type(peer) is str and PEER.fullmatch(peer) for peer in peers))
-    integer(receipt["providers_used"], 0, 2)
-    same(len(peers), receipt["providers_used"]); require(len(set(peers)) == len(peers))
-    relay = receipt["control_relay_peer_id"]
-    require(type(relay) is str and (relay == "" or PEER.fullmatch(relay)) and relay not in peers)
-    if ordinal == 1:
-        same(receipt["peer_bytes"], selected["bytes"])
-        require(receipt["providers_used"] in (1, 2) and relay != "")
-    else:
-        same(receipt["peer_bytes"], 0); same(receipt["providers_used"], 0); same(peers, [])
+    with guest_group("receipt-shape"):
+        publication(selected, key, size=True)
+        integer(ordinal, 1, 3)
+        receipt = decode(raw, MAX_RECEIPT); exact(receipt, RECEIPT_KEYS)
+        observation = decode(observation_raw, 2048)
+        exact(observation, ("schema", "kind", "profile", "product", "ordinal", "started_at_ms", "completed_at_ms",
+            "reuse_cache", "stdout_bytes", "stdout_sha256"))
+        same(observation["schema"], 1); same(observation["kind"], "weather-android-core-receipt-observation")
+        same(observation["profile"], PROFILE); same(observation["product"], key); same(observation["ordinal"], ordinal)
+        same(observation["reuse_cache"], ordinal > 1)
+        same(observation["stdout_bytes"], len(raw)); same(observation["stdout_sha256"], digest(raw))
+    with guest_group("receipt-timing"):
+        require(type(window) in (tuple, list) and len(window) == 2)
+        start, end = window
+        integer(start, 1); integer(end, start)
+        integer(observation["started_at_ms"], start, end)
+        integer(observation["completed_at_ms"], observation["started_at_ms"], min(end, observation["started_at_ms"] + 185000))
+        require(observation["completed_at_ms"] < selected["expires_unix_seconds"] * 1000)
+    with guest_group("receipt-publication"):
+        for field in ("publisher_key", "name", "revision", "manifest_id", "sha256", "bytes"):
+            same(receipt[field], selected[field])
+        same(receipt["publication_expires_unix_seconds"], selected["expires_unix_seconds"])
+        same(receipt["operation"], "named_content_download"); same(receipt["chunks"], 1)
+        same(receipt["local_delivery"], True); same(receipt["output_mode"], "0600")
+        for field in ("ownership_changed", "origin_authenticated", "globally_latest", "cache_only"):
+            same(receipt[field], False)
+        same(receipt["origin_body_bytes"], 0); same(receipt["origin_range_requests"], 0)
+        work = Path(work)
+        require(work.is_absolute() and str(work) == str(Path(str(work))) and ".." not in work.parts)
+        same(receipt["cache"], str(work / "weather-android-cache" / CACHES[key]))
+        output = receipt["local_output"]
+        require(type(output) is str and re.fullmatch(re.escape(str(work / "client-fixtures/weather-viewer/scratch"))
+            + r"/forecast-[A-Za-z0-9]{6}/forecast\.json", output))
+    with guest_group("receipt-counters"):
+        peers = receipt["provider_peer_ids"]
+        require(type(peers) is list and all(type(peer) is str and PEER.fullmatch(peer) for peer in peers))
+        integer(receipt["providers_used"], 0, 2)
+        same(len(peers), receipt["providers_used"]); require(len(set(peers)) == len(peers))
+        relay = receipt["control_relay_peer_id"]
+        require(type(relay) is str and (relay == "" or PEER.fullmatch(relay)) and relay not in peers)
+        if ordinal == 1:
+            same(receipt["peer_bytes"], selected["bytes"])
+            require(receipt["providers_used"] in (1, 2) and relay != "")
+        else:
+            same(receipt["peer_bytes"], 0); same(receipt["providers_used"], 0); same(peers, [])
     return dict(product=key, ordinal=ordinal, stdout_sha256=digest(raw), observation_sha256=digest(observation_raw),
         started_at_ms=observation["started_at_ms"], completed_at_ms=observation["completed_at_ms"],
         reuse_cache=ordinal > 1, forecast_sha256=selected["sha256"], forecast_bytes=selected["bytes"],
@@ -293,76 +321,93 @@ def proof_receipts(directory, selected, work, window, uid=985):
 
 def guest(work, manifest_sha, core_sha, prepared_sha):
     """Run only after the owned API/sink and capture processes are joined."""
-    require(os.geteuid() == 0)
-    api = runpy.run_path(str(Path(__file__).with_name("weather-android-api.py")))
-    D, P, B = api["D"], api["P"], api["B"]
-    layout = D["paths"](work)
-    group = layout["control"].stat().st_gid
-    agent_uid, agent_gid = D["accounts"](group)
-    D["validate_work"](work, agent_gid)
-    for value in (manifest_sha, core_sha, prepared_sha): require(type(value) is str and HEX.fullmatch(value))
+    with guest_group("boundary"):
+        require(os.geteuid() == 0)
+        api = runpy.run_path(str(Path(__file__).with_name("weather-android-api.py")))
+        D, P, B = api["D"], api["P"], api["B"]
+        layout = D["paths"](work)
+        group = layout["control"].stat().st_gid
+        agent_uid, agent_gid = D["accounts"](group)
+        D["validate_work"](work, agent_gid)
+        for value in (manifest_sha, core_sha, prepared_sha): require(type(value) is str and HEX.fullmatch(value))
     def root_document(name, limit=65536, mode=0o600):
         return decode(private_bytes(work / name, limit, 0, mode), limit)
-    manifest_raw = private_bytes(work / "weather-products-delivery-manifest.json", B["MAX_MANIFEST"], 0, 0o400)
-    manifest = B["manifest"](manifest_raw, manifest_sha); same(manifest["version"], 6)
-    B["verify_tree"](layout["source"], manifest_sha)
-    same(B["fingerprint"](layout["binary"], 256 * 1024**2, normalized=0o555)["sha256"], core_sha)
-    prepared_raw = private_bytes(work / f"{PREFIX}-prepared.json", 8192, 0)
-    same(digest(prepared_raw), prepared_sha)
-    require(private_bytes(layout["viewer"] / "prepared.json", 8192, 985, 0o400) == prepared_raw)
-    prepared = decode(prepared_raw, 8192); D["validate_prepared"](prepared)
-    same(prepared["manifest_sha256"], manifest_sha); same(prepared["core_sha256"], core_sha)
-    selected_raw = private_bytes(layout["viewer"] / "selection.json", 16384, 985, 0o400)
-    same(digest(selected_raw), prepared["selection_sha256"])
-    selected = P["validate_selection"](decode(selected_raw, 16384))
-    same(root_document("weather-products-delivery-input.json"), selected)
-    config_raw = private_bytes(layout["config"], 16384, 985)
-    same(digest(config_raw), prepared["config_sha256"])
-    require(config_raw == B["encode"](D["configuration"](layout, selected)))
-    lifecycle_raw = private_bytes(work / f"{PREFIX}-api.jsonl", 16384, 0)
-    lines = lifecycle_raw.splitlines(); require(len(lines) == 2)
-    ready, final = [decode(line, 8192) for line in lines]
-    for record in (ready, final):
-        api["validate_record"](record)
-        same(record["manifest_sha256"], manifest_sha); same(record["prepared_sha256"], prepared_sha)
-    same(ready["kind"], "weather-android-api-ready"); same(final["kind"], "weather-android-api-final")
-    same(ready["core_sha256"], core_sha); same(ready["config_sha256"], prepared["config_sha256"])
-    same(final["success"], True); same(final["retained_files"], 12)
-    D["absent"](layout["socket"])
-    for name in ("scratch", "socket"):
-        D["owned"](layout["viewer"] / name, stat.S_ISDIR, 0o700, 985)
-        same(list((layout["viewer"] / name).iterdir()), [])
-    publications = {key: selected["products"][key]["publication"] for key in PRODUCTS}
-    transfers, receipts = proof_receipts(layout["proof"], publications, work,
-        (ready["ready_at_ms"], min(ready["expires_at"] * 1000 - 1, int(time.time() * 1000))))
-    acquisition_raw = private_bytes(work / "weather-products-delivery-acquisition.json", 65536, 0)
-    acquisition = decode(acquisition_raw, 65536); P["validate_acquisition"](acquisition, 6)
-    peers = root_document("a01-expected-peers.json"); provider_layout = root_document("content-provider-layout.json")
-    captures = {role: root_document(f"{PREFIX}-privacy-{role}.json") for role in P["HTTPS"]["ROLES"]}
-    control = root_document(f"{PREFIX}-control.json"); route = root_document(f"{PREFIX}-selection.json")
-    D["owned"](layout["cache_parent"], stat.S_ISDIR, 0o710, agent_uid, group)
+    with guest_group("source"):
+        manifest_raw = private_bytes(work / "weather-products-delivery-manifest.json", B["MAX_MANIFEST"], 0, 0o400)
+        manifest = B["manifest"](manifest_raw, manifest_sha); same(manifest["version"], 6)
+        B["verify_tree"](layout["source"], manifest_sha)
+        same(B["fingerprint"](layout["binary"], 256 * 1024**2, normalized=0o555)["sha256"], core_sha)
+    with guest_group("prepared"):
+        prepared_raw = private_bytes(work / f"{PREFIX}-prepared.json", 8192, 0)
+        same(digest(prepared_raw), prepared_sha)
+        require(private_bytes(layout["viewer"] / "prepared.json", 8192, 985, 0o400) == prepared_raw)
+        prepared = decode(prepared_raw, 8192); D["validate_prepared"](prepared)
+        same(prepared["manifest_sha256"], manifest_sha); same(prepared["core_sha256"], core_sha)
+    with guest_group("selection"):
+        selected_raw = private_bytes(layout["viewer"] / "selection.json", 16384, 985, 0o400)
+        same(digest(selected_raw), prepared["selection_sha256"])
+        selected = P["validate_selection"](decode(selected_raw, 16384))
+        same(root_document("weather-products-delivery-input.json"), selected)
+    with guest_group("configuration"):
+        config_raw = private_bytes(layout["config"], 16384, 985)
+        same(digest(config_raw), prepared["config_sha256"])
+        require(config_raw == B["encode"](D["configuration"](layout, selected)))
+    with guest_group("api-lifecycle"):
+        lifecycle_raw = private_bytes(work / f"{PREFIX}-api.jsonl", 16384, 0)
+        lines = lifecycle_raw.splitlines(); require(len(lines) == 2)
+        ready, final = [decode(line, 8192) for line in lines]
+        for record in (ready, final):
+            api["validate_record"](record)
+            same(record["manifest_sha256"], manifest_sha); same(record["prepared_sha256"], prepared_sha)
+        same(ready["kind"], "weather-android-api-ready"); same(final["kind"], "weather-android-api-final")
+        same(ready["core_sha256"], core_sha); same(ready["config_sha256"], prepared["config_sha256"])
+        same(final["success"], True); same(final["retained_files"], 12)
+    with guest_group("api-private-cleanup"):
+        D["absent"](layout["socket"])
+        for name in ("scratch", "socket"):
+            D["owned"](layout["viewer"] / name, stat.S_ISDIR, 0o700, 985)
+            same(list((layout["viewer"] / name).iterdir()), [])
+    with guest_group("receipt-custody"):
+        publications = {key: selected["products"][key]["publication"] for key in PRODUCTS}
+        transfers, receipts = proof_receipts(layout["proof"], publications, work,
+            (ready["ready_at_ms"], min(ready["expires_at"] * 1000 - 1, int(time.time() * 1000))))
+    with guest_group("acquisition"):
+        acquisition_raw = private_bytes(work / "weather-products-delivery-acquisition.json", 65536, 0)
+        acquisition = decode(acquisition_raw, 65536); P["validate_acquisition"](acquisition, 6)
+    with guest_group("topology-inputs"):
+        peers = root_document("a01-expected-peers.json"); provider_layout = root_document("content-provider-layout.json")
+        captures = {role: root_document(f"{PREFIX}-privacy-{role}.json") for role in P["HTTPS"]["ROLES"]}
+        control = root_document(f"{PREFIX}-control.json"); route = root_document(f"{PREFIX}-selection.json")
+    with guest_group("cache-custody"):
+        D["owned"](layout["cache_parent"], stat.S_ISDIR, 0o710, agent_uid, group)
     for key in PRODUCTS:
-        publication(publications[key], key, size=True)
-        item = acquisition["products"][key]
-        same(item["forecast_sha256"], publications[key]["sha256"]); same(item["forecast_bytes"], publications[key]["bytes"])
-        P["validate_publications"](work, publications[key], provider_layout["provider_nodes"], key)
-        # Both products share this capture window. Never relabel it as two
-        # independent captures; original per-product CLI counters remain required.
-        P["V1"]["validate_packets"](dict(receipt=receipts[key][0]), peers, provider_layout, route, captures, control)
-        D["owned"](layout["cache_parent"] / CACHES[key], stat.S_ISDIR, 0o700, agent_uid, agent_gid)
-    same(root_document("weather-products-delivery-publisher-cleanup.json"), dict(directory_removed=True, files_removed=True))
-    D["absent"](work / "client-fixtures/weather-publisher")
-    same(root_document("weather-products-delivery-tree-before.json"), dict(version=1, action="verify-tree",
-        manifest_sha256=manifest_sha, files=len(manifest["files"]), runtime_executed=False))
-    result = dict(schema=6, kind="weather-android-guest-evidence", profile=PROFILE,
-        manifest_sha256=manifest_sha, core_sha256=core_sha, prepared_sha256=prepared_sha,
-        acquisition_sha256=digest(acquisition_raw), api_lifecycle_sha256=digest(lifecycle_raw),
-        publications=publications, transfers=transfers, capture_scope="common-product-window",
-        captures_validated=True, source_acquisition_validated=True, cold_caches_absent_before_api_requests=True,
-        publisher_originals_removed=True, helper_requests=0, api_and_sink_joined=True, scratch_outputs_removed=True,
-        private_receipts_exported=False, private_viewer_retained_until_vm_destruction=True,
-        native_android_proven=False, joined_core_acceptance=False, expiry_proven=False)
-    validate_guest_export(result)
+        with guest_group("publication-files"):
+            publication(publications[key], key, size=True)
+            item = acquisition["products"][key]
+            same(item["forecast_sha256"], publications[key]["sha256"]); same(item["forecast_bytes"], publications[key]["bytes"])
+            P["validate_publications"](work, publications[key], provider_layout["provider_nodes"], key)
+        with guest_group("packet-control-route"):
+            # Both products share this capture window. Never relabel it as two
+            # independent captures; original per-product CLI counters remain required.
+            P["V1"]["validate_packets"](dict(receipt=receipts[key][0]), peers, provider_layout, route, captures, control)
+        with guest_group("cache-custody"):
+            D["owned"](layout["cache_parent"] / CACHES[key], stat.S_ISDIR, 0o700, agent_uid, agent_gid)
+    with guest_group("publisher-cleanup"):
+        same(root_document("weather-products-delivery-publisher-cleanup.json"), dict(directory_removed=True, files_removed=True))
+        D["absent"](work / "client-fixtures/weather-publisher")
+    with guest_group("source-snapshot"):
+        same(root_document("weather-products-delivery-tree-before.json"), dict(version=1, action="verify-tree",
+            manifest_sha256=manifest_sha, files=len(manifest["files"]), runtime_executed=False))
+    with guest_group("export-shape"):
+        result = dict(schema=6, kind="weather-android-guest-evidence", profile=PROFILE,
+            manifest_sha256=manifest_sha, core_sha256=core_sha, prepared_sha256=prepared_sha,
+            acquisition_sha256=digest(acquisition_raw), api_lifecycle_sha256=digest(lifecycle_raw),
+            publications=publications, transfers=transfers, capture_scope="common-product-window",
+            captures_validated=True, source_acquisition_validated=True, cold_caches_absent_before_api_requests=True,
+            publisher_originals_removed=True, helper_requests=0, api_and_sink_joined=True, scratch_outputs_removed=True,
+            private_receipts_exported=False, private_viewer_retained_until_vm_destruction=True,
+            native_android_proven=False, joined_core_acceptance=False, expiry_proven=False)
+        validate_guest_export(result)
     return result
 
 
@@ -422,8 +467,24 @@ def main():
     print(json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False))
 
 
+def command_status(command):
+    """Exit statuses are closed observations, never private exception text."""
+    try:
+        command()
+        return 0
+    except GuestVerificationFailure as error:
+        status = GUEST_FAILURE_CODES[error.stage]
+    except TimeoutError:
+        status = 124
+    except InterruptedError:
+        status = 125
+    except KeyboardInterrupt:
+        status = 130
+    except Exception:
+        status = 1
+    print("weather_android_evidence_failed", file=sys.stderr)
+    return status
+
+
 if __name__ == "__main__":
-    try: main()
-    except (OSError, ValueError, TypeError, KeyError):
-        print("weather_android_evidence_failed", file=sys.stderr)
-        raise SystemExit(1) from None
+    raise SystemExit(command_status(main))
