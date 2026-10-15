@@ -14,6 +14,7 @@ const DOMAIN: &[u8] = b"VOLPAROSSA/compute-control/v1\0";
 pub(super) enum Purpose {
     ComputeV1,
     QuoteV1,
+    QuoteConfirmationV1,
 }
 
 impl Purpose {
@@ -21,6 +22,7 @@ impl Purpose {
         match self {
             Self::ComputeV1 => DOMAIN,
             Self::QuoteV1 => b"VOLPAROSSA/compute-quote/v1\0",
+            Self::QuoteConfirmationV1 => b"VOLPAROSSA/compute-quote-confirmation/v1\0",
         }
     }
 
@@ -28,6 +30,7 @@ impl Purpose {
         match self {
             Self::ComputeV1 => MAX_REQUEST_BYTES,
             Self::QuoteV1 => super::guest::MAX_QUOTE_REQUEST_BYTES,
+            Self::QuoteConfirmationV1 => super::quote::confirmation::MAX_PROBE_BYTES,
         }
     }
 
@@ -35,6 +38,7 @@ impl Purpose {
         match self {
             Self::ComputeV1 => MAX_RESPONSE_BYTES,
             Self::QuoteV1 => super::guest::MAX_QUOTE_RESPONSE_BYTES,
+            Self::QuoteConfirmationV1 => super::guest::MAX_QUOTE_RESPONSE_BYTES,
         }
     }
 }

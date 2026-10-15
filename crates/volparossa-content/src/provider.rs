@@ -623,6 +623,19 @@ where
         let selector: Selector = timeout_at(session.selector_deadline, read_frame(stream))
             .await
             .map_err(|_| ProviderError::Timeout)??;
+        if selector.version == compute::quote::confirmation::SELECTOR_VERSION
+            && selector.operation == compute::quote::SELECTOR_OPERATION
+            && selector.manifest_id.is_empty()
+        {
+            registry
+                .quote
+                .as_ref()
+                .ok_or(ProviderError::Missing)?
+                .serve_confirmation(stream)
+                .await
+                .map_err(|_| ProviderError::Protocol)?;
+            return Ok(TransferProgress::default());
+        }
         if selector.version == compute::quote::SELECTOR_VERSION
             && selector.operation == compute::quote::SELECTOR_OPERATION
             && selector.manifest_id.is_empty()

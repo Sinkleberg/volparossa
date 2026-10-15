@@ -40,7 +40,9 @@ mod snp;
 
 pub use collateral::VendorCrlFacts;
 pub use policy::{LocalPolicy, MilanTcb, SmtPolicy, TcbMinimums};
-pub(super) use session::challenge_window;
+pub(super) use session::{LiveSession, challenge_window};
+#[cfg(test)]
+pub(super) use session::synthetic_confirmation_lifetime;
 pub use session::{
     BoundSessionEvidence, PendingSession, SessionLimits, SessionOwner, session_report_data,
 };

@@ -298,10 +298,19 @@ pub struct PendingSession<'a> {
     deadline: Instant,
 }
 
-impl PendingSession<'_> {
+impl<'a> PendingSession<'a> {
     /// Canonical public-only context. No task identifier or private content digest.
     pub fn challenge_bytes(&self) -> &[u8] {
         &self.challenge
+    }
+
+    /// Original owner/challenge deadline for local I/O, never a new timeout.
+    ///
+    /// # Errors
+    /// Rejects cancellation, original expiry or a clock before owner creation.
+    pub fn deadline(&self) -> Result<tokio::time::Instant, EvidenceError> {
+        self.check_time(&Stamp::now()?)?;
+        Ok(tokio::time::Instant::from_std(self.deadline))
     }
 
     /// Discard this challenge; its total attempt remains consumed.
@@ -365,6 +374,16 @@ impl PendingSession<'_> {
         proposed_session_key: [u8; 32],
         now: Stamp,
     ) -> Result<BoundSessionEvidence, EvidenceError> {
+        self.binding_at(facts, collateral, proposed_session_key, now)
+    }
+
+    fn binding_at(
+        &self,
+        facts: SignatureFacts,
+        collateral: VendorCrlFacts,
+        proposed_session_key: [u8; 32],
+        now: Stamp,
+    ) -> Result<BoundSessionEvidence, EvidenceError> {
         self.check_time(&now)?;
         facts.check_time(now.unix)?;
         collateral.check_time(now.unix)?;
@@ -388,6 +407,110 @@ impl PendingSession<'_> {
             expires_at,
             observed_at: now.unix,
         })
+    }
+
+    pub(in crate::provider::compute) fn verify_live(
+        self,
+        report: &[u8],
+        vcek_der: &[u8],
+        vendor_crl_der: &[u8],
+        key: [u8; 32],
+    ) -> Result<LiveSession<'a>, EvidenceError> {
+        let started = Stamp::now()?;
+        self.check_time(&started)?;
+        let (facts, collateral) =
+            collateral::verify(report, vcek_der, vendor_crl_der, started.unix)?;
+        let now = Stamp::now()?;
+        let evidence = self.binding_at(facts, collateral, key, now)?;
+        let deadline = self
+            .deadline
+            .min(now.monotonic + Duration::from_secs(evidence.expires_at - now.unix));
+        Ok(LiveSession {
+            pending: self,
+            evidence,
+            deadline,
+        })
+    }
+}
+
+/// Internal continuation, never reconstructible from historical evidence.
+pub(in crate::provider::compute) struct LiveSession<'a> {
+    pending: PendingSession<'a>,
+    evidence: BoundSessionEvidence,
+    deadline: Instant,
+}
+
+impl LiveSession<'_> {
+    pub(in crate::provider::compute) fn constrain(
+        &mut self,
+        expires_at: u64,
+        deadline: Instant,
+    ) -> Result<(), EvidenceError> {
+        self.check()?;
+        self.evidence.expires_at = self.evidence.expires_at.min(expires_at);
+        self.deadline = self.deadline.min(deadline);
+        self.check()
+    }
+
+    pub(in crate::provider::compute) fn check(&self) -> Result<(), EvidenceError> {
+        let now = Stamp::now()?;
+        self.pending.check_time(&now)?;
+        if now.unix >= self.evidence.expires_at || now.monotonic >= self.deadline {
+            return Err(EvidenceError::Expired);
+        }
+        Ok(())
+    }
+
+    pub(in crate::provider::compute) fn evidence(&self) -> &BoundSessionEvidence {
+        &self.evidence
+    }
+
+    pub(in crate::provider::compute) const fn deadline(&self) -> Instant {
+        self.deadline
+    }
+
+    pub(in crate::provider::compute) fn finish(self) -> Result<BoundSessionEvidence, EvidenceError> {
+        self.check()?;
+        Ok(self.evidence)
+    }
+}
+
+// Synthetic software-lifecycle fixture only. No feature enables this in a built
+// library, and production verify_live always verifies the real signatures first.
+#[cfg(test)]
+pub(in crate::provider::compute) fn synthetic_confirmation_lifetime(
+    pending: PendingSession<'_>,
+    key: [u8; 32],
+) -> LiveSession<'_> {
+    let now = Stamp::now().unwrap();
+    let facts = SignatureFacts {
+        report_sha256: [3; 32],
+        vcek_sha256: [4; 32],
+        measurement: pending.slot.0.policy.expected_measurement,
+        report_data: session_report_data(pending.challenge_bytes(), &key).unwrap(),
+        guest_svn: pending.slot.0.policy.minimum_guest_svn,
+        guest_policy: 1 << 17,
+        tcb: [super::MilanTcb {
+            bootloader: 0,
+            tee: 0,
+            snp: 0,
+            microcode: 0,
+        }; 4],
+        platform_smt_enabled: false,
+        validity: [(now.unix - 1, now.unix + 600); 3],
+    };
+    let collateral = VendorCrlFacts {
+        sha256: [7; 32],
+        number: 0,
+        this_update: now.unix - 1,
+        next_update: now.unix + 600,
+    };
+    let evidence = pending.binding_at(facts, collateral, key, now).unwrap();
+    let deadline = pending.deadline;
+    LiveSession {
+        pending,
+        evidence,
+        deadline,
     }
 }
 
