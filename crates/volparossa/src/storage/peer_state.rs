@@ -125,7 +125,7 @@ impl Journal {
 }
 
 pub(super) struct LockedJournal {
-    directory: File,
+    directory: nix::fcntl::Flock<File>,
     pub(super) journal: Journal,
 }
 
@@ -173,7 +173,7 @@ impl LockedJournal {
     }
 }
 
-pub(super) fn directory(path: &Path) -> Result<File> {
+pub(super) fn directory(path: &Path) -> Result<nix::fcntl::Flock<File>> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
@@ -185,9 +185,12 @@ pub(super) fn directory(path: &Path) -> Result<File> {
             && metadata.uid() == rustix::process::geteuid().as_raw(),
         "archive state directory must be owned by this user with mode 0700"
     );
-    rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive)
-        .context("private archive state is already in use")?;
-    Ok(file)
+    // Close-on-exec does not prevent a concurrently forked child retaining the
+    // open file description before exec. Unlock when this owner's scope ends,
+    // rather than waiting for every inherited descriptor to close.
+    nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusiveNonblock)
+        .map_err(|(_, error)| std::io::Error::from_raw_os_error(error as i32))
+        .context("private archive state is already in use")
 }
 
 pub(super) fn anchored(directory: &File) -> PathBuf {
