@@ -105,6 +105,7 @@ jobs:
           cargo test --locked -p volparossa compute::resources::tests
           cargo test --locked -p volparossa compute::spare_capacity::memory::tests
           python3 -B tests/integration/test-agent-private-conversation.py
+          python3 -B tests/integration/test-native-source-weight-cache-contract.py
 
       - name: Check bounded bidirectional streaming before audit tool builds
         # In-memory duplex and real TLS only; no host sockets or namespace setup.

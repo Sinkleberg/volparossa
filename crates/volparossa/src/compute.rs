@@ -286,6 +286,12 @@ async fn execute(options: &Options, activity: watch::Receiver<bool>) -> Result<V
     let cache_hint = request
         .native_backend
         .cache_hint_observed(&options.native_backend, options.model_profile);
+    let source_weight_cache = native_cpu::source_weight_cache::Binding::bind(
+        &request.native_backend,
+        &options.native_backend,
+        options.model_profile,
+        &options.model_root,
+    );
     let child = sandbox::command(options)
         .spawn()
         .context("compute_sandbox_spawn")?;
@@ -295,6 +301,7 @@ async fn execute(options: &Options, activity: watch::Receiver<bool>) -> Result<V
     // Only a successful supervisor return proves cleanup and result validation.
     // Keep the advisory syscall inside this runtime lease; never detach it.
     cache_hint.after_supervisor(&result, options.model_profile, memory_diagnostic);
+    source_weight_cache.after_supervisor(&result, memory_diagnostic);
     result
 }
 

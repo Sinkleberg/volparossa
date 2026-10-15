@@ -16,6 +16,7 @@ use sha2::{Digest as _, Sha256};
 use super::{Mode, ModelProfile};
 
 mod cache_hint;
+pub(super) mod source_weight_cache;
 use cache_hint::{Binding, CacheHint};
 
 pub(super) const KIND: &str = "llama_cpp_bf16_v1";
