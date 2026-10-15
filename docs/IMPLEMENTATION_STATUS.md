@@ -42,6 +42,22 @@ Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
 The latest completed outcomes are summarized below.
 
+### Native alignment candidate
+
+The separate `fix/native-q1-aligned-load` candidate addresses the known upstream
+Q1_0 sanitizer finding without changing the pinned source revision, BF16 model,
+toolset or resource limits. It replaces one unaligned pointer-cast load with a
+16-byte copy into aligned scalar storage. Fresh staging, exact source hashes and
+the actual compiler-input/target checks bind this local patch; the original
+upstream checkout and all-type test remain unchanged.
+
+All 98 inert Python cases pass without skips: seven new source/provenance cases
+and the previous 91 cases. This does not establish native sanitizer acceptance
+or model performance. Normal and ASan/UBSan hosted builds remain required; the
+original failed checks remain failures. The eight-file wrapper inventory must
+also be joined explicitly in Code before using this candidate in a model trial.
+The running Code `ffc7c3ef` / core `95ef4541` trial is unchanged.
+
 ### Latest completed integration evidence — 15 October
 
 - **The native diagnostic correction passes targeted source checks, not a model trial.**

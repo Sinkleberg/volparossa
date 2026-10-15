@@ -316,6 +316,8 @@ def execute(args, progress=None):
     build = json.loads(build_raw)
     native.validate_build_provenance(build, builder.require)
     builder.verify_loader_compilation(build_root, build_root / "loader-overlay/llama-model-loader.cpp")
+    if "cpu_source_overlay" in build:
+        builder.verify_cpu_compilation(build_root, args.source)
     builder.require(build["source_commit"] == builder.SOURCE
                     and build["kind"] == native.KIND and build["abi_version"] == 1
                     and build["quantization"] is False and build["provisionable"] is True

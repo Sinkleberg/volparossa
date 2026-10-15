@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import signal
 import stat
@@ -29,7 +30,7 @@ ALLOWED_NEEDED = {"libc.so.6", "libm.so.6", "libpthread.so.0", "libdl.so.2", "ld
 CHECK_TARGETS = ("vp-native-abi-smoke", "vp-native-loader-validation", "vp-native-bf16-tensors",
                  "vp-native-output-constraint", "vp-native-session", "vp-upstream-tensor-tests")
 WRAPPER_FILES = ("CMakeLists.txt", "adapter.h", "adapter.cpp", "bounded-tensor-validation.patch",
-                 "output-constraint.h", "output-constraint.cpp", "session-state.h")
+                 "output-constraint.h", "output-constraint.cpp", "session-state.h", "q1-aligned-load.patch")
 
 
 def require(condition, code):
@@ -112,6 +113,66 @@ def verify_loader_compilation(output, loader):
             and digest(loader)["sha256"] == native.LOADER_EFFECTIVE_SHA, "NATIVE_COMPILED_LOADER")
 
 
+def patched_cpu(source):
+    """Copy Q1 bytes into aligned scalar storage; preserve all arithmetic."""
+    original = source / native.CPU_ORIGINAL_PATH
+    require(digest(original)["sha256"] == native.CPU_ORIGINAL_SHA, "NATIVE_CPU_ORIGINAL")
+    patch_path = HERE / "native-cpu/q1-aligned-load.patch"
+    require(digest(patch_path)["sha256"] == native.CPU_PATCH_SHA, "NATIVE_CPU_PATCH")
+    before = original.read_text(encoding="utf-8")
+    old = "        const uint32_t * GGML_RESTRICT qs32 = (const uint32_t *) x[ib].qs;\n"
+    new = "        uint32_t qs32[4];\n        memcpy(qs32, x[ib].qs, sizeof(qs32));\n"
+    require(before.count(old) == 1, "NATIVE_CPU_LOAD_SHAPE")
+    after = before.replace(old, new)
+    patch = "".join(difflib.unified_diff(before.splitlines(True), after.splitlines(True),
+                     fromfile="a/" + native.CPU_ORIGINAL_PATH, tofile="b/" + native.CPU_ORIGINAL_PATH))
+    require(patch.encode() == patch_path.read_bytes(), "NATIVE_CPU_PATCH_SHAPE")
+    result = after.encode("utf-8")
+    require(hashlib.sha256(result).hexdigest() == native.CPU_EFFECTIVE_SHA, "NATIVE_CPU_EFFECTIVE")
+    return result
+
+
+def stage_cpu(source, output):
+    data = patched_cpu(source)
+    overlay = output / "cpu-overlay"
+    overlay.mkdir(mode=0o700)
+    target = overlay / "quants.c"
+    with target.open("xb") as stream:
+        stream.write(data)
+        stream.flush()
+        os.fsync(stream.fileno())
+    target.chmod(0o444)
+    return target
+
+
+def verify_cpu_compilation(output, source):
+    path = output / "build/compile_commands.json"
+    require(digest(path)["bytes"] <= 16 * 1024 * 1024, "NATIVE_COMPILE_DATABASE_BOUND")
+    entries = json.loads(path.read_bytes())
+    require(type(entries) is list and 1 <= len(entries) <= 4096, "NATIVE_COMPILE_DATABASE_SHAPE")
+    staged = output / "cpu-overlay/quants.c"
+    files = [Path(row["file"]).resolve() if Path(row["file"]).is_absolute()
+             else (Path(row["directory"]) / row["file"]).resolve() for row in entries]
+    require(files.count(staged.resolve()) == 1 and (source / native.CPU_ORIGINAL_PATH).resolve() not in files
+            and not staged.is_symlink() and digest(staged)["sha256"] == native.CPU_EFFECTIVE_SHA,
+            "NATIVE_COMPILED_CPU")
+    entry = entries[files.index(staged.resolve())]
+    require(type(entry.get("command")) is str, "NATIVE_COMPILED_CPU_TARGET")
+    command = shlex.split(entry["command"])
+    require(command.count("-o") == 1 and command.index("-o") + 1 < len(command),
+            "NATIVE_COMPILED_CPU_TARGET")
+    target = Path(command[command.index("-o") + 1]).parts
+    require(any(target[i:i + 2] == ("CMakeFiles", "ggml-cpu.dir") for i in range(len(target) - 1)),
+            "NATIVE_COMPILED_CPU_TARGET")
+    require(command.count("-c") == 1 and command.index("-c") + 1 < len(command),
+            "NATIVE_COMPILED_CPU_COMMAND")
+    compiled = Path(command[command.index("-c") + 1])
+    require(Path(entry["directory"]).is_absolute(), "NATIVE_COMPILED_CPU_COMMAND")
+    if not compiled.is_absolute():
+        compiled = Path(entry["directory"]) / compiled
+    require(compiled.resolve() == staged.resolve(), "NATIVE_COMPILED_CPU_COMMAND")
+
+
 def stage_loader_checks(loader):
     """Source-derived toy check: actual launch/join statements, never a model."""
     require(digest(loader)["sha256"] == native.LOADER_EFFECTIVE_SHA, "NATIVE_LOADER_EFFECTIVE")
@@ -167,17 +228,20 @@ def build(source, output, execute=False, checks=False, sanitize=False):
         require(shutil.which(tool), "NATIVE_BUILD_TOOL_MISSING")
     require(not sanitize or checks, "NATIVE_SANITIZER_REQUIRES_CHECKS")
     patched_loader(source)
+    patched_cpu(source)
     plan = {"kind": KIND, "source_commit": SOURCE, "source_tree": tree,
             "output_constraints": [native.OUTPUT_CONSTRAINT],
             "native_sessions": [native.NATIVE_SESSION],
             "sanitizers": sanitize, "provisionable": not sanitize,
             "source_overlay": native.loader_provenance(),
+            "cpu_source_overlay": native.cpu_provenance(),
             "jobs": 2, "models_loaded": False, "downloads": False, "install": False}
     if not execute:
         return plan
     wrapper_sources = {name: digest(HERE / "native-cpu" / name) for name in WRAPPER_FILES}
     output.mkdir(mode=0o700)
     loader = stage_loader(source, output)
+    cpu = stage_cpu(source, output)
     if checks:
         stage_loader_checks(loader)
     started = time.monotonic()
@@ -193,6 +257,7 @@ def build(source, output, execute=False, checks=False, sanitize=False):
         ["cmake", "-S", str(HERE / "native-cpu"), "-B", str(output / "build"),
          "-DVP_LLAMA_SOURCE=" + str(source), "-DCMAKE_BUILD_TYPE=Release",
          "-DVP_LLAMA_MODEL_LOADER=" + str(loader), "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+         "-DVP_LLAMA_CPU_QUANTS=" + str(cpu),
          "-DVP_NATIVE_TESTS=" + ("ON" if checks else "OFF"),
          "-DVP_NATIVE_SANITIZE=" + ("ON" if sanitize else "OFF")],
         ["cmake", "--build", str(output / "build"), "--target", "volparossa_llama_cpu",
@@ -207,6 +272,7 @@ def build(source, output, execute=False, checks=False, sanitize=False):
     require(wrapper_sources == {name: digest(HERE / "native-cpu" / name) for name in WRAPPER_FILES},
             "NATIVE_WRAPPER_CHANGED_DURING_BUILD")
     verify_loader_compilation(output, loader)
+    verify_cpu_compilation(output, source)
     candidates = list((output / "build").rglob(LIBRARY))
     require(len(candidates) == 1, "NATIVE_LIBRARY_OUTPUT")
     library = output / LIBRARY
@@ -255,9 +321,10 @@ def build(source, output, execute=False, checks=False, sanitize=False):
     (licenses / "GCC-runtime-copyright").chmod(0o444)
     report = dict(plan, version=4, abi_version=1, library={"path": LIBRARY, **digest(library)},
                   upstream_original_unchanged=True, loader_compile_source_verified=True,
+                  cpu_compile_source_verified=True,
                   dynamic_dependencies=needed, cpu="avx2_fma_f16c", quantization=False,
                   checks=list(CHECK_TARGETS) if checks else [],
-                  known_upstream_sanitizer_failure={
+                  historical_unpatched_sanitizer_failure={
                       "scope": "all_type_synthetic_tensor_test", "kind": "ubsan_misaligned_load",
                       "source": "ggml/src/ggml-cpu/arch/x86/quants.c:590",
                       "function": "ggml_vec_dot_q1_0_q8_0", "original_log_bytes": 412,

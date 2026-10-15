@@ -21,6 +21,10 @@ SOURCE_TREE = "fd570ef54b10ec5fecb739e7e04c8ce44a6f415a"
 LOADER_ORIGINAL_SHA = "efdb5f273bd1ab77301f2cadea1a5a804bafb28040aca033e45605a97a450242"
 LOADER_EFFECTIVE_SHA = "fcd26ea4ae21ea04954b275287c41a35e383015b736bbbe2e68f2ab5f6d095f9"
 LOADER_PATCH_SHA = "388fff7d5d9ca812abfeb27fddd1629144b7de6284e4bf685fbc8c147891e8c1"
+CPU_ORIGINAL_PATH = "ggml/src/ggml-cpu/arch/x86/quants.c"
+CPU_ORIGINAL_SHA = "3c489fdc77e3ab484a5f188bff9c60c0e9483c951ed65c1a562a04c249d5628e"
+CPU_EFFECTIVE_SHA = "b9a63f032ad048a688357194fa535d852959ffee0942c93d4b8fb9544febf6d2"
+CPU_PATCH_SHA = "563a178667eeac17e7072c343d1d21a3f641d78c284acbeb2633db26e1c36369"
 PROFILE = "qwen3-4b-instruct-2507-v1"
 LIBRARY = "libvolparossa_llama_cpu.so"
 WEIGHTS_SHA = "79f6bbc34572c0063d12022f0f93074d90bbcd5dfd82134423bf892f7f8df3cf"
@@ -72,6 +76,27 @@ def validate_build_provenance(value, require):
             and overlay["complete_tensor_validation"] is True and overlay["owner_poll_between_tensors"] is True
             and value.get("loader_compile_source_verified") is True
             and value.get("upstream_original_unchanged") is True, "NATIVE_BUILD_PATCH_BINDING")
+    validate_cpu_provenance(value, require)
+
+
+def cpu_provenance():
+    return dict(kind="q1_avx2_aligned_load_v1", original_path=CPU_ORIGINAL_PATH,
+                original_sha256=CPU_ORIGINAL_SHA, effective_sha256=CPU_EFFECTIVE_SHA,
+                patch_path="native-cpu/q1-aligned-load.patch", patch_sha256=CPU_PATCH_SHA,
+                compiled_source="cpu-overlay/quants.c")
+
+
+def validate_cpu_provenance(value, require):
+    # An additive source correction, not a new model/generation capability.
+    # Historical builds omit both fields and retain their unresolved Q1 finding.
+    present = {key for key in ("cpu_source_overlay", "cpu_compile_source_verified") if key in value}
+    if not present:
+        return
+    require(present == {"cpu_source_overlay", "cpu_compile_source_verified"}
+            and type(value.get("version")) is int and value["version"] == 4
+            and type(value.get("cpu_source_overlay")) is dict
+            and value["cpu_source_overlay"] == cpu_provenance()
+            and value.get("cpu_compile_source_verified") is True, "NATIVE_CPU_PATCH_BINDING")
 
 
 def validate_manifest(value, require):

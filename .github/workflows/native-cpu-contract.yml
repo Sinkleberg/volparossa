@@ -6,11 +6,14 @@ on:
       - feature/native-cpu-inference
       - feature/native-coding-output-constraint
       - fix/native-session-context-capacity
+      - fix/native-q1-aligned-load
     paths:
       - workers/volparossa-ml/native-cpu/**
       - workers/volparossa-ml/build_llama_cpu.py
+      - workers/volparossa-ml/convert_llama_cpu.py
       - workers/volparossa-ml/llama_cpu.py
       - workers/volparossa-ml/test_native_session.py
+      - workers/volparossa-ml/test_native_cpu_alignment.py
       - .github/workflows/native-cpu-contract.yml
   workflow_dispatch:
 
@@ -60,13 +63,18 @@ jobs:
 
           head = os.environ['GITHUB_SHA']
           paths = (
+              'workers/volparossa-ml/build_llama_cpu.py',
+              'workers/volparossa-ml/convert_llama_cpu.py',
               'workers/volparossa-ml/llama_cpu.py',
+              'workers/volparossa-ml/native-cpu/CMakeLists.txt',
+              'workers/volparossa-ml/native-cpu/q1-aligned-load.patch',
               'workers/volparossa-ml/native-cpu/abi-smoke.cpp',
               'workers/volparossa-ml/native-cpu/adapter.cpp',
               'workers/volparossa-ml/native-cpu/adapter.h',
               'workers/volparossa-ml/native-cpu/session-state.h',
               'workers/volparossa-ml/native-cpu/session-tests.cpp',
               'workers/volparossa-ml/test_native_session.py',
+              'workers/volparossa-ml/test_native_cpu_alignment.py',
           )
           files = {}
           for name in paths:
@@ -85,7 +93,7 @@ jobs:
           with Path('build/native-contract/source.json').open('x') as stream:
               stream.write(json.dumps(record, sort_keys=True) + '\n')
           PY
-      - name: Check the same 91 inert Python cases in each matrix mode
+      - name: Check the same 98 inert Python cases in each matrix mode
         run: |
           set -euo pipefail
           (
@@ -93,7 +101,8 @@ jobs:
             timeout --kill-after=5s 120s \
               env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 \
               python3 -B -m unittest -v test_llama_cpu test_conversion_diagnostic \
-                test_native_output_constraint test_native_source_lifecycle test_native_session
+                test_native_output_constraint test_native_source_lifecycle test_native_session \
+                test_native_cpu_alignment
           ) 2>&1 | tee build/native-contract/python-contracts.log
           python3 -B - <<'PY'
           import json, os, re
@@ -101,11 +110,11 @@ jobs:
           text = Path('build/native-contract/python-contracts.log').read_text()
           cases = re.findall(r'^(test_[A-Za-z0-9_]+) \(([^)]+)\) \.\.\. ok$', text, re.M)
           names = [scope + '::' + method for method, scope in cases]
-          assert len(names) == len(set(names)) == 91
-          assert re.findall(r'^Ran (\d+) tests in .+$', text, re.M) == ['91']
+          assert len(names) == len(set(names)) == 98
+          assert re.findall(r'^Ran (\d+) tests in .+$', text, re.M) == ['98']
           assert re.findall(r'^OK.*$', text, re.M) == ['OK']
-          record = dict(version=1, mode=os.environ['NATIVE_MODE'], passed=91, failed=0,
-              skipped=0, unique_tests_across_matrix=91, repeated_in_each_matrix_mode=True,
+          record = dict(version=1, mode=os.environ['NATIVE_MODE'], passed=98, failed=0,
+              skipped=0, unique_tests_across_matrix=98, repeated_in_each_matrix_mode=True,
               test_names=sorted(names), model_execution=False)
           with Path('build/native-contract/python-contracts.json').open('x') as stream:
               stream.write(json.dumps(record, sort_keys=True) + '\n')

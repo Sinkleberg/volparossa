@@ -20,8 +20,8 @@ The opt-in CPU backend uses [ggml-org/llama.cpp](https://github.com/ggml-org/lla
 at exact commit `7fe450e19305b828c199d602c23a8337aaa1f03b` (resolved release tag
 `v0.5.0`; MIT). The tag is unsigned. No prebuilt upstream executable, server,
 GPU backend or implicit artifact download is used. The original checkout remains
-unchanged; the build applies the explicitly recorded loader-only patch below to
-a fresh staged copy. The GPL-3.0-only adapter exposes a fixed owned C ABI and
+unchanged; the build applies the explicitly recorded loader and CPU patches below
+to fresh staged copies. The GPL-3.0-only adapter exposes a fixed owned C ABI and
 source-build flags.
 The builder preserves tracked upstream licenses/notices, including ggml and
 the Mozilla tinyBLAS notice, unchanged in the generated artifact.
@@ -44,6 +44,21 @@ tree `fd570ef54b10ec5fecb739e7e04c8ce44a6f415a` and these SHA-256 digests:
 The builder verifies that the compilation database selects exactly the staged
 loader. It rejects changed source/patch bytes and retains the clean upstream
 checkout and original notices. This is a local patch, not an upstream release.
+
+`workers/volparossa-ml/native-cpu/q1-aligned-load.patch` replaces one AVX2
+pointer-cast load in `ggml_vec_dot_q1_0_q8_0` with a 16-byte `memcpy` into an
+aligned four-element `uint32_t` array. Arithmetic, quantization formats and the
+upstream all-type test remain unchanged. The original MIT license is preserved.
+Build-v4 provenance records this separate `cpu_source_overlay` and checks both
+the selected translation unit and its compiler command against the staged file:
+
+- Original `ggml/src/ggml-cpu/arch/x86/quants.c`: `3c489fdc77e3ab484a5f188bff9c60c0e9483c951ed65c1a562a04c249d5628e`.
+- Patch: `563a178667eeac17e7072c343d1d21a3f641d78c284acbeb2633db26e1c36369`.
+- Effective staged CPU source: `b9a63f032ad048a688357194fa535d852959ffee0942c93d4b8fb9544febf6d2`.
+
+Historical builds omit this provenance pair and do not establish the correction.
+The source-only normal and sanitizer builds must verify the new source before
+its acceptance; no existing failed sanitizer result is replaced or suppressed.
 
 The separate offline conversion candidate starts only from the existing pinned
 Apache-2.0 `Qwen/Qwen3-4B-Instruct-2507` revision

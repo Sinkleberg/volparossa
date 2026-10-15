@@ -60,7 +60,7 @@ default; `--execute` builds at low priority with at most two compiler jobs into
 a new output directory. `build.json` retains the source/tree, wrapper hashes,
 compiler versions, actual library hash, CPU requirements and dependency list.
 Original upstream notices are copied unchanged.
-Build manifest v2 also binds the explicitly recorded loader-only patch, original
+Build manifest v2 also binds the explicitly recorded loader patch, original
 and effective loader digests, and actual staged-source compilation. The checkout
 stays pristine; old v1 build manifests cannot masquerade as the patched backend.
 See [third-party provenance](../../../THIRD_PARTY_LICENSES.md#explicit-llamacpp-cpu-inference-candidate).
@@ -99,8 +99,23 @@ load in upstream `ggml/src/ggml-cpu/arch/x86/quants.c:590`,
 `ggml_vec_dot_q1_0_q8_0`. Its retained 412-byte log has SHA-256
 `37e07701e4f9a7fadbee0876f77d7eb034192e951a4cd2da572606255bf84f08`.
 Q1_0/Q8_0 model tensors are not admitted by this BF16/F32 conversion contract,
-but the finding remains unresolved and is recorded in normal build provenance.
-The full sanitizer suite must not be described as passing.
+and the historical failure remains in build provenance.
+
+The separate alignment candidate stages a second exact source patch: one AVX2
+pointer-cast load becomes a 16-byte `memcpy` into an aligned `uint32_t[4]`.
+It changes no arithmetic or accepted model format. CMake substitutes only the
+x86 CPU translation unit; the build and converter verify its digest, selected
+compile-database entry, compiler input and `ggml-cpu` object target. The upstream
+checkout, headers and all-type test remain unchanged.
+
+Build v4 adds the atomic `cpu_source_overlay` / `cpu_compile_source_verified`
+pair for this correction. Historical manifests omitting both fields retain their
+old meaning; they are not evidence that the alignment issue is corrected.
+The new wrapper inventory has eight files, including the patch, so downstream
+Code provenance must be explicitly joined before another paired model trial.
+Seven inert alignment/provenance cases and the existing 91 Python cases pass;
+the new normal and complete ASan/UBSan source builds remain required. The full
+sanitizer suite must not yet be described as passing.
 
 A separate owned wrapper reused the original upstream BF16 conversion,
 reference and dot-product functions and tolerances, plus its F32 vector cases.
