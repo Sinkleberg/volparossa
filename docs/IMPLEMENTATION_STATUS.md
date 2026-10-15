@@ -34,15 +34,41 @@ tool use, prompt truncation, extra time or alternate model is introduced.
 
 171 targeted inert Python checks pass, including a serialized selected dataset
 through the actual worker/encode/decode path with a synthetic native executor.
-That test caught and corrected a cross-layer input-field rejection. Thirteen
-new Rust cases cover manifest, request/result, parser and IPC bindings; execution
-remains pending. Hosted Quality run `38671767972` on `030c16f0` passes formatting,
-native Python contracts and dependency checks, but strict Clippy rejects two
-adjacent identical rejection branches (`if_same_then_else`). They are now one
+That test caught and corrected a cross-layer input-field rejection.
+[Hosted Quality `38672934132`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38672934132)
+on exact core `9d044921` passes formatting, strict Clippy, 60 native Python
+contracts and all thirteen new Rust manifest, request/result, parser and IPC
+binding cases. The workspace records 3,558 distinct passing tests and seven
+ignored tests. Three namespace proofs and one optional CLI identity proof are
+explicitly skipped, not successful datapath evidence. Original job-log ZIP
+SHA-256: `7760651e167a4700b0967c19dca7c6755b3a71e463799658faac3f372d576571`.
+
+Earlier Quality `38671767972` on `030c16f0` stopped at strict Clippy's
+`if_same_then_else`: two adjacent identical rejection branches became one
 equivalent disjunction, without suppressing the lint or changing admission.
-The earlier run `38671600105` stopped at formatting, before Rust compilation;
-`030c16f0` changes only those seven formatting hunks. These contracts are not
-proof of an actual OpenCode coding task or protected peer execution.
+Run `38671600105` stopped at formatting before Rust compilation; `030c16f0`
+changes only those seven formatting hunks. These source checks are not proof
+of a complete OpenCode coding task or protected peer execution.
+
+[Actual Code trial `38675278393`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38675278393)
+on Code `6aa6291a` / core `9d044921` passes native build, conversion and model
+provisioning with the selected output constraint. One of seven submitted model
+requests completes with a function call, and the actual OpenCode runtime
+completes one `read` action. Six requests return `execution_failed`; none is
+reported as invalid output or an execution-budget error. The only retained core
+event is `result_observed`, which does not identify the six failures' causes.
+The task ends after 588,147 ms as `opencode_task_incomplete`: no edit, test,
+complete native turn or successful coding loop is proved. Its read-state
+counters describe observed transitions, not three distinct tool calls.
+
+Reported runtime, project, provisioning-group, guest-unit/private-data,
+QEMU/scratch and owned CI-host cleanup complete. Scoped normalized route/DNS
+observations match; raw IPv6 route bytes differ, so this is not byte-identical
+host-state evidence. Raw model output remains excluded. Original artifact
+`11946278747` ZIP SHA-256:
+`487bee78bb4857c6a5b48df7d69df21ceeb608ded9d9264122668480f62afa74`;
+original job-log ZIP SHA-256:
+`5ff8a4055bf966f192f80b366cbeb8428d77793c6ee6525b3109eecf292af36e`.
 
 [Source-only native run `38671551374`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38671551374)
 on `b8bd8228` passes the normal build and all five check targets. ABI, loader,
@@ -58,7 +84,7 @@ The normal build's v3 manifest binds the six wrapper sources, exact upstream
 tree and library SHA-256
 `3e59444d6f81c753ab1fcd3418ebabfb42f0368b24c76961ee59ddaf339617fa`.
 Native sources, Python contracts and workflow are byte-identical between
-`b8bd8228` and `030c16f0`. Original normal artifact SHA-256:
+`b8bd8228` and `9d044921`. Original normal artifact SHA-256:
 `40ecaab5262d043a25b3d30d52a641f8406130103741e00d6857eca925201163`;
 sanitizer artifact:
 `3c948ae71d8c54870fe1a151b95d699556aa0907f9ccd17b5a9d3d18d71b5272`;
@@ -79,10 +105,11 @@ check passed in this attempt. Original job-log ZIP SHA-256:
 - [ ] An owner-selected `llama_cpp_bf16_v1` backend is being connected to the
   existing isolated private-conversation worker. The source-only build of pinned
   llama.cpp `7fe450e19305b828c199d602c23a8337aaa1f03b` passes. Actual conversion
-  and provisioning now pass, but the latest trial ends at `compute_deadline`
-  during post-generation verification: **no usable native turn or successful
-  OpenCode coding task is proved**. The earlier `invalid_output` result and all
-  original failed trials remain in the evidence below.
+  and provisioning pass. The historical unselected-output trials include
+  `compute_deadline` during post-generation verification and `invalid_output`;
+  neither proves a usable native turn or successful OpenCode coding task. The
+  selected-output follow-up above now proves one model-driven read action,
+  still not a complete coding loop. All original failed trials remain below.
   This first backend accepts only the original Qwen3-4B-Instruct-2507 profile and
   explicitly negotiated `greedy_v1`; public jobs, training and other profiles
   retain their existing backend. It does not establish confidential peer execution.
