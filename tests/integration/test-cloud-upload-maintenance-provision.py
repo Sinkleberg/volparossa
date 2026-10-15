@@ -38,7 +38,7 @@ class UploadProvision(unittest.TestCase):
             self.assertEqual(new['sources'][name]['revision'], M['STREAM_REVISIONS'][name])
             self.assertEqual(set(new['sources'][name]['files']), set(old['sources'][name]['files']))
         M['validate_provision'](receipt(2))
-        for version in (True, 0, 5, '2'):
+        for version in (True, 0, 6, '2'):
             with self.subTest(version=version), self.assertRaises(ValueError): M['load_pins'](version)
         for version, other in ((1, 2), (2, 1)):
             value = receipt(version)
@@ -140,6 +140,33 @@ class UploadProvision(unittest.TestCase):
                 path = Path(temporary) / 'pins.json'; path.write_text(json.dumps(value))
                 with patch.dict(M['load_pins'].__globals__, PINS=path), self.assertRaises(ValueError):
                     M['load_pins']()
+
+    def test_flow_profile_binds_shared9_current_finite_sources_and_rejects_all_other_generations(self):
+        current = M['load_pins'](5)
+        prior = M['PREVIOUS']['PROVISIONER']['load_pins'](9)
+        self.assertEqual(M['FLOW_REVISIONS'], dict(image='9694a2b9dcb40aceefd78dbc0ab34303071a0ffd',
+            cloud='47b0f03b84913761570c3de7037ba5509b848c23'))
+        self.assertEqual([len(current['sources'][name]['files']) for name in ('image', 'cloud')], [3, 21])
+        self.assertEqual(current['runtime'], prior['runtime'])
+        for name in ('image', 'cloud'):
+            self.assertEqual(current['sources'][name]['revision'], prior['sources'][name]['revision'])
+            for path in current['sources'][name]['files'].keys() & prior['sources'][name]['files'].keys():
+                self.assertEqual(current['sources'][name]['files'][path], prior['sources'][name]['files'][path])
+        previous = runpy.run_path(str(HERE / 'test-storage-consumer-maintenance-evidence.py'))
+        for profile in (1, 2, 3, 4, 5):
+            M['validate_provision'](receipt(profile))
+            self.assertEqual(M['load_pins'](profile)['runtime'], current['runtime'])
+            for other in (1, 2, 3, 4, 5):
+                if profile == other: continue
+                for change in ({'version': other}, {'pins': M['load_pins'](other)},
+                        {'pins_sha256': M['digest'](M['pins_path'](other))}):
+                    with self.subTest(profile=profile, other=other), self.assertRaises(ValueError):
+                        M['validate_provision']({**receipt(profile), **change})
+            for shared in ((1, 2, 3, 4, 5, 6, 7, 8) if profile == 5 else (9,)):
+                raw = json.dumps(previous['fixture'](profile_version=shared)['provision']).encode()
+                with patch.dict(M['verify_shared_runtime'].__globals__, public_file=lambda *_: raw,
+                        verify_files=Mock(side_effect=AssertionError('unexpected runtime access'))), self.assertRaises(ValueError):
+                    M['verify_shared_runtime'](M['load_pins'](profile), profile)
 
     def test_closed_provision_does_not_claim_application_or_network_success(self):
         good = receipt()

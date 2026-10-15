@@ -32,17 +32,18 @@ The immediate milestones build on the retained candidates and evidence below:
 The prepared integration candidate combines native core `a410b015` and Storage
 `728db40b`. Their production changes occupy separate paths; the shared Quality
 workflow and license notices retain both sides. Only this status ledger required
-conflict resolution. The combined source still needs its own verification before
-acceptance for main. Original actual trials keep their dispatched
-sources; this preparation does not replace either trial or change its pins.
+conflict resolution. Combined Quality and CodeQL pass on the exact candidate
+tree; the actual coding and storage failures below still require resolution.
+Original trials retain their dispatched sources; source integration does not
+replace their results or change their pins.
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Targeted source run `38799870413` on `0e17aff5` and full profile-9 Quality `38800337179` on `fc75a42d` pass. Actual `38804192575` fails during Cloud FINALIZE after Image publication, with `helper_kernel` then `helper_cleanup_incomplete`; the exact suboperation remains unknown. The separate listener correction passes targeted run `38815471227`, including a real Linux MPTCP rejection/reuse test. Actual `38816407455` tests that correction on `728db40b` with unchanged Image/Cloud pins and acceptance gates; no complete storage acceptance is established yet. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | The listener correction passes targeted run `38815471227`, including a real Linux MPTCP rejection/reuse test. Actual `38816407455` on `728db40b` instead fails at Image FINALIZE fragment 0/copy 1 while reading the provider challenge; Cloud publication is not reached. Its standalone core lifecycle and two restores pass, but consumer repair, restoration and remote retirement remain unproved. Trace the challenge stall without extending the operation deadline. Earlier `38804192575` retains its separate unresolved flow-acquisition failure. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Finish the real read/edit/test task while preserving timely owner pause/resume and complete post-task checks. | Earlier actual `38806073909` completes the task but fails afterward. The holder correction in actual `38816006720` now retains real task memory and exit status; this task instead fails on `compute_control_ack_deadline` after two reads and an edit, before a test. Trace the unacknowledged pause without relaxing the existing ten-second limit. Code PR11 source check `38817880150` passes 533 cases with five skips; executable files are unchanged from dispatched Code `0031c0e9`. Model, tools, permissions and budgets remain unchanged. Whole-trial and protected-peer acceptance remain open. |
+| Native coding execution — `volparossa`, `volparossa-code` | Finish the real read/edit/test task while preserving timely owner pause/resume and complete post-task checks. | Earlier actual `38806073909` completes the task but fails afterward. The holder correction in `38816006720` retains task status and memory, but this task misses a pause acknowledgement after two reads and an edit. Separate core PR266 (`7d0f9f0b`) adds adaptive prefill checkpoints and passes 116 inert cases without changing the ten-second guard, full prompt, model, tools, permissions or budgets. Code `fd4ff968` pins that core; source check `38823962068` passes. Actual `38824828727` is dispatched on those exact sources; responsiveness, throughput, whole-trial and protected-peer acceptance remain open. |
 | Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258's authenticated refusal path has actual route evidence; PR262 integrates explicit same-connection key confirmation. The next implementation reuses the native worker lifecycle and existing TLS stack, rather than extending the probe into task authority. Boot/runtime/model integrity, production roots and current vendor appraisal must be checked before private input; task authority needs its own finite grant. Those functions and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 Detailed earlier Android and storage checkpoints remain in the
@@ -54,29 +55,31 @@ The latest completed outcomes are summarized below.
 PR233 now joins the native and Storage baseline at `5c35aa09`, with the same
 five absolute-expiry regressions and no other production changes relative to
 `dcdf7cfb`. Its [source check `38820481399`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38820481399)
-is pending. PR234 joins that source without changing the dispatched Storage or
-Code trials. The joined runner selects shared profile 9 for standalone Storage
-and retains profile 8 for the existing upload profile 4. Its 155 targeted inert
-checks pass, including shared and upload wiring, provisioning, orchestration,
-evidence, Node observers and protected-quote wiring; no VM is executed by them.
+passes all five expiry regressions within 4,058 unique Rust tests. PR234 joins
+that source without changing the dispatched Storage or Code trials.
 
-The earlier PR234 candidate `f91958bd` joins Storage `1db29f62`. Its upload
-source profile 4 pins Image `10c46b9d` and Cloud `dda7a218`;
-Cloud evidence 6 and terminal report 4 require the complete original shared
-consumer profile 8 and maintenance report 7. These closed source and evidence
-profiles must be reconciled with the current shared consumer profile 9 before
-the next actual upload trial; historical pins must not be silently rewritten.
-Current Image `9694a2b9` and Cloud `47b0f03b` already contain the finite-authority
-application changes as ancestors. The next upload profile can use those sources
-without dropping their newer flow diagnostics or duplicating the application work.
+Upload source profile 5 now binds Image `9694a2b9` and Cloud `47b0f03b` to
+shared consumer profile 9. Those application sources already include finite
+authorization and the current flow diagnostics. Cloud evidence 7 and terminal
+report 5 require the complete original shared evidence 9 and maintenance
+report 8; the builder reconstructs the earlier component from its original
+receipts rather than accepting a replacement summary. Both standalone Storage
+and the upload continuation select shared profile 9.
 
-That earlier candidate passes 141 targeted inert checks: 12 provision, 19 orchestration,
-27 evidence, 15 Node, 17 shell, 10 VM-wiring and 41 shared-wiring cases. All 24
-pinned application files match their Git objects; historical pins 1–3 and
-evidence 2–5 encodings remain unchanged. The existing closed provider-activity
-receipt adds exactly one allowed export name (173 recovery slots in total);
-the 2 MiB named-evidence limit and 8 MiB archive limit are unchanged. These
-checks do not execute a VM or prove distributed delivery.
+All 24 pinned application files match their Git objects. Historical upload
+pins 1–4 remain byte-identical, and evidence 2–6 retains its encodings and
+validation behavior. The new adapter selects `flowAcquireDiagnosticsV8`;
+finite grants, retention, resource limits and cleanup requirements are unchanged.
+The 173 recovery slots, 2 MiB named-evidence limit and 8 MiB archive limit
+are also unchanged.
+
+The joined candidate passes 161 targeted inert checks: 13 provision,
+19 orchestration, 32 evidence, 15 Node, 17 shell, 10 VM-wiring, 41 shared-wiring
+and 14 protected-quote-wiring cases. These do not execute a VM or establish
+distributed upload acceptance. Earlier candidate `f91958bd` used upload
+profile 4/shared profile 8 and passed 141 checks; the baseline join `c3b0544f`
+passed 155 before the new profile. Those historical sources and results remain
+distinct from this continuation.
 
 The longer trial still waits for successful shared Storage acceptance. It must
 then prove a new authenticated upload, automatic finite enrollment, repair after
@@ -86,7 +89,59 @@ grants, deadlines, resource limits or production authority. Earlier Cloud source
 checks and failed prerequisites remain in the
 [previous candidate ledger](https://github.com/VOLPAROSSA/volparossa/blob/0456782ad8d58db91d53cf3d14fe3edcf505aa7a/docs/IMPLEMENTATION_STATUS.md#current-cloud-upload-producer-integration).
 
+### Focused trials awaiting results
+
+[Code trial `38824828727`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38824828727)
+uses exact Code `fd4ff9688c58d6228e07f2116a7e8dcdb12a89ef` and core
+`7d0f9f0b492c5e692cc9d26f23d95f55f2c1e651`. It exercises the adaptive
+prefill checkpoints with the same model-driven read/edit/test task, owner
+controls, resource limits and post-task checks. The new core pin includes the
+separately verified native/Storage source join; it is not only a prefill change.
+
+[Storage challenge test `38824933092`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38824933092)
+uses test-only candidate `cccc999875ac2790c27e3c42ae06ebb8d347ca31`, with
+production source unchanged from `dcdf7cfb`. Three regressions exercise signed
+receipts over genuine nested TLS, a full reverse transport buffer, and joined
+cancellation. They use in-memory transports and the production proxy, not
+real MPTCP or the complete Image/Cloud path. Their outcome cannot by itself
+establish the cause of the failed distributed trial.
+
 ### Latest completed integration evidence — 15–16 October
+
+- **The adaptive-prefill Code pin passes source checks.**
+  [Source run `38823962068`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38823962068)
+  checks Code `fd4ff968`, with checkout tree
+  `6d87cd093bc76bf94e20662e3dfd9bafab591300`: 533 cases pass, five optional
+  fixtures are explicitly skipped, and none fail. Separate focused checks
+  import the actual pinned core and verify its provenance and CPU-overlay
+  behavior. [CodeQL `38823957344`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38823957344)
+  passes all three language jobs on the same Code source. These are not
+  measurements of model responsiveness or coding quality. Original source
+  and CodeQL log ZIP SHA-256 values are respectively
+  `c5455f4cea42d8cf1a55874040202667e2f2fd7618c256c784b44e8549923692`
+  and `bb7399f82cbafc579a633642e1b37aba1baae3442bd5c49a2e76b5cffcf04bd4`.
+
+- **Storage retains its base lifecycle proof but stalls during Image publication.**
+  [Actual `38816407455`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38816407455)
+  fails on exact core `728db40b8b51141652b1e5d7f79d2530e72bb256`, with
+  unchanged Image `9694a2b9` / Cloud `47b0f03b` pins. Image FINALIZE
+  fragment 0/copy 1 reports `CONTENT_UNAVAILABLE` at
+  `challenge_read_verify`, under the operation deadline. Its elapsed buckets
+  are under one second before the challenge and 90–120 seconds within it.
+  This request reaches the challenge stage, not the earlier flow-acquisition
+  failure; that distinction does not establish the cause of either failure.
+  Cloud publication is not reached.
+
+  The original standalone lifecycle components validate: core-loss resume,
+  a fresh owner turn, two non-consuming whole-archive-verified restores,
+  removal of all eleven copies plus the foreground copy, and zero final
+  charged/provider usage. The combined consumer report remains failed.
+  Local consumer and guest-owned cleanup and the QEMU join are confirmed;
+  consumer remote cleanup and provider usage are not. Guest-root-namespace
+  snapshots match, but are not host-runner network snapshots.
+  Original artifact and log ZIP SHA-256 values are respectively
+  `3de6ff71efbdbcbf1447b3fded93143b49462064faad326743b8ec68b3b3a783`
+  and `c022af40589f8ef245d60d834b645266e1d9d35e40851739083d461e5c079eef`.
 
 - **The task holder retains postflight evidence; a worker pause still times out.**
   [Actual `38816006720`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38816006720)
@@ -122,7 +177,24 @@ checks and failed prerequisites remain in the
   retains the ABCI `OUT_DIR` warning; this is not compilation or a runtime trial.
   Original log ZIP SHA-256:
   `259eacd27d22f5f6ea49eeb10619fc854627591c286f5155f7aa8745a2e31138`.
-  The separate combined Quality gate remains pending.
+  [Combined Quality `38819466450`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38819466450)
+  also passes on the same tree: 4,053 unique Rust tests, zero failures and eight
+  explicitly ignored cases. Six repeated child-test reports are counted once.
+  Formatting, strict Clippy, fuzz lint and dependency/license checks pass, as do
+  228 consumer Python and 48 Node cases. Three live namespace proofs are skipped
+  because user namespaces are unavailable; successful wrappers do not prove
+  those datapaths. Original log ZIP SHA-256:
+  `83b04ac676c4f0c3110ba3d903cbc56d1fff0761453eef3044cb76c33fae3f02`.
+
+  The finite-authority join `5c35aa09`, tree
+  `fa51f96423e5afd4b46795abe54cb1d544118ebf`, separately passes
+  [Quality `38820481399`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38820481399):
+  4,058 unique Rust tests including all five absolute-expiry regressions, zero
+  failures and the same eight ignored cases. The other source gates and the
+  namespace-proof limitations are unchanged. Original log ZIP SHA-256:
+  `709216214ec78b3f5d87e6365418dd1031d7dc2b95795e902a1f437e4812191a`.
+  These are source integration results, not new coding, storage or protected
+  execution acceptance.
 
 - **A real coding task succeeds; its outer postflight still fails.**
   [Trial `38806073909`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38806073909)
@@ -161,9 +233,10 @@ checks and failed prerequisites remain in the
   remains bound to Code `0031c0e97f8bd0221c207c5a0f00370073cf617d` and the same
   core `6d65bb12`; its separate failed outcome is recorded above.
 
-  Code PR11 now targets main at `8e873c3d1b38c5fab25b6d336aef0dddb1bd2501`.
-  Only instructions, Dependabot settings and two documentation files differ
-  from the dispatched Code source. Its
+  The earlier Code PR11 main-join candidate was
+  `8e873c3d1b38c5fab25b6d336aef0dddb1bd2501`. Only instructions, Dependabot
+  settings and two documentation files differ from the original `0031c0e9`
+  trial source. Its
   [main-join source check `38817880150`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38817880150)
   again passes 533 cases with five skips; checkout `00abb324` has the identical
   candidate tree `8da080aff2fbb1aa7014e864f294840e5ebc8687`. Original source and

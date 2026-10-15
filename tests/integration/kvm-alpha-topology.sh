@@ -850,7 +850,7 @@ while [ "$#" -gt 0 ]; do
                 private-storage-handoff) scenario=content-custody; private_storage_handoff=yes; wifi_link=no; uplink_link=no ;;
                 private-storage-fragments) scenario=content-custody; private_storage_fragments=yes; wifi_link=no; uplink_link=no ;;
                 private-storage-maintenance) scenario=content-custody; private_storage_fragments=yes; private_storage_maintenance=yes; storage_consumer_profile_version=9; wifi_link=no; uplink_link=no ;;
-                cloud-upload-maintenance) scenario=content-custody; private_storage_fragments=yes; private_storage_maintenance=yes; cloud_upload_maintenance=yes; storage_consumer_profile_version=8; wifi_link=no; uplink_link=no ;;
+                cloud-upload-maintenance) scenario=content-custody; private_storage_fragments=yes; private_storage_maintenance=yes; cloud_upload_maintenance=yes; storage_consumer_profile_version=9; wifi_link=no; uplink_link=no ;;
                 image-snapshot) scenario=content-custody; private_storage_fragments=yes; image_snapshot=yes; wifi_link=no; uplink_link=no ;;
                 cloud-private-file) scenario=content-custody; private_storage_fragments=yes; cloud_private_file=yes; wifi_link=no; uplink_link=no ;;
                 cloud-private-upload) scenario=content-custody; private_storage_fragments=yes; cloud_private_upload=yes; wifi_link=no; uplink_link=no ;;
@@ -1213,7 +1213,7 @@ fi
 if [ "$cloud_upload_maintenance" = yes ]; then
     for upload_fixture in cloud-upload-maintenance-smoke.sh cloud-upload-maintenance-smoke.py \
         cloud-upload-maintenance.mjs cloud-upload-maintenance-pins.json cloud-upload-maintenance-pins-v2.json \
-        cloud-upload-maintenance-pins-v3.json cloud-upload-maintenance-pins-v4.json \
+        cloud-upload-maintenance-pins-v3.json cloud-upload-maintenance-pins-v4.json cloud-upload-maintenance-pins-v5.json \
         cloud-upload-maintenance-evidence.py cloud-upload-maintenance-provision.py; do
         [ -f "$source_directory/tests/integration/$upload_fixture" ] \
             && [ ! -L "$source_directory/tests/integration/$upload_fixture" ] || exit 69
@@ -3171,6 +3171,8 @@ if [ "$cloud_upload_maintenance" = yes ]; then
         "$WORK/bin/cloud-upload-maintenance-pins-v3.json"
     install -o root -g root -m 0444 "$source_directory/tests/integration/cloud-upload-maintenance-pins-v4.json" \
         "$WORK/bin/cloud-upload-maintenance-pins-v4.json"
+    install -o root -g root -m 0444 "$source_directory/tests/integration/cloud-upload-maintenance-pins-v5.json" \
+        "$WORK/bin/cloud-upload-maintenance-pins-v5.json"
 fi
 if [ "$image_snapshot" = yes ] || [ "$cloud_private_file" = yes ] || [ "$cloud_private_upload" = yes ]; then
     install -o root -g root -m 0555 "$source_directory/tests/integration/image-snapshot-smoke.py" \
