@@ -234,16 +234,16 @@ fn append_diagnostics_cli_is_explicit_per_replica_or_fragment_command() {
                 let crate::CliCommand::Storage { command } = cli.command else {
                     panic!();
                 };
-                let selected = match command {
-                    crate::storage::Command::Replicas {
-                        append_diagnostics_v7,
-                        ..
-                    }
-                    | crate::storage::Command::Fragments {
-                        append_diagnostics_v7,
-                        ..
-                    } => append_diagnostics_v7,
-                    _ => panic!(),
+                let (crate::storage::Command::Replicas {
+                    append_diagnostics_v7: selected,
+                    ..
+                }
+                | crate::storage::Command::Fragments {
+                    append_diagnostics_v7: selected,
+                    ..
+                }) = command
+                else {
+                    panic!();
                 };
                 assert_eq!(selected, enabled);
             }

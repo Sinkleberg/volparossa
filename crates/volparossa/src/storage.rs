@@ -123,20 +123,20 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
             command,
             append_diagnostics_v7,
         } => {
-            return peer::with_append_diagnostics(
+            return Box::pin(peer::with_append_diagnostics(
                 append_diagnostics_v7,
                 peer::replicas::run(*command, socket),
-            )
+            ))
             .await;
         }
         Command::Fragments {
             command,
             append_diagnostics_v7,
         } => {
-            return peer::with_append_diagnostics(
+            return Box::pin(peer::with_append_diagnostics(
                 append_diagnostics_v7,
                 peer::replicas::fragments::run(*command, socket),
-            )
+            ))
             .await;
         }
     };
