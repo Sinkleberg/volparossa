@@ -141,7 +141,7 @@ impl ContentRuntime {
             stage = "QUOTE_SIGNED_EXCHANGE_FAILED";
             // No more requester bytes are legal until the response. EOF cancels local ownership.
             let response = until_requester_closed(local, async {
-                wire::exchange(&mut remote, challenge, &self.signer, &quote_request)
+                wire::exchange_outcome(&mut remote, challenge, &self.signer, &quote_request)
                     .await
                     .map_err(|_| ContentError::Unavailable)
             })
@@ -162,13 +162,13 @@ impl ContentRuntime {
                 return Err(ContentError::Unavailable);
             }
             stage = "QUOTE_LOCAL_REPLY_FAILED";
-            wire::write_response(local, &response)
+            wire::write_outcome(local, &response, &quote_request)
                 .await
                 .map_err(|_| ContentError::Unavailable)?;
             send(
                 local,
                 request_id,
-                "QUOTE_EXCHANGE_OK",
+                terminal_code(&response),
                 Payload::Ack(Empty {}),
             )
             .await
@@ -180,6 +180,13 @@ impl ContentRuntime {
             super::content_event(context, stage).await;
         }
         result
+    }
+}
+
+fn terminal_code(outcome: &wire::QuoteOutcome) -> &'static str {
+    match outcome {
+        wire::QuoteOutcome::Evidence(_) => "QUOTE_EXCHANGE_OK",
+        wire::QuoteOutcome::DeviceUnavailable => "QUOTE_DEVICE_UNAVAILABLE",
     }
 }
 
@@ -201,4 +208,21 @@ async fn send(
     )
     .await
     .map_err(|_| ContentError::Unavailable)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quote_remote_device_refusal_has_a_distinct_terminal_code() {
+        assert_eq!(
+            terminal_code(&wire::QuoteOutcome::DeviceUnavailable),
+            "QUOTE_DEVICE_UNAVAILABLE"
+        );
+        assert_ne!(
+            terminal_code(&wire::QuoteOutcome::DeviceUnavailable),
+            "QUOTE_EXCHANGE_OK"
+        );
+    }
 }

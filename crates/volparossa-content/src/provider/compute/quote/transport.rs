@@ -14,7 +14,7 @@ use super::super::{
     guest::{MAX_QUOTE_REQUEST_BYTES, MAX_QUOTE_RESPONSE_BYTES, QuoteRequest, QuoteResponse},
     protocol::{self, Kind, Purpose, Record},
 };
-use super::{QuoteError, SELECTOR_OPERATION, SELECTOR_VERSION};
+use super::{QuoteError, QuoteOutcome, SELECTOR_OPERATION, SELECTOR_VERSION, outcome};
 
 /// A unique challenge authenticated under the fixed quote signing purpose.
 pub struct QuoteChallenge(Record);
@@ -64,6 +64,26 @@ pub async fn exchange<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    match exchange_outcome(stream, challenge, requester, request).await? {
+        QuoteOutcome::Evidence(response) => Ok(response),
+        QuoteOutcome::DeviceUnavailable => Err(QuoteError::Unavailable),
+    }
+}
+
+/// Exchange one authenticated, request-bound quote or explicit device refusal.
+/// A refusal is the provider's assertion, never evidence of successful collection.
+///
+/// # Errors
+/// Preserves signature, purpose, provider, challenge, request and expiry checks.
+pub async fn exchange_outcome<S>(
+    stream: &mut S,
+    challenge: QuoteChallenge,
+    requester: &SigningKey,
+    request: &QuoteRequest,
+) -> Result<QuoteOutcome, QuoteError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     timeout(Duration::from_secs(EXCHANGE_SECONDS), async {
         let record = Record::request(requester, &challenge.0, request.encode(), protocol::now()?)?;
         let bytes = record.encode();
@@ -78,7 +98,7 @@ where
         {
             return Err(QuoteError::Unauthorized);
         }
-        Ok(QuoteResponse::decode(reply.payload(), request)?)
+        outcome::decode(reply.payload(), request)
     })
     .await
     .map_err(|_| QuoteError::Expired)?
@@ -115,10 +135,43 @@ pub async fn read_response<S: AsyncRead + Unpin>(
     stream: &mut S,
     request: &QuoteRequest,
 ) -> Result<QuoteResponse, QuoteError> {
-    Ok(QuoteResponse::decode(
+    match read_outcome(stream, request).await? {
+        QuoteOutcome::Evidence(response) => Ok(response),
+        QuoteOutcome::DeviceUnavailable => Err(QuoteError::Unavailable),
+    }
+}
+
+/// Read one bounded outcome on the already authorized local connection.
+/// This bare framing does not authenticate a provider: unlike `exchange_outcome`,
+/// no signed provider transcript travels here. A refusal is a local-agent claim.
+///
+/// # Errors
+/// Rejects noncanonical, unknown, stale or differently request-bound refusals.
+pub async fn read_outcome<S: AsyncRead + Unpin>(
+    stream: &mut S,
+    request: &QuoteRequest,
+) -> Result<QuoteOutcome, QuoteError> {
+    outcome::decode(
         &protocol::read(stream, MAX_QUOTE_RESPONSE_BYTES).await?,
         request,
-    )?)
+    )
+}
+
+/// Write one outcome to the exact authorized local connection, never a log.
+///
+/// # Errors
+/// Rejects mismatched evidence, stale refusal challenges and stream failure.
+pub async fn write_outcome<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    outcome: &QuoteOutcome,
+    request: &QuoteRequest,
+) -> Result<(), QuoteError> {
+    Ok(protocol::write(
+        stream,
+        &outcome::encode(outcome, request)?,
+        MAX_QUOTE_RESPONSE_BYTES,
+    )
+    .await?)
 }
 
 /// Write identifying evidence only to the explicitly authorized local connection.

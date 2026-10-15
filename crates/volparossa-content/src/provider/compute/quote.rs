@@ -4,10 +4,13 @@
 //! interpreting public job RPCs as device authority. Reports identify hardware:
 //! neither this service nor its local framing offers transcript/log export.
 
+mod outcome;
 mod transport;
 
+pub use outcome::QuoteOutcome;
 pub use transport::{
-    QuoteChallenge, begin, exchange, read_request, read_response, write_request, write_response,
+    QuoteChallenge, begin, exchange, exchange_outcome, read_outcome, read_request, read_response,
+    write_outcome, write_request, write_response,
 };
 
 use std::{
@@ -119,6 +122,15 @@ struct RetainedQuote {
     requester: [u8; 32],
     challenge: [u8; 32],
     quote: GuestQuoteSession,
+}
+
+#[allow(
+    clippy::large_enum_variant,
+    reason = "One bounded owned session; do not add a heap allocation to quote collection"
+)]
+enum Collection {
+    Evidence(GuestQuoteSession),
+    DeviceUnavailable(Instant),
 }
 
 struct Work {
@@ -321,10 +333,21 @@ impl QuoteService {
         Ok(())
     }
 
+    #[cfg(test)]
     async fn collect(
         &self,
         request: QuoteRequest,
     ) -> Result<(GuestQuoteSession, CancelGuard), QuoteError> {
+        match self.collect_outcome(request).await? {
+            (Collection::Evidence(quote), guard) => Ok((quote, guard)),
+            (Collection::DeviceUnavailable(_), _) => Err(QuoteError::Unavailable),
+        }
+    }
+
+    async fn collect_outcome(
+        &self,
+        request: QuoteRequest,
+    ) -> Result<(Collection, CancelGuard), QuoteError> {
         let permit = Arc::clone(&self.firmware)
             .try_acquire_owned()
             .map_err(|_| QuoteError::Busy)?;
@@ -345,12 +368,67 @@ impl QuoteService {
                 .take(),
         };
         self.work.try_send(work).map_err(|_| QuoteError::Busy)?;
-        let quote = timeout_at(deadline, response)
+        let result = timeout_at(deadline, response)
             .await
             .map_err(|_| QuoteError::Expired)?
-            .map_err(|_| QuoteError::Unavailable)??;
-        quote.response()?;
-        Ok((quote, guard))
+            .map_err(|_| QuoteError::Unavailable)?;
+        match result {
+            Ok(quote) => {
+                quote.response()?;
+                Ok((Collection::Evidence(quote), guard))
+            }
+            Err(GuestError::DeviceUnavailable) => {
+                self.owner.check_live()?;
+                if Instant::now() >= deadline {
+                    return Err(QuoteError::Expired);
+                }
+                Ok((Collection::DeviceUnavailable(deadline), guard))
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    async fn device_unavailable<S>(
+        &self,
+        stream: &mut S,
+        challenge: &Record,
+        signed_request: &Record,
+        request: &QuoteRequest,
+        deadline: Instant,
+    ) -> Result<(), QuoteError>
+    where
+        S: AsyncWrite + Unpin,
+    {
+        // This path exists only after the real worker returned DeviceUnavailable.
+        // Recheck authority and both original clocks; no key/session is retained.
+        self.authorize(signed_request.sender()).await?;
+        request.check_time(protocol::now()?)?;
+        if Instant::now() >= deadline {
+            return Err(QuoteError::Expired);
+        }
+        let reply = Record::reply(
+            &self.signer,
+            challenge,
+            Sha256::digest(signed_request.encode()).into(),
+            outcome::encode(&QuoteOutcome::DeviceUnavailable, request)?,
+            protocol::now()?,
+        )?;
+        timeout_at(
+            deadline,
+            protocol::write(
+                stream,
+                &reply.encode(),
+                guest::MAX_QUOTE_RESPONSE_BYTES + FRAME_OVERHEAD,
+            ),
+        )
+        .await
+        .map_err(|_| QuoteError::Expired)??;
+        self.authorize(signed_request.sender()).await?;
+        request.check_time(protocol::now()?)?;
+        if Instant::now() >= deadline {
+            return Err(QuoteError::Expired);
+        }
+        Ok(())
     }
 
     /// Serve one caller-authenticated quote on an already protected stream.
@@ -381,7 +459,17 @@ impl QuoteService {
                 return Err(QuoteError::Expired);
             }
             let payload = QuoteRequest::decode(request.payload())?;
-            let (quote, mut guard) = self.collect(payload).await?;
+            let (collected, mut guard) = self
+                .collect_outcome(QuoteRequest::decode(request.payload())?)
+                .await?;
+            let quote = match collected {
+                Collection::Evidence(quote) => quote,
+                Collection::DeviceUnavailable(deadline) => {
+                    return self
+                        .device_unavailable(stream, &challenge, &request, &payload, deadline)
+                        .await;
+                }
+            };
             self.authorize(requester).await?;
             let response = quote.response()?.encode();
             let reply = Record::reply(
@@ -443,6 +531,9 @@ impl Drop for CancelGuard {
         }
     }
 }
+
+#[cfg(test)]
+mod outcome_tests;
 
 #[cfg(test)]
 mod tests;

@@ -391,6 +391,32 @@ acceptance above supplies the previously missing locked-fetch and Rust results.
 
 ### Authorized quote exchange candidate
 
+#### Signed device refusal candidate
+
+The follow-up preserves successful quote encoding and adds a separate,
+request-bound provider claim: `fixed_quote_device_unavailable`. The provider may
+send it only after authenticating the authorized requester, attempting collection
+through the fixed guest device and rechecking cancellation, expiry and authority.
+Other firmware errors, transport failures and authorization failures do not
+become this claim. The requester checks its signature and original request
+binding before the agent closes the exchange streams and rechecks policy.
+
+The CLI exposes the refusal as a closed version-two result and exits
+unsuccessfully. It rechecks the original challenge lifetime after the final
+acknowledgement. Its result names the local agent as the signature verifier;
+the CLI receives no portable signature proof and does not independently
+authenticate that claim. Quote verification, appraisal, worker admission and
+private-input release remain false. A provider signature authenticates the claim, not the
+physical absence of hardware; an inaccessible device can also cause this refusal.
+The existing version-one success result is unchanged. Older callers reject the
+new refusal rather than treating it as evidence.
+
+This is an unverified source candidate. Targeted guest, protocol, agent and CLI
+checks precede a disposable production-route trial. No new hardware report,
+protected task or working route is claimed by this change.
+
+#### Integrated quote exchange
+
 The new quote-only path connects guest-owned evidence collection to the existing
 protected provider stream. An operator must explicitly authorize one requester
 identity, a lifetime of at most ten minutes and at most 64 attempts. Registration
