@@ -209,7 +209,10 @@ impl Binding {
             return record;
         }
         if !hints.parent_unchanged()
-            || !hints.shards.iter().all(|shard| shard.unchanged(&hints.root))
+            || !hints
+                .shards
+                .iter()
+                .all(|shard| shard.unchanged(&hints.root))
         {
             record["outcome"] = json!("identity_changed");
             return record;

@@ -23,8 +23,11 @@ fn fixture() -> (tempfile::TempDir, Binding) {
     fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
     for spec in specs() {
         fs::write(root.path().join(spec.name), b"x").unwrap();
-        fs::set_permissions(root.path().join(spec.name), fs::Permissions::from_mode(0o600))
-            .unwrap();
+        fs::set_permissions(
+            root.path().join(spec.name),
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
     }
     let hints = Hints::bind(root.path(), &specs()).unwrap();
     (
@@ -506,7 +509,14 @@ fn source_observation_is_bounded_and_does_not_export_private_identities() {
     let raw = serde_json::to_string(&record).unwrap();
     assert!("private_source_weight_cache_diagnostic ".len() + raw.len() + 1 <= 4096);
     assert!(!raw.contains(root.path().to_str().unwrap()));
-    for forbidden in ["safetensors", "sha256", "inode", "owner", "reclaimed", "admitted"] {
+    for forbidden in [
+        "safetensors",
+        "sha256",
+        "inode",
+        "owner",
+        "reclaimed",
+        "admitted",
+    ] {
         assert!(!raw.contains(forbidden));
     }
     assert_eq!(record.as_object().unwrap().len(), 8);
@@ -598,17 +608,22 @@ fn source_logging_requires_scope_and_its_own_explicit_debug_opt_in() {
 fn source_advice_stays_after_gguf_and_successful_join_inside_runtime_lease() {
     let source = include_str!("../../../compute.rs");
     let lease = source.find("let _lease = runtime_lease").unwrap();
-    let admission = source.find("resources::admission(options.model_profile").unwrap();
+    let admission = source
+        .find("resources::admission(options.model_profile")
+        .unwrap();
     let binding = source.find("let source_weight_cache = ").unwrap();
-    let spawn = source[binding..].find("let child = sandbox::command").unwrap() + binding;
+    let spawn = source[binding..]
+        .find("let child = sandbox::command")
+        .unwrap()
+        + binding;
     let join = source.find("let result = supervise::run(child").unwrap();
     let gguf = source.find("cache_hint.after_supervisor(&result").unwrap();
-    let advice = source.find("source_weight_cache.after_supervisor(&result").unwrap();
+    let advice = source
+        .find("source_weight_cache.after_supervisor(&result")
+        .unwrap();
     assert!(lease < admission && admission < binding && binding < spawn);
     assert!(spawn < join && join < gguf && gguf < advice);
-    assert!(
-        source[advice..].starts_with(
-            "source_weight_cache.after_supervisor(&result, memory_diagnostic);\n    result\n}"
-        )
-    );
+    assert!(source[advice..].starts_with(
+        "source_weight_cache.after_supervisor(&result, memory_diagnostic);\n    result\n}"
+    ));
 }
