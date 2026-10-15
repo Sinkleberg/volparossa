@@ -791,22 +791,33 @@ RUN_DIRECTORY=$(mktemp -d "$RUN_DIRECTORY_PARENT/$RUN_DIRECTORY_PREFIX.XXXXXX")
 case $RUN_DIRECTORY in "$RUN_DIRECTORY_PARENT"/"$RUN_DIRECTORY_PREFIX".??????) ;; *) exit 69 ;; esac
 chmod 0700 "$RUN_DIRECTORY"
 QEMU_PID=
+QEMU_BIRTH=
+QEMU_STOP_ATTEMPTED=no
 FINISHED=no
+
+stop_qemu_child() {
+    [ -n "$QEMU_PID" ] || return 0
+    # A failed/interrupted shutdown is not retried by EXIT with a fresh budget.
+    [ "$QEMU_STOP_ATTEMPTED" = no ] || return 1
+    QEMU_STOP_ATTEMPTED=yes
+    [ -n "$QEMU_BIRTH" ] || return 1
+    if ! timeout --signal=TERM --kill-after=2s 45s \
+        python3 -B "$HERE/qemu-child-lifecycle.py" stop "$QEMU_PID" "$$" "$QEMU_BIRTH" "$1"; then
+        return 1
+    fi
+    # The original child is now confirmed terminated, so this is a reap, not
+    # an unbounded wait for a live process. Its status is not the guest result.
+    wait "$QEMU_PID" 2>/dev/null || true
+    QEMU_PID=
+    return 0
+}
 
 cleanup() {
     status=$?
     trap - EXIT HUP INT TERM
-    if [ -n "$QEMU_PID" ] && kill -0 "$QEMU_PID" 2>/dev/null; then
-        kill -TERM "$QEMU_PID" 2>/dev/null || true
-        wait_attempt=0
-        while kill -0 "$QEMU_PID" 2>/dev/null && [ "$wait_attempt" -lt 50 ]; do
-            sleep 0.1
-            wait_attempt=$((wait_attempt + 1))
-        done
-        if kill -0 "$QEMU_PID" 2>/dev/null; then
-            kill -KILL "$QEMU_PID" 2>/dev/null || true
-        fi
-        wait "$QEMU_PID" 2>/dev/null || true
+    if ! stop_qemu_child abort; then
+        [ "$status" -ne 0 ] || status=1
+        printf '%s\n' 'QEMU exit unconfirmed; private VM scratch retained' >&2
     fi
     if [ "$FINISHED" = no ] && [ -f "$RUN_DIRECTORY/console.log" ]; then
         install -m 0600 "$RUN_DIRECTORY/console.log" "$output_directory/vm-console.log" \
@@ -826,11 +837,13 @@ cleanup() {
         tail -c 131072 "$RUN_DIRECTORY/qemu.stderr" >"$output_directory/qemu.stderr" \
             2>/dev/null || status=1
     fi
-    case $RUN_DIRECTORY in
-        "$RUN_DIRECTORY_PARENT"/"$RUN_DIRECTORY_PREFIX".??????)
-            rm -rf --one-file-system -- "$RUN_DIRECTORY" ;;
-        *) status=69 ;;
-    esac
+    if [ -z "$QEMU_PID" ]; then
+        case $RUN_DIRECTORY in
+            "$RUN_DIRECTORY_PARENT"/"$RUN_DIRECTORY_PREFIX".??????)
+                rm -rf --one-file-system -- "$RUN_DIRECTORY" ;;
+            *) status=69 ;;
+        esac
+    fi
     exit "$status"
 }
 trap cleanup EXIT
@@ -2344,6 +2357,7 @@ if [ -n "$host_tools_directory" ]; then
     qemu_vga_device=$qemu_vga_device,romfile=$host_tools_directory/root/usr/share/seabios/vgabios-stdvga.bin
 fi
 { [ "$scenario" != agent-cooperative-code ] && [ "$scenario" != agent-cooperative-code-proposal ]; } || print_plan
+timeout --signal=TERM --kill-after=2s 5s python3 -B "$HERE/qemu-child-lifecycle.py" preflight
 qemu-system-x86_64 \
     -name volparossa-alpha-topology \
     -no-user-config -nodefaults \
@@ -2358,6 +2372,8 @@ qemu-system-x86_64 \
     -sandbox on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny \
     </dev/null >/dev/null 2>"$RUN_DIRECTORY/qemu.stderr" &
 QEMU_PID=$!
+QEMU_BIRTH=$(timeout --signal=TERM --kill-after=2s 5s \
+    python3 -B "$HERE/qemu-child-lifecycle.py" birth "$QEMU_PID" "$$")
 
 ssh_bounded() {
     ssh_time_bound=$1
@@ -2569,9 +2585,11 @@ fi
 if [ "$scenario" != signal-backup ] && [ "$scenario" != signal-backup-fragments ]; then
     install -m 0600 "$CONSOLE" "$output_directory/vm-console.log"
 fi
-ssh_base sudo -n systemctl poweroff >/dev/null 2>&1 || true
-wait "$QEMU_PID" || true
-QEMU_PID=
+ssh_bounded 15s sudo -n systemctl poweroff >/dev/null 2>&1 || true
+if ! stop_qemu_child normal; then
+    [ "$GUEST_STATUS" -ne 0 ] || GUEST_STATUS=1
+    exit "$GUEST_STATUS"
+fi
 printf '%s  %s\n' "$IMAGE_SHA512" "$image_path" | sha512sum --check --strict -
 FINISHED=yes
 exit "$GUEST_STATUS"

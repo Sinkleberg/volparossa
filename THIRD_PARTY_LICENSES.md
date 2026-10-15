@@ -756,7 +756,7 @@ license/NOTICE files; it fails on an unapproved source or missing notice.
 
 ### Debian 13 compatible Rust security overrides
 
-Three crates.io packages are overridden with verified project-local source.
+Four crates.io packages are overridden with verified project-local source.
 The Hickory and time fixed releases require Rust 1.88, while the future
 single-backend libp2p-yamux release also raises its MSRV above Debian 13's
 Rust 1.85:
@@ -764,26 +764,34 @@ Rust 1.85:
 | Component | Exact source and upstream revision | License | Local security patch |
 |---|---|---|---|
 | hickory-proto 0.25.2 | crates.io SHA-256 `f8a6fe56c0038198998a6f217ca4e7ef3a5e51f46163bd6dd60b5c71ca6c6502`; git `527c9f470a418cf6b92da902ea0aaa5749963d59` | Apache-2.0 OR MIT; original license files preserved | `third_party/rust/patches/hickory-proto-0.25.2-rustsec.patch`, SHA-256 `bd1d5df1a13574d5c8b546e1a53dfde04d524353a646c8235786d7724215828a`; bounds compression candidates, rejects cross-zone NSEC3 proofs, and adds a non-default regression-only adapter |
+| hickory-resolver 0.25.2 | crates.io SHA-256 `dc62a9a99b0bfb44d2ab95a7208ac952d31060efc16241c87eaf36406fecf87a`; git `527c9f470a418cf6b92da902ea0aaa5749963d59` | MIT OR Apache-2.0; original license files preserved | `third_party/rust/patches/hickory-resolver-0.25.2-dnssec.patch`, SHA-256 `2e070665e78337e620dfb3f8c15ff09a938ad3fa711e240798732de4c204f1b2`; rejects bogus answers before cache insertion and CNAME following; the archive's non-authoritative development lock is omitted from the vendor tree |
 | time 0.3.41 | crates.io SHA-256 `8a7619e19bc266e0f9c5e6686659d394bc57973859340060a69221e57dbc0c40`; git `cc35dcfcde917bb833c114e2b4c00292a374c4ba` | Apache-2.0 OR MIT; original license files preserved | `third_party/rust/patches/time-0.3.41-rustsec.patch`, SHA-256 `bc4ad8b199c3284c59b1aa259d5ec907d43f7cb898083a8d5ab99a71cc7a5c8a`; bounds RFC 2822 comment recursion |
 | libp2p-yamux 0.47.0 | crates.io SHA-256 `f15df094914eb4af272acf9adaa9e287baa269943f32ea348ba29cfb9bfc60d8`; git `9736aacf814eb7b9df0372c5f9adcffba8a4b212` | MIT; exact upstream repository license retained | `third_party/rust/patches/libp2p-yamux-0.47.0-single-backend.patch`, SHA-256 `1a845f6cfaa57c993b54f654dc8e9294a450de8c46be323618481a7cc750740d`; removes the retired 0.12 backend, pins fixed yamux 0.13.10, and preserves read-after-close policy |
 
 The complete sources, patch review notes, resulting tree hashes, test
 contract, and removal condition are in `third_party/rust/README.md`.
-`scripts/check-rust-dependencies.sh` reconstructs all three trees from the exact
+`scripts/check-rust-dependencies.sh` reconstructs all four trees from the exact
 archives, applies the locked patches, byte-compares the result, verifies
 unchanged licenses and the feature graph, runs CVSS 4.0-capable cargo-deny
 advisory/license/ban/source checks, and performs an independent no-fetch cargo-audit scan against a
 local RustSec checkout. It prints that checkout's exact commit.
 
 The GPL-3.0-only harness under `third_party/rust/backport-regressions` has a
-rustc-1.85-resolved lockfile (SHA-256
-`08e7bcd46d2e3f7411e8f4e855c70027f627be6061f63ab459c43f41a687c5cc`)
-and executes all five dependency-security regressions offline. Its Hickory feature calls the same
+Rust-1.85-targeted lockfile (SHA-256
+`965c606acf0c93d9a9d6b8415b3ae503185e8b3ec7eecf3d6251c9047cd14659`)
+and executes the dependency-security regressions offline. Its Hickory feature calls the same
 private NSEC3 validator through a doc-hidden adapter; that feature is absent
 from and forbidden in the production dependency graph. Its bounded Yamux raw
 frame test proves an oversized first-stream body fails closed without an
 unwind; its public-wrapper test preserves `set_max_num_streams` and
 `read_after_close(false)` semantics.
+
+The resolver-specific check rejects DNSSEC-bogus answers before cache insertion
+and alias following, backporting upstream commit
+`92f93c0b889f6a292bc943304d88c4c6561fe1b9` for GHSA-5j98-2g5x-46v6.
+The separate CNAME advisory GHSA-6f2x-v7q7-m7m5 is assessed against the pinned
+0.25 stub and the absence of the separate recursor crate in both graphs, with
+targeted regression and graph checks. Neither GHSA receives a new scanner waiver.
 
 RustSec scanners still identify the unchanged semantic versions as affected.
 `RUSTSEC-2026-0009`, `RUSTSEC-2026-0118`, and
@@ -802,7 +810,7 @@ The dependency gate requires CVSS 4.0-capable `cargo-deny >= 0.18.6` and
 provides an independent advisory scan.
 
 Candidate packaging excludes workspace members and admits path dependencies
-only at the three exact verified vendor paths above.
+only at the four exact verified vendor paths above.
 `yamux 0.13.10` omits license files from its crate archive, so exact
 Apache-2.0 and MIT files from official release tag
 `70db05dc63e8368bd0559a5ec0dba6e5fc2bdd41` are retained under

@@ -81,6 +81,9 @@ while IFS="	" read -r crate_name crate_version license_expression license_file m
                 "$repository_root/third_party/rust/vendor/hickory-proto-0.25.2/Cargo.toml")
                     source_label='vendored-crates.io+hickory-proto-0.25.2-security-backport'
                     ;;
+                "$repository_root/third_party/rust/vendor/hickory-resolver-0.25.2/Cargo.toml")
+                    source_label='vendored-crates.io+hickory-resolver-0.25.2-security-backport'
+                    ;;
                 "$repository_root/third_party/rust/vendor/time-0.3.41/Cargo.toml")
                     source_label='vendored-crates.io+time-0.3.41-security-backport'
                     ;;
