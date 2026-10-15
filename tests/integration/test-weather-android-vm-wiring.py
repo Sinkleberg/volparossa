@@ -247,11 +247,13 @@ expected_commit=$3
 weather_android_commit=$4
 WEATHER_CLIENT_MANIFEST_SHA256=$5
 QEMU_PID=
+QEMU_BIRTH=
+QEMU_STOP_ATTEMPTED=no
 QEMU_STARTED=no
 QEMU_JOINED=no
 WEATHER_ANDROID_OWNER_PID=
 FINISHED=no
-''' + function("cleanup")
+''' + function("stop_qemu_child") + function("cleanup")
             if keep: script += "rm() { :; }\n"
             script += 'trap cleanup EXIT\nexit "$6"\n'
             result = shell(script, root, profile, COMMIT, "" if blank_commit else COMMIT, SHA, fail_status)
@@ -303,6 +305,62 @@ FINISHED=no
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIsNone(raw); self.assertFalse(remains)
 
+    def test_bounded_stop_sets_join_only_after_confirmation_and_reap_or_retains_private_state(self):
+        for original in (0, 17, 143):
+            for confirmed in (False, True):
+                for normal in (False, True):
+                    with self.subTest(original=original, confirmed=confirmed, normal=normal), \
+                            tempfile.TemporaryDirectory(prefix="android-vm-confirmation-", dir=HERE) as temporary:
+                        parent = Path(temporary).resolve()
+                        work = parent / "weather-client-kvm.ABC123"; work.mkdir(mode=0o700)
+                        (work / "guest-key").write_text("INERT PRIVATE CANARY")
+                        output = parent / "evidence"; output.mkdir(mode=0o700)
+                        script = '''set -eu
+umask 077
+RUN_DIRECTORY_PARENT=$1
+RUN_DIRECTORY=$1/weather-client-kvm.ABC123
+RUN_DIRECTORY_PREFIX=weather-client-kvm
+output_directory=$1/evidence
+HERE=/inert/source
+weather_client_version=6
+expected_commit=$2
+weather_android_commit=$2
+WEATHER_CLIENT_MANIFEST_SHA256=$3
+QEMU_PID=123
+QEMU_BIRTH=456
+QEMU_STOP_ATTEMPTED=no
+QEMU_STARTED=yes
+QEMU_JOINED=no
+WEATHER_ANDROID_OWNER_PID=
+FINISHED=no
+GUEST_STATUS=$4
+fixture_stop_status=$5
+timeout() { printf 'confirmed-boundary:%s\\n' "$QEMU_JOINED" >>"$RUN_DIRECTORY_PARENT/events"; return "$fixture_stop_status"; }
+wait() { printf 'reap:%s\\n' "$QEMU_JOINED" >>"$RUN_DIRECTORY_PARENT/events"; return 0; }
+''' + function("stop_qemu_child") + function("cleanup") + '''
+trap cleanup EXIT
+if [ "$6" = yes ]; then
+    if ! stop_qemu_child normal; then [ "$GUEST_STATUS" -ne 0 ] || GUEST_STATUS=1; fi
+fi
+exit "$GUEST_STATUS"
+'''
+                        result = shell(script, parent, COMMIT, SHA, original, 0 if confirmed else 1,
+                            "yes" if normal else "no")
+                        expected = original if confirmed else original or 1
+                        self.assertEqual(result.returncode, expected, result.stderr)
+                        events = (parent / "events").read_text().splitlines()
+                        self.assertEqual(events, ["confirmed-boundary:no"] + (["reap:no"] if confirmed else []))
+                        receipt = json.loads((output / "weather-android-vm-cleanup.json").read_bytes())
+                        self.assertIs(receipt["qemu_joined"], confirmed)
+                        self.assertIs(receipt["private_guest_state_removed"], confirmed)
+                        self.assertEqual(receipt["owner_exit_status"], expected)
+                        self.assertFalse(receipt["joined_core_acceptance"])
+                        self.assertEqual(work.exists(), not confirmed)
+                        if not confirmed:
+                            self.assertEqual((work / "guest-key").read_text(), "INERT PRIVATE CANARY")
+                        self.assertNotIn("PRIVATE CANARY", json.dumps(receipt))
+        self.assertEqual(source().count("QEMU_JOINED=yes"), 1)
+
     def test_cleanup_joins_live_and_already_exited_owned_children_before_removing_state(self):
         # A harmless child exercises the actual trap, including its already-
         # exited branch. It is not QEMU and does not start any guest/network.
@@ -325,24 +383,25 @@ weather_client_version=6
 expected_commit=$2
 weather_android_commit=$2
 WEATHER_CLIENT_MANIFEST_SHA256=$3
+HERE=$5
+QEMU_PID=
+QEMU_BIRTH=
+QEMU_STOP_ATTEMPTED=no
 QEMU_STARTED=yes
 QEMU_JOINED=no
 WEATHER_ANDROID_OWNER_PID=
 FINISHED=no
-''' + function("cleanup") + '''
+''' + function("stop_qemu_child") + function("cleanup") + '''
 trap cleanup EXIT
-if [ "$4" = live ]; then
-    sleep 30 </dev/null >/dev/null 2>&1 &
-else
-    /bin/sh -c 'exit 0' </dev/null >/dev/null 2>&1 &
-fi
+sleep 30 </dev/null >/dev/null 2>&1 &
 QEMU_PID=$!
+QEMU_BIRTH=$(python3 -B -c 'import runpy,sys; print(runpy.run_path(sys.argv[1])["identity"](int(sys.argv[2]))[1])' "$HERE/qemu-child-lifecycle.py" "$QEMU_PID")
 printf '%s\\n' "$QEMU_PID"
-if [ "$4" = exited ]; then wait "$QEMU_PID"; fi
+if [ "$4" = exited ]; then kill -TERM "$QEMU_PID"; wait "$QEMU_PID" || true; fi
 exit 143
 '''
                     process = subprocess.Popen(["/bin/sh", "-c", script, "inert-child-cleanup",
-                        str(parent), COMMIT, SHA, child_state], stdout=subprocess.PIPE,
+                        str(parent), COMMIT, SHA, child_state, str(HERE)], stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE, start_new_session=True)
                     try:
                         stdout, stderr = process.communicate(timeout=10)
@@ -400,15 +459,19 @@ PACKAGE_SHA256=none
 weather_client_version=6
 weather_android_source=/inert/prepared-weather
 scenario=content-provider
+QEMU_PID=
+QEMU_BIRTH=
+QEMU_STOP_ATTEMPTED=no
 QEMU_STARTED=yes
 QEMU_JOINED=no
 WEATHER_ANDROID_OWNER_PID=
 FINISHED=no
-''' + function("cleanup") + '''
+''' + function("stop_qemu_child") + function("cleanup") + '''
 trap cleanup EXIT
 trap 'exit 143' TERM
 sleep 30 </dev/null >/dev/null 2>&1 &
 QEMU_PID=$!
+QEMU_BIRTH=$(python3 -B -c 'import runpy,sys; print(runpy.run_path(sys.argv[1])["identity"](int(sys.argv[2]))[1])' "$HERE/qemu-child-lifecycle.py" "$QEMU_PID")
 export QEMU_PID fixture_parent
 python3() {
     test "$#" = 5 && test "$1" = -B && test "$3" = run && test "$4" = --config
@@ -468,10 +531,12 @@ expected_commit=$2
 weather_android_commit=$2
 WEATHER_CLIENT_MANIFEST_SHA256=$3
 QEMU_PID=
+QEMU_BIRTH=
+QEMU_STOP_ATTEMPTED=no
 QEMU_STARTED=no
 QEMU_JOINED=no
 FINISHED=no
-''' + function("cleanup") + '''
+''' + function("stop_qemu_child") + function("cleanup") + '''
 trap cleanup EXIT
 /bin/sh -c 'exit 17' </dev/null >/dev/null 2>&1 &
 WEATHER_ANDROID_OWNER_PID=$!
