@@ -158,5 +158,8 @@ fn task_diagnostic_cannot_override_cleanup_cancel_or_success() {
     let answer = json!({"synthetic":"unchanged"});
     let result = finish_execution(&mut slot, Ok(answer.clone()));
     drop(slot);
-    assert_eq!(terminal_response(&task, Ok(result), &gate)["result"], answer);
+    assert_eq!(
+        terminal_response(&task, Ok(result), &gate)["result"],
+        answer
+    );
 }
