@@ -31,8 +31,8 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | Quality `38647964779` passes the owner-stop correction. Actual `38647976460` on `bae082b5` fails with tunnel exit 1 during native wait, before cleanup; driver/native still run and no owner budget has expired. The tunnel's underlying cause is not recorded. Owner/VM/ACL cleanup passes, but native process and policy cleanup remain unconfirmed. Joined delivery, live expiry, physical devices and iOS remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38643001237` again proves the separate base lifecycle, but Image append fails before READY with an operation deadline during the challenge exchange. PR232 now distinguishes time before and within that exchange; trial `38653857407` on `7b27d13d` is running. Consumer repair, restoration and remote cleanup remain unproved. Cloud PR234 waits for this shared integration. |
+| Native Overmorrow — `volparossa-weather` | Make the installed Android app initiate cold retrieval through the core, then verify refresh and background/resume against the original products. | Quality `38654744521` passes. Actual `38655062763` on `de5091e2` records the first forecast GET returning HTTP 503, with SSH exit 0 and no expired owner budget. The candidate corrects a separate cache directory missing from the agent's writable mount allowlist; actual recovery still needs proof. Owner/VM/ACL cleanup passes, but native cleanup, joined delivery, live expiry, physical devices and iOS remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete actual consumer publication, then prove renewal, provider replacement and consumer restoration after restart. | Actual `38653857407` on `7b27d13d` passes the separate base lifecycle, but a later Cloud upload fails before READY while reading/verifying the provider challenge. Less than one second precedes that exchange; the operation deadline expires after 90–120 seconds inside it. Consumer repair, restoration and remote cleanup remain unproved. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 and PR247 are merged; main `17afa3f0` contains the finite operator grants, guest module, protected exchange and CLI verifier. Corrected source `09b0d3cc` passes targeted run `38512217556`, Quality `38512223814` and CodeQL `38512218075`. Software evidence does not establish production-route execution, production authority, current vendor appraisal, an approved measured workload or actual private execution. Suitable confidential-computing hardware is unavailable; storage and Android integration continue in parallel. |
 
@@ -300,7 +300,7 @@ retention. Execution limits, publication lifetimes, Weather source and cleanup
 ordering are unchanged. The following actual trial verifies the new observation,
 but does not establish joined delivery.
 
-#### Latest Android tunnel interruption
+#### Earlier Android tunnel interruption
 
 [Quality `38647964779`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38647964779)
 passes all 295 Android checks, including 72 owner cases, and 3,661 workspace
@@ -336,9 +336,9 @@ No acceptance receipt exists. That revision's tunnel collapses request, child an
 HTTP-response failures into one fixed message and emits no failure receipt.
 Neither a timeout increase nor an unchanged retry is supported by this result.
 
-#### Tunnel failure observation candidate
+#### Tunnel failure observation
 
-The next candidate preserves the first tunnel failure before cleanup. A closed,
+Candidate `de5091e2` preserves the first tunnel failure before cleanup. A closed,
 failure-only record contains its phase, error category, product and bounded
 request counters, observed SSH exit status and an allowlisted HTTP status.
 Cleanup observations remain separate. No response body, header, URL, identity,
@@ -350,8 +350,8 @@ and output has drained. Missing, duplicate, truncated or invalid records remain
 unknown. Failure schema 8 adds the nullable record without changing the earlier
 owner-stop observation; success and joined acceptance retain schema 6. Existing
 deadlines, six-request limits, source pins, authorization and cleanup operations
-are unchanged. This candidate still needs hosted validation and a fresh actual
-trial; it does not establish the cause or resolution of the original failure.
+are unchanged. The following hosted results validate this observation contract,
+but do not establish successful Android delivery.
 
 All 39 tunnel, 80 owner, twenty hosted-workflow and seventeen VM-wiring checks
 pass locally without a native build. They cover a private Unix-socket HTTP 503,
@@ -359,6 +359,54 @@ child failure, client disconnect, deadlines, preservation of the first error
 across cleanup failures, malformed and duplicate records, and unchanged success
 receipts. These controlled process/contract tests are not Android-to-core
 delivery evidence.
+
+#### First forecast response and writable cache correction
+
+[Quality `38654744521`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38654744521)
+passes all 314 Android contract checks, formatting, strict Clippy and workspace
+tests. Checkout `8e7b52d3` combines main `7b728846` with `de5091e2`; the four
+changed Android source/test files match the head, not the entire checkout.
+The workspace has 3,655 passes and seven ignores; three namespace proofs and
+one separate CLI fixture skip. Log ZIP SHA-256:
+`46dc7f71e55c0dd2b7e35716189431175e887c7fcd31ad005b2809989276a58f`.
+
+Actual [run `38655062763`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38655062763)
+uses exact `de5091e22785e2c0af160efc7c84f4d7e7b7c444` and Weather `f6ee8299`.
+The first forecast request reaches the guest through SSH, which exits 0, but
+returns HTTP 503. The tunnel correctly rejects it at `response-observe`; no
+forecast request completes and no air-quality request starts. The owner records
+`tunnel-exited` during `native-wait` before cleanup, with no expired budget or
+output overflow. The closed receipt does not expose the underlying core error.
+
+Owner children and the tunnel exchange child are joined and their sockets
+removed. QEMU is joined, private guest state removed and the original KVM ACL
+restored byte-for-byte. Native process drain and policy cleanup remain false,
+and emulator cleanup is absent. These outer cleanup results do not establish
+native cleanup or delivery. Original 13-file artifact ZIP SHA-256:
+`4a00efefd04c45ae026e5192bd4ee2a87433cbed2b81bcba4591502cea0d4197`;
+log ZIP SHA-256:
+`9ed12bbb58ab8f2babcc74fb86988513ad53414ab7b2a3b7efa37ff662448b86`.
+
+Source review identifies a writable-mount mismatch: the profile-6 cache parent
+was created outside agent state, after service startup, while
+`ProtectSystem=strict` allowed writes only to that state. The agent creates the
+cold cache before discovery or route setup, so the separate parent also needs
+an explicit writable mount. A read-only-filesystem failure is expected from this
+configuration; its errno was not measured in the original run.
+
+The correction stages only the empty, agent-owned `0710` parent before client
+startup, selected from the fully verified profile-6 archive. Only that client
+gets the exact additional writable path. The directory identity is checked
+before launch and app preparation; both product caches must still be absent.
+Worker access remains search-only, private agent state remains inaccessible,
+and profiles 1–5 retain their original mounts. No prefetch, new request, retry,
+longer lifetime or weaker response gate is introduced. All 112 focused inert
+checks pass: 17 Android shell, 31 preparation, 17 VM-wiring, 20 hosted-wiring,
+12 legacy shell and 15 product-shell cases. They exercise exact unit arguments,
+startup order, unchanged historical profiles and rejection of a replaced or
+misconfigured parent. Shell syntax and scoped ShellCheck pass. These checks do
+not create a real service mount; hosted validation and a fresh joined trial are
+still required for this correction.
 
 #### Deterministic relay-cache test inputs
 

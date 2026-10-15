@@ -139,9 +139,13 @@ weather_android_delivery_run() {
     [ ! -e "$weather_publisher" ] && [ ! -L "$weather_publisher" ] || fail WEATHER_ANDROID_ORIGINALS_REMAIN
     PHASE=weather-android-delivery-prepare
     weather_android_cache=$WORK/weather-android-cache
-    [ ! -e "$weather_android_cache" ] && [ ! -L "$weather_android_cache" ] || fail WEATHER_ANDROID_CACHE_EXISTS
-    install -d -o "$AGENT_UID" -g "$site_control_gid" -m 0710 "$weather_android_cache" \
-        || fail WEATHER_ANDROID_CACHE_PARENT_FAILED
+    # This exact empty parent must predate the client's strict mount sandbox.
+    # Do not recreate it here: a replacement would not be the writable bind.
+    [ "${WEATHER_AGENT_PROFILE_VERSION:-}" = 6 ] && [ -n "${WEATHER_ANDROID_CACHE_IDENTITY:-}" ] \
+        && [ -d "$weather_android_cache" ] && [ ! -L "$weather_android_cache" ] \
+        && [ "$(stat -Lc '%d:%i:%u:%g:%a' "$weather_android_cache")" = "$WEATHER_ANDROID_CACHE_IDENTITY" ] \
+        && [ "$(stat -Lc '%u:%g:%a' "$weather_android_cache")" = "$AGENT_UID:$site_control_gid:710" ] \
+        || fail WEATHER_ANDROID_CACHE_PARENT_CHANGED
     weather_command_limit=$(weather_products_remaining 40) || fail WEATHER_PRODUCTS_DEADLINE
     timeout --signal=TERM --kill-after=20s "${weather_command_limit}s" ip netns exec "$CLIENT" setpriv \
         --reuid="$WORKER_UID" --regid="$site_control_gid" --clear-groups \

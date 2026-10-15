@@ -15,6 +15,12 @@ HERE = Path(__file__).resolve().parent
 SOURCE = HERE / "weather-android-delivery.sh"
 PRODUCTS = HERE / "weather-products-delivery.sh"
 LEGACY = HERE / "weather-client-delivery.sh"
+TOPOLOGY = HERE / "kvm-alpha-topology.sh"
+
+
+def shell_function(source, name):
+    start = source.index(f"{name}() {{\n")
+    return source[start:source.index("\n}\n", start) + 3]
 
 
 class AndroidShell(unittest.TestCase):
@@ -27,7 +33,8 @@ class AndroidShell(unittest.TestCase):
             (self.work / name).mkdir(mode=0o700)
         for name in ("weather-android-control.py", "weather-android-evidence.py", "weather-products-delivery.py"):
             (self.work / "bin" / name).write_text("inert; never executed\n")
-        self.source = SOURCE.read_text().replace("/usr/local/libexec", str(self.libexec)).replace("systemd-detect-virt", "test_virt")
+        self.source = (LEGACY.read_text() + "\n" + SOURCE.read_text()).replace(
+            "/usr/local/libexec", str(self.libexec)).replace("systemd-detect-virt", "test_virt")
 
     def call(self, body, *, source=None, extra=None, seconds=6):
         environment = dict(PATH="/usr/bin:/bin", WORK=str(self.work), WORKER_UID="985", AGENT_UID="986", AGENT_GID="986",
@@ -35,7 +42,8 @@ class AndroidShell(unittest.TestCase):
             weather_profile_version="6", weather_publisher=str(self.work / "publisher"),
             weather_viewer=str(self.work / "viewer"), WEATHER_PRODUCTS_DEADLINE="1840",
             weather_core_sha256="c" * 64, weather_client_manifest_sha256="a" * 64,
-            TEST_LIBEXEC=str(self.libexec), TEST_FAILURE="", TEST_REMAINING="840")
+            TEST_LIBEXEC=str(self.libexec), TEST_FAILURE="", TEST_REMAINING="840", TEST_PROFILE="6",
+            TEST_CONTROL_GID="987", TEST_CACHE_UID="986", weather_client_bundle="/verified/inputs.tar")
         environment.update(extra or {})
         return subprocess.run(["/bin/sh", "-s"], input="set -eu\n" + (self.source if source is None else source) + "\n" + body,
             text=True, capture_output=True, timeout=seconds, env=environment)
@@ -44,9 +52,11 @@ class AndroidShell(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_syntax_and_sourcing_have_no_effects(self):
-        subprocess.run(["/bin/sh", "-n", str(SOURCE)], check=True, timeout=5)
+        for path in (SOURCE, LEGACY):
+            subprocess.run(["/bin/sh", "-n", str(path)], check=True, timeout=5)
         before = set(self.work.rglob("*"))
-        self.good(self.call(":"))
+        self.good(self.call('[ -z "$WEATHER_AGENT_PROFILE_VERSION$WEATHER_ANDROID_CACHE_IDENTITY" ]',
+            extra=dict(WEATHER_AGENT_PROFILE_VERSION="6", WEATHER_ANDROID_CACHE_IDENTITY="untrusted")))
         self.assertEqual(before, set(self.work.rglob("*")))
 
     def test_v6_dispatch_has_no_browser_or_cold_branch(self):
@@ -89,6 +99,8 @@ fail() { exit 97; }
     def test_normal_guest_lifecycle_orders_actual_get_window_and_required_evidence(self):
         self.good(self.call(self.mocks() + "weather_android_delivery_run\nweather_client_delivery_cleanup\n"))
         calls = (self.work / "calls").read_text().splitlines()
+        self.assertLess(calls.index("cache-parent-staged"), calls.index("prepare"))
+        self.assertEqual(calls.count("cache-parent-staged"), 1)
         self.assertLess(calls.index("prepare"), calls.index("privacy-start"))
         self.assertLess(calls.index("privacy-start"), calls.index("api-serve"))
         self.assertLess(calls.index("api-serve"), calls.index("controller-publish"))
@@ -127,6 +139,143 @@ fail() { exit 97; }
             self.assertTrue(target.exists())
             if kind == "cache": target.rmdir()
             else: self.assertEqual(target.read_text(), "preserve")
+
+    def test_cache_parent_replacement_or_permission_change_prevents_delivery(self):
+        for change in ("missing", "replaced", "symlink", "mode", "owner", "group", "identity"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory(dir=self.work) as directory:
+                path = Path(directory)
+                (path / "bin").mkdir()
+                result = self.call(self.mocks() + self.change_parent(change) + "weather_android_delivery_run\n",
+                    extra=dict(WORK=directory, weather_publisher=str(path / "publisher")))
+                self.assertEqual(result.returncode, 77, result.stderr)
+                self.assertIn("WEATHER_ANDROID_CACHE_PARENT_CHANGED", result.stderr)
+                calls = (path / "calls").read_text().splitlines()
+                self.assertNotIn("prepare", calls)
+                self.assertNotIn("api-serve", calls)
+
+    def test_early_cache_prepare_rejects_wrong_profile_identity_and_existing_paths(self):
+        cases = ({"TEST_PROFILE": value} for value in ("failed", "0", "7", '"6"', "null", "true", "{}"))
+        cases = [*cases, *({"TEST_CONTROL_GID": value} for value in ("", "0", "986", "65536", "private")),
+            {"WORKER_UID": "984"}, {"AGENT_UID": "985"}, {"TEST_ROOT_UID": "1000"},
+            {"TEST_VIRT": "none"}, {"TEST_CACHE_UID": "999"}]
+        for extra in cases:
+            with self.subTest(extra=extra), tempfile.TemporaryDirectory(dir=self.work) as directory:
+                result = self.call(self.mocks(prepare=False) +
+                    "weather_client_agent_cache_prepare || exit 77\nprintf 'unexpected-success\\n'\n",
+                    extra=dict(WORK=directory, **extra))
+                self.assertEqual(result.returncode, 77, result.stdout + result.stderr)
+                self.assertNotIn("unexpected-success", result.stdout)
+        for kind in ("directory", "file", "symlink"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory(dir=self.work) as directory:
+                target = Path(directory) / "weather-android-cache"
+                if kind == "directory": target.mkdir(mode=0o710)
+                elif kind == "file": target.write_text("preserve")
+                else: target.symlink_to(Path(directory) / "absent")
+                before = target.lstat()
+                result = self.call(self.mocks(prepare=False) +
+                    "weather_client_agent_cache_prepare || exit 77\n", extra=dict(WORK=directory))
+                self.assertEqual(result.returncode, 77, result.stderr)
+                self.assertEqual(target.lstat(), before)
+
+    def test_client_sandbox_allows_only_exact_profile6_cache_parent(self):
+        topology = TOPOLOGY.read_text()
+        launch = shell_function(topology, "launch_agent").replace("systemd-run", "test_systemd_run")
+        prepare = 'if [ -n "$weather_client_bundle" ]; then\n    weather_client_agent_cache_prepare || fail WEATHER_CLIENT_AGENT_CACHE_PREPARE_FAILED\nfi\n'
+        self.assertIn(prepare + 'launch_agent client "$CLIENT"', topology)
+        nodes = ("client", "bootstrap1", "relay0", "relay3", "relay4", "relay5", "exit")
+        cases = [(version, node, "content-provider", True) for version in range(1, 7) for node in nodes]
+        cases += [(6, "client", "content-provider", False), (6, "client", "browser-network", True)]
+        for version, node, scenario, bundle in cases:
+            with self.subTest(version=version, node=node, scenario=scenario, bundle=bundle), \
+                    tempfile.TemporaryDirectory(dir=self.work) as directory:
+                body = self.mocks(prepare=False) + self.launch_mocks() + launch + "\n" + prepare
+                if not bundle:
+                    # Even a forged profile variable cannot widen a non-Weather unit.
+                    body += "WEATHER_AGENT_PROFILE_VERSION=6\nWEATHER_ANDROID_CACHE_IDENTITY=untrusted\n"
+                body += f"launch_agent {node} fixture-namespace\n"
+                result = self.call(body, extra=dict(WORK=directory, TEST_PROFILE=str(version),
+                    scenario=scenario, weather_client_bundle="/verified/inputs.tar" if bundle else ""))
+                self.good(result)
+                arguments = (Path(directory) / "unit.args").read_text().splitlines()
+                writable = [value for value in arguments if value.startswith("--property=ReadWritePaths=")]
+                expected = f"--property=ReadWritePaths={directory}/state-{node}"
+                additional = version == 6 and node == "client" and scenario == "content-provider" and bundle
+                if additional: expected += f" {directory}/weather-android-cache"
+                self.assertEqual(writable, [expected])
+                for value in ("ProtectSystem=strict", "User=volparossa", "Group=volparossa",
+                        "SupplementaryGroups=volparossa-users", "NoNewPrivileges=yes", "PrivateMounts=yes",
+                        "CapabilityBoundingSet=", "AmbientCapabilities="):
+                    self.assertIn("--property=" + value, arguments)
+                if scenario == "content-provider" and node == "client":
+                    self.assertIn(f"--property=InaccessiblePaths={directory}/state-relay3 {directory}/state-relay4 "
+                        f"{directory}/state-relay5 {directory}/content-provider-seed", arguments)
+                calls = (Path(directory) / "calls").read_text().splitlines()
+                parent = Path(directory) / "weather-android-cache"
+                if version == 6 and bundle:
+                    self.assertLess(calls.index("cache-parent-staged"), calls.index("agent-launch"))
+                    self.assertEqual(list(parent.iterdir()), [])
+                    self.assertEqual(parent.stat().st_mode & 0o777, 0o710)
+                    self.assertIn(f"-d -o 986 -g 987 -m 0710 {parent}",
+                        (Path(directory) / "install.args").read_text().splitlines())
+                else: self.assertFalse(parent.exists())
+
+    def test_cache_parent_changes_prevent_client_service_launch(self):
+        launch = shell_function(TOPOLOGY.read_text(), "launch_agent").replace("systemd-run", "test_systemd_run")
+        for change in ("missing", "replaced", "symlink", "mode", "owner", "group", "identity"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory(dir=self.work) as directory:
+                result = self.call(self.mocks() + self.launch_mocks() + launch + "\n" +
+                    self.change_parent(change) + "launch_agent client fixture-namespace\n",
+                    extra=dict(WORK=directory, scenario="content-provider"))
+                self.assertEqual(result.returncode, 77, result.stderr)
+                self.assertIn("WEATHER_ANDROID_CACHE_PARENT_CHANGED", result.stderr)
+                self.assertFalse((Path(directory) / "unit.args").exists())
+
+    def test_additional_writable_mount_does_not_leak_to_next_node(self):
+        launch = shell_function(TOPOLOGY.read_text(), "launch_agent").replace("systemd-run", "test_systemd_run")
+        self.good(self.call(self.mocks() + self.launch_mocks() + launch + "\n" +
+            "launch_agent client fixture-client\nlaunch_agent relay0 fixture-relay\nlaunch_agent exit fixture-exit\n",
+            extra=dict(scenario="content-provider")))
+        for node in ("client", "relay0", "exit"):
+            arguments = (self.work / f"unit-{node}.args").read_text().splitlines()
+            writable = [value for value in arguments if value.startswith("--property=ReadWritePaths=")]
+            expected = f"--property=ReadWritePaths={self.work}/state-{node}"
+            if node == "client": expected += f" {self.work}/weather-android-cache"
+            self.assertEqual(writable, [expected])
+
+    @staticmethod
+    def change_parent(change):
+        return {
+            "missing": '/usr/bin/rmdir "$WORK/weather-android-cache"\n',
+            "replaced": '/usr/bin/mv "$WORK/weather-android-cache" "$WORK/original-cache"\n'
+                '/usr/bin/mkdir -m 0710 "$WORK/weather-android-cache"\n',
+            "symlink": '/usr/bin/mv "$WORK/weather-android-cache" "$WORK/original-cache"\n'
+                '/usr/bin/ln -s "$WORK/original-cache" "$WORK/weather-android-cache"\n',
+            "mode": '/usr/bin/chmod 0700 "$WORK/weather-android-cache"\n',
+            "owner": 'TEST_CACHE_UID=999\n',
+            "group": 'TEST_CONTROL_GID=999\n',
+            "identity": 'WEATHER_ANDROID_CACHE_IDENTITY=\n',
+        }[change]
+
+    @staticmethod
+    def launch_mocks():
+        return r'''
+AGENT_UNITS=
+binary_directory=/verified/bin
+wifi_link=no
+agent_train_loop=no
+agent_active_recovery=no
+agent_adapter_aggregation=no
+agent_autonomous_aggregation=no
+agent_policy_assessment=no
+unit_load_state() { printf 'not-found\n'; }
+chown() { :; }
+chmod() { :; }
+test_systemd_run() {
+    record agent-launch
+    printf '%s\n' "$@" > "$WORK/unit.args"
+    printf '%s\n' "$@" > "$WORK/unit-$node.args"
+}
+'''
 
     def test_cleanup_attempts_independent_resources_without_browser_private_delete(self):
         result = self.call('''
@@ -194,14 +343,25 @@ if weather_android_stop_api; then exit 91; fi
         self.assertIn('"$WORK/bin/weather-android-evidence.py" copy-artifacts "$WORK"', source)
 
     @staticmethod
-    def mocks():
-        return r'''
+    def mocks(prepare=True):
+        source = r'''
 record() { printf '%s\n' "$1" >> "$WORK/calls"; }
-id() { printf '0\n'; }
-test_virt() { printf 'kvm\n'; }
+id() { printf '%s\n' "${TEST_ROOT_UID:-0}"; }
+test_virt() { printf '%s\n' "${TEST_VIRT:-kvm}"; }
+getent() { printf 'volparossa-users:x:%s:\n' "$TEST_CONTROL_GID"; }
+weather_client_runtime_profile() {
+    [ "$TEST_PROFILE" != failed ] || return 1
+    printf '{"bundle_version":%s}\n' "$TEST_PROFILE"
+}
 date() { printf '1000\n'; }
 stat() {
-    if [ "$2" = '%u:%g:%a' ]; then printf '0:0:755\n';
+    if [ "$3" = "$WORK/weather-android-cache" ]; then
+        case $2 in
+            '%u:%g:%a') /usr/bin/stat -Lc "$TEST_CACHE_UID:$TEST_CONTROL_GID:%a" "$3" ;;
+            '%d:%i:%u:%g:%a') /usr/bin/stat -Lc "%d:%i:$TEST_CACHE_UID:$TEST_CONTROL_GID:%a" "$3" ;;
+            *) /usr/bin/stat "$@" ;;
+        esac
+    elif [ "$2" = '%u:%g:%a' ]; then printf '0:0:755\n';
     else /usr/bin/stat "$@"; fi
 }
 fail() { printf '%s\n' "$1" >&2; exit 77; }
@@ -209,9 +369,16 @@ weather_products_remaining() {
     if [ "$1" = 840 ]; then printf '%s\n' "$TEST_REMAINING"; else printf '%s\n' "$1"; fi
 }
 install() {
-    directory=no
-    for value do [ "$value" != -d ] || directory=yes; target=$value; done
-    if [ "$directory" = yes ]; then /usr/bin/mkdir -m 0710 -- "$target";
+    printf '%s\n' "$*" >> "$WORK/install.args"
+    directory=no; mode=0710; previous=
+    for value do
+        [ "$value" != -d ] || directory=yes
+        [ "$previous" != -m ] || mode=$value
+        previous=$value; target=$value
+    done
+    if [ "$directory" = yes ]; then
+        /usr/bin/mkdir -m "$mode" -- "$target"
+        [ "$target" != "$WORK/weather-android-cache" ] || record cache-parent-staged
     else
         previous=
         for value do source=$previous; previous=$value; done
@@ -245,6 +412,9 @@ python3() {
 }
 trap 'weather_client_delivery_cleanup || true' EXIT
 '''
+        if prepare:
+            source += "weather_client_agent_cache_prepare || fail WEATHER_CLIENT_AGENT_CACHE_PREPARE_FAILED\n"
+        return source
 
 
 if __name__ == "__main__": unittest.main()
