@@ -33,10 +33,10 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Source Quality `38727088626` and CodeQL `38727084357` pass for PR232's `1db29f62` tree. Actual `38731855117` fails Cloud FINALIZE during TLS handshake; the original base lifecycle receipts still pass their checks. The new profile omitted an existing provider observer, so that missing evidence must be restored before another trial. Consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. No duplicate trial is running. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | PR232's `ec56c9f6` restores provider observation and passes Quality `38740632723` / CodeQL `38740626654`. Actual `38746134861` gets past both deposits, then fails with last stage `cloud_catalog`. First distinguish catalog operations from final client-close failure using closed diagnostic codes. The base lifecycle still passes independently; combined consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Core `3327115e` and Code `3a5c1f59` pass their source gates. Actual `38737284583` fails with a QEMU OOM-kill before a guest result can be retrieved; the deciding memory boundary and reached guest stage remain unknown. Bounded host-memory observations are the next diagnostic step. Model, task and admission limits remain unchanged. This executor is not confidential peer execution or completion of the shared-brain requirement. |
-| Protected remote compute — `volparossa`, then Code/Browser | Verify quote exchange on the production route, then execute a private task on another node with verified protection. | PR246 and PR247 are merged. The quote-only slice passes appraisal, guest, agent/control/CLI and quote software checks. Production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is still unavailable; local coding and storage integration continue without substituting for this requirement. |
+| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | Actual `38742699743` on core `3327115e` / Code `8b21775e` completes two native reads, then hits the third request's compute deadline; no edit/test passes. QEMU pressure is observed without an OOM kill. Implement connection- and task-bound model/prefix reuse with the normal full toolset, bounded resources and independently verified session cleanup. This is an efficiency slice, not confidential peer execution or completion of the shared-brain requirement. |
+| Protected remote compute — `volparossa`, then Code/Browser | Verify quote exchange on the production route, then execute a private task on another node with verified protection. | PR246 and PR247 are merged; PR258 adds an authenticated hardware-unavailable refusal without releasing private input. Its software checks pass. First route attempt `38752117836` stops in a static preflight test before any VM starts; `2dfe81e0` corrects that extractor. Route refusal, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is still unavailable. |
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
@@ -44,7 +44,62 @@ The latest completed outcomes are summarized below.
 
 ### Latest completed integration evidence — 15 October
 
-- **The latest Storage trial reaches a different failure boundary.**
+- **The latest native coding trial completes two reads, not the requested edit.**
+  [Trial `38742699743`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38742699743)
+  uses exact Code `8b21775e072d3182b3766622fd387208992786a1` and core
+  `3327115e07d2c4fa976b2d0c625729a68df0aaf6`. Code source run `38741853989`
+  passes 438 checks with four explicit skips. The actual run admits three model
+  requests: two return tool calls observed as completed native reads; the third
+  ends with `compute_deadline`. The fixture is unchanged and no edit or test is
+  verified. Its last worker observation records 4,987 prompt tokens, first forward
+  completion at about 585.6 seconds and 26 generated tokens near 595.8 seconds,
+  within the unchanged 600-second request budget.
+
+  The bounded host observer records pressure against the existing 13 GiB QEMU
+  limit, but zero OOM/kill events. This does not identify the sole cause of the
+  deadline or explain the earlier lost VM. Worker and QEMU joins, private guest
+  state and VM scratch removal, observer join and runner restoration are checked.
+  Observed routes/DNS are semantically unchanged; raw IPv6 route output is not
+  byte-identical because the existing comparison excludes reference counts.
+  Original artifact ZIP SHA-256:
+  `721d57778d0dd5f2bc259921f9cee24caaa0d2a98fc094d35c21f4a3cb1ed4da`;
+  log ZIP SHA-256:
+  `5b03fddfa33dcf2d4514598297cdcdf06b5e9d66ec024ff5c06123fb3dc2ee98`.
+
+  The next slice reuses model preparation and exact prompt prefixes within one
+  owner task. It must retain the full ordinary toolset, separate per-request file
+  removal from final worker/private-state cleanup, and never share private KV
+  state across owners or projects. This is in development, not demonstrated
+  model acceleration or protected remote execution.
+
+- **The latest Storage trial reaches the catalog phase.**
+  [Trial `38746134861`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38746134861)
+  runs exact `ec56c9f68534b983072570cd1ddf79f82d86ad7a`, after Quality
+  `38740632723` and CodeQL `38740626654` pass. The original report correctly
+  rejects the combined scenario with `CONSUMER_APPLICATION_FAILED`; its consumer
+  receipt says `application_failed`, last stage `cloud_catalog`. Source ordering
+  places that stage after the Image and Cloud deposits, but the same stage also
+  covers catalog restoration/decryption/validation, policy reading and the final
+  client close. The retained code does not distinguish the failing operation.
+  This is not evidence that the preceding intermittent TLS/APPEND failures are
+  fixed, nor permission to replace uncertainty with a transport diagnosis.
+
+  The restored provider observer records 17 rounds / 51 observations without
+  sampled long-running operations; sampler and children are joined. Sampling
+  cannot exclude missed activity or prove a cause. Original base receipts still
+  pass restart/repair, two restores, removal of all 11 retained copies and zero
+  provider usage. That independent reconstruction is not a combined acceptance
+  record. Guest/local fixture cleanup and bounded QEMU join pass, and observed
+  host-state files match; consumer remote cleanup remains unconfirmed. There is
+  no independent post-removal scratch receipt. Original artifact ZIP SHA-256:
+  `afed0b65363668384fd5a5f2cd8edec4447cda0260ac262d428123de82092eb6`;
+  log ZIP SHA-256:
+  `17516efa2cb211a4bef5c2eca52cb61bd20a5a0e9bc84c36138bdfb06395efb4`.
+  The next diagnostic must distinguish catalog and close failures without
+  exporting private paths, metadata or exception text. Cloud's separate
+  upload-to-maintenance actual stays gated on the combined Storage milestone.
+
+- **The preceding Storage trial fails during Cloud FINALIZE.**
   [Trial `38731855117`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38731855117)
   runs exact `1db29f62809b9360d5c6acb31b0b0fa128190479`, after Quality
   `38727088626` and CodeQL `38727084357` pass. Its combined report correctly
@@ -85,7 +140,7 @@ The latest completed outcomes are summarized below.
   or cold restoration. Its original log ZIP SHA-256 is
   `5194964ff8e1773a96b9d303cfad77b2194591665f22f4c5588ab21bc694607c`.
 
-- **The latest native coding trial loses its VM before guest evidence returns.**
+- **The preceding native coding trial loses its VM before guest evidence returns.**
   [Trial `38737284583`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38737284583)
   uses Code `3a5c1f59b282952e378e9525f2cf47da43ee19b2` and core
   `3327115e07d2c4fa976b2d0c625729a68df0aaf6`. Core Quality `38733078778`
@@ -106,7 +161,7 @@ The latest completed outcomes are summarized below.
   log ZIP SHA-256:
   `358264ace79ac02eee6d355a8d095a0245b20d5ed14623a5bad14af48c480d39`.
   Independent audit checks both source trees, bundled files and original ZIPs.
-  The next candidate adds bounded host-cgroup observations without changing
+  Its follow-up candidate adds bounded host-cgroup observations without changing
   model, task, limits or disk-cache configuration.
 
   The preceding [trial `38726624377`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38726624377)
