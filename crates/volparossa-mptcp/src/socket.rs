@@ -398,7 +398,14 @@ mod tests {
                 assert_eq!(listener.local_addr().unwrap(), address);
             }
             let mut peer = tokio::net::TcpStream::connect(address).await.unwrap();
-            assert!(listener.accept().await.unwrap_err().raw_os_error().is_some());
+            assert!(
+                listener
+                    .accept()
+                    .await
+                    .unwrap_err()
+                    .raw_os_error()
+                    .is_some()
+            );
             assert_eq!(peer.read(&mut [0_u8; 1]).await.unwrap(), 0);
         })
         .await

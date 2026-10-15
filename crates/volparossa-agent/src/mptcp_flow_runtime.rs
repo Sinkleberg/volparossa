@@ -993,9 +993,9 @@ mod tests {
             assert!(accept_failure_ends_route(&MptcpAcceptError::Listener(
                 io::Error::from(kind)
             )));
-            assert!(!accept_failure_ends_route(&MptcpAcceptError::RejectedStream(
-                io::Error::from(kind)
-            )));
+            assert!(!accept_failure_ends_route(
+                &MptcpAcceptError::RejectedStream(io::Error::from(kind))
+            ));
         }
     }
 
