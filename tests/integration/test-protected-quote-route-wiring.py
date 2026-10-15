@@ -47,6 +47,46 @@ class Wiring(unittest.TestCase):
         self.assertIn("client_log_baseline_ms", source)
         self.assertIn("client_event_count_after", source)
 
+    def test_public_inputs_belong_to_the_capless_quote_caller(self):
+        source = SHELL.read_text()
+        start = source.index('    python3 -B "$source_directory/tests/integration/protected-quote-route.py"')
+        end = source.index('    PHASE=protected-quote-route\n', start)
+        stage = source[start:end]
+        # Run the real pinned-fixture preparation and staging block, but never
+        # change a host UID/GID. The chown double records the exact fixed targets.
+        script = '''set -eu
+fail() { exit 71; }
+chown() { printf '%s\\n' "$@" >"$TRACE"; return "$OWNER_STATUS"; }
+''' + stage + '\nprintf "ready\\n"\n'
+        guard = (ROOT / "crates/volparossa/src/compute.rs").read_text()
+        guard = guard.split("fn read_file(", 1)[1].split("\nfn runtime_lease(", 1)[0]
+        self.assertIn("info.uid() == nix::unistd::geteuid().as_raw()", guard)
+        self.assertIn('--reuid="$WORKER_UID" --regid="$WORKER_GID"', source)
+        for owner_status in (0, 1):
+            with self.subTest(owner_status=owner_status), tempfile.TemporaryDirectory() as directory:
+                work = Path(directory)
+                trace = work / "owner-argv"
+                env = dict(os.environ, WORK=directory, source_directory=str(ROOT),
+                    WORKER_UID="9876", WORKER_GID="9877", TRACE=str(trace),
+                    OWNER_STATUS=str(owner_status))
+                result = subprocess.run(["sh", "-c", script], env=env,
+                    capture_output=True, timeout=5)
+                self.assertTrue(trace.is_file(), "the CLI rejects root-owned inputs even if readable")
+                paths = [work / "protected-quote-inputs" / name
+                    for name in ("policy.json", "vcek.der", "vendor.crl")]
+                self.assertEqual(trace.read_text().splitlines(), ["9876:9877", *map(str, paths)])
+                # The non-privileged double must not change the real test owner.
+                self.assertTrue(all(path.stat().st_uid == os.geteuid() for path in paths))
+                if owner_status:
+                    self.assertEqual(result.returncode, 71)
+                    self.assertEqual(result.stdout, b"")
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, b"ready\n")
+                    self.assertEqual((work / "protected-quote-inputs").stat().st_mode & 0o777, 0o755)
+                    self.assertTrue(all(path.stat().st_mode & 0o777 == 0o400 for path in paths))
+                    self.assertEqual((work / "protected-quote-inputs.json").stat().st_mode & 0o777, 0o600)
+
     def test_quote_preflight_does_not_require_unbuilt_unrelated_examples(self):
         text = GUEST.read_text()
         start = text.index('if [ "$scenario" = content-provider ]; then\n    for provider_fixture')

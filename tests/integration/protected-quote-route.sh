@@ -72,11 +72,16 @@ protected_quote_route_run() {
     case $quote_control_gid in ''|0|*[!0-9]*) fail QUOTE_OPERATOR_GROUP_INVALID ;; esac
     python3 -B "$source_directory/tests/integration/protected-quote-route.py" \
         prepare "$WORK" "$source_directory" || fail QUOTE_PUBLIC_INPUT_INVALID
-    # Exactly these public, source-pinned expectations/collateral are readable
-    # by the capless operator. No identity, report or firmware data is staged.
-    chmod 0755 "$WORK/protected-quote-inputs"
-    chmod 0644 "$WORK/protected-quote-inputs/policy.json" \
-        "$WORK/protected-quote-inputs/vcek.der" "$WORK/protected-quote-inputs/vendor.crl"
+    # The CLI requires same-owner inputs, not merely readable collateral.
+    # Transfer only these three newly created, source-pinned public fixtures to
+    # the capless operator. The root-owned parent and private material are untouched.
+    chmod 0755 "$WORK/protected-quote-inputs" || fail QUOTE_PUBLIC_INPUT_INVALID
+    chown "$WORKER_UID:$WORKER_GID" "$WORK/protected-quote-inputs/policy.json" \
+        "$WORK/protected-quote-inputs/vcek.der" "$WORK/protected-quote-inputs/vendor.crl" \
+        || fail QUOTE_PUBLIC_INPUT_INVALID
+    chmod 0400 "$WORK/protected-quote-inputs/policy.json" \
+        "$WORK/protected-quote-inputs/vcek.der" "$WORK/protected-quote-inputs/vendor.crl" \
+        || fail QUOTE_PUBLIC_INPUT_INVALID
     PHASE=protected-quote-route
     python3 -B "$WORK/bin/content-provider-readiness.py" "$WORK" \
         >"$WORK/content-provider-readiness.json" || fail QUOTE_INVENTORY_UNAVAILABLE
