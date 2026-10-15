@@ -13,7 +13,7 @@ async fn fixture() -> (
     tempfile::TempDir,
     SigningKey,
     Enrollment,
-    File,
+    nix::fcntl::Flock<File>,
     LocalProviders,
 ) {
     let temp = tempfile::tempdir().unwrap();
