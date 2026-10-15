@@ -462,6 +462,20 @@ cleanup fixture. That fixture now explicitly selects `alpha`, without changing
 its shutdown, status or scratch-retention assertions. The targeted workflow also
 runs its 25 cases; no production shutdown path is changed by these corrections.
 
+The first dispatched route trial, `38752117836` on `4a39e38f`, stops before
+VM preparation in the cooperative-browser preflight test. Its extractor only
+recognizes `if`, while the preceding quote-export branch makes the unchanged
+cooperative selector an `elif`. The test now recognizes both branch forms and
+executes the same four-cohort gate independently; `protected-quote` is also
+explicitly rejected by that cooperative gate. The targeted workflow adds the
+existing browser and Code VM-contract suites. No VM starts, no route or refusal
+is observed, and no cleanup reports are produced by this failed run. Separately,
+source-only run `38750363249` passes 190 Python cases, 55 unique Rust cases,
+formatting and strict Clippy on the same commit.
+The complete preflight's 99 Python invocations and 58 shell syntax checks now
+exit successfully locally. Four Node-dependent cases also pass with the existing
+verified runtime; the optional real CLI/GPG and three namespace cases stay skipped.
+
 #### Integrated quote exchange
 
 The new quote-only path connects guest-owned evidence collection to the existing

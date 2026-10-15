@@ -63,6 +63,8 @@ jobs:
           python3 -B tests/integration/test-weather-client-runner.py
           python3 -B tests/integration/test-weather-android-vm-wiring.py
           timeout --signal=TERM --kill-after=5s 60s python3 -B tests/integration/test-qemu-child-lifecycle.py
+          python3 -B tests/integration/test-agent-cooperative-browser.py
+          python3 -B tests/integration/test-cooperative-code-vm-contract.py
       - name: Fetch locked dependencies without modifying source
         run: |
           set -euo pipefail
