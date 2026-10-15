@@ -411,9 +411,19 @@ physical absence of hardware; an inaccessible device can also cause this refusal
 The existing version-one success result is unchanged. Older callers reject the
 new refusal rather than treating it as evidence.
 
-This is an unverified source candidate. Targeted guest, protocol, agent and CLI
-checks precede a disposable production-route trial. No new hardware report,
-protected task or working route is claimed by this change.
+Targeted hosted source checks now pass in
+[run 38740806726](https://github.com/VOLPAROSSA/volparossa/actions/runs/38740806726)
+on `92271e9e`: 87 Python tests and 55 unique Rust tests across guest collection,
+signed outcomes, pending-session completion, agent handoff and CLI results.
+Formatting and strict Clippy for the three affected packages also pass. Original
+logs confirm the exact checkout/tree and unchanged lockfile; their ZIP SHA-256 is
+`e5eca7df32573713d3c04e5a376b786a4e77eaaab1ca638a2517323c503ddd43`.
+Earlier runs `38737101441` (formatting), `38737643834` and `38739086162`
+(Clippy) remain separate failed source checks, not successful acceptances.
+
+This remains a source candidate pending integration and a disposable
+production-route trial. These software checks do not prove a new hardware report,
+protected task or working route.
 
 #### Integrated quote exchange
 
