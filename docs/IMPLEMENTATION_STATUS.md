@@ -175,6 +175,16 @@ source review passes. The original v2 failure record still validates unchanged;
 v1/v2 keep their exact historical field sets. These inert checks do not establish
 the actual failure's cause or successful distributed recovery.
 
+One fresh actual run, `38667836184`, is testing exact `9127a8fc` with unchanged
+consumer profile 7. A separate regression candidate exercises a real signed
+pending handoff using local provider stores: source renewal outlives the original
+target lease, two maintenance scans must retain the source, and the next selected
+fragment rotation must renew the target before retirement. It preserves the
+original manifest and signed placement. Independent source review passes;
+hosted compilation/execution is still required. This is a source-supported
+counterexample, not an explanation of the previous actual failure or proof of
+the daemon's complete restart lifecycle.
+
 Original lifecycle, route, provider-event, supervisor and control-transition
 diagnostics validate. Provider snapshots cover their baselines without recorded
 storage failure tuples; client/control rings do not, so absence there proves
