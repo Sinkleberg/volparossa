@@ -90,41 +90,10 @@ jobs:
           python3 -B tests/integration/test-weather-client-runner.py
 
       - name: Check formatting and shell sources
-        id: formatting
         run: |
           python3 -B scripts/test-diagnose-backport-lock.py
-          if cargo fmt --all -- --check; then
-            :
-          else
-            format_status=$?
-            # Temporary source-only aid for this candidate; the gate still fails.
-            # No Rust formatter or compiler runs on the development host.
-            if test "$GITHUB_REPOSITORY" = VOLPAROSSA/volparossa && \
-               test "$RUNNER_ENVIRONMENT" = github-hosted && \
-               test "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" = feature/native-cpu-inference; then
-              format_dir="$RUNNER_TEMP/native-memory-format"
-              test ! -e "$format_dir"
-              mkdir -m 0700 "$format_dir"
-              git rev-parse HEAD > "$format_dir/source.txt"
-              cargo fmt --all
-              git diff --no-ext-diff --binary -- crates/volparossa/src/compute.rs \
-                crates/volparossa/src/compute/ > "$format_dir/format.patch"
-              printf 'native_memory_format=true\n' >> "$GITHUB_OUTPUT"
-            fi
-            exit "$format_status"
-          fi
+          cargo fmt --all -- --check
           ./scripts/check-shell.sh
-
-      - name: Preserve native memory candidate formatting diff
-        if: ${{ failure() && steps.formatting.outputs.native_memory_format == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: native-memory-format-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/native-memory-format/source.txt
-            ${{ runner.temp }}/native-memory-format/format.patch
-          if-no-files-found: error
-          retention-days: 7
 
       - name: Check native CPU contracts without loading models
         working-directory: workers/volparossa-ml

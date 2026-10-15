@@ -41,6 +41,12 @@ tests pass, including an independent rerun. Sixteen new Rust tests still require
 hosted compilation and execution. These observations are not a causal fix or
 completion of the coding task or protected peer execution.
 
+Initial hosted check `38702380046` stops at formatting, before Rust tests. Its
+source-bound formatter artifact supplies five layout-only corrections in four
+files; the temporary artifact step is removed after applying them. Artifact ZIP
+SHA-256: `e4471084d545a26e9aa1850cee46a270cf1cbe06e93590dfb6f22201662065cb`.
+No local Rust compilation or formatting runs.
+
 #### Tool-call output constraint candidate
 
 - [ ] Continue the existing native OpenCode integration after actual Code run

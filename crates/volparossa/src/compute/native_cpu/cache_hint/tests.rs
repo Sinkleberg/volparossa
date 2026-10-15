@@ -416,11 +416,7 @@ fn advice_observation_reports_one_syscall_and_closed_errno_without_reclaim_claim
             |stats| {
                 assert!(stats);
                 samples.set(samples.get() + 1);
-                memory::Sample::for_test(if samples.get() == 1 {
-                    Some(0)
-                } else {
-                    None
-                })
+                memory::Sample::for_test(if samples.get() == 1 { Some(0) } else { None })
             },
             |_, bytes| {
                 assert_eq!(bytes, 1);
@@ -434,7 +430,11 @@ fn advice_observation_reports_one_syscall_and_closed_errno_without_reclaim_claim
         assert!(matches!(original, Ok("original result")));
         assert_eq!(
             record["outcome"],
-            if expected.is_some() { "error" } else { "advised" }
+            if expected.is_some() {
+                "error"
+            } else {
+                "advised"
+            }
         );
         assert_eq!(record["syscall_error"], json!(expected));
         assert_eq!(record["after"]["missing_stage"], "meminfo");

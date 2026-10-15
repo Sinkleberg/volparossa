@@ -120,8 +120,16 @@ impl Sample {
         Self {
             headroom,
             host: headroom,
-            missing: if headroom.is_some() { "none" } else { "meminfo" },
-            io_kind: if headroom.is_some() { "none" } else { "invalid_data" },
+            missing: if headroom.is_some() {
+                "none"
+            } else {
+                "meminfo"
+            },
+            io_kind: if headroom.is_some() {
+                "none"
+            } else {
+                "invalid_data"
+            },
             ..Self::default()
         }
     }

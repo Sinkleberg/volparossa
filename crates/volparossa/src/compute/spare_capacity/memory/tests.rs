@@ -131,10 +131,7 @@ fn admission_sampler_preserves_original_decisions_and_read_order() {
         for used in &variants {
             for parent in &variants {
                 let mut files = files();
-                files.insert(
-                    Path::new(ROOT).join(GROUP).join("memory.max"),
-                    own.clone(),
-                );
+                files.insert(Path::new(ROOT).join(GROUP).join("memory.max"), own.clone());
                 files.insert(
                     Path::new(ROOT).join(GROUP).join("memory.current"),
                     used.clone(),

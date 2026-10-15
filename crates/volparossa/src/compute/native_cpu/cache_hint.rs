@@ -73,13 +73,9 @@ impl Binding {
         diagnostic: bool,
     ) {
         let observe = diagnostic && memory::enabled();
-        let record = self.observe_with(
-            result,
-            profile,
-            observe,
-            memory::sample,
-            |file, bytes| posix_fadvise(file, 0, bytes, PosixFadviseAdvice::POSIX_FADV_DONTNEED),
-        );
+        let record = self.observe_with(result, profile, observe, memory::sample, |file, bytes| {
+            posix_fadvise(file, 0, bytes, PosixFadviseAdvice::POSIX_FADV_DONTNEED)
+        });
         if observe {
             memory::emit(&record);
         }
