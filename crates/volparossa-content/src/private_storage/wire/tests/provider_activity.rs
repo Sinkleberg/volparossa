@@ -201,7 +201,7 @@ async fn provider_activity_failed_flush_preserves_wire_failure_and_never_enters_
         service
             .serve_with_activity(
                 &mut server,
-                &mut diagnostic::Observation::default(),
+                &mut crate::private_storage::wire::diagnostic::Observation::default(),
                 observer.as_ref(),
             )
             .await
@@ -231,7 +231,7 @@ async fn provider_activity_preserves_original_stalled_grant_deadline() {
         service
             .serve_with_activity(
                 &mut server,
-                &mut diagnostic::Observation::default(),
+                &mut crate::private_storage::wire::diagnostic::Observation::default(),
                 observer.as_ref(),
             )
             .await
@@ -256,7 +256,7 @@ async fn provider_activity_rejected_grant_does_not_imply_challenge_or_verified_o
         service
             .serve_with_activity(
                 &mut server,
-                &mut diagnostic::Observation::default(),
+                &mut crate::private_storage::wire::diagnostic::Observation::default(),
                 observer.as_ref(),
             )
             .await
