@@ -19,9 +19,9 @@ Last updated: 2026-10-15
 ### Execution priorities and next milestones
 
 The shared cache and actual Weather delivery into Drizz.li and Overmorrow are
-integrated. The installed Android refresh/background-expiry trial is now also
-integrated. Shared private storage maintenance and protected compute remain the
-next core dependencies; further Weather expansion does not automatically take
+integrated. The installed Android refresh/background-expiry trial with synthetic
+products is also integrated. Shared private storage maintenance and protected
+compute remain the next core dependencies; further Weather expansion does not automatically take
 precedence over core blockers. Choose slices by shared dependencies,
 architectural uncertainty and a demonstrable end-to-end result, not by application
 order or change count. Develop core functions with their actual consumers.
@@ -31,15 +31,59 @@ The immediate milestones build on the retained candidates and evidence below:
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
-| Native Overmorrow — `volparossa-weather` | Join core-delivered products to the now-proven installed Android refresh/background-expiry lifecycle. | PR19 is merged as `ad10d7d9`, with the exact tested tree of `576550f3`. Original Android `38497919547` and component `38497925414` pass; the Android proof includes real tap refresh, background/resume, hidden expired tables, unchanged three requests per product and full cleanup. Products are synthetic in this trial. Actual core delivery into Android, physical devices and iOS remain open; separate web evidence is unchanged. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized renewal and repair after service restart, and restore through an actual consumer after a provider is replaced. | Original actual trial `38497089463` on `0057262e` fails Cloud publication with a FINALIZE `wire_receipt/io` result. Diagnostic candidate `b9a8905e` passes Quality `38505948590`, including eleven new Rust cases, and CodeQL `38505945732`. Actual trial `38508516347` is pending on that exact source. These diagnostics do not establish a fix; consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
+| Native Overmorrow — `volparossa`, `volparossa-weather` | Complete actual core delivery through Android's initial, refresh and background/resume lifecycle; then verify expiry behavior with real products. | The installed-app lifecycle, including expiry, passes with synthetic products (Weather PR19). The latest completed joined trial stops during refresh observation; see the 15 October evidence below. Weather PR24 corrects the observation window within the unchanged total deadline. Core PR248 carries the pinned follow-up; actual joined acceptance and expiry, physical devices and iOS remain open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized maintenance after restart, then publish, repair and restore through actual consumers after provider replacement. | The base lifecycle passes, but the latest completed trial stops during Cloud FINALIZE's signed-challenge exchange, before local READY. PR232 adds receiving-side activity diagnostics; these are not a demonstrated fix. Consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Protected remote compute — `volparossa`, then Code/Browser | Verify the authorized quote exchange over the existing protected provider stream, then prove a private task on another node. | PR246 is merged as `e282a3ce`; its guest module has passing software evidence. PR247 connects that module to finite operator grants, protected transport and CLI verification. Original run `38511031734` on `85a01382` passes 52 appraisal, 16 guest and twelve new quote tests plus targeted Clippy. Quality `38511036689` stops at one CLI naming lint; the private-type rename is reviewed, but corrected workspace acceptance and execution of eight new agent/control/CLI tests remain required. Production-route execution, production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is unavailable; storage continues in parallel. |
+| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | One native model-generated read completes, but six execution failures leave the fixture unchanged. Core PR212 and Code PR11 carry tested closed task diagnostics and an exact follow-up pin. The model, task and limits are unchanged. This development executor is not confidential peer execution or completion of the shared-brain requirement. |
+| Protected remote compute — `volparossa`, then Code/Browser | Verify quote exchange on the production route, then execute a private task on another node with verified protection. | PR246 and PR247 are merged. The quote-only slice passes appraisal, guest, agent/control/CLI and quote software checks. Production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is still unavailable; local coding and storage integration continue without substituting for this requirement. |
 
-### Latest integration evidence — 14 October
+### Latest completed integration evidence — 15 October
 
-The older checkpoints in the workstream table are superseded by these original
-results; the older checkpoints are retained as history, not as currently running trials.
+- **Android delivery remains incomplete.** [Trial `38674805209`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38674805209)
+  on core `89c91156` / Weather `0a31bf18` reaches the actual refresh phase, then
+  records `product_count_wait` / `observation_deadline` before cleanup. The final
+  tunnel count is four exchanges, not the required six; that final count does
+  not establish which responses completed before the observation deadline.
+  Owner/VM cleanup and exact KVM ACL restoration pass. No joined acceptance or
+  expiry proof is produced. Original artifact ZIP SHA-256:
+  `38835fde753b2dfb12191532ea749e25ad8cd79fbabde23ea5cef82c88c134a3`.
+  Weather PR24 gives each live observation the same bounded window within the
+  original 180-second total. Its tests pass, but this does not establish the
+  unique cause of the failed trial or successful Android delivery.
+- **Storage consumer maintenance remains incomplete.** [Trial `38667836184`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38667836184)
+  on `9127a8fc` passes the base core-loss/restart, pause/resume, replacement,
+  two-restore and delete lifecycle. Cloud publication then fails before READY
+  at fragment 0, copy 0, FINALIZE: `CONTENT_UNAVAILABLE` at `agent_ready`, with
+  an operation deadline during `challenge_read_verify`. The coarse observation
+  records less than one second before that exchange and 90–120 seconds inside
+  it. It does not prove that the receiving provider sent its challenge. Local
+  cleanup completes; remote cleanup and provider usage remain unproven. Original
+  artifact ZIP SHA-256:
+  `ba75d48332b5232ccdd5277d7090852b1d7202e14f5f38bd1ff8afe92f97117a`.
+  PR232's bounded receiving-side snapshots address that missing observation,
+  without changing storage authority, timeouts or acceptance.
+- **OpenCode reaches one real read, not a coding loop.** [Trial `38675278393`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38675278393)
+  on Code `6aa6291a` / core `9d044921` passes native build, conversion and
+  provisioning. One of seven submitted requests produces a function call and
+  the actual OpenCode runtime completes its read. Six requests fail execution;
+  their cause is not identified. The task ends after 588,147 ms without an edit,
+  test or changed fixture. Reported runtime, project, VM and owned-runner cleanup
+  complete. Original artifact ZIP SHA-256:
+  `487bee78bb4857c6a5b48df7d69df21ceeb608ded9d9264122668480f62afa74`.
+  [Core Quality `38678859785`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38678859785)
+  verifies three new task-diagnostic Rust cases and thirteen output-constraint
+  cases on `5607f117`; Code `e3926734` pins that source. This adds closed failure
+  information, not a presumed fix, larger budget or private peer execution.
+
+See the follow-up results in [Storage PR232](https://github.com/VOLPAROSSA/volparossa/pull/232),
+[Android PR248](https://github.com/VOLPAROSSA/volparossa/pull/248) and
+[Code PR11](https://github.com/VOLPAROSSA/volparossa-code/pull/11).
+Starting a follow-up does not supersede the last completed outcome above.
+
+### Earlier integration evidence — 14 October
+
+These earlier results remain historical evidence. They are not current running
+trials or substitutes for the later completed outcomes above.
 
 - **Android core delivery remains open.** On `ca292e41`, actual run
   [`38624043886`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38624043886)
@@ -94,20 +138,18 @@ direction resets the shared read-idle timer, but cannot extend a blocked write.
 Eight new regressions bring the focused streaming suite to twelve cases. They
 cover simultaneous backpressure, real nested TLS, half-close, cancellation,
 read-idle and blocked-write bounds, reverse-only progress and the reverse byte
-limit. The focused hosted step in
-[Quality `38661788072`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38661788072)
-passes on `ea6efddb`; the full run and original terminal-log audit are still
-pending. The standalone main-based change retains those exact source/test blobs
-and adds only the early focused test step to main's existing Quality workflow.
-It preserves the resolver backport, locked dependency graphs and prior checks.
+limit. [PR252](https://github.com/VOLPAROSSA/volparossa/pull/252) integrates the
+correction in main as `87f8c31d`. Its
+[Quality `38663438337`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38663438337)
+passes on `3cfbaba1`, including the twelve focused streaming tests; CodeQL also
+passes. The change preserves the resolver backport, locked dependency graphs
+and prior checks.
 
 This fixes a reproducible streaming defect, not a proven cause of the earlier
-Storage challenge timeout. Shared consumer maintenance remains separately
-unproven: [actual trial `38662571845`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38662571845)
-is running on the unchanged Storage candidate `ea6efddb`. Neither the in-memory
-tests nor this transport correction establish consumer repair, restore or
-remote cleanup. The independent OpenCloud upload trial still waits for that
-shared integration.
+Storage challenge timeout. The later actual storage failure above already
+contains the corrected streaming code. Neither the in-memory tests nor this
+transport correction establishes consumer repair, restore or remote cleanup.
+The independent OpenCloud upload trial still waits for that shared integration.
 
 ### Integrated Hickory resolver security backport
 
