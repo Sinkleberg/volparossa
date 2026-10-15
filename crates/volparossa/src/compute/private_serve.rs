@@ -508,7 +508,7 @@ impl NativeSession {
             mpsc::Sender<super::supervise::native_session::Event>,
             watch::Receiver<bool>,
         ) -> Fut,
-        Fut: std::future::Future<Output = Result<Value>> + Send + 'static,
+        Fut: Future<Output = Result<Value>> + Send + 'static,
     {
         let (commands, receive) = mpsc::channel(1);
         let (send, events) = mpsc::channel(1);

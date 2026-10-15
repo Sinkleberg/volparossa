@@ -12,13 +12,13 @@ use tokio::{
     time::Instant,
 };
 
-use super::super::{self as supervisor, lifetime::OwnedLifetimes};
 use crate::compute::{
     MAX_LINE_BYTES, MAX_STREAM_BYTES, ModelProfile, Options, WorkerRequest, check_message,
     owner_control::{Action, Controls},
     private_conversation::decode_worker_message,
     resources, sandbox,
     spare_capacity::{Budget, Decision},
+    supervise::{self as supervisor, lifetime::OwnedLifetimes},
 };
 
 struct Frames {
@@ -73,10 +73,7 @@ pub(super) struct Live {
 
 fn clock_ticks() -> Result<u64> {
     // Linux's own bounded auxiliary vector, not a subprocess or guessed USER_HZ.
-    ensure!(
-        std::mem::size_of::<usize>() == 8,
-        "compute_native_session_cpu_clock"
-    );
+    ensure!(size_of::<usize>() == 8, "compute_native_session_cpu_clock");
     let mut bytes = Vec::new();
     std::fs::File::open("/proc/self/auxv")?
         .take(8193)

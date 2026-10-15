@@ -8,7 +8,7 @@ use sha2::{Digest as _, Sha256};
 use super::super::super::supervise::native_session::{Command, Event};
 
 fn native_config(root: &std::path::Path) -> private_task::ExecutionConfig {
-    let mut config = super::output_constraint::native_config(root, true);
+    let mut config = output_constraint::native_config(root, true);
     let manifest = config
         .native_backend
         .native_backend_root
