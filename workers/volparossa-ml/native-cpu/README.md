@@ -26,6 +26,32 @@ handles, never guessed upstream struct layouts. llama/ggml and the C++ runtime
 are statically linked into the owned library; only the checked platform C/math
 loader libraries remain dynamic. Arbitrary dynamic search paths are rejected.
 
+## Optional tool-call output constraint
+
+The new `qwen_tagged_tool_json_v1` profile is explicit and additive. Backend
+manifest v2 and build manifest v3 bind the implemented capability; historical
+backend v1/build v2 remain valid without it. Conversation IPC negotiates version
+1 separately, and the core derives `vp_0` through `vp_N-1` from the actual offered
+tools. Callers cannot supply grammar or executable code. Requests without tools
+omit the selector, and requests without the selector retain the old greedy path.
+
+For selected Qwen4B/greedy requests, ordinary answers remain possible. If the
+model begins a tagged tool call, native candidate filtering limits it to one
+offered alias and an object-valued JSON argument. Container depth is at most 16,
+counting the arguments object as depth 1, not the fixed call envelope. Token
+lookahead checks split markers, their trailing bytes and UTF-8 before accepting
+a candidate. No generated response is repaired or replaced after generation.
+The existing strict final parser, tool authorization, prompt/output limits,
+deadlines and cleanup still apply. This is not arbitrary JSON-schema validation
+or proof that a proposed tool action is useful or authorized.
+
+The source-only hosted workflow builds normal and ASan/UBSan variants from the
+exact upstream pin, without models. New checks run before the unchanged all-type
+tensor check so its known sanitizer failure cannot hide their result. That
+failure is neither suppressed nor converted into a passing full-suite result.
+Native compilation, real-model behavior and a successful OpenCode task remain
+separate acceptance requirements for the new candidate.
+
 ## Source build and conversion
 
 `../build_llama_cpu.py` consumes a clean local checkout of the exact commit. It

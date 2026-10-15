@@ -26,8 +26,10 @@ KIND = "llama_cpp_bf16_v1"
 HERE = Path(__file__).resolve().parent
 LIBRARY = "libvolparossa_llama_cpu.so"
 ALLOWED_NEEDED = {"libc.so.6", "libm.so.6", "libpthread.so.0", "libdl.so.2", "ld-linux-x86-64.so.2"}
-CHECK_TARGETS = ("vp-native-abi-smoke", "vp-native-loader-validation", "vp-native-bf16-tensors", "vp-upstream-tensor-tests")
-WRAPPER_FILES = ("CMakeLists.txt", "adapter.h", "adapter.cpp", "bounded-tensor-validation.patch")
+CHECK_TARGETS = ("vp-native-abi-smoke", "vp-native-loader-validation", "vp-native-bf16-tensors",
+                 "vp-native-output-constraint", "vp-upstream-tensor-tests")
+WRAPPER_FILES = ("CMakeLists.txt", "adapter.h", "adapter.cpp", "bounded-tensor-validation.patch",
+                 "output-constraint.h", "output-constraint.cpp")
 
 
 def require(condition, code):
@@ -166,6 +168,7 @@ def build(source, output, execute=False, checks=False, sanitize=False):
     require(not sanitize or checks, "NATIVE_SANITIZER_REQUIRES_CHECKS")
     patched_loader(source)
     plan = {"kind": KIND, "source_commit": SOURCE, "source_tree": tree,
+            "output_constraints": [native.OUTPUT_CONSTRAINT],
             "sanitizers": sanitize, "provisionable": not sanitize,
             "source_overlay": native.loader_provenance(),
             "jobs": 2, "models_loaded": False, "downloads": False, "install": False}
@@ -221,7 +224,11 @@ def build(source, output, execute=False, checks=False, sanitize=False):
             for target in CHECK_TARGETS:
                 matches = list((output / "build").rglob(target))
                 require(len(matches) == 1 and matches[0].is_file(), "NATIVE_CHECK_TARGET")
+                log.write(("NATIVE_CHECK_BEGIN " + target + "\n").encode("ascii"))
+                log.flush()
                 run_build([str(matches[0])], log, check_env, min(120, 1800 - (time.monotonic() - started)))
+                log.write(("NATIVE_CHECK_PASS " + target + "\n").encode("ascii"))
+                log.flush()
     licenses = output / "licenses"
     licenses.mkdir(mode=0o700)
     # Preserve all tracked notices, not only the top-level MIT declaration.
@@ -245,7 +252,7 @@ def build(source, output, execute=False, checks=False, sanitize=False):
     require(runtime_notice.is_file(), "NATIVE_TOOLCHAIN_NOTICE")
     shutil.copyfile(runtime_notice, licenses / "GCC-runtime-copyright")
     (licenses / "GCC-runtime-copyright").chmod(0o444)
-    report = dict(plan, version=2, abi_version=1, library={"path": LIBRARY, **digest(library)},
+    report = dict(plan, version=3, abi_version=1, library={"path": LIBRARY, **digest(library)},
                   upstream_original_unchanged=True, loader_compile_source_verified=True,
                   dynamic_dependencies=needed, cpu="avx2_fma_f16c", quantization=False,
                   checks=list(CHECK_TARGETS) if checks else [],

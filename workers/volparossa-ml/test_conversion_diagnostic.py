@@ -18,7 +18,7 @@ import convert_llama_cpu as conversion
 
 
 class ConversionDiagnosticTests(unittest.TestCase):
-    def exercise_stage(self, rejected):
+    def exercise_stage(self, rejected, build_version=2):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             base = Path(directory)
             model, build, source = (base / name for name in ('model', 'build', 'source'))
@@ -28,7 +28,7 @@ class ConversionDiagnosticTests(unittest.TestCase):
                 path.write_bytes(b'inert')
             pinned = [{'path': name, 'bytes': 5, 'sha256': hashlib.sha256(b'inert').hexdigest()}
                       for name in ('weights', 'LICENSE')]
-            manifest = dict(version=2, source_commit=conversion.builder.SOURCE, kind=conversion.native.KIND,
+            manifest = dict(version=build_version, source_commit=conversion.builder.SOURCE, kind=conversion.native.KIND,
                 source_tree=conversion.native.SOURCE_TREE, source_overlay=conversion.native.loader_provenance(),
                 loader_compile_source_verified=True, upstream_original_unchanged=True,
                 abi_version=1, quantization=False, provisionable=True, sanitizers=False,
@@ -36,6 +36,8 @@ class ConversionDiagnosticTests(unittest.TestCase):
                 dynamic_dependencies=['libc.so.6'],
                 wrapper_sources={name: conversion.builder.digest(conversion.HERE / 'native-cpu' / name)
                                  for name in conversion.builder.WRAPPER_FILES})
+            if build_version == 3:
+                manifest['output_constraints'] = [conversion.native.OUTPUT_CONSTRAINT]
             (build / 'build.json').write_text(json.dumps(manifest))
             progress, visited = {}, []
             def boundary(stage, result=None):
@@ -88,8 +90,15 @@ class ConversionDiagnosticTests(unittest.TestCase):
                 return original_copy(src, dst)
             stack.enter_context(mock.patch.object(conversion.shutil, 'copyfile', side_effect=copyfile))
             stack.enter_context(mock.patch.object(conversion.provision, 'native_converter_pins', return_value={'notices': []}))
+            def converted_manifest(value, _require):
+                self.assertEqual(value['version'], build_version - 1)
+                if build_version == 3:
+                    self.assertEqual(value['output_constraints'], [conversion.native.OUTPUT_CONSTRAINT])
+                else:
+                    self.assertNotIn('output_constraints', value)
+                boundary('manifest')
             stack.enter_context(mock.patch.object(conversion.native, 'validate_manifest',
-                side_effect=lambda *_args: boundary('manifest')))
+                side_effect=converted_manifest))
             stack.enter_context(mock.patch.object(conversion, 'private_bundle_modes',
                 side_effect=lambda _path: boundary('permissions')))
             args = SimpleNamespace(root=str(base / 'output'), source=source, build=build, model=model,
@@ -115,6 +124,16 @@ class ConversionDiagnosticTests(unittest.TestCase):
                     self.assertEqual(diagnostic['failure'], 'contract')
                     self.assertNotIn('CANARY', json.dumps(diagnostic))
                     self.assertNotIn('/private', json.dumps(diagnostic))
+        finally:
+            sys.path[:] = original_path
+
+    def test_new_build_capability_projects_into_new_backend_schema_only(self):
+        original_path = list(sys.path)
+        try:
+            progress, diagnostic, visited = self.exercise_stage('permissions', build_version=3)
+            self.assertEqual(progress['stage'], 'permissions')
+            self.assertIn('manifest', visited)
+            self.assertEqual(diagnostic['failure'], 'contract')
         finally:
             sys.path[:] = original_path
 

@@ -4,6 +4,8 @@
 use super::*;
 use tokio::io::AsyncWriteExt as _;
 
+mod output_constraint;
+
 const FIRST: &str = "01010101010101010101010101010101";
 const SECOND: &str = "02020202020202020202020202020202";
 const THIRD: &str = "03030303030303030303030303030303";

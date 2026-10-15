@@ -368,6 +368,8 @@ def execute(args, progress=None):
                 "library": {"path": native.LIBRARY, **builder.digest(root / native.LIBRARY)},
                 "gguf": {"path": "model.gguf", **builder.digest(output)}, "verification": verified,
                 "build_manifest_sha256": hashlib.sha256(build_raw).hexdigest()}
+    if build["version"] == 3:
+        manifest.update(version=2, output_constraints=list(build["output_constraints"]))
     native.validate_manifest(manifest, builder.require)
     retained = sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
     builder.require(retained + 65536 <= args.budget_bytes, "NATIVE_CONVERSION_DISK_BUDGET")

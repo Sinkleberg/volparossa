@@ -1,6 +1,8 @@
 //! Admission/report tests only; none assert model inference or tool-use quality.
 use super::*;
 
+mod output_constraint;
+
 fn input() -> Value {
     json!({"version":1,"visibility":"private_local","instructions":"Review the supplied code.",
         "tools":[{"type":"function","name":"read_file","description":"Read an approved file.",

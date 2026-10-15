@@ -11,11 +11,39 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-07
+Last updated: 2026-10-15
 
 ## Current integration and active work
 
 ### Explicit native CPU inference candidate
+
+#### Tool-call output constraint candidate
+
+- [ ] Continue the existing native OpenCode integration after actual Code run
+  `37683661957` on Code `45510055` and core `9e9086ee` produced one invalid JSON
+  tool-call body. That run proves no usable turn, tool action or coding result;
+  it does not identify a unique cause inside generation.
+
+The new optional `qwen_tagged_tool_json_v1` profile binds IPC negotiation,
+owner-authorized backend manifest v2/build v3, the actual serialized dataset,
+core-derived offered-tool aliases, worker request and returned result. The
+native ABI preserves the old unselected greedy path. Selected requests allow
+ordinary answers, or one tagged JSON tool call with arguments nesting at most
+16. The strict final parser remains authoritative: no output repair, forced
+tool use, prompt truncation, extra time or alternate model is introduced.
+
+171 targeted inert Python checks pass, including a serialized selected dataset
+through the actual worker/encode/decode path with a synthetic native executor.
+That test caught and corrected a cross-layer input-field rejection. Thirteen
+new Rust cases cover manifest, request/result, parser and IPC bindings; execution
+is pending on GitHub. Source-only C++ checks exercise the pinned grammar with
+synthetic pieces; their native compilation and sanitizer execution are pending.
+The new hosted workflow retains failures and runs the constraint checks before
+the unchanged all-type tensor test with its known sanitizer finding. No local
+Rust, native build or inference ran. These contracts are not proof of an actual
+OpenCode coding task or protected peer execution.
+
+#### Earlier native candidate evidence
 
 - [ ] An owner-selected `llama_cpp_bf16_v1` backend is being connected to the
   existing isolated private-conversation worker. The source-only build of pinned

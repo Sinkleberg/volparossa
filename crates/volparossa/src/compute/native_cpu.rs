@@ -1,7 +1,11 @@
 //! Explicit owner authorization for the fixed, source-built CPU inference backend.
 //! A cached model or a peer request cannot authorize loading executable code.
 
-use std::{fs, os::unix::fs::MetadataExt as _, path::PathBuf};
+use std::{
+    fs,
+    os::unix::fs::MetadataExt as _,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Result, ensure};
 use clap::Args;
@@ -14,6 +18,12 @@ use super::{Mode, ModelProfile};
 pub(super) const KIND: &str = "llama_cpp_bf16_v1";
 const SOURCE: &str = "7fe450e19305b828c199d602c23a8337aaa1f03b";
 const WEIGHTS: &str = "79f6bbc34572c0063d12022f0f93074d90bbcd5dfd82134423bf892f7f8df3cf";
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum OutputConstraint {
+    QwenTaggedToolJsonV1,
+}
 
 #[derive(Clone, Debug, Default, Args)]
 #[group(id = "NativeCpuBackendOptions")]
@@ -57,12 +67,23 @@ struct Manifest {
     gguf: Artifact,
     verification: Verification,
     build_manifest_sha256: String,
+    #[serde(default, deserialize_with = "present_output_constraints")]
+    output_constraints: Option<Vec<OutputConstraint>>,
+}
+
+fn present_output_constraints<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<Vec<OutputConstraint>>, D::Error> {
+    Vec::<OutputConstraint>::deserialize(deserializer).map(Some)
 }
 
 impl Manifest {
     fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 1
+            ((self.version == 1 && self.output_constraints.is_none())
+                || (self.version == 2
+                    && self.output_constraints.as_deref()
+                        == Some(&[OutputConstraint::QwenTaggedToolJsonV1])))
                 && self.kind == KIND
                 && self.abi_version == 1
                 && self.source_commit == SOURCE
@@ -132,7 +153,36 @@ impl Options {
                 "compute_native_backend_policy"
             );
         }
+        if mode == Mode::PrivateConversation {
+            let input = super::private_conversation::Input::decode_profile(raw, profile)?;
+            if input.output_constraint().is_some() {
+                self.request(profile)?.select_constraint(&input)?;
+            }
+        }
         Ok(())
+    }
+
+    pub(super) fn supports_output_constraint(&self, profile: ModelProfile) -> bool {
+        self.request(profile)
+            .is_ok_and(|request| request.supported_output_constraint.is_some())
+    }
+
+    pub(super) fn request_for_dataset(
+        &self,
+        profile: ModelProfile,
+        mode: Mode,
+        dataset: &Path,
+    ) -> Result<Request> {
+        let mut request = self.request(profile)?;
+        if mode == Mode::PrivateConversation {
+            let raw = super::read_file(
+                dataset,
+                super::private_conversation::request_frame(profile) as u64,
+            )?;
+            let input = super::private_conversation::Input::decode_profile(&raw, profile)?;
+            request.select_constraint(&input)?;
+        }
+        Ok(request)
     }
 
     pub(super) fn request(&self, profile: ModelProfile) -> Result<Request> {
@@ -172,6 +222,12 @@ impl Options {
             native_backend_root: Some("/native-backend"),
             native_backend_sha256: Some(hash.clone()),
             expected_report: Some(manifest.report(hash)),
+            supported_output_constraint: manifest
+                .output_constraints
+                .as_ref()
+                .and_then(|values| values.first().copied()),
+            output_constraint: None,
+            output_constraint_tools: None,
         })
     }
 }
@@ -184,11 +240,29 @@ pub(super) struct Request {
     native_backend_root: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     native_backend_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_constraint: Option<OutputConstraint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_constraint_tools: Option<Vec<String>>,
     #[serde(skip)]
     expected_report: Option<Value>,
+    #[serde(skip)]
+    supported_output_constraint: Option<OutputConstraint>,
 }
 
 impl Request {
+    fn select_constraint(&mut self, input: &super::private_conversation::Input) -> Result<()> {
+        if let Some(constraint) = input.output_constraint() {
+            ensure!(
+                self.enabled() && self.supported_output_constraint == Some(constraint),
+                "compute_native_backend_output_constraint"
+            );
+        }
+        self.output_constraint = input.output_constraint();
+        self.output_constraint_tools = input.output_constraint_tools();
+        Ok(())
+    }
+
     pub(super) fn enabled(&self) -> bool {
         self.inference_backend.is_some()
     }
@@ -197,6 +271,12 @@ impl Request {
         ensure!(
             value.get("inference_backend") == self.expected_report.as_ref(),
             "compute_native_backend_result_binding"
+        );
+        let expected_constraint = self.output_constraint.map(|constraint| json!(constraint));
+        ensure!(
+            value.get("output_constraint") == expected_constraint.as_ref()
+                && value.get("output_constraint_tools").is_none(),
+            "compute_native_backend_output_constraint_binding"
         );
         if self.enabled() {
             ensure!(

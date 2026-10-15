@@ -252,7 +252,11 @@ async fn execute(options: &Options, activity: watch::Receiver<bool>) -> Result<V
     // This job ID only correlates the local isolated process; it is not a network identity.
     getrandom::fill(&mut nonce).map_err(|_| anyhow::anyhow!("compute_randomness"))?;
     let request = WorkerRequest {
-        native_backend: options.native_backend.request(options.model_profile)?,
+        native_backend: options.native_backend.request_for_dataset(
+            options.model_profile,
+            options.mode,
+            &options.dataset,
+        )?,
         version: 1,
         id: hex::encode(nonce),
         mode: options.mode,

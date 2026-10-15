@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "adapter.h"
 #include "llama.h"
+#include "output-constraint.h"
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstring>
 #include <memory>
 #include <mutex>
 #include <new>
+#include <vector>
 
 namespace {
 constexpr uint32_t max_context = 12288 + 1024;
@@ -21,8 +26,11 @@ struct state {
     uint32_t used = 0;
     bool ready = false;
     bool failed = false;
+    std::unique_ptr<vp::tool_constraint> constraint;
+    uint32_t generated = 0;
     ~state() {
         if (context) { llama_synchronize(context); }
+        constraint.reset();
         if (sampler) { llama_sampler_free(sampler); }
         if (context) { llama_free(context); }
         if (model) { llama_model_free(model); }
@@ -33,6 +41,51 @@ bool aborted(void * pointer) {
     return value->abort(value->opaque) != 0;
 }
 bool load_progress(float, void * pointer) { return !aborted(pointer); }
+bool token_piece(const llama_vocab * vocab, llama_token token, std::string & piece) {
+    std::array<char, vp::tool_json_wire_bytes> bytes{};
+    const auto size = llama_token_to_piece(vocab, token, bytes.data(), bytes.size(), 0, true);
+    if (size < 1 || size > static_cast<int32_t>(bytes.size())) { return false; }
+    piece.assign(bytes.data(), static_cast<std::size_t>(size));
+    return true;
+}
+
+int32_t constrained_sample(state * value, int32_t * output) {
+    if (value->generated >= 1024 || (!value->generated && value->used > 12288)) {
+        value->failed = true; return VP_INVALID;
+    }
+    const auto * logits = llama_get_logits_ith(value->context, -1);
+    if (!logits) { value->failed = true; return VP_BACKEND; }
+    const auto * vocab = llama_model_get_vocab(value->model);
+    std::vector<llama_token_data> candidates;
+    candidates.reserve(vocabulary);
+    for (int32_t id = 0; id < vocabulary; ++id) {
+        if ((id % 4096) == 0 && aborted(value)) { value->failed = true; return VP_ABORTED; }
+        if (std::isfinite(logits[id]) && (id == 151645 || !llama_vocab_is_control(vocab, id))) {
+            candidates.push_back({id, logits[id], 0.0f});
+        }
+    }
+    if (candidates.empty()) { value->failed = true; return VP_BACKEND; }
+    llama_token_data_array array{candidates.data(), candidates.size(), -1, false};
+    value->constraint->filter(array);
+    // Linear heap construction, then highest finite permitted logit. Ascending
+    // token ID breaks ties exactly as the unchanged upstream greedy sampler.
+    std::string piece;
+    llama_token selected = -1;
+    const auto result = vp::select_candidate(candidates, [&](llama_token id) {
+        piece.clear();
+        const bool eos = id == 151645;
+        return (eos || token_piece(vocab, id, piece)) && value->constraint->permits(piece, eos);
+    }, [&] { return aborted(value); }, selected);
+    if (result == vp::selection::chosen && !aborted(value)) {
+        value->constraint->accept(piece, selected == 151645);
+        *output = selected;
+        ++value->generated;
+        value->ready = false;
+        return VP_OK;
+    }
+    value->failed = true;
+    return result == vp::selection::cancelled || aborted(value) ? VP_ABORTED : VP_BACKEND;
+}
 void discard_log(ggml_log_level, const char *, void *) {}
 std::once_flag initialized;
 thread_local uint32_t open_stage = VP_OPEN_NONE;
@@ -41,6 +94,25 @@ thread_local uint32_t open_stage = VP_OPEN_NONE;
 extern "C" uint32_t vp_llama_abi_v1(void) { return 1; }
 extern "C" const char * vp_llama_source_v1(void) { return source; }
 extern "C" uint32_t vp_llama_open_stage_v1(void) { return open_stage; }
+extern "C" uint32_t vp_llama_output_constraint_abi_v1(void) { return 1; }
+
+extern "C" int32_t vp_llama_set_output_constraint_v1(void * handle, uint32_t mode, uint32_t count) {
+    auto * value = static_cast<state *>(handle);
+    if (!value || value->failed || value->used || value->constraint || mode != 1 || count < 1 || count > 32) {
+        return VP_INVALID;
+    }
+    try {
+        if (aborted(value)) { value->failed = true; return VP_ABORTED; }
+        const auto * vocab = llama_model_get_vocab(value->model);
+        std::string open, close;
+        if (llama_vocab_is_control(vocab, 151657) || llama_vocab_is_control(vocab, 151658) ||
+            !token_piece(vocab, 151657, open) || open != "<tool_call>" ||
+            !token_piece(vocab, 151658, close) || close != "</tool_call>") { return VP_INVALID; }
+        value->constraint = std::make_unique<vp::tool_constraint>(vocab, count);
+        if (aborted(value)) { value->failed = true; return VP_ABORTED; }
+        return VP_OK;
+    } catch (...) { value->failed = true; return VP_BACKEND; }
+}
 
 extern "C" int32_t vp_llama_open_v1(const char * path, uint32_t capacity,
                                      uint32_t threads, vp_abort_v1 abort,
@@ -141,6 +213,7 @@ extern "C" int32_t vp_llama_sample_v1(void * handle, int32_t * token) {
     if (!value || !token || value->failed || !value->ready) { return VP_INVALID; }
     try {
         if (aborted(value)) { value->failed = true; return VP_ABORTED; }
+        if (value->constraint) { return constrained_sample(value, token); }
         const auto generated = llama_sampler_sample(value->sampler, value->context, -1);
         if (generated < 0 || generated >= vocabulary) { value->failed = true; return VP_BACKEND; }
         *token = generated;

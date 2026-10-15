@@ -31,6 +31,8 @@ pub(super) enum Operation {
         generation_policy_version: Option<u8>,
         #[serde(default, deserialize_with = "present_version")]
         execution_error_version: Option<u8>,
+        #[serde(default, deserialize_with = "present_version")]
+        output_constraint_version: Option<u8>,
     },
     SubmitConversation {
         conversation: super::super::private_conversation::Input,
@@ -75,6 +77,7 @@ impl Request {
         if let Operation::ConversationCapabilities {
             generation_policy_version,
             execution_error_version,
+            output_constraint_version,
         } = &self.operation
         {
             ensure!(
@@ -84,6 +87,10 @@ impl Request {
             ensure!(
                 execution_error_version.is_none_or(|version| version == 1),
                 "private_ipc_execution_error_version"
+            );
+            ensure!(
+                output_constraint_version.is_none_or(|version| version == 1),
+                "private_ipc_output_constraint_version"
             );
         }
         if let Operation::Cancel { task_id } = &self.operation {

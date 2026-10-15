@@ -250,6 +250,7 @@ struct Handshakes {
     conversation: bool,
     generation_policy: Option<u8>,
     execution_error: Option<u8>,
+    output_constraint: Option<u8>,
 }
 
 fn conversation_capabilities(
@@ -279,6 +280,17 @@ fn conversation_capabilities(
         caps["inference_backend"] = super::native_cpu::KIND.into();
         caps["required_generation_policy"] = "greedy_v1".into();
     }
+    if handshakes.output_constraint == Some(1) {
+        caps["output_constraint_version"] = 1.into();
+        caps["output_constraints"] = if config
+            .native_backend
+            .supports_output_constraint(config.model_profile)
+        {
+            json!([super::native_cpu::OutputConstraint::QwenTaggedToolJsonV1])
+        } else {
+            json!([])
+        };
+    }
     caps
 }
 
@@ -303,10 +315,12 @@ fn respond(
         wire::Operation::ConversationCapabilities {
             generation_policy_version,
             execution_error_version,
+            output_constraint_version,
         } => {
             handshakes.conversation = true;
             handshakes.generation_policy = generation_policy_version;
             handshakes.execution_error = execution_error_version;
+            handshakes.output_constraint = output_constraint_version;
             let mut response = wire::response(&request.id, "conversation_capabilities");
             response["capabilities"] = conversation_capabilities(config, gate, handshakes);
             response
@@ -315,12 +329,20 @@ fn respond(
             if !handshakes.conversation
                 || (conversation.requires_generation_policy_handshake()
                     && handshakes.generation_policy != Some(1))
+                || (conversation.output_constraint().is_some()
+                    && handshakes.output_constraint != Some(1))
             {
                 wire::error(Some(&request.id), "handshake_required")
             } else if gate.is_closed() {
                 wire::error(Some(&request.id), "cleanup_unconfirmed")
             } else if active.is_some() {
                 wire::error(Some(&request.id), "busy")
+            } else if conversation.output_constraint().is_some()
+                && !config
+                    .native_backend
+                    .supports_output_constraint(config.model_profile)
+            {
+                wire::error(Some(&request.id), "invalid_request")
             } else if config.native_backend.enabled()
                 && !conversation.requires_generation_policy_handshake()
             {

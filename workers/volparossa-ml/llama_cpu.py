@@ -27,6 +27,19 @@ WEIGHTS_SHA = "79f6bbc34572c0063d12022f0f93074d90bbcd5dfd82134423bf892f7f8df3cf"
 WEIGHTS_BYTES = 8044982000
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 ABORT = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p)
+OUTPUT_CONSTRAINT = "qwen_tagged_tool_json_v1"
+
+
+def validate_constraints(value, legacy_version, require, version_error="NATIVE_OUTPUT_CONSTRAINT_VERSION"):
+    """Versioned capability, not a request to enable it or executable grammar."""
+    version = value.get("version") if type(value) is dict else None
+    require(type(version) is int and version in (legacy_version, legacy_version + 1),
+            version_error)
+    if version == legacy_version:
+        require("output_constraints" not in value, "NATIVE_OUTPUT_CONSTRAINT_BINDING")
+        return []
+    require(value.get("output_constraints") == [OUTPUT_CONSTRAINT], "NATIVE_OUTPUT_CONSTRAINT_BINDING")
+    return [OUTPUT_CONSTRAINT]
 
 
 def verification_scope():
@@ -43,10 +56,11 @@ def loader_provenance():
 
 
 def validate_build_provenance(value, require):
-    # Build manifest v2 distinguishes the effective loader from clean upstream.
-    # ABI v1 is retained; old unpatched build manifests are not silently adopted.
+    # Build v3 adds an explicit, optional generation extension to the same ABI.
+    # Historical patched build v2 retains its exact absent-capability shape.
     overlay = value.get("source_overlay") if type(value) is dict else None
-    require(type(value) is dict and type(value.get("version")) is int and value["version"] == 2
+    validate_constraints(value, 2, require, "NATIVE_BUILD_PATCH_BINDING")
+    require(type(value) is dict
             and value.get("source_commit") == SOURCE and value.get("source_tree") == SOURCE_TREE
             and type(overlay) is dict and overlay == loader_provenance()
             and type(overlay["validation_execution_threads"]) is int
@@ -56,11 +70,12 @@ def validate_build_provenance(value, require):
 
 
 def validate_manifest(value, require):
-    require(type(value) is dict and value.keys() == {"version", "kind", "abi_version", "source_commit",
+    constraints = validate_constraints(value, 1, require)
+    fields = {"version", "kind", "abi_version", "source_commit",
             "model_profile", "source_weights_sha256", "source_weights_bytes", "library", "gguf",
-            "verification", "build_manifest_sha256"}, "NATIVE_MANIFEST_FIELDS")
-    require(type(value["version"]) is int and value["version"] == 1
-            and type(value["abi_version"]) is int and value["abi_version"] == 1
+            "verification", "build_manifest_sha256"}
+    require(value.keys() == fields | ({"output_constraints"} if constraints else set()), "NATIVE_MANIFEST_FIELDS")
+    require(type(value["abi_version"]) is int and value["abi_version"] == 1
             and value["kind"] == KIND and value["source_commit"] == SOURCE
             and value["model_profile"] == PROFILE and value["source_weights_sha256"] == WEIGHTS_SHA
             and type(value["source_weights_bytes"]) is int and value["source_weights_bytes"] == WEIGHTS_BYTES,
@@ -102,6 +117,13 @@ def verified_bundle(request, worker, tokenizer, session):
     require(hashlib.sha256(build).hexdigest() == value["build_manifest_sha256"], "NATIVE_BUILD_DIGEST")
     provenance = worker.parse_json(build)
     validate_build_provenance(provenance, require)
+    require(provenance["version"] == value["version"] + 1
+            and provenance.get("output_constraints") == value.get("output_constraints"),
+            "NATIVE_OUTPUT_CONSTRAINT_BINDING")
+    if "output_constraint" in request:
+        require(request["output_constraint"] == OUTPUT_CONSTRAINT
+                and value.get("output_constraints") == [OUTPUT_CONSTRAINT],
+                "NATIVE_OUTPUT_CONSTRAINT_UNSUPPORTED")
     require(type(provenance) is dict
             and provenance.get("kind") == KIND and provenance.get("source_commit") == SOURCE
             and provenance.get("abi_version") == 1 and provenance.get("cpu") == "avx2_fma_f16c"
@@ -174,7 +196,8 @@ class OwnerProbe:
 
 
 class NativeModel:
-    def __init__(self, root, capacity, threads, probe, require):
+    def __init__(self, root, capacity, threads, probe, require, *, output_constraints=None,
+                 output_constraint=None, output_constraint_tools=None):
         self.handle = ctypes.c_void_p()
         self.require, self.probe = require, probe
         # The caller checked owner-authorized digest before this executable load.
@@ -198,6 +221,23 @@ class NativeModel:
             function.restype, function.argtypes = result, arguments
         require(self.lib.vp_llama_abi_v1() == 1 and self.lib.vp_llama_source_v1() == SOURCE.encode(),
                 "NATIVE_ABI_MISMATCH")
+        if output_constraints is not None:
+            require(output_constraints == [OUTPUT_CONSTRAINT], "NATIVE_OUTPUT_CONSTRAINT_BINDING")
+            for name, result, arguments in (
+                    ("vp_llama_output_constraint_abi_v1", ctypes.c_uint32, []),
+                    ("vp_llama_set_output_constraint_v1", ctypes.c_int32,
+                     [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32])):
+                require(hasattr(self.lib, name), "NATIVE_OUTPUT_CONSTRAINT_ABI_MISMATCH")
+                function = getattr(self.lib, name)
+                function.restype, function.argtypes = result, arguments
+            extension = self.lib.vp_llama_output_constraint_abi_v1()
+            require(type(extension) is int and extension == 1,
+                    "NATIVE_OUTPUT_CONSTRAINT_ABI_MISMATCH")
+        if output_constraint is not None or output_constraint_tools is not None:
+            require(output_constraints == [OUTPUT_CONSTRAINT] and output_constraint == OUTPUT_CONSTRAINT
+                    and type(output_constraint_tools) is list and 1 <= len(output_constraint_tools) <= 32
+                    and output_constraint_tools == [f"vp_{index}" for index in range(len(output_constraint_tools))],
+                    "NATIVE_OUTPUT_CONSTRAINT_BINDING")
         try:
             status = self.lib.vp_llama_open_v1(str(root / "model.gguf").encode(), capacity, threads,
                                              probe.callback, None, ctypes.byref(self.handle))
@@ -210,6 +250,10 @@ class NativeModel:
             require(type(stage) is int and stage in codes, "NATIVE_OPEN_DIAGNOSTIC_INVALID")
             require(status == 0 and self.handle.value is not None, codes[stage])
             require(stage == 8, "NATIVE_OPEN_DIAGNOSTIC_INVALID")
+            if output_constraint is not None:
+                status = self.lib.vp_llama_set_output_constraint_v1(self.handle, 1, len(output_constraint_tools))
+                probe.joined()
+                require(status == 0, "NATIVE_OUTPUT_CONSTRAINT_CONFIGURATION_FAILED")
         except BaseException:
             self.close()
             raise
@@ -274,6 +318,13 @@ def execute(request, session, tokenizer, torch, versions, model_root, output_roo
             dataset, data_identity, model_files, worker, *, initial_source_weights):
     worker.require(worker.conversation_module().generation_policy(dataset, PROFILE) == "greedy_v1",
                    "NATIVE_GREEDY_POLICY_REQUIRED")
+    constraint = worker.conversation_constraint_binding(request, dataset, PROFILE)
+    constraint_options = {}
+    if constraint is not None:
+        # The core supplies aliases, never arbitrary grammar. Validate against the
+        # actual ordered input, not a separate count controlled by a peer.
+        aliases = [f"vp_{index}" for index in range(len(dataset["tools"]))]
+        constraint_options.update(output_constraint=constraint, output_constraint_tools=aliases)
     profile = worker.model_profile(PROFILE)
     worker.require(type(initial_source_weights) is dict and initial_source_weights == profile["weights"]
                    and all(model_files.get(name) == {"bytes": profile["files"][name],
@@ -284,13 +335,16 @@ def execute(request, session, tokenizer, torch, versions, model_root, output_roo
     # not claimed to have been checked again at the end of this execution.
     weight_identity = dict(initial_source_weights, files=list(initial_source_weights["files"]))
     root, manifest, identity = verified_bundle(request, worker, tokenizer, session)
+    if "output_constraints" in manifest:
+        constraint_options["output_constraints"] = manifest["output_constraints"]
     session.private_progress("prompt_encode", "begin")
     prompt = worker.conversation_module().encode(tokenizer, dataset, profile)
     session.private_progress("prompt_encode", "complete")
     session.check()
     probe = OwnerProbe(session, worker)
     session.private_progress("model_load", "begin")
-    model = NativeModel(root, len(prompt) + profile["new_tokens"], request["threads"], probe, worker.require)
+    model = NativeModel(root, len(prompt) + profile["new_tokens"], request["threads"], probe, worker.require,
+                        **constraint_options)
     try:
         session.private_progress("model_load", "complete")
         session.progress("baseline")
@@ -316,6 +370,8 @@ def execute(request, session, tokenizer, torch, versions, model_root, output_roo
               "prompt_tokens": len(prompt), "conversation_limits": worker.conversation_module().capabilities(PROFILE, profile),
               "generation_policy": "greedy_v1", "model_parameter_dtype": "bf16_with_exact_f32_norms",
               "model_attention_backend": "llama_cpp_cpu", "inference_backend": identity}
+    if "output_constraint" in request:
+        result["output_constraint"] = request["output_constraint"]
     session.private_progress("result", "begin")
     result = worker.finish_result(result, output_root, session)
     session.private_progress("result", "complete")

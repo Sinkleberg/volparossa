@@ -59,7 +59,8 @@ endif()
 set_property(TARGET llama PROPERTY SOURCES "${effective_sources}")
 set_source_files_properties("${VP_LLAMA_MODEL_LOADER}" TARGET_DIRECTORY llama
     PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
-add_library(volparossa_llama_cpu SHARED adapter.cpp)
+add_library(volparossa_llama_cpu SHARED adapter.cpp output-constraint.cpp)
+target_include_directories(volparossa_llama_cpu PRIVATE "${VP_LLAMA_SOURCE}/src")
 target_link_libraries(volparossa_llama_cpu PRIVATE llama)
 target_compile_options(volparossa_llama_cpu PRIVATE -Wall -Wextra -Werror)
 target_link_options(volparossa_llama_cpu PRIVATE -static-libstdc++ -static-libgcc
@@ -69,6 +70,11 @@ if(VP_NATIVE_TESTS)
   add_executable(vp-native-abi-smoke abi-smoke.cpp)
   target_compile_options(vp-native-abi-smoke PRIVATE -UNDEBUG)
   target_link_libraries(vp-native-abi-smoke PRIVATE volparossa_llama_cpu)
+  # The exact pinned grammar engine with synthetic token pieces; no model or inference.
+  add_executable(vp-native-output-constraint output-constraint-tests.cpp output-constraint.cpp)
+  target_include_directories(vp-native-output-constraint PRIVATE "${VP_LLAMA_SOURCE}/src")
+  target_compile_options(vp-native-output-constraint PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+  target_link_libraries(vp-native-output-constraint PRIVATE llama)
   # Launch/join statements are extracted from the exact staged loader. This
   # exercises real ggml validation on tiny F32 arrays, never loads a model.
   add_executable(vp-native-loader-validation loader-validation.cpp)

@@ -5,6 +5,8 @@ use clap::{CommandFactory as _, error::ErrorKind};
 
 use super::*;
 
+mod output_constraint;
+
 #[test]
 fn native_flattened_options_keep_full_cli_argument_groups_unique() {
     crate::Cli::command().debug_assert();

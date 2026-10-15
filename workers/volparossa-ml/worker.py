@@ -259,7 +259,8 @@ def bounded_integer(value, low, high):
 def validate_request(value):
     required = {"version", "id", "mode", "model_root", "dataset_path", "output_root"}
     optional = {"steps", "threads", "max_seconds", "adapter_root", "owner_control", "model_profile",
-                "private_generation_diagnostics", "inference_backend", "native_backend_root", "native_backend_sha256"}
+                "private_generation_diagnostics", "inference_backend", "native_backend_root", "native_backend_sha256",
+                "output_constraint", "output_constraint_tools"}
     require(type(value) is dict and required <= value.keys()
             and value.keys() <= required | optional, "INVALID_REQUEST_FIELDS")
     require(type(value["version"]) is int and value["version"] == VERSION, "UNSUPPORTED_VERSION")
@@ -273,6 +274,15 @@ def validate_request(value):
                 and profile_name == QWEN4B_MODEL_PROFILE and value["mode"] == "private_conversation"
                 and type(value["native_backend_sha256"]) is str
                 and re.fullmatch(r"[0-9a-f]{64}", value["native_backend_sha256"]), "INVALID_NATIVE_BACKEND_SCOPE")
+    constraint_fields = {"output_constraint", "output_constraint_tools"}
+    if constraint_fields & value.keys():
+        aliases = value.get("output_constraint_tools")
+        require(constraint_fields <= value.keys() and native_fields <= value.keys()
+                and value["output_constraint"] == "qwen_tagged_tool_json_v1"
+                and type(value["output_constraint"]) is str
+                and type(aliases) is list and 1 <= len(aliases) <= 32
+                and aliases == [f"vp_{index}" for index in range(len(aliases))],
+                "INVALID_NATIVE_OUTPUT_CONSTRAINT")
     require("private_generation_diagnostics" not in value or
             (type(value["private_generation_diagnostics"]) is bool and
              (not value["private_generation_diagnostics"] or
@@ -1987,6 +1997,22 @@ def conversation_module():
     return module
 
 
+def conversation_constraint_binding(request, dataset, profile_name):
+    requested = "output_constraint" in request
+    require(requested == ("output_constraint" in dataset), "NATIVE_OUTPUT_CONSTRAINT_BINDING")
+    if not requested:
+        require("output_constraint_tools" not in request, "NATIVE_OUTPUT_CONSTRAINT_BINDING")
+        return None
+    conversation_module().validate(dataset, profile_name)
+    constraint = conversation_module().output_constraint(dataset, profile_name)
+    require(request["output_constraint"] == constraint
+            and request.get("inference_backend") == "llama_cpp_bf16_v1",
+            "NATIVE_OUTPUT_CONSTRAINT_BINDING")
+    aliases = [f"vp_{index}" for index in range(len(dataset["tools"]))]
+    require(request.get("output_constraint_tools") == aliases, "NATIVE_OUTPUT_CONSTRAINT_TOOLS")
+    return constraint
+
+
 def execute_private_infer(request, session, tokenizer, torch, transformers, versions,
                           model_root, output_root, dataset, data_identity, model_files):
     profile_name = request.get("model_profile", DEFAULT_MODEL_PROFILE)
@@ -2323,6 +2349,8 @@ def execute_job(request, session):
     preparation = ({"initial_source": initial_source}
                    if request.get("inference_backend") == "llama_cpp_bf16_v1" else {})
     model_root, output_root, dataset, data_identity, model_files = prepare_files(request, session=session, **preparation)
+    if request["mode"] == "private_conversation":
+        conversation_constraint_binding(request, dataset, profile_name)
     session.private_progress("verify_files", "complete")
     session.check()
     cohort = None

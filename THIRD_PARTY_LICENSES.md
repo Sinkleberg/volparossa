@@ -6,6 +6,16 @@ for the license text shipped by each upstream project.
 
 ## Explicit llama.cpp CPU inference candidate
 
+The optional `qwen_tagged_tool_json_v1` profile also uses the pinned internal
+`src/llama-grammar.h` API for grammar initialization, cloning, string acceptance,
+candidate filtering and freeing. VOLPAROSSA's `output-constraint.h` and `.cpp`
+wrap this unchanged upstream implementation; they are original GPL-3.0-only
+code, not an upstream patch. Build manifest v3 binds these wrapper files along
+with the existing adapter and loader patch. Synthetic-piece tests link the exact
+grammar engine without loading a model. API compatibility and sanitizer behavior
+require a fresh source build; previous backend receipts do not validate this
+extension.
+
 The opt-in CPU backend uses [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)
 at exact commit `7fe450e19305b828c199d602c23a8337aaa1f03b` (resolved release tag
 `v0.5.0`; MIT). The tag is unsigned. No prebuilt upstream executable, server,

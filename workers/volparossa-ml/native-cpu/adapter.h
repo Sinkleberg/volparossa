@@ -20,6 +20,12 @@ enum vp_open_stage_v1 {
 uint32_t vp_llama_abi_v1(void);
 const char * vp_llama_source_v1(void);
 uint32_t vp_llama_open_stage_v1(void);
+// Optional, additive ABI. Mode 1 is qwen_tagged_tool_json_v1, with aliases
+// vp_0..vp_(tool_count-1), count 1..32 and JSON nesting <=16 (arguments object
+// is depth 1; fixed envelope excluded). Configure once before any decode.
+// Absence preserves the original greedy_v1 path.
+uint32_t vp_llama_output_constraint_abi_v1(void);
+int32_t vp_llama_set_output_constraint_v1(void * handle, uint32_t mode, uint32_t tool_count);
 int32_t vp_llama_open_v1(const char * model_path, uint32_t context_tokens,
                          uint32_t threads, vp_abort_v1 abort, void * opaque,
                          void ** handle);
