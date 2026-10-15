@@ -337,7 +337,10 @@ fn cache_observation_preserves_cleanup_and_cancel_priority_without_private_error
             |_| panic!("sample before confirmed cleanup"),
             |_, _| panic!("hint before confirmed cleanup"),
         );
-        assert_eq!(result.unwrap_err().to_string(), original);
+        let Err(preserved_error) = result else {
+            panic!("supervisor failure was replaced by success");
+        };
+        assert_eq!(preserved_error.to_string(), original);
         assert_eq!(record["outcome"], "supervisor_error");
         assert_eq!(record["supervisor_ok"], false);
         records.push(record);

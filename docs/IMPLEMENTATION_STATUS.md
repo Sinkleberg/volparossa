@@ -37,15 +37,33 @@ estimates nor proof of reclaim. No cgroup names, paths, prompts or model output
 are exported. The existing cleanup, single advisory syscall, result, model and
 resource limits remain unchanged. The collector keeps its default v1 shape and
 adds a bounded v2 memory record list only when requested. All 31 inert collector
-tests pass, including an independent rerun. Sixteen new Rust tests still require
-hosted compilation and execution. These observations are not a causal fix or
-completion of the coding task or protected peer execution.
+tests pass, including an independent rerun. These observations are not a causal
+fix or completion of the coding task or protected peer execution.
 
 Initial hosted check `38702380046` stops at formatting, before Rust tests. Its
 source-bound formatter artifact supplies five layout-only corrections in four
 files; the temporary artifact step is removed after applying them. Artifact ZIP
 SHA-256: `e4471084d545a26e9aa1850cee46a270cf1cbe06e93590dfb6f22201662065cb`.
 No local Rust compilation or formatting runs.
+
+[Quality `38702928794`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38702928794)
+on `0091e75f` passes formatting, 60 native Python contracts and the targeted
+Rust suites: 28 native/cache-hint, seven admission and seven sampler tests,
+including all sixteen new cases. The collector's 31 checks pass on the hosted
+runner as well. The original merge checkout has the exact candidate tree.
+Strict Clippy then rejects a similar variable name and a literal `unwrap_err`
+in a test; workspace tests and subsequent gates are skipped. The correction
+renames only that binding and explicitly matches the expected error while
+retaining the original error-text assertion. Full Quality is still required.
+Original job-log ZIP SHA-256:
+`47fce1d4bc03c78984c4e3e78b2a8c8cfaacb7e8e927df28203c6f35f526b748`.
+
+Code `8b214da1` pins `0091e75f`, opts into these closed native observations and
+retains the existing 256 KiB public-export ceiling. Torch's diagnostic calls
+and 64 KiB guest-receipt limit remain unchanged. Its exact-source
+[CI `38703873328`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38703873328)
+passes 410 tests with four explicit skips. No new model trial has run; Code
+must first pin the corrected core and pass the required source checks.
 
 #### Tool-call output constraint candidate
 
@@ -471,7 +489,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Complete actual core delivery through Android's initial, refresh and background/resume lifecycle; then verify expiry behavior with real products. | The installed-app lifecycle, including expiry, passes with synthetic products (Weather PR19). After Weather PR24's bounded observation correction, the actual installed-app trial returns success, but the guest driver exits unsuccessfully during finalization. Core PR248 adds closed diagnostics for that later failure; joined acceptance and actual expiry, physical devices and iOS remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resume owner-authorized maintenance after restart, then publish, repair and restore through actual consumers after provider replacement. | The base lifecycle passes, but the latest completed trial stops during Cloud FINALIZE's signed-challenge exchange, before local READY. PR232 adds receiving-side activity diagnostics; these are not a demonstrated fix. Consumer repair, restore, remote cleanup and reciprocal capacity remain unproven. Cloud PR234 waits for this shared integration. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | One native model-generated read completes, but six subsequent requests are refused by memory admission. Core PR212 and Code PR11 now identify that refusal; safe release of unused model-file cache after confirmed worker cleanup is the next candidate, not a proven cause or fix. Model, task and memory limits remain unchanged. This development executor is not confidential peer execution or completion of the shared-brain requirement. |
+| Native coding execution — `volparossa`, `volparossa-code` | Complete an actual OpenCode read, edit and independently verified test through the core. | The latest actual trial still completes only one read before six memory-admission refusals. It does not show whether cache advice ran or why headroom remained insufficient. Core PR212 and Code PR11 add closed observations of the existing admission sample and advisory outcome; targeted Rust tests pass, but the two Clippy corrections still require full Quality before another model trial. Model, task and memory limits remain unchanged. This development executor is not confidential peer execution or completion of the shared-brain requirement. |
 | Protected remote compute — `volparossa`, then Code/Browser | Verify quote exchange on the production route, then execute a private task on another node with verified protection. | PR246 and PR247 are merged. The quote-only slice passes appraisal, guest, agent/control/CLI and quote software checks. Production authority, current vendor appraisal, approved measured workloads and actual protected execution remain open. Suitable confidential-computing hardware is still unavailable; local coding and storage integration continue without substituting for this requirement. |
 
 ### Latest completed integration evidence — 15 October

@@ -112,11 +112,11 @@ impl Binding {
         } else if let Ok(bytes) = libc::off_t::try_from(hint.identity.bytes) {
             // Preserve one synchronous, unchanged-file advice call under the lease.
             // The following observation is not proof that this hint freed memory.
-            let advice = advise(&hint.file, bytes);
+            let syscall = advise(&hint.file, bytes);
             if observe {
                 record["after"] = sample(true).snapshot();
             }
-            if let Err(error) = advice {
+            if let Err(error) = syscall {
                 record["syscall_error"] = json!(match error {
                     nix::errno::Errno::EBADF => "bad_fd",
                     nix::errno::Errno::EINVAL => "invalid",
