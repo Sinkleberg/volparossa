@@ -586,7 +586,7 @@ def phase(root, selected, exit_socket, flow_root, provision, deadline):
     minimum, diagnostic = FLOW_MINIMUM[selected], {}
     sampler_failure = sampler['SamplerFailure'] if NETWORK_VERSION == 1 else sampler['OLD']['SamplerFailure']
     activity = ACTIVITY['capture'](binary, root.parents[1], root, selected) if (
-        PROFILE_VERSION == 7 and NETWORK_VERSION == 2) else nullcontext()
+        PROFILE_VERSION in (7, 8) and NETWORK_VERSION == 2) else nullcontext()
     try:
         with activity, sampler['capture'](
                 binary, Path(exit_socket), baseline, minimum, client=client,

@@ -954,12 +954,14 @@ class ConsumerOrchestration(unittest.TestCase):
             self.assertEqual(run.stdout, f'{minimum}\n'.encode())
             self.assertEqual(run.stderr, b'')
 
-    def test_current_phase_joins_activity_after_flow_cleanup_without_replacing_owner_failure(self):
+    def phase_activity_failure(self, profile, network):
         events = []
         root = Path('/opt/va.' + 'a' * 32 + '.abcdef/u/m')
         work = root.parents[1]
+        original_error = ValueError('original_node_failure')
         @contextmanager
         def activity(binary, selected_work, selected_root, phase):
+            self.assertEqual(binary, Path('/fixed/core'))
             self.assertEqual((selected_work, selected_root, phase), (work, root, 'publish'))
             events.append('activity_start')
             try: yield
@@ -972,7 +974,7 @@ class ConsumerOrchestration(unittest.TestCase):
             finally: events.append('flow_join')
         def node(*_):
             events.append('node')
-            raise ValueError('original_node_failure')
+            raise original_error
         real_runpy = runpy.run_path
         def load(path):
             module = real_runpy(path)
@@ -980,15 +982,34 @@ class ConsumerOrchestration(unittest.TestCase):
                 module.update(capture=flow, validate_policy=lambda *_: None)
             return module
         with patch.dict(os.environ, STORAGE_PROOF_BASELINE_MS='1', STORAGE_PROOF_ROUTE_POLICY='{}',
-                STORAGE_PROOF_UNDERLAY_SHA256='a' * 64), patch.object(G['runpy'], 'run_path', load), \
-                patch.dict(G, PROFILE_VERSION=7, NETWORK_VERSION=2, ACTIVITY=dict(M['ACTIVITY'], capture=activity),
+                STORAGE_PROOF_ROUTE_SCOPE='{}', STORAGE_PROOF_UNDERLAY_SHA256='a' * 64), \
+                patch.object(G['runpy'], 'run_path', load), \
+                patch.dict(G, PROFILE_VERSION=profile, NETWORK_VERSION=network,
+                    ACTIVITY=dict(M['ACTIVITY'], capture=activity),
+                    SAMPLER=dict(M['SAMPLER'], capture=flow, validate_route_scope=lambda *_: None),
                     private_json=lambda *_: dict(coreBinary='/fixed/core', controlSocket='/fixed/client'),
                     validate_locations=lambda *_: (Path('/fixed/core'), Path('/fixed/client')),
                     private_directory=lambda *_: None, node_phase=node):
-            with self.assertRaisesRegex(ValueError, 'original_node_failure'):
+            with self.assertRaises(ValueError) as caught:
                 M['phase'](root, 'publish', work / 'runtime-exit/control/agent.sock',
                     work / 'client-fixtures/private-storage-user', PROVISION, time.monotonic() + 1)
-        self.assertEqual(events, ['activity_start', 'flow_start', 'node', 'flow_join', 'activity_join'])
+            self.assertIs(caught.exception, original_error)
+        return events
+
+    def test_current_phase_joins_activity_after_flow_cleanup_without_replacing_owner_failure(self):
+        for profile in (7, 8):
+            with self.subTest(profile=profile):
+                self.assertEqual(self.phase_activity_failure(profile, 2),
+                    ['activity_start', 'flow_start', 'node', 'flow_join', 'activity_join'])
+
+    def test_activity_remains_absent_outside_explicit_profiles_and_network(self):
+        for profile in range(10):
+            for network in (1, 2):
+                if profile in (7, 8) and network == 2:
+                    continue
+                with self.subTest(profile=profile, network=network):
+                    self.assertEqual(self.phase_activity_failure(profile, network),
+                        ['flow_start', 'node', 'flow_join'])
 
     def test_network_two_actual_sampler_and_original_node_failure_keep_separate_boundaries(self):
         # Real new sampler; only its core RPC replies and the Node phase are
