@@ -72,20 +72,15 @@ impl Retirements {
                 Reason::Unconfirmed,
             ));
         }
-        let slot = self
-            .0
-            .slots
-            .clone()
-            .try_acquire_owned()
-            .map_err(|error| {
-                (
-                    io::Error::other("MPTCP flow retirement capacity pending"),
-                    match error {
-                        TryAcquireError::NoPermits => Reason::LocalCapacity,
-                        TryAcquireError::Closed => Reason::LocalUnavailable,
-                    },
-                )
-            })?;
+        let slot = self.0.slots.clone().try_acquire_owned().map_err(|error| {
+            (
+                io::Error::other("MPTCP flow retirement capacity pending"),
+                match error {
+                    TryAcquireError::NoPermits => Reason::LocalCapacity,
+                    TryAcquireError::Closed => Reason::LocalUnavailable,
+                },
+            )
+        })?;
         Ok(Reservation {
             owner: self.clone(),
             slot: Some(slot),

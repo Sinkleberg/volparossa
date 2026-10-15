@@ -63,7 +63,10 @@ fn flow_acquire_helper_reasons_are_typed_and_erase_private_error_content() {
         (HelperResult::AlreadyExists, Reason::HelperOtherRejection),
         (HelperResult::Expired, Reason::HelperOtherRejection),
     ] {
-        assert_eq!(Reason::helper(&HelperClientError::Rejected(result)), expected);
+        assert_eq!(
+            Reason::helper(&HelperClientError::Rejected(result)),
+            expected
+        );
     }
 }
 

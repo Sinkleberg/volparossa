@@ -95,13 +95,19 @@ fn flow_acquire_classification_precedes_ambiguous_mapping_without_clearing_poiso
                 reason,
             }),
         );
-        assert_eq!(matches!(&returned, MptcpTransportError::Helper(_)), definite);
+        assert_eq!(
+            matches!(&returned, MptcpTransportError::Helper(_)),
+            definite
+        );
         assert_eq!(
             matches!(&returned, MptcpTransportError::AcquireUnconfirmed),
             !definite,
         );
         drop(slot);
-        assert_eq!(owner.0.acquire_unconfirmed.load(Ordering::Acquire), !definite);
+        assert_eq!(
+            owner.0.acquire_unconfirmed.load(Ordering::Acquire),
+            !definite
+        );
         assert_eq!(owner.reserve().is_ok(), definite);
         assert_eq!(owner.0.slots.available_permits(), MAX_FLOWS);
     }
@@ -125,9 +131,7 @@ async fn flow_acquire_classified_drain_keeps_pending_slot_and_not_found_still_re
     assert_eq!(owner.0.slots.available_permits(), MAX_FLOWS - 1);
     observation.reset();
     owner
-        .drain_with(|_, _, _| async {
-            Err(HelperClientError::Rejected(HelperResult::NotFound))
-        })
+        .drain_with(|_, _, _| async { Err(HelperClientError::Rejected(HelperResult::NotFound)) })
         .await
         .map_err(|error| observation.transport_error(Stage::RetirementDrain, error))
         .unwrap();

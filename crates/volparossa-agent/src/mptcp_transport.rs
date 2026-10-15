@@ -367,8 +367,10 @@ impl ClientMptcpTransport {
             .drain(helper)
             .await
             .map_err(|error| observation.transport_error(Stage::RetirementDrain, error))?;
-        let certificate_der = observation.required(Stage::Material, self.certificate_der.clone())?;
-        let observations = observation.required(Stage::Material, self.refill_observations.clone())?;
+        let certificate_der =
+            observation.required(Stage::Material, self.certificate_der.clone())?;
+        let observations =
+            observation.required(Stage::Material, self.refill_observations.clone())?;
         // Route preparation connects this first socket before application TLS starts.
         // The Exit may have closed it after its bounded ClientHello deadline while
         // the caller was preparing work. Do not give the first real request a known
@@ -413,13 +415,10 @@ impl ClientMptcpTransport {
                     context_handle: self.context_handle.clone(),
                     mptcp_flow_handle: flow.clone(),
                 },
-                acquired
-                    .descriptor()
-                    .try_clone_to_owned()
-                    .map_err(|_| {
-                        observation.record(Stage::DescriptorClone, Reason::Io);
-                        MptcpTransportError::AcquireUnconfirmed
-                    })?,
+                acquired.descriptor().try_clone_to_owned().map_err(|_| {
+                    observation.record(Stage::DescriptorClone, Reason::Io);
+                    MptcpTransportError::AcquireUnconfirmed
+                })?,
             );
             (
                 adopt_client_stream(acquired).map_err(|error| {
