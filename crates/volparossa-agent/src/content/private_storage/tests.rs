@@ -35,6 +35,7 @@ async fn outcome_query_uses_actual_unix_peer_uid_and_consumes_only_its_request()
     drop(sibling);
     let query = |id| PrivateStorageOutcomeRequest {
         original_request_id: vec![id; 16],
+        include_append_timing: false,
     };
     for (id, expected) in [
         (4, Status::Missing),
@@ -57,6 +58,43 @@ async fn outcome_query_uses_actual_unix_peer_uid_and_consumes_only_its_request()
             .status,
         Status::Observed as i32
     );
+}
+
+#[tokio::test]
+async fn append_timing_query_opt_in_is_caller_bound_and_consumes_the_same_original_slot() {
+    use volparossa_local_control::PrivateStorageOutcomeStatus as Status;
+
+    let runtime = ContentRuntime::new(&volparossa_identity::Identity::generate()).unwrap();
+    let (_caller, socket) = UnixStream::pair().unwrap();
+    let uid = socket.peer_cred().unwrap().uid();
+    for (id, enabled) in [(31, false), (32, true)] {
+        let guard = runtime.storage_outcomes.begin(uid, &[id; 16]).unwrap();
+        guard.start_operation(Some(tokio::time::Instant::now()));
+        guard.enter(OutcomePhase::RemotePayloadWrite);
+        guard.enter(OutcomePhase::RemoteReceiptRead);
+        drop(guard);
+        assert_eq!(
+            runtime
+                .storage_outcomes
+                .take(uid.wrapping_add(1), &[id; 16])
+                .unwrap()
+                .status,
+            Status::Missing as i32
+        );
+        let mut query = PrivateStorageOutcomeRequest {
+            original_request_id: vec![id; 16],
+            include_append_timing: enabled,
+        };
+        let result = runtime.private_storage_outcome(&query, &socket).unwrap();
+        result.validate().unwrap();
+        assert_eq!(result.status, Status::Observed as i32);
+        assert_eq!(result.append_timing.is_some(), enabled);
+        // Opting in later never consumes a second copy or revives the original observation.
+        query.include_append_timing = true;
+        let consumed = runtime.private_storage_outcome(&query, &socket).unwrap();
+        assert_eq!(consumed.status, Status::Missing as i32);
+        assert!(consumed.append_timing.is_none());
+    }
 }
 
 #[tokio::test]

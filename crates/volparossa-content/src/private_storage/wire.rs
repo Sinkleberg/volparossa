@@ -229,7 +229,7 @@ impl StorageService {
         // There is no loop back to this challenge: after this point the connection can
         // authorize exactly this operation once. A fresh connection receives a new nonce.
         let payload = if matches!(request.operation(), StorageOperation::Append { .. }) {
-            read_frame(stream, CHUNK_BYTES).await?
+            read_append_payload(stream, observation).await?
         } else {
             Vec::new()
         };
@@ -540,6 +540,31 @@ where
         observer.deadline(bridge_observation::Deadline::Bridge);
         WireError::Timeout
     })?
+}
+
+async fn read_append_payload<S: AsyncRead + Unpin>(
+    stream: &mut S,
+    observation: &mut diagnostic::Observation,
+) -> Result<Vec<u8>, WireError> {
+    // Preserve the exact existing header/body reads, bounds and error result. Only
+    // the ErrorKind at an already failed read is projected; no additional I/O occurs.
+    let length = stream
+        .read_u32()
+        .await
+        .inspect_err(|error| {
+            observation.payload_read_error(diagnostic::PayloadBoundary::Header, error.kind());
+        })? as usize;
+    if length == 0 || length > CHUNK_BYTES {
+        return Err(WireError::Invalid);
+    }
+    let mut bytes = vec![0; length];
+    stream
+        .read_exact(&mut bytes)
+        .await
+        .inspect_err(|error| {
+            observation.payload_read_error(diagnostic::PayloadBoundary::Body, error.kind());
+        })?;
+    Ok(bytes)
 }
 
 fn validate_append(request: &VerifiedStorageRequest, payload: &[u8]) -> Result<(), WireError> {

@@ -186,6 +186,19 @@ STORAGE_FAILURE_CATEGORIES = ('IO', 'AUTH', 'INVALID', 'BUSY', 'STORE', 'TIMEOUT
     'DATABASE', 'INTEGRITY', 'EXPIRED', 'OWNERSHIP', 'CONFLICT', 'DELETED', 'QUOTA',
     'NOT_FOUND', 'NOT_COMMITTED', 'ENTROPY')
 MAX_STORAGE_FAILURE_TUPLES = 32
+APPEND_PAYLOAD_IO_PREFIX = 'CONTENT_PROVIDER_STORAGE_V2_APPEND__'
+APPEND_PAYLOAD_IO_BOUNDARIES = ('PAYLOAD_HEADER', 'PAYLOAD_BODY')
+APPEND_PAYLOAD_IO_KINDS = ('UNEXPECTED_EOF', 'TIMED_OUT', 'CONNECTION_RESET', 'BROKEN_PIPE',
+    'INVALID_DATA', 'INTERRUPTED', 'OTHER')
+MAX_APPEND_PAYLOAD_IO_TUPLES = len(APPEND_PAYLOAD_IO_BOUNDARIES) * len(APPEND_PAYLOAD_IO_KINDS)
+
+
+def append_payload_io_code(code):
+    if type(code) is not str or len(code) > 96 or not code.startswith(APPEND_PAYLOAD_IO_PREFIX):
+        return False
+    parts = code[len(APPEND_PAYLOAD_IO_PREFIX):].split('__')
+    return (len(parts) == 2 and parts[0] in APPEND_PAYLOAD_IO_BOUNDARIES
+        and parts[1] in APPEND_PAYLOAD_IO_KINDS)
 
 
 def storage_failure_code(code):
@@ -206,7 +219,7 @@ def storage_failure_code(code):
 def validate_provider_events(value):
     require(type(value) is dict and set(value) == {'version', 'kind', 'scope', 'acceptance_evidence',
         'causal_attribution', 'event_absence_proven', 'phase', 'baseline_state', 'roles'}
-        and type(value['version']) is int and value['version'] in (1, 2)
+        and type(value['version']) is int and value['version'] in (1, 2, 3)
         and value['kind'] == 'private-storage-maintenance-provider-events'
         and value['scope'] == 'pre_agent_stop_snapshot_may_include_owner_cleanup'
         and all(value[key] is False for key in ('acceptance_evidence', 'causal_attribution', 'event_absence_proven'))
@@ -214,8 +227,10 @@ def validate_provider_events(value):
         and type(value['roles']) is dict and set(value['roles']) == set(PROVIDER_EVENT_ROLES), 'provider event shape')
     counters = ('records', 'fresh_records', 'stale_records', 'unrecognized_event_records')
     observations = (*counters, 'counts', 'window_covers_baseline', 'ring_at_capacity')
-    if value['version'] == 2:
+    if value['version'] >= 2:
         observations += ('storage_failures', 'omitted_storage_failure_records')
+    if value['version'] == 3:
+        observations += ('append_payload_io_failures',)
     for row in value['roles'].values():
         require(type(row) is dict and set(row) == {'state', 'query_exit_status', *observations}
             and row['state'] in ('observed', 'unqueried', 'capture_invalid', 'query_failed',
@@ -242,7 +257,7 @@ def validate_provider_events(value):
             and row['window_covers_baseline'] == (row['stale_records'] > 0)
             and type(row['ring_at_capacity']) is bool
             and row['ring_at_capacity'] == (row['records'] == 400), 'provider event bounds')
-        if value['version'] == 2:
+        if value['version'] >= 2:
             storage = row['storage_failures']
             omitted = row['omitted_storage_failure_records']
             require(type(storage) is dict and len(storage) <= MAX_STORAGE_FAILURE_TUPLES
@@ -252,10 +267,19 @@ def validate_provider_events(value):
                 and (omitted == 0 or len(storage) == MAX_STORAGE_FAILURE_TUPLES)
                 and sum(row['counts'].values()) + row['unrecognized_event_records']
                     + sum(storage.values()) + omitted <= row['fresh_records'], 'provider storage event bounds')
+        if value['version'] == 3:
+            payload = row['append_payload_io_failures']
+            require(type(payload) is dict and len(payload) <= MAX_APPEND_PAYLOAD_IO_TUPLES
+                and all(append_payload_io_code(code) and type(n) is int and 1 <= n <= 400
+                    for code, n in payload.items())
+                and sum(row['counts'].values()) + row['unrecognized_event_records']
+                    + sum(row['storage_failures'].values()) + row['omitted_storage_failure_records']
+                    + sum(payload.values()) <= row['fresh_records'], 'provider append payload io bounds')
     return value
 
 
-def provider_events(work, phase, raw_baseline):
+def provider_events(work, phase, raw_baseline, *, version=2):
+    require(type(version) is int and version in (2, 3), 'provider event export version')
     now_ms = time.time_ns() // 1_000_000
     baseline = None
     baseline_state = 'absent' if raw_baseline in ('', '0') else 'invalid'
@@ -267,6 +291,8 @@ def provider_events(work, phase, raw_baseline):
             stale_records=None, unrecognized_event_records=None, counts=None,
             window_covers_baseline=None, ring_at_capacity=None,
             storage_failures=None, omitted_storage_failure_records=None)
+        if version == 3:
+            row['append_payload_io_failures'] = None
         roles[role] = row
         try:
             raw = closed_diagnostic_text(work / f'logs-{node}-cleanup-status.private', 4)
@@ -289,6 +315,7 @@ def provider_events(work, phase, raw_baseline):
             require(len(lines) <= 400, 'provider event ring bound')
             counts = dict.fromkeys(PROVIDER_EVENT_CODES, 0)
             storage, omitted = {}, 0
+            payload = {}
             stale, unknown, previous = 0, 0, 0
             for line in lines:
                 match = re.fullmatch(r'([0-9]{1,20})\tlevel=([0-9])\tevent=([A-Z0-9_]{1,96})'
@@ -309,6 +336,9 @@ def provider_events(work, phase, raw_baseline):
                         storage[code] = storage.get(code, 0) + 1
                     else:
                         omitted += 1
+                elif version == 3 and append_payload_io_code(match[3]):
+                    code = match[3]
+                    payload[code] = payload.get(code, 0) + 1
                 elif match[3].startswith(('CONTENT_PROVIDER_', 'CONTENT_DISCOVERY_', 'CONTENT_EXACT_', 'CONTENT_LOOKUP_')):
                     unknown += 1
             else:
@@ -316,11 +346,13 @@ def provider_events(work, phase, raw_baseline):
                     stale_records=stale, unrecognized_event_records=unknown, counts=counts,
                     window_covers_baseline=stale > 0, ring_at_capacity=len(lines) == 400,
                     storage_failures=storage, omitted_storage_failure_records=omitted)
+                if version == 3:
+                    row['append_payload_io_failures'] = payload
         except FileNotFoundError:
             row['state'] = 'absent'
         except (OSError, ValueError, UnicodeError):
             row['state'] = 'invalid'
-    return validate_provider_events(dict(version=2, kind='private-storage-maintenance-provider-events',
+    return validate_provider_events(dict(version=version, kind='private-storage-maintenance-provider-events',
         scope='pre_agent_stop_snapshot_may_include_owner_cleanup', acceptance_evidence=False,
         causal_attribution=False, event_absence_proven=False,
         phase=phase if phase in PROVIDER_EVENT_PHASES else 'unknown', baseline_state=baseline_state, roles=roles))
@@ -336,13 +368,13 @@ def provider_events_file(path):
     return validate_provider_events(json.loads(closed_diagnostic_text(path, 65536), object_pairs_hook=unique))
 
 
-def export_provider_events(work, phase, baseline):
+def export_provider_events(work, phase, baseline, *, version=2):
     # Optional sidecar in the existing diagnostic process. Never let even an
     # unexpected projection/publication error replace the route or primary error.
     target, part = work / PROVIDER_EVENTS_NAME, work / 'maintenance-provider-events.part'
     try:
         target.unlink(missing_ok=True)
-        value = provider_events(work, phase, baseline)
+        value = provider_events(work, phase, baseline, version=version)
         data = (json.dumps(value, sort_keys=True) + '\n').encode('ascii')
         require(len(data) <= 65536, 'provider event output bound')
         descriptor = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -2080,6 +2112,9 @@ def main(args):
     if len(args) in (2, 4) and args[0] == 'route-diagnostic':
         if len(args) == 4:
             export_provider_events(Path(args[1]), args[2], args[3])
+        print(json.dumps(route_diagnostic(Path(args[1])), sort_keys=True)); return
+    if len(args) == 4 and args[0] == 'route-diagnostic-v3':
+        export_provider_events(Path(args[1]), args[2], args[3], version=3)
         print(json.dumps(route_diagnostic(Path(args[1])), sort_keys=True)); return
     if len(args) == 2 and args[0] == 'route-diagnostic-check':
         validate_route_diagnostic(read(Path(args[1]))); return

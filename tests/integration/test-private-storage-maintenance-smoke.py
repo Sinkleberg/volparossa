@@ -224,7 +224,8 @@ class ProviderEventDiagnostic(unittest.TestCase):
             set(CHECK['STORAGE_FAILURE_OPERATIONS']))
         self.assertEqual(set(re.findall(r'category_code!\(\s*\$op,\s*"([A-Z_]+)"', source)),
             set(CHECK['STORAGE_FAILURE_PHASES']))
-        self.assertEqual(set(re.findall(r'"__([A-Z_]+)"', source)),
+        category_macro = source[source.index('macro_rules! category_code'):source.index('macro_rules! phase_code')]
+        self.assertEqual(set(re.findall(r'"__([A-Z_]+)"', category_macro)),
             set(CHECK['STORAGE_FAILURE_CATEGORIES']))
         self.assertIn('"' + CHECK['STORAGE_FAILURE_PREFIX'] + '"', source)
         self.assertNotIn('format!(', source)
@@ -316,6 +317,112 @@ class ProviderEventDiagnostic(unittest.TestCase):
                 self.assertEqual(sum(row['storage_failures'].values()), 400)
                 self.assertTrue(row['ring_at_capacity'])
                 self.assertFalse(row['window_covers_baseline'])
+
+    @staticmethod
+    def payload_io_codes():
+        return [CHECK['APPEND_PAYLOAD_IO_PREFIX'] + boundary + '__' + kind
+            for boundary in CHECK['APPEND_PAYLOAD_IO_BOUNDARIES'] for kind in CHECK['APPEND_PAYLOAD_IO_KINDS']]
+
+    def test_v3_payload_io_mapping_matches_static_producer_and_rejects_unreviewed_labels(self):
+        source = (HERE.parents[1] /
+            'crates/volparossa-content/src/private_storage/wire/diagnostic.rs').read_text()
+        macro = source[source.index('macro_rules! payload_io_code'):source.index('macro_rules! category_code')]
+        self.assertEqual(set(re.findall(r'"__([A-Z_]+)"', macro)), set(CHECK['APPEND_PAYLOAD_IO_KINDS']))
+        self.assertEqual(set(re.findall(r'payload_io_code!\("([A-Z_]+)"', source)),
+            set(CHECK['APPEND_PAYLOAD_IO_BOUNDARIES']))
+        self.assertIn('"' + CHECK['APPEND_PAYLOAD_IO_PREFIX'] + '"', macro)
+        self.assertNotIn('format!(', source)
+        self.assertEqual(len(self.payload_io_codes()), 14)
+        for code in self.payload_io_codes():
+            self.assertTrue(CHECK['append_payload_io_code'](code))
+            self.assertLessEqual(len(code), 96)
+        for code in (None, True, 1, [], {}, self.payload_io_codes()[0] + '__PRIVATE',
+                self.payload_io_codes()[0].replace('APPEND', 'FINALIZE'),
+                self.payload_io_codes()[0].replace('PAYLOAD_HEADER', 'REQUEST'),
+                self.payload_io_codes()[0].replace('UNEXPECTED_EOF', 'PRIVATE'), 'x' * 97):
+            self.assertFalse(CHECK['append_payload_io_code'](code))
+
+    def test_v3_is_explicit_and_preserves_default_v2_shape_and_unknown_count(self):
+        first, second = self.payload_io_codes()[0], self.payload_io_codes()[-1]
+        legacy = CHECK['STORAGE_FAILURE_PREFIX'] + 'APPEND__PAYLOAD__IO'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            previous = self.observed(root, self.event(99, first) + self.event(101, first)
+                + self.event(102, second) + self.event(103, legacy) + self.event(104, first))
+            current = CHECK['provider_events'](root, 'storage-consumer-publish', '100', version=3)
+        self.assertEqual(previous['version'], 2)
+        self.assertEqual(previous['roles']['client']['unrecognized_event_records'], 3)
+        self.assertNotIn('append_payload_io_failures', previous['roles']['client'])
+        self.assertEqual(current['roles']['client']['append_payload_io_failures'], {first: 2, second: 1})
+        self.assertEqual(current['roles']['client']['storage_failures'], {legacy: 1})
+        projection = copy.deepcopy(current); projection['version'] = 2
+        for row in projection['roles'].values():
+            payload = row.pop('append_payload_io_failures')
+            if payload is not None: row['unrecognized_event_records'] += sum(payload.values())
+        self.assertEqual(json.dumps(projection, sort_keys=True), json.dumps(previous, sort_keys=True))
+        for private in ('deadbeef', 'session=', 'path=', temporary):
+            self.assertNotIn(private, json.dumps(current))
+        self.assertFalse(current['causal_attribution'])
+        self.assertFalse(current['acceptance_evidence'])
+
+    def test_v3_rejects_missing_unknown_boolean_and_impossible_payload_counts(self):
+        code = self.payload_io_codes()[0]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root, self.event(101, code))
+            value = CHECK['provider_events'](root, 'storage-consumer-publish', '100', version=3)
+        for payload in (None, [], {code: True}, {code: 0}, {code: -1}, {code: 1.0},
+                {code: 2}, {code: 401}, {'PRIVATE': 1}):
+            changed = copy.deepcopy(value); changed['roles']['client']['append_payload_io_failures'] = payload
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                CHECK['validate_provider_events'](changed)
+        changed = copy.deepcopy(value); del changed['roles']['client']['append_payload_io_failures']
+        with self.assertRaises(ValueError): CHECK['validate_provider_events'](changed)
+        changed = copy.deepcopy(value); changed['roles']['provider_relay3']['append_payload_io_failures'] = {}
+        with self.assertRaises(ValueError): CHECK['validate_provider_events'](changed)
+        for version in (1, 2):
+            changed = copy.deepcopy(value); changed['version'] = version
+            with self.assertRaises(ValueError): CHECK['validate_provider_events'](changed)
+
+    def test_v3_current_export_is_separate_and_failure_cannot_replace_route_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); self.observed(root, self.event(101, self.payload_io_codes()[0]))
+            expected = CHECK['route_diagnostic'](root)
+            with patch('builtins.print') as output:
+                CHECK['main'](['route-diagnostic-v3', str(root), 'storage-consumer-publish', '100'])
+            self.assertEqual(json.loads(output.call_args.args[0]), expected)
+            path = root / CHECK['PROVIDER_EVENTS_NAME']
+            self.assertEqual(CHECK['provider_events_file'](path)['version'], 3)
+            with patch('builtins.print') as output:
+                CHECK['main'](['export-names', str(root)])
+            self.assertIn(CHECK['PROVIDER_EVENTS_NAME'], output.call_args.args[0].splitlines())
+            with patch.dict(CHECK['export_provider_events'].__globals__, provider_events=Mock(side_effect=ValueError('PRIVATE'))), \
+                    patch('builtins.print') as output:
+                CHECK['main'](['route-diagnostic-v3', str(root), 'storage-consumer-publish', '100'])
+            self.assertEqual(json.loads(output.call_args.args[0]), expected)
+            self.assertFalse(path.exists())
+
+    def test_v3_maximum_old_and_new_tuples_fit_existing_export_limit(self):
+        codes = sorted(self.storage_codes(), key=len, reverse=True)[:32] + self.payload_io_codes()
+        raw = ''.join(self.event(101, codes[i % len(codes)]) for i in range(400))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for node in CHECK['PROVIDER_EVENT_ROLES'].values():
+                self.save(root / f'logs-{node}-cleanup-status.private', '0\n')
+                self.save(root / f'logs-{node}.txt', raw)
+            CHECK['export_provider_events'](root, 'storage-consumer-publish', '100', version=3)
+            target = root / CHECK['PROVIDER_EVENTS_NAME']
+            self.assertLessEqual(target.stat().st_size, 65536)
+            value = CHECK['provider_events_file'](target)
+            for row in value['roles'].values():
+                self.assertEqual(len(row['storage_failures']), 32)
+                self.assertEqual(len(row['append_payload_io_failures']), 14)
+                self.assertEqual(sum(row['storage_failures'].values()) + sum(row['append_payload_io_failures'].values()), 400)
+                self.assertTrue(row['ring_at_capacity'])
+
+    def test_provider_event_export_version_rejects_unknown_or_boolean_selection(self):
+        for version in (True, 1, 4, '3', 3.0):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                CHECK['provider_events'](Path('/unused'), 'unknown', '100', version=version)
 
 
 class SupervisorDiagnostic(unittest.TestCase):

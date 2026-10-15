@@ -14,9 +14,21 @@ use volparossa_local_control::{
     PrivateStorageRemoteStage, PrivateStorageStreamFailure, PrivateStorageTlsFailure,
 };
 
-use super::outcome::AgentOutcome;
+use super::outcome::{AgentOutcome, AppendOutcome};
 
 const MAX_FAILURES: usize = 8;
+
+tokio::task_local! {
+    static APPEND_TIMING: bool;
+}
+
+pub(super) fn append_timing_enabled() -> bool {
+    APPEND_TIMING.try_with(|enabled| *enabled).unwrap_or(false)
+}
+
+pub(super) async fn with_append_timing<F: Future>(enabled: bool, work: F) -> F::Output {
+    APPEND_TIMING.scope(enabled, work).await
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -129,6 +141,54 @@ struct Failure {
     agent_detail: Option<AgentDetail>,
     #[serde(deserialize_with = "Option::deserialize")]
     agent_outcome: Option<AgentOutcome>,
+}
+
+/// New v7 failure alone permits the opt-in outcome timing field.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct AppendFailure {
+    #[serde(deserialize_with = "Option::deserialize")]
+    fragment_index: Option<usize>,
+    copy_index: usize,
+    operation: Operation,
+    stage: Stage,
+    category: Category,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_code: Option<AgentCode>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_detail: Option<AgentDetail>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    agent_outcome: Option<AppendOutcome>,
+}
+
+impl From<&Failure> for AppendFailure {
+    fn from(value: &Failure) -> Self {
+        Self {
+            fragment_index: value.fragment_index,
+            copy_index: value.copy_index,
+            operation: value.operation,
+            stage: value.stage,
+            category: value.category,
+            agent_code: value.agent_code,
+            agent_detail: value.agent_detail.clone(),
+            agent_outcome: value.agent_outcome.map(Into::into),
+        }
+    }
+}
+
+impl From<AppendFailure> for Failure {
+    fn from(value: AppendFailure) -> Self {
+        Self {
+            fragment_index: value.fragment_index,
+            copy_index: value.copy_index,
+            operation: value.operation,
+            stage: value.stage,
+            category: value.category,
+            agent_code: value.agent_code,
+            agent_detail: value.agent_detail,
+            agent_outcome: value.agent_outcome.map(Into::into),
+        }
+    }
 }
 
 /// Original exact six-field failure. Historical reports never gain a new claim.
@@ -410,7 +470,7 @@ pub(super) struct Diagnostics {
 impl Default for Diagnostics {
     fn default() -> Self {
         Self {
-            version: 6,
+            version: if append_timing_enabled() { 7 } else { 6 },
             failures: Vec::new(),
             omitted_failures: 0,
         }
@@ -493,6 +553,9 @@ impl Serialize for Diagnostics {
                 .map(OriginalStreamFailure::from)
                 .collect();
             value.serialize_field("failures", &original)?;
+        } else if self.version == 7 {
+            let current: Vec<_> = self.failures.iter().map(AppendFailure::from).collect();
+            value.serialize_field("failures", &current)?;
         } else {
             value.serialize_field("failures", &self.failures)?;
         }
@@ -517,6 +580,7 @@ impl Failure {
                 self.stage,
                 Stage::WireReceipt | Stage::AgentTerminal | Stage::Deadline
             ) || !outcome.valid()
+                || (outcome.has_append_timing() && !matches!(self.operation, Operation::Append))
         }) {
             return Err(<serde_json::Error as serde::de::Error>::custom(
                 "diagnostic outcome scope",
@@ -536,7 +600,7 @@ impl<'de> Deserialize<'de> for Diagnostics {
             omitted_failures: usize,
         }
         let wire = Wire::deserialize(deserializer)?;
-        if !matches!(wire.version, 1..=6) || wire.failures.len() > MAX_FAILURES {
+        if !matches!(wire.version, 1..=7) || wire.failures.len() > MAX_FAILURES {
             return Err(serde::de::Error::custom(
                 "diagnostic version or failure bound",
             ));
@@ -601,6 +665,8 @@ impl<'de> Deserialize<'de> for Diagnostics {
                     }
                 } else if wire.version == 5 {
                     serde_json::from_value::<OriginalStreamFailure>(value)?.into()
+                } else if wire.version == 7 {
+                    serde_json::from_value::<AppendFailure>(value)?.into()
                 } else {
                     serde_json::from_value::<Failure>(value)?
                 };
@@ -661,6 +727,10 @@ impl Diagnostics {
         report: &serde_json::Value,
     ) -> anyhow::Result<()> {
         let child: Self = serde_json::from_value(report["deposit_diagnostics"].clone())?;
+        anyhow::ensure!(
+            self.version == child.version || (self.version < 7 && child.version < 7),
+            "append diagnostic profile mismatch"
+        );
         self.omitted_failures += child.omitted_failures;
         for mut failure in child.failures {
             if self.failures.len() == MAX_FAILURES {

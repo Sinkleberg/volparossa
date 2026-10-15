@@ -31,11 +31,17 @@ pub(crate) enum Command {
     },
     /// Retain explicit independently pinned provider copies, with non-consuming restore failover.
     Replicas {
+        /// Opt in to coarse local APPEND timing in diagnostic reports (version 7).
+        #[arg(long, global = true)]
+        append_diagnostics_v7: bool,
         #[command(subcommand)]
         command: Box<peer::replicas::Command>,
     },
     /// Split already encrypted archives across explicit providers with per-fragment copies.
     Fragments {
+        /// Opt in to coarse local APPEND timing in diagnostic reports (version 7).
+        #[arg(long, global = true)]
+        append_diagnostics_v7: bool,
         #[command(subcommand)]
         command: Box<peer::replicas::fragments::Command>,
     },
@@ -113,9 +119,25 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
     let command = match command {
         Command::Local { command } => command,
         Command::Peer { command } => return peer::run(*command, socket).await,
-        Command::Replicas { command } => return peer::replicas::run(*command, socket).await,
-        Command::Fragments { command } => {
-            return peer::replicas::fragments::run(*command, socket).await;
+        Command::Replicas {
+            command,
+            append_diagnostics_v7,
+        } => {
+            return peer::with_append_diagnostics(
+                append_diagnostics_v7,
+                peer::replicas::run(*command, socket),
+            )
+            .await;
+        }
+        Command::Fragments {
+            command,
+            append_diagnostics_v7,
+        } => {
+            return peer::with_append_diagnostics(
+                append_diagnostics_v7,
+                peer::replicas::fragments::run(*command, socket),
+            )
+            .await;
         }
     };
     match command {

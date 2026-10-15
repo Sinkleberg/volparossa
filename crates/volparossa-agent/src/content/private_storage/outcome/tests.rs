@@ -187,3 +187,102 @@ fn wire_deadlines_and_explicit_turn_cancellation_are_not_counterfeit_outer_timeo
     assert_eq!(result.category, Category::Cancelled as i32);
     assert_eq!(result.deadline, Deadline::None as i32);
 }
+
+#[tokio::test(start_paused = true)]
+async fn append_timing_reuses_original_operation_start_before_poll_and_outer_timeout() {
+    use crate::content::private_storage::observation::Observation;
+    use volparossa_local_control::PrivateStorageElapsedBucket as Bucket;
+
+    let owner = Arc::new(Outcomes::default());
+    let guard = owner.begin(1, &[11; 16]).unwrap();
+    let observation = Observation::default();
+    let operation = observation.budget(
+        PrivateStorageDeadlineScope::Operation,
+        Duration::from_secs(120),
+        async {
+            guard.enter(Phase::RemotePayloadWrite);
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            guard.enter(Phase::RemoteReceiptRead);
+            std::future::pending::<Result<(), ContentError>>().await
+        },
+    );
+    guard.start_operation(observation.operation_started());
+    // Includes time already spent before this future is first polled; no second clock origin.
+    tokio::time::advance(Duration::from_secs(30)).await;
+    let result = operation.await;
+    assert!(matches!(result, Err(ContentError::Unavailable)));
+    guard.finish(&result, observation.deadline());
+    let outcome = owner.take(1, &[11; 16]).unwrap();
+    outcome.validate().unwrap();
+    assert_eq!(outcome.deadline, Deadline::Operation as i32);
+    assert_eq!(outcome.category, Category::Timeout as i32);
+    let timing = outcome.append_timing.unwrap();
+    assert_eq!(timing.before_payload, Bucket::S30To60 as i32);
+    assert_eq!(timing.in_payload_write_flush, Bucket::S5To15 as i32);
+    assert_eq!(timing.in_receipt_read, Some(Bucket::S60To90 as i32));
+}
+
+#[tokio::test(start_paused = true)]
+async fn append_timing_wire_failure_freezes_before_later_finish_and_success_has_no_record() {
+    use volparossa_local_control::PrivateStorageElapsedBucket as Bucket;
+
+    let owner = Arc::new(Outcomes::default());
+    let guard = owner.begin(1, &[12; 16]).unwrap();
+    guard.start_operation(Some(Instant::now()));
+    guard.enter(Phase::RemotePayloadWrite);
+    tokio::time::advance(Duration::from_secs(5)).await;
+    guard.wire_error(&WireError::Io(std::io::Error::other(
+        "/private/ciphertext-canary",
+    )));
+    tokio::time::advance(Duration::from_secs(60)).await;
+    guard.finish(
+        &Err(ContentError::Unavailable),
+        PrivateStorageDeadlineScope::None,
+    );
+    let outcome = owner.take(1, &[12; 16]).unwrap();
+    outcome.validate().unwrap();
+    assert_eq!(outcome.category, Category::Io as i32);
+    let timing = outcome.append_timing.unwrap();
+    assert_eq!(timing.in_payload_write_flush, Bucket::S5To15 as i32);
+    assert_eq!(timing.in_receipt_read, None);
+    assert!(!format!("{outcome:?}").contains("canary"));
+    let success = owner.begin(1, &[13; 16]).unwrap();
+    success.start_operation(Some(Instant::now()));
+    success.enter(Phase::RemotePayloadWrite);
+    success.enter(Phase::RemoteReceiptRead);
+    success.finish(&Ok(()), PrivateStorageDeadlineScope::None);
+    assert_eq!(owner.take(1, &[13; 16]).unwrap(), status(Status::Missing));
+}
+
+#[tokio::test(start_paused = true)]
+async fn append_timing_abort_is_retained_before_socket_close_without_a_timeout_claim() {
+    use tokio::{io::AsyncReadExt, net::UnixStream, sync::oneshot};
+    use volparossa_local_control::PrivateStorageElapsedBucket as Bucket;
+
+    let owner = Arc::new(Outcomes::default());
+    let (mut client, server) = UnixStream::pair().unwrap();
+    let guard = owner.begin(1, &[14; 16]).unwrap();
+    guard.start_operation(Some(Instant::now()));
+    let (send, started) = oneshot::channel();
+    let task = tokio::spawn(async move {
+        let stream = server;
+        let retained = guard;
+        retained.enter(Phase::RemotePayloadWrite);
+        send.send(()).unwrap();
+        std::future::pending::<()>().await;
+        drop(retained);
+        drop(stream);
+    });
+    started.await.unwrap();
+    tokio::time::advance(Duration::from_secs(15)).await;
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    assert_eq!(client.read(&mut [0; 1]).await.unwrap(), 0);
+    let outcome = owner.take(1, &[14; 16]).unwrap();
+    outcome.validate().unwrap();
+    assert_eq!(outcome.category, Category::Cancelled as i32);
+    assert_eq!(outcome.deadline, Deadline::None as i32);
+    let timing = outcome.append_timing.unwrap();
+    assert_eq!(timing.in_payload_write_flush, Bucket::S15To30 as i32);
+    assert_eq!(timing.in_receipt_read, None);
+}

@@ -938,8 +938,8 @@ async fn provider_failure_event(
 ) {
     if let Some(state) = state {
         let mut state = state.write().await;
-        // Preserve the historical category, adding at most one closed tuple to the same
-        // bounded ring and under the same lock. No new await, sink or identifier is added.
+        // Preserve the historical category and V1 tuple, adding at most one closed
+        // APPEND I/O tuple under the same lock. No new await, sink or identifier is added.
         state.log(
             volparossa_local_control::LogLevel::Info,
             provider_error_code(error),
@@ -951,6 +951,9 @@ async fn provider_failure_event(
                 failure.event_code(),
                 unix_millis(),
             );
+            if let Some(code) = failure.payload_io_event_code() {
+                state.log(volparossa_local_control::LogLevel::Info, code, unix_millis());
+            }
         }
     }
 }

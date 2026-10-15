@@ -62,8 +62,13 @@ impl ContentRuntime {
         local: &UnixStream,
     ) -> Result<PrivateStorageOutcome, ContentError> {
         let uid = local.peer_cred().map_err(|_| ContentError::Invalid)?.uid();
-        self.storage_outcomes
-            .take(uid, &request.original_request_id)
+        let mut outcome = self
+            .storage_outcomes
+            .take(uid, &request.original_request_id)?;
+        if !request.include_append_timing {
+            outcome.append_timing = None;
+        }
+        Ok(outcome)
     }
 
     /// Administrative local operation on the exact attached store, never a peer request.
@@ -254,6 +259,8 @@ impl ContentRuntime {
             ))
             .await
         });
+        // Reuse the exact original construction-time budget instant, without shifting it.
+        outcome.start_operation(observation.operation_started());
         let operation = Box::pin(operation);
         let result = if let Some(turn) = &request.maintenance {
             tokio::select! {

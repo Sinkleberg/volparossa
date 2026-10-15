@@ -46,8 +46,9 @@ pub use private_storage_detail::{
     PrivateStorageStreamFailure, PrivateStorageTlsFailure,
 };
 pub use private_storage_outcome::{
-    PrivateStorageOutcome, PrivateStorageOutcomeCategory, PrivateStorageOutcomeDeadline,
-    PrivateStorageOutcomePhase, PrivateStorageOutcomeRequest, PrivateStorageOutcomeStatus,
+    PrivateStorageAppendTiming, PrivateStorageOutcome, PrivateStorageOutcomeCategory,
+    PrivateStorageOutcomeDeadline, PrivateStorageOutcomePhase, PrivateStorageOutcomeRequest,
+    PrivateStorageOutcomeStatus,
 };
 pub use provider_activity::{
     ContentProviderActivity, MAX_PROVIDER_SESSIONS, ProviderActivityElapsedBucket,

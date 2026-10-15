@@ -20,6 +20,10 @@ struct State {
 }
 
 impl Progress {
+    pub(super) fn operation_started(&self) -> Option<Instant> {
+        self.0.lock().ok()?.operation_started
+    }
+
     pub(super) fn start_operation(&self, started: Instant) {
         if let Ok(mut state) = self.0.lock() {
             state.operation_started = Some(started);

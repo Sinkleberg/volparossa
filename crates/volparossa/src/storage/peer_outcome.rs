@@ -4,9 +4,10 @@ use std::{fmt, path::Path, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use volparossa_local_control::{
-    PrivateStorageOutcome, PrivateStorageOutcomeCategory, PrivateStorageOutcomeDeadline,
-    PrivateStorageOutcomePhase, PrivateStorageOutcomeRequest, PrivateStorageOutcomeStatus,
-    control_request::Operation, control_response::Payload,
+    PrivateStorageAppendTiming, PrivateStorageElapsedBucket, PrivateStorageOutcome,
+    PrivateStorageOutcomeCategory, PrivateStorageOutcomeDeadline, PrivateStorageOutcomePhase,
+    PrivateStorageOutcomeRequest, PrivateStorageOutcomeStatus, control_request::Operation,
+    control_response::Payload,
 };
 
 const QUERY_BUDGET: Duration = Duration::from_secs(1);
@@ -39,6 +40,74 @@ pub(super) struct AgentOutcome {
     status: Status,
     #[serde(deserialize_with = "Option::deserialize")]
     detail: Option<Detail>,
+    // The original v4/v5/v6 serde shape stays exact; v7 has a separate explicit DTO.
+    #[serde(skip)]
+    append_timing: Option<AppendTiming>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct AppendTiming {
+    before_payload: PrivateStorageElapsedBucket,
+    in_payload_write_flush: PrivateStorageElapsedBucket,
+    #[serde(deserialize_with = "Option::deserialize")]
+    in_receipt_read: Option<PrivateStorageElapsedBucket>,
+}
+
+impl AppendTiming {
+    fn from_wire(value: PrivateStorageAppendTiming) -> Option<Self> {
+        Some(Self {
+            before_payload: PrivateStorageElapsedBucket::try_from(value.before_payload).ok()?,
+            in_payload_write_flush: PrivateStorageElapsedBucket::try_from(
+                value.in_payload_write_flush,
+            )
+            .ok()?,
+            in_receipt_read: value
+                .in_receipt_read
+                .map(PrivateStorageElapsedBucket::try_from)
+                .transpose()
+                .ok()?,
+        })
+    }
+
+    fn wire(self) -> PrivateStorageAppendTiming {
+        PrivateStorageAppendTiming {
+            before_payload: self.before_payload as i32,
+            in_payload_write_flush: self.in_payload_write_flush as i32,
+            in_receipt_read: self.in_receipt_read.map(|bucket| bucket as i32),
+        }
+    }
+}
+
+/// Explicit v7 DTO; never reused by the original exact outcome decoders.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AppendOutcome {
+    status: Status,
+    #[serde(deserialize_with = "Option::deserialize")]
+    detail: Option<Detail>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    append_timing: Option<AppendTiming>,
+}
+
+impl From<AgentOutcome> for AppendOutcome {
+    fn from(value: AgentOutcome) -> Self {
+        Self {
+            status: value.status,
+            detail: value.detail,
+            append_timing: value.append_timing,
+        }
+    }
+}
+
+impl From<AppendOutcome> for AgentOutcome {
+    fn from(value: AppendOutcome) -> Self {
+        Self {
+            status: value.status,
+            detail: value.detail,
+            append_timing: value.append_timing,
+        }
+    }
 }
 
 impl AgentOutcome {
@@ -46,6 +115,7 @@ impl AgentOutcome {
         Self {
             status,
             detail: None,
+            append_timing: None,
         }
     }
 
@@ -64,6 +134,7 @@ impl AgentOutcome {
                         deadline_scope: PrivateStorageOutcomeDeadline::try_from(outcome.deadline)
                             .ok()?,
                     }),
+                    append_timing: outcome.append_timing.and_then(AppendTiming::from_wire),
                 },
             },
         )
@@ -76,12 +147,17 @@ impl AgentOutcome {
                 phase: detail.phase as i32,
                 category: detail.category as i32,
                 deadline: detail.deadline_scope as i32,
+                append_timing: self.append_timing.map(AppendTiming::wire),
             }
             .validate()
             .is_ok(),
             (Status::Observed, None) | (_, Some(_)) => false,
-            (_, None) => true,
+            (_, None) => self.append_timing.is_none(),
         }
+    }
+
+    pub(super) fn has_append_timing(self) -> bool {
+        self.append_timing.is_some()
     }
 }
 
@@ -96,19 +172,25 @@ impl std::error::Error for AgentOutcome {}
 /// Query only after dropping the original stream. Missing includes an observation omitted
 /// at capacity; it proves neither provider failure nor absent custody. Older agents may reject.
 pub(super) async fn query(socket: &Path, original_request_id: &[u8]) -> AgentOutcome {
+    let include_append_timing = super::diagnostics::append_timing_enabled();
     tokio::time::timeout(QUERY_BUDGET, async {
         for attempt in 0..MAX_QUERIES {
             let response = crate::control::request(
                 socket,
                 Operation::PrivateStorageOutcome(PrivateStorageOutcomeRequest {
                     original_request_id: original_request_id.to_vec(),
+                    include_append_timing,
                 }),
             )
             .await;
             let outcome = match response {
                 Ok(response) => match response.payload {
                     Some(Payload::PrivateStorageOutcome(outcome)) => {
-                        AgentOutcome::from_wire(outcome)
+                        if !include_append_timing && outcome.append_timing.is_some() {
+                            None
+                        } else {
+                            AgentOutcome::from_wire(outcome)
+                        }
                     }
                     _ => None,
                 },
