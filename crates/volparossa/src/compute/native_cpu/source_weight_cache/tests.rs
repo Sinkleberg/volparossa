@@ -440,7 +440,7 @@ fn source_one_shot_advises_exact_three_without_changing_original_result() {
             {"ordinal":3,"outcome":"advised","syscall_error":null}
         ])
     );
-    assert_eq!(result.unwrap(), original);
+    assert_eq!(result.as_ref().ok(), Some(&original));
     assert!(!resources::admits(PROFILE, Some(0)));
 }
 
@@ -464,7 +464,7 @@ fn source_syscall_failure_is_finite_without_retry_or_result_override() {
         assert_eq!(item["outcome"], "error");
         assert_eq!(item["syscall_error"], "interrupted");
     }
-    assert_eq!(result.unwrap(), original);
+    assert_eq!(result.as_ref().ok(), Some(&original));
     for (error, expected) in [
         (nix::errno::Errno::EBADF, "bad_fd"),
         (nix::errno::Errno::EINVAL, "invalid"),
@@ -507,7 +507,7 @@ fn source_observation_is_bounded_and_does_not_export_private_identities() {
     let (root, binding) = fixture();
     let record = observe(binding, &Ok(model_result()));
     let raw = serde_json::to_string(&record).unwrap();
-    assert!("private_source_weight_cache_diagnostic ".len() + raw.len() + 1 <= 4096);
+    assert!("private_source_weight_cache_diagnostic ".len() + raw.len() < 4096);
     assert!(!raw.contains(root.path().to_str().unwrap()));
     for forbidden in [
         "safetensors",

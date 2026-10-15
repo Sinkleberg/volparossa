@@ -50,7 +50,7 @@ impl Identity {
         self.mode & libc::S_IFMT == libc::S_IFREG
             && self.owner == nix::unistd::geteuid().as_raw()
             && self.links == 1
-            && self.mode & 0o077 == 0
+            && self.mode.trailing_zeros() >= 6
             && self.bytes == expected_bytes
             && (1..=4 * 1024 * 1024 * 1024).contains(&self.bytes)
     }
