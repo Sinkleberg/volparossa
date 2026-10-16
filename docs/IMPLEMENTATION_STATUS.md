@@ -43,7 +43,7 @@ sources; this preparation does not replace either trial or change its pins.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | The listener correction passes targeted run `38815471227`, including a real Linux MPTCP rejection/reuse test. Actual `38816407455` on `728db40b` instead fails at Image FINALIZE fragment 0/copy 1 while reading the provider challenge; Cloud publication is not reached. Its standalone core lifecycle and two restores pass, but consumer repair, restoration and remote retirement remain unproved. Trace the challenge stall without extending the operation deadline. Earlier `38804192575` retains its separate unresolved flow-acquisition failure. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 is merged, retaining that immutable core dependency; the native/Storage core candidate is not merged into core `main`. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258's authenticated refusal path has actual route evidence; PR262 integrates explicit same-connection key confirmation. The resident worker now accepts a caller-anchored finite execution budget; original hosted run `38838859525` passes compile, 72 contracts and strict lint but fails test formatting. The exact formatting correction awaits verification. Next, bind the immutable boot/runtime/model inputs, a separate task grant and the guest TLS channel to that same worker. Production roots, current vendor appraisal and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
+| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258's authenticated refusal path has actual route evidence; PR262 integrates explicit same-connection key confirmation. The resident worker's caller-anchored finite execution budget passes compile, 72 contracts, strict lint and formatting in hosted run `38839509355`. Next, verify the sealed boot prerequisite, then bind immutable runtime/model inputs, a separate task grant and the guest TLS channel to that same worker. Production roots, current vendor appraisal and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 ### Finite resident execution candidate
 
@@ -65,11 +65,22 @@ resident, connection and diagnostic contracts. Original hosted run
 on exact `b93f8b295e00d0ba22d72db60972116df2aaa1db` passes compilation,
 72 unique tests and strict lint: 30 resident cases (including the 19 new cases),
 30 connection cases and 12 diagnostic cases, with none failed or ignored. The
-run remains failed because three test-call layouts need formatting. Only those
-original formatter changes are applied; verification of the correction is pending.
+run remains failed because three test-call layouts need formatting. The correction
+changes only those three layouts and this ledger; production code, workflow and
+dependencies are unchanged.
 Original artifact and log ZIP SHA-256 values are respectively
 `a812305adf76f7fad8af36e4d509c938abb2236b3dcb6b341fae1fd51efe0800`
 and `dc31cba4613f2eacbab70c846b5a61f4cc6fb46a30ca36cccf8689ed0b225d28`.
+
+Corrected run
+[`38839509355`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38839509355)
+on exact `372cad8a58731ca697814763edac94110ce9796b` passes compilation,
+the same 72 unique tests, strict lint, formatting and the unchanged-source check.
+No test fails or is ignored. The retained source manifest matches the six
+candidate files and four unchanged dependency blobs. Original artifact and log
+ZIP SHA-256 values are respectively
+`d84cc7ca0a65e1b0a3853d878847e5869895fbb508dc551deb80f593d448fdf7`
+and `cef803b69a0d16f0bf5b934af6e8c600641c168c5d325afb9802d22911a7fcf0`.
 These fixtures do not execute a model or boot a guest. The budget is execution
 accounting, not admission, attestation or permission to release private input.
 
@@ -79,6 +90,25 @@ Code development VM has writable provisioning and administrative access, so it
 cannot supply that boundary unchanged. Boot and runtime integrity, explicit task
 authority and verified hardware appraisal are required before private remote
 execution can be accepted.
+
+### Public immutable boot prerequisite
+
+The next candidate seals a derivative of the pinned Debian image with dm-verity
+and builds a fixed minimal initrd from its authenticated files and three pinned
+Debian packages. Both guest disks are read-only. The bootstrap reads every
+authenticated data block before mounting the root, checks a real write denial
+at a known writable-by-root file, and invokes only the fixed test entrypoint.
+The separate negative boot changes one data byte after sealing and requires an
+actual failed read with the kernel's corruption status; a timeout is not proof.
+
+The fixture has no guest network, SSH, administrative shell or original cloud
+initialization. All 52 local contracts pass: 32 image/runner cases and 20
+initrd/bootstrap cases. They exercise only public archive, parser, process and
+bootstrap contracts; image construction and actual boots require the separate
+explicit hosted workflow. This first gate contains no resident worker, model or
+private input. Its build manifest records evidence, not independent production
+approval or hardware attestation. The subsequent worker/channel integration
+remains the end-to-end milestone above.
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
