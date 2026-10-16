@@ -22,6 +22,7 @@ const STREAM_REVISIONS = { cloud: '7d10c4943062c5a0ae46fc57e293dc3e33db3ed2', im
 const CHALLENGE_REVISIONS = { cloud: 'e0db1cacf7bec2df3925ee454ec6216587b8ddef', image: '43029ea8b780de2376a3b7325d24a8e1c657f08e' };
 const APPEND_REVISIONS = { cloud: 'dda7a21818ece774445cf63d6e9a01fe0f2803b2', image: '10c46b9d6424929748e324fdd188a2f5ca77851a' };
 const FLOW_REVISIONS = { cloud: '47b0f03b84913761570c3de7037ba5509b848c23', image: '9694a2b9dcb40aceefd78dbc0ab34303071a0ffd' };
+const CLOSE_REVISIONS = { cloud: '35598609d3fedb5d1241a479c1930c8a6b831661', image: '1e812ec6424a539a336d230b99ae1c11a494ca29' };
 const HASH = /^[0-9a-f]{64}$/u, A_FRAGMENTS = [0, 2, 3];
 const COPY_FIELDS = ['provider_key', 'owner_key', 'grant_hex', 'archive_id', 'ciphertext_bytes', 'sha256'];
 const CODES = new Set(['phase_deadline', 'authority_expired', 'authority_changed', 'private_file', 'private_directory',
@@ -44,7 +45,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const fragmentPath = (object, i) => join(object, 'journal', `fragment-${String(i).padStart(4, '0')}`);
 
 export function sourceProfile(version = 1) {
-  check(version === 1 || version === 2 || version === 3 || version === 4 || version === 5, 'arguments');
+  check(version === 1 || version === 2 || version === 3 || version === 4 || version === 5 || version === 6, 'arguments');
+  if (version === 6) return { pinsFile: './cloud-upload-maintenance-pins-v6.json', revisions: { ...CLOSE_REVISIONS }, previousVersion: [10] };
   if (version === 5) return { pinsFile: './cloud-upload-maintenance-pins-v5.json', revisions: { ...FLOW_REVISIONS }, previousVersion: [9] };
   if (version === 4) return { pinsFile: './cloud-upload-maintenance-pins-v4.json', revisions: { ...APPEND_REVISIONS }, previousVersion: [8] };
   if (version === 3) return { pinsFile: './cloud-upload-maintenance-pins-v3.json', revisions: { ...CHALLENGE_REVISIONS }, previousVersion: [7] };
@@ -217,9 +219,12 @@ export async function configuration(root, profileVersion = 1) {
     && template.fragmentBytes === F && template.lifetimeSeconds === 1800 && template.deadlineMs === 1800000
     && template.providers?.length === 3 && new Set(template.providers.map(p => p.key)).size === 3
     && template.providers.every(p => HASH.test(p.key)) && p.fromProviderKey === template.providers[0].key, 'configuration');
+  if (profileVersion < 6) check(!Object.hasOwn(template, 'tlsCloseDiagnosticsV9'), 'configuration');
   if (profileVersion === 4) check(template.appendDiagnosticsV7 === true, 'configuration');
   if (profileVersion === 5) check(template.flowAcquireDiagnosticsV8 === true
     && !Object.hasOwn(template, 'appendDiagnosticsV7'), 'configuration');
+  if (profileVersion === 6) check(template.tlsCloseDiagnosticsV9 === true
+    && !Object.hasOwn(template, 'appendDiagnosticsV7') && !Object.hasOwn(template, 'flowAcquireDiagnosticsV8'), 'configuration');
   return { service, template };
 }
 async function objectRoot(root) {
@@ -539,7 +544,7 @@ async function finish(ctx, m) {
 export async function main(argv) {
   let profileVersion = 1;
   if (argv.length === 4 && argv[2] === '--profile-version') {
-    check(argv[3] === '2' || argv[3] === '3' || argv[3] === '4' || argv[3] === '5', 'arguments'); profileVersion = Number(argv[3]); argv = argv.slice(0, 2);
+    check(argv[3] === '2' || argv[3] === '3' || argv[3] === '4' || argv[3] === '5' || argv[3] === '6', 'arguments'); profileVersion = Number(argv[3]); argv = argv.slice(0, 2);
   }
   check(argv.length === 2 && PHASES.includes(argv[0]), 'arguments'); process.umask(0o077);
   const [phase, root] = argv, provision = await guard(root, profileVersion), cancel = new AbortController();

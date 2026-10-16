@@ -18,11 +18,14 @@ const size = 786600;
 const write = (path, value) => writeFile(path, JSON.stringify(value) + '\n', { mode: 0o600 });
 
 test('source generations bind exact separate pins and predecessor versions without changing runtime', async () => {
-  const old = sourceProfile(), stream = sourceProfile(2), challenge = sourceProfile(3), append = sourceProfile(4), flow = sourceProfile(5);
+  const old = sourceProfile(), stream = sourceProfile(2), challenge = sourceProfile(3), append = sourceProfile(4), flow = sourceProfile(5), close = sourceProfile(6);
   assert.deepEqual(old.previousVersion, [1, 2, 3, 4, 5]); assert.deepEqual(stream.previousVersion, [6]);
   assert.deepEqual(challenge.previousVersion, [7]);
   assert.deepEqual(append.previousVersion, [8]);
   assert.deepEqual(flow.previousVersion, [9]);
+  assert.deepEqual(close.previousVersion, [10]);
+  assert.deepEqual(close.revisions, { image: '1e812ec6424a539a336d230b99ae1c11a494ca29',
+    cloud: '35598609d3fedb5d1241a479c1930c8a6b831661' });
   assert.deepEqual(flow.revisions, { cloud: '47b0f03b84913761570c3de7037ba5509b848c23',
     image: '9694a2b9dcb40aceefd78dbc0ab34303071a0ffd' });
   assert.deepEqual(stream.revisions, { cloud: '7d10c4943062c5a0ae46fc57e293dc3e33db3ed2',
@@ -31,25 +34,27 @@ test('source generations bind exact separate pins and predecessor versions witho
     image: '43029ea8b780de2376a3b7325d24a8e1c657f08e' });
   assert.deepEqual(append.revisions, { cloud: 'dda7a21818ece774445cf63d6e9a01fe0f2803b2',
     image: '10c46b9d6424929748e324fdd188a2f5ca77851a' });
-  const pins = await Promise.all([old, stream, challenge, append, flow].map(async p => JSON.parse(await readFile(new URL(p.pinsFile, import.meta.url)))));
+  const pins = await Promise.all([old, stream, challenge, append, flow, close].map(async p => JSON.parse(await readFile(new URL(p.pinsFile, import.meta.url)))));
   assert.deepEqual(pins[0].runtime, pins[1].runtime);
   assert.deepEqual(pins[0].runtime, pins[2].runtime);
   assert.deepEqual(pins[0].runtime, pins[3].runtime);
   assert.deepEqual(pins[0].runtime, pins[4].runtime);
-  for (const [i, profile] of [old, stream, challenge, append, flow].entries()) {
+  assert.deepEqual(pins[0].runtime, pins[5].runtime);
+  for (const [i, profile] of [old, stream, challenge, append, flow, close].entries()) {
     assert.equal(pins[i].version, i + 1);
     for (const name of ['cloud', 'image']) assert.equal(pins[i].sources[name].revision, profile.revisions[name]);
   }
-  for (const bad of [true, '2', 0, 6, null]) assert.throws(() => sourceProfile(bad), /arguments/u);
+  for (const bad of [true, '2', 0, 7, null]) assert.throws(() => sourceProfile(bad), /arguments/u);
 });
 
 test('explicit source selector rejects unknown or malformed arguments before any guest I/O', async () => {
-  for (const tail of [['--profile-version', '1'], ['--profile-version', '6'], ['--profile-version', 'true'],
-    ['--profile-version'], ['--other', '2'], ['--profile-version', '2', 'extra']]) {
+  for (const tail of [['--profile-version', '1'], ['--profile-version', '7'], ['--profile-version', 'true'],
+    ['--profile-version'], ['--other', '2'], ['--profile-version', '2', 'extra'],
+    ['--profile-version', '5', '--profile-version', '6'], ['--profile-version', '6', '--profile-version', '5']]) {
     await assert.rejects(main(['upload', '/inert', ...tail]), /arguments/u);
   }
   for (const suffix of [[], ['--profile-version', '2'], ['--profile-version', '3'], ['--profile-version', '4'],
-    ['--profile-version', '5']]) await assert.rejects(main(['upload', '/inert', ...suffix]), /guest_only/u);
+    ['--profile-version', '5'], ['--profile-version', '6']]) await assert.rejects(main(['upload', '/inert', ...suffix]), /guest_only/u);
 });
 function state(retired = [], withdrawn = false) {
   const replacements = withdrawn ? [0, 2, 3] : retired;
@@ -151,6 +156,27 @@ test('service fixture accepts only the exact production ephemeral-port and empty
   await write(join(root, 'storage-template.json'), { ...template, flowAcquireDiagnosticsV8: true });
   assert.deepEqual(await configuration(root, 5), { template: { ...template, flowAcquireDiagnosticsV8: true }, service });
   await assert.rejects(configuration(root, 4), /configuration/u);
+  await assert.rejects(configuration(root, 6), /configuration/u);
+  for (const invalid of [false, 1, 'true', null]) {
+    await write(join(root, 'storage-template.json'), { ...template, tlsCloseDiagnosticsV9: invalid });
+    await assert.rejects(configuration(root, 6), /configuration/u);
+  }
+  for (const flag of ['appendDiagnosticsV7', 'flowAcquireDiagnosticsV8']) {
+    for (const value of [true, false, null]) {
+      await write(join(root, 'storage-template.json'), { ...template, tlsCloseDiagnosticsV9: true, [flag]: value });
+      await assert.rejects(configuration(root, 6), /configuration/u);
+    }
+  }
+  await write(join(root, 'storage-template.json'), { ...template, tlsCloseDiagnosticsV9: true });
+  assert.deepEqual(await configuration(root, 6), { template: { ...template, tlsCloseDiagnosticsV9: true }, service });
+  for (const profile of [4, 5]) await assert.rejects(configuration(root, profile), /configuration/u);
+  for (const profile of [1, 2, 3, 4, 5]) {
+    const flags = profile === 4 ? { appendDiagnosticsV7: true } : profile === 5 ? { flowAcquireDiagnosticsV8: true } : {};
+    for (const value of [true, false, null, 1, 'true']) {
+      await write(join(root, 'storage-template.json'), { ...template, ...flags, tlsCloseDiagnosticsV9: value });
+      await assert.rejects(configuration(root, profile), /configuration/u);
+    }
+  }
   await write(join(root, 'storage-template.json'), template);
   await write(join(root, 'service.json'), { ...service, port: 0, allowedOrigins: [] });
   await configuration(root);

@@ -78,7 +78,7 @@ private_cloud_upload_phase upload
             'private_cloud_upload_phase exercise', 'private_storage_fragments_usage cloud_upload_restored_usage',
             'private_cloud_upload_phase finish', 'private_storage_fragments_usage cloud_upload_deleted_usage',
             'CLOUD_UPLOAD_PROVIDER_CLEANUP_INCOMPLETE', 'private_cloud_upload_cleanup ||',
-            'evidence-v7 "$WORK" "$WORK/cloud-upload-evidence.json"']
+            'evidence-v8 "$WORK" "$WORK/cloud-upload-evidence.json"']
         offsets = [SOURCE.index(token) for token in tokens]
         self.assertEqual(offsets, sorted(offsets))
         self.assertIn('runtime-client/control/agent.sock', SOURCE)
@@ -101,18 +101,18 @@ private_cloud_upload_private upload /inert/u/a
         self.assertEqual(result.stdout, '123|policy|digest|--signal=TERM --kill-after=30s 2400s setpriv '
             '--reuid=2001 --regid=2001 --groups=2002 --inh-caps=-all --ambient-caps=-all '
             '--bounding-set=-all --no-new-privs -- python3 -B /inert/bin/cloud-upload-maintenance-smoke.py '
-            'upload /inert/u/a --profile-version 5 --network-version 2\n')
+            'upload /inert/u/a --profile-version 6 --network-version 2\n')
         self.assertNotIn('STORAGE_PROOF_ROUTE_SCOPE', SOURCE)
-        self.assertIn("jq -e '.schema_version == 9'", SOURCE)
-        self.assertIn('finalize-report-v7', SOURCE)
-        self.assertIn('check-report-v7', SOURCE)
+        self.assertIn("jq -e '.schema_version == 10'", SOURCE)
+        self.assertIn('finalize-report-v8', SOURCE)
+        self.assertIn('check-report-v8', SOURCE)
         for old_selector in ('--profile-version 3', '--profile-version 4',
                 'evidence-v5', 'finalize-report-v5', 'check-report-v5', 'export-names-v5',
                 'evidence-v6', 'finalize-report-v6', 'check-report-v6', 'export-names-v6'):
             self.assertNotIn(old_selector, SOURCE)
 
     def test_current_prior_profile_gate_rejects_legacy_before_any_owner_or_service_action(self):
-        for version in (1, 2, 3, 4, 5, 6, 7, 8, True, 9, 10):
+        for version in (1, 2, 3, 4, 5, 6, 7, 8, True, 9, 10, 11):
             with tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 (root / 'storage-consumer-evidence.json').write_text(
@@ -131,7 +131,7 @@ private_cloud_upload_run
 '''
                 result = subprocess.run(['sh', '-eu', '-c', script, 'inert', str(SCRIPT), temporary],
                     capture_output=True, text=True, timeout=5)
-                expected = (73, 'REACHED_OWNER_BOUNDARY') if type(version) is int and version == 9 else (
+                expected = (73, 'REACHED_OWNER_BOUNDARY') if type(version) is int and version == 10 else (
                     1, 'CLOUD_UPLOAD_PRIOR_CONSUMER_PROFILE_INVALID')
                 self.assertEqual((result.returncode, result.stdout.strip()), expected, result.stderr)
                 self.assertFalse((root / 'u').exists())
@@ -226,13 +226,16 @@ private_cloud_upload_readback before
                 ('cloud-upload-evidence.json', 5, 1050000, True),
                 ('cloud-upload-evidence.json', 6, 1050000, True),
                 ('cloud-upload-evidence.json', 7, 1050000, True),
-                ('cloud-upload-evidence.json', 8, 1050000, False),
+                ('cloud-upload-evidence.json', 8, 1050000, True),
+                ('cloud-upload-evidence.json', 9, 1050000, False),
                 ('cloud-upload-evidence.json', 2, 1050000, False),
                 ('cloud-upload-evidence.json', 3, 2097153, False),
                 ('cloud-upload-evidence.json', 4, 2097153, False),
                 ('cloud-upload-evidence.json', 5, 2097153, False),
                 ('cloud-upload-evidence.json', 6, 2097153, False),
                 ('cloud-upload-evidence.json', 7, 2097153, False),
+                ('cloud-upload-evidence.json', 8, 2097153, False),
+                ('cloud-upload-prepare.json', 8, 1050000, False),
                 ('cloud-upload-prepare.json', 6, 1050000, False),
                 ('cloud-upload-prepare.json', 7, 1050000, False),
                 ('cloud-upload-prepare.json', 3, 1050000, False)):
@@ -246,7 +249,7 @@ WORK=$2; output_directory=$WORK/export; export_name=$3
 OUTPUT_UID=$4; OUTPUT_GID=$5; source_directory=/inert
 expected_commit=inert; RUN_ID=inert; PHASE=inert; CLEANUP_COMPLETE=true
 REMAINING_OWNED_OBJECTS=0; OBSERVED_BLOCKER=NONE
-python3() { if [ "$3" = export-names-v7 ]; then printf '%s\n' "$export_name"; fi; }
+python3() { if [ "$3" = export-names-v8 ]; then printf '%s\n' "$export_name"; fi; }
 private_cloud_upload_finalize_report 0
 '''
                 result = subprocess.run(['sh', '-eu', '-c', script, 'inert', str(SCRIPT), temporary,
@@ -310,6 +313,7 @@ private_cloud_upload_cleanup
             'cloud-upload-maintenance-pins-v3.json',
             'cloud-upload-maintenance-pins-v4.json',
             'cloud-upload-maintenance-pins-v5.json',
+            'cloud-upload-maintenance-pins-v6.json',
             'cloud-upload-maintenance-evidence.py', 'cloud-upload-maintenance-provision.py')
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

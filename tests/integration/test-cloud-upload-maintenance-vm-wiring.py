@@ -62,11 +62,11 @@ class Wiring(unittest.TestCase):
         # Stop before preview/execute dispatch: only original argument parsing runs.
         prefix = (HERE / 'kvm-alpha-topology.sh').read_text().split('if [ "$mode" = preview ]; then', 1)[0]
         for choices, expected in (
-                ((SCENARIO,), 'yes no yes 9'),
-                ((OLD_SCENARIO,), 'no yes yes 9'),
-                ((SCENARIO, OLD_SCENARIO), 'no yes yes 9'),
-                ((OLD_SCENARIO, SCENARIO), 'yes no yes 9'),
-                ((SCENARIO, OLD_SCENARIO, 'private-storage-peer'), 'no no no 9')):
+                ((SCENARIO,), 'yes no yes 10'),
+                ((OLD_SCENARIO,), 'no yes yes 10'),
+                ((SCENARIO, OLD_SCENARIO), 'no yes yes 10'),
+                ((OLD_SCENARIO, SCENARIO), 'yes no yes 10'),
+                ((SCENARIO, OLD_SCENARIO, 'private-storage-peer'), 'no no no 10')):
             arguments = [argument for choice in choices for argument in ('--scenario', choice)]
             result = subprocess.run(['sh', '-eu', '-c', prefix
                 + '\nprintf "%s %s %s %s\\n" "$cloud_upload_maintenance" "$storage_fixture_correlation"'
@@ -95,11 +95,11 @@ class Wiring(unittest.TestCase):
             calls = result.stdout.splitlines()
             self.assertEqual(len(calls), expected)
             self.assertEqual(calls[:2], [
-                'sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download --profile-version 9',
+                'sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download --profile-version 10',
                 'node --test tests/integration/test-storage-consumer-maintenance.mjs'])
             if scenario == SCENARIO:
                 self.assertEqual(calls[2:], [
-                    'sudo -n python3 -B tests/integration/cloud-upload-maintenance-provision.py provision --download --profile-version 5',
+                    'sudo -n python3 -B tests/integration/cloud-upload-maintenance-provision.py provision --download --profile-version 6',
                     'node --test tests/integration/test-cloud-upload-maintenance.mjs'])
         self.assertIn('private-storage-maintenance ] || [ "$scenario" = cloud-upload-maintenance ]; then\n    guest_phase storage-maintenance-targeted-tests', GUEST)
         self.assertIn('storage::peer::replicas::fragments::maintenance', GUEST)
@@ -125,8 +125,8 @@ class Wiring(unittest.TestCase):
         gate = WORKFLOW[start:WORKFLOW.index('\n      - name:', start + 1)]
         for required in ("if: always() && env.VOLPAROSSA_ALPHA_SCENARIO == 'cloud-upload-maintenance'",
                 'test "$TOPOLOGY_EXIT_CODE" = 0',
-                'cloud-upload-maintenance-evidence.py check-report-v7 "$report" "$GITHUB_SHA"',
-                'private-storage-maintenance-smoke.py report-consumer-v9 "$original" "$GITHUB_SHA"',
+                'cloud-upload-maintenance-evidence.py check-report-v8 "$report" "$GITHUB_SHA"',
+                'private-storage-maintenance-smoke.py report-consumer-v10 "$original" "$GITHUB_SHA"',
                 'host-state-before.json', 'host-state-after.json'):
             self.assertIn(required, gate)
         self.assertNotIn('check-report-v5', gate)
@@ -158,13 +158,13 @@ class Wiring(unittest.TestCase):
         start = GUEST.index('elif [ "$scenario" = cloud-upload-maintenance ]; then\n    {')
         block = GUEST[start:GUEST.index('\nelif ', start + 1)]
         self.assertIn('private-storage-maintenance-smoke.py export-names', block)
-        self.assertIn('cloud-upload-maintenance-evidence.py export-names-v7', block)
+        self.assertIn('cloud-upload-maintenance-evidence.py export-names-v8', block)
         self.assertIn('sort -u', block)
         self.assertIn('[ ! -L "$retained_path" ]', block)
         self.assertIn('retained_limit=1048576', block)
         self.assertIn('[ "$retained" = cloud-upload-evidence.json ]', block)
         self.assertIn('[ "$retained_size" -le 2097152 ]', block)
-        self.assertIn('(.schema_version == 3 or .schema_version == 4 or .schema_version == 5 or .schema_version == 6 or .schema_version == 7) and .kind == "cloud-upload-maintenance-evidence"', block)
+        self.assertIn('(.schema_version == 3 or .schema_version == 4 or .schema_version == 5 or .schema_version == 6 or .schema_version == 7 or .schema_version == 8) and .kind == "cloud-upload-maintenance-evidence"', block)
         self.assertNotIn(' -czf /home/vpci/alpha-output.tar.gz .', block)
 
     def test_all_original_named_bytes_survive_duplicate_published_work_roots(self):
@@ -272,7 +272,7 @@ class Wiring(unittest.TestCase):
                     script = '''python3() {
   case "$*" in
     '-B tests/integration/private-storage-maintenance-smoke.py export-names') printf '%s\\n' "$export_name" private-storage-maintenance-smoke.json ;;
-    '-B tests/integration/cloud-upload-maintenance-evidence.py export-names-v7') : ;;
+    '-B tests/integration/cloud-upload-maintenance-evidence.py export-names-v8') : ;;
     '-I -B tests/integration/storage-fixture-correlation-sampler.py validate-stdin'|'-I -B tests/integration/storage-acquire-diagnostic.py validate-stdin') command python3 "$@" ;;
     *) return 99 ;;
   esac
@@ -299,7 +299,11 @@ primary_status=73
                 ('cloud-upload-evidence.json', 5, 'cloud-upload-maintenance-evidence', 1050000, True),
                 ('cloud-upload-evidence.json', 6, 'cloud-upload-maintenance-evidence', 1050000, True),
                 ('cloud-upload-evidence.json', 7, 'cloud-upload-maintenance-evidence', 1050000, True),
-                ('cloud-upload-evidence.json', 8, 'cloud-upload-maintenance-evidence', 1050000, False),
+                ('cloud-upload-evidence.json', 8, 'cloud-upload-maintenance-evidence', 1050000, True),
+                ('cloud-upload-evidence.json', 9, 'cloud-upload-maintenance-evidence', 1050000, False),
+                ('cloud-upload-evidence.json', 8, 'wrong', 1050000, False),
+                ('cloud-upload-prepare.json', 8, 'cloud-upload-maintenance-evidence', 1050000, False),
+                ('cloud-upload-evidence.json', 8, 'cloud-upload-maintenance-evidence', 2097153, False),
                 ('cloud-upload-evidence.json', 2, 'cloud-upload-maintenance-evidence', 1050000, False),
                 ('cloud-upload-evidence.json', 3, 'wrong', 1050000, False),
                 ('cloud-upload-evidence.json', 4, 'wrong', 1050000, False),
@@ -328,13 +332,17 @@ primary_status=73
                     self.assertLessEqual(summary['diagnostics']['captured_bytes'], 8388608)
                     self.assertFalse(summary['success'])
 
-    def test_normal_guest_export_preserves_v6_v7_bytes_and_rejects_wrong_large_records(self):
+    def test_normal_guest_export_preserves_v6_v7_v8_bytes_and_rejects_wrong_large_records(self):
         start = GUEST.index('elif [ "$scenario" = cloud-upload-maintenance ]; then\n    {')
         block = GUEST[start:GUEST.index('\nelif ', start + 1)].split('\n', 1)[1]
         for name, version, kind, size, included in (
                 ('cloud-upload-evidence.json', 6, 'cloud-upload-maintenance-evidence', 1050000, True),
                 ('cloud-upload-evidence.json', 7, 'cloud-upload-maintenance-evidence', 1050000, True),
-                ('cloud-upload-evidence.json', 8, 'cloud-upload-maintenance-evidence', 1050000, False),
+                ('cloud-upload-evidence.json', 8, 'cloud-upload-maintenance-evidence', 1050000, True),
+                ('cloud-upload-evidence.json', 9, 'cloud-upload-maintenance-evidence', 1050000, False),
+                ('cloud-upload-evidence.json', 8, 'wrong', 1050000, False),
+                ('cloud-upload-prepare.json', 8, 'cloud-upload-maintenance-evidence', 1050000, False),
+                ('cloud-upload-evidence.json', 8, 'cloud-upload-maintenance-evidence', 2097153, False),
                 ('cloud-upload-evidence.json', 6, 'wrong', 1050000, False),
                 ('cloud-upload-evidence.json', 7, 'wrong', 1050000, False),
                 ('cloud-upload-prepare.json', 6, 'cloud-upload-maintenance-evidence', 1050000, False),
@@ -351,7 +359,7 @@ primary_status=73
                 # allowlisted names replaced; no VM, privileged path or network.
                 script = '''python3() {
   case "$2:$3" in
-    tests/integration/cloud-upload-maintenance-evidence.py:export-names-v7) printf '%s\\n' "$export_name" ;;
+    tests/integration/cloud-upload-maintenance-evidence.py:export-names-v8) printf '%s\\n' "$export_name" ;;
     tests/integration/private-storage-maintenance-smoke.py:export-names) : ;;
     *) return 99 ;;
   esac

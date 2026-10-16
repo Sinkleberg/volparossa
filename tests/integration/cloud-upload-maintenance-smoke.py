@@ -225,7 +225,7 @@ def tools():
 
 def node_phase(root, phase, provision, deadline):
     arguments = [NODE, HERE / 'cloud-upload-maintenance.mjs', phase, root]
-    if PROFILE_VERSION in (2, 3, 4, 5):
+    if PROFILE_VERSION in (2, 3, 4, 5, 6):
         arguments += ['--profile-version', str(PROFILE_VERSION)]
     status, output, _ = run_child(arguments, deadline)
     value = json.loads(output)
@@ -277,6 +277,8 @@ def prepare(root, binary, client, providers, provider_keys, provision, deadline)
         storage['appendDiagnosticsV7'] = True
     elif PROFILE_VERSION == 5:
         storage['flowAcquireDiagnosticsV8'] = True
+    elif PROFILE_VERSION == 6:
+        storage['tlsCloseDiagnosticsV9'] = True
     expires = int(time.time()) + 6000
     policy = dict(version=2, expiresAt=expires, maxSessions=1, maxChargedBytes=3 * MAX_CIPHER,
         perArchiveMaxChargedBytes=3 * MAX_CIPHER, fromProviderKey=provider_keys[0], lifetimeSeconds=3600,
@@ -408,7 +410,7 @@ def main(arguments):
         require(arguments[-1] == '2', 'network_version')
         network_version, arguments = 2, arguments[:-2]
     if len(arguments) >= 2 and arguments[-2] == '--profile-version':
-        require(arguments[-1] in ('2', '3', '4', '5'), 'profile_version')
+        require(arguments[-1] in ('2', '3', '4', '5', '6'), 'profile_version')
         PROFILE_VERSION, arguments = int(arguments[-1]), arguments[:-2]
     if len(arguments) == 3 and arguments[0] == 'flow-minimum':
         OLD['guard']()

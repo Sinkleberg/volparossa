@@ -1911,7 +1911,7 @@ def collect(home, opt, revision, scenario, guest_status,
                     parsed = json.loads(data)
                     if scenario == "cloud-upload-maintenance" and original_size > 1048576:
                         if not (path.name == "cloud-upload-evidence.json" and isinstance(parsed, dict)
-                                and type(parsed.get("schema_version")) is int and parsed["schema_version"] in (3, 4, 5, 6, 7)
+                                and type(parsed.get("schema_version")) is int and parsed["schema_version"] in (3, 4, 5, 6, 7, 8)
                                 and parsed.get("kind") == "cloud-upload-maintenance-evidence"):
                             continue
                 except (ValueError, UnicodeError, RecursionError):
@@ -2287,11 +2287,11 @@ elif [ "$scenario" = image-snapshot ]; then
     sudo -n python3 -B tests/integration/image-snapshot-provision.py provision --download
 elif [ "$scenario" = private-storage-maintenance ] || [ "$scenario" = cloud-upload-maintenance ]; then
     guest_phase storage-consumer-runtime-provision
-    sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download --profile-version 9
+    sudo -n python3 -B tests/integration/storage-consumer-maintenance-provision.py provision --download --profile-version 10
     /opt/volparossa-node/bin/node --test tests/integration/test-storage-consumer-maintenance.mjs
     if [ "$scenario" = cloud-upload-maintenance ]; then
         guest_phase cloud-upload-maintenance-runtime-provision
-        sudo -n python3 -B tests/integration/cloud-upload-maintenance-provision.py provision --download --profile-version 5
+        sudo -n python3 -B tests/integration/cloud-upload-maintenance-provision.py provision --download --profile-version 6
         /opt/volparossa-node/bin/node --test tests/integration/test-cloud-upload-maintenance.mjs
     fi
 elif [ "$scenario" = cloud-private-upload ]; then
@@ -2521,7 +2521,7 @@ elif [ "$scenario" = signal-backup ] || [ "$scenario" = signal-backup-fragments 
 elif [ "$scenario" = cloud-upload-maintenance ]; then
     {
         python3 -B tests/integration/private-storage-maintenance-smoke.py export-names
-        python3 -B tests/integration/cloud-upload-maintenance-evidence.py export-names-v7
+        python3 -B tests/integration/cloud-upload-maintenance-evidence.py export-names-v8
         printf '%s\n' host-state-before.json host-state-after.json guest-exit-status current-phase
     } | sort -u | while IFS= read -r retained; do
         case $retained in */*|'') exit 1 ;; esac
@@ -2539,7 +2539,7 @@ elif [ "$scenario" = cloud-upload-maintenance ]; then
             retained_size=$(wc -c <"$retained_path") || exit 1
             if [ "$retained" = cloud-upload-evidence.json ] \
                 && [ "$retained_size" -le 2097152 ] \
-                && jq -e '(.schema_version == 3 or .schema_version == 4 or .schema_version == 5 or .schema_version == 6 or .schema_version == 7) and .kind == "cloud-upload-maintenance-evidence"' "$retained_path" >/dev/null; then
+                && jq -e '(.schema_version == 3 or .schema_version == 4 or .schema_version == 5 or .schema_version == 6 or .schema_version == 7 or .schema_version == 8) and .kind == "cloud-upload-maintenance-evidence"' "$retained_path" >/dev/null; then
                 retained_limit=2097152
             fi
             [ "$retained_size" -le "$retained_limit" ] || exit 1
