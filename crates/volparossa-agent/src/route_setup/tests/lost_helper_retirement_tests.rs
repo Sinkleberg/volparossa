@@ -31,7 +31,10 @@ async fn failed_flow(
     control
         .finish_flow_acquire_failure(state, true, original_failure(), |prior| {
             assert!(matches!(prior, ClientRouteControlState::Connecting));
-            assert!(control.state.try_lock().is_err(), "publication stays locked");
+            assert!(
+                control.state.try_lock().is_err(),
+                "publication stays locked"
+            );
             ClientRouteControlState::CleanupPending(ClientRouteRetirement::new(tokio::spawn(
                 cleanup,
             )))
@@ -113,7 +116,10 @@ async fn lost_helper_retirement_timeout_preserves_history_and_retained_owner() {
     let owner = pending_owner(&control).await;
     tokio::time::advance(MAXIMUM_CALL_DURATION).await;
     assert_eq!(request.await, original_failure());
-    assert!(Arc::ptr_eq(&pending_owner(&control).await.owner, &owner.owner));
+    assert!(Arc::ptr_eq(
+        &pending_owner(&control).await.owner,
+        &owner.owner
+    ));
     assert!(owner.owner.lock().await.completed.is_none());
     complete.send(()).expect("timeout did not cancel cleanup");
     control
@@ -153,9 +159,18 @@ async fn lost_helper_retirement_caller_cancel_keeps_cleanup_and_blocks_admission
         .await
         .expect("status is not held behind cleanup")
         .expect("no live MPQUIC route");
-    assert!(Arc::ptr_eq(&pending_owner(&control).await.owner, &owner.owner));
-    assert_eq!(shared.events(), before, "cancel did not drop the route owner");
-    complete.send(()).expect("caller cancellation retained cleanup");
+    assert!(Arc::ptr_eq(
+        &pending_owner(&control).await.owner,
+        &owner.owner
+    ));
+    assert_eq!(
+        shared.events(),
+        before,
+        "cancel did not drop the route owner"
+    );
+    complete
+        .send(())
+        .expect("caller cancellation retained cleanup");
     control
         .confirm_retirement(&owner, TEST_TIMEOUT)
         .await
@@ -198,7 +213,10 @@ async fn lost_helper_retirement_quarantine_recovers_only_the_exact_route() {
     assert_connect_is_busy(&control).await;
     tokio::time::advance(MAXIMUM_CALL_DURATION).await;
     assert_eq!(request.await, original_failure());
-    assert!(Arc::ptr_eq(&pending_owner(&control).await.owner, &owner.owner));
+    assert!(Arc::ptr_eq(
+        &pending_owner(&control).await.owner,
+        &owner.owner
+    ));
     assert_eq!(other_shared.events(), other_before);
     shared.state.lock().expect("fake state").fail_destroy = false;
     control
@@ -222,7 +240,10 @@ async fn lost_helper_retirement_quarantine_recovers_only_the_exact_route() {
 async fn lost_helper_retirement_failed_task_is_sticky_without_replacing_flow_error() {
     let control = control_with_fixture_owner().await;
     assert_eq!(
-        failed_flow(&control, async { Err(ClientRouteDisconnectError::CleanupPending) }).await,
+        failed_flow(&control, async {
+            Err(ClientRouteDisconnectError::CleanupPending)
+        })
+        .await,
         original_failure()
     );
     let owner = pending_owner(&control).await;
@@ -231,7 +252,10 @@ async fn lost_helper_retirement_failed_task_is_sticky_without_replacing_flow_err
             control.confirm_retirement(&owner, TEST_TIMEOUT).await,
             Err(ClientRouteDisconnectError::CleanupPending)
         );
-        assert!(Arc::ptr_eq(&pending_owner(&control).await.owner, &owner.owner));
+        assert!(Arc::ptr_eq(
+            &pending_owner(&control).await.owner,
+            &owner.owner
+        ));
     }
     assert_connect_is_busy(&control).await;
 }
@@ -262,8 +286,13 @@ async fn lost_helper_retirement_delayed_completion_cannot_clear_another_owner() 
         .confirm_retirement(&old_owner, TEST_TIMEOUT)
         .await
         .expect("completed owner is idempotent");
-    assert!(Arc::ptr_eq(&pending_owner(&control).await.owner, &new_owner.owner));
-    new_complete.send(()).expect("new cleanup remains independent");
+    assert!(Arc::ptr_eq(
+        &pending_owner(&control).await.owner,
+        &new_owner.owner
+    ));
+    new_complete
+        .send(())
+        .expect("new cleanup remains independent");
     control
         .confirm_retirement(&new_owner, TEST_TIMEOUT)
         .await

@@ -42,9 +42,19 @@ callsite. Independent source review and local workflow syntax/diff checks pass;
 Rust has not been executed locally. The dedicated hosted source gate compiles
 and tests the affected agent, runs six existing disconnect/expiry/classification
 contracts alongside those seven new cases, and checks strict lint, formatting
-and exact source bindings. Hosted verification remains pending; no runtime
-acceptance is claimed yet. The near-expiry route-selection hypothesis remains
-unresolved.
+and exact source bindings. Original hosted run
+[`38858477859`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38858477859)
+on exact `392ace51bd589258a708f483532c9872b5378550` passes compilation,
+all 13 unique Rust cases, strict Clippy and source preservation, with no failed
+or ignored tests. Four source blobs and twelve unchanged dependencies match.
+The run remains failed solely because seven layouts in the new test file do not
+match the formatter. The correction applies those exact layouts only; production
+bytes and test behavior are unchanged. Its hosted verification remains pending.
+Original artifact and log ZIP SHA-256 values are
+`b927a7621d4dbba497d1dbed28780f73b651b780ee73b908f8b7c04d2a22921a`
+and `078d19281d6002efeb515a7f6de36c9f6a9a025b7cbb29b30060a05c7c4e3517`.
+These are targeted controller contracts, not a full distributed datapath trial.
+The near-expiry route-selection hypothesis remains unresolved.
 Complete Image/Cloud publication, maintenance and remote cleanup must still pass
 the actual consumer trial after the source correction is verified.
 
