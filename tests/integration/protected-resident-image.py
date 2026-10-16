@@ -40,6 +40,7 @@ MAX_IMAGE = 4 * 1024 ** 3
 MAX_ROOT = 16 * 1024 ** 3
 MAX_TREE = 4 * 1024 ** 3
 MAX_LOG = 1024 ** 2
+MAX_APPLIANCE_KERNEL = 64 * 1024 ** 2
 BOOT_SECONDS = 180
 BUILD_SECONDS = 1200
 CMDLINE = 'console=ttyS0 panic=-1 oops=panic quiet rdinit=/init vp.profile=public-boot-v1'
@@ -50,6 +51,7 @@ ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C', 'LC_ALL': 'C',
        'LIBGUESTFS_MEMSIZE': '2048', 'PYTHONDONTWRITEBYTECODE': '1'}
 DEADLINE = contextvars.ContextVar('protected_public_boot_deadline', default=None)
 SCRATCH = contextvars.ContextVar('protected_public_boot_scratch', default=None)
+APPLIANCE = contextvars.ContextVar('protected_public_boot_appliance', default=None)
 CANCELLED = contextvars.ContextVar('protected_public_boot_cancelled', default=False)
 GUESTFISH_OPERATIONS = frozenset(('inspect_roots', 'inspect_details', 'extract_boot_files',
     'readlink_bin', 'readlink_sbin', 'readlink_lib', 'readlink_lib64', 'stage_root'))
@@ -288,6 +290,202 @@ def appliance_preflight():
     return result
 
 
+def host_identity(path, *, directory=False, maximum=MAX_APPLIANCE_KERNEL):
+    """Bind a fixed host input; never grant access or follow its final symlink."""
+    require(path.is_absolute() and path.resolve(strict=True) == path, 'appliance_host_path')
+    for parent in path.parents:
+        info = parent.lstat()
+        require(stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022,
+                'appliance_host_parent')
+    info = path.lstat()
+    shape = stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
+    require(shape and info.st_uid == 0 and not info.st_mode & 0o022, 'appliance_host_metadata')
+    require(directory or 0 < info.st_size <= maximum, 'appliance_kernel_bound')
+    return [info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid,
+            info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns]
+
+
+def appliance_inputs(release):
+    require(type(release) is str and re.fullmatch(r'[0-9][A-Za-z0-9._+-]{0,127}', release),
+            'appliance_kernel_release')
+    kernel = Path('/boot') / ('vmlinuz-' + release)
+    base = Path('/lib/modules').resolve(strict=True)
+    require(base in (Path('/lib/modules'), Path('/usr/lib/modules')), 'appliance_host_path')
+    modules = base / release
+    return kernel, modules
+
+
+def appliance_stage_path():
+    require(os.environ.get('GITHUB_ACTIONS') == 'true'
+            and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted'
+            and os.environ.get('RUNNER_OS') == 'Linux' and os.geteuid() != 0, 'hosted_only')
+    run = os.environ.get('GITHUB_RUN_ID', '')
+    require(re.fullmatch('[0-9]{1,20}', run) is not None, 'appliance_stage_path')
+    temporary = os.environ.get('RUNNER_TEMP', '')
+    require(bool(temporary) and Path(temporary).is_absolute(), 'appliance_stage_path')
+    parent = Path(temporary).resolve(strict=True)
+    return parent / ('protected-resident-appliance-' + run)
+
+
+def private_stage_file(path, *, directory=False):
+    info = path.lstat()
+    require((stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))
+            and info.st_uid == os.geteuid()
+            and stat.S_IMODE(info.st_mode) in ((0o700,) if directory else (0o600, 0o400))
+            and (directory or info.st_nlink == 1), 'appliance_stage_metadata')
+    return info
+
+
+def read_stage(path):
+    checkpoint()
+    before = private_stage_file(path)
+    require(stat.S_IMODE(before.st_mode) == 0o600 and 0 < before.st_size <= 16384, 'appliance_stage_bound')
+    identity = lambda info: (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_nlink,
+                             info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    with os.fdopen(descriptor, 'rb') as source:
+        require(identity(os.fstat(source.fileno())) == identity(before), 'appliance_stage_binding')
+        raw = source.read(16385)
+        require(identity(os.fstat(source.fileno())) == identity(before), 'appliance_stage_binding')
+    require(identity(path.lstat()) == identity(before), 'appliance_stage_binding')
+    require(len(raw) == before.st_size and len(raw) <= 16384, 'appliance_stage_bound')
+    checkpoint()
+    return exact_json(raw)
+
+
+def prepare_appliance(args):
+    """Prepare only private metadata; the workflow owns the bounded root read."""
+    require(args.yes, 'explicit_hosted_execution')
+    stage = appliance_stage_path()
+    started = time.monotonic_ns()
+    token = DEADLINE.set(started / 1e9 + BUILD_SECONDS)
+    try:
+        source_binding(args.expected_source)
+        release = os.uname().release
+        kernel, modules = appliance_inputs(release)
+        source = host_identity(kernel)
+        require(source[6] >= 10000, 'appliance_kernel_bound')
+        module_identity = host_identity(modules, directory=True)
+        index_identity = host_identity(modules / 'modules.dep', maximum=16 * 1024 ** 2)
+        index = digest(modules / 'modules.dep', maximum=16 * 1024 ** 2)
+        stage.mkdir(mode=0o700)
+        record(stage / 'prepared.json', dict(version=1, source=args.expected_source, release=release,
+            started_monotonic_ns=started, source_identity=source, modules_identity=module_identity,
+            index_identity=index_identity, modules_index=index))
+        (stage / 'prepared.json').chmod(0o600)
+        return release
+    finally:
+        DEADLINE.reset(token)
+
+
+def validate_appliance(stage, expected, *, ready):
+    private_stage_file(stage, directory=True)
+    prepared = read_stage(stage / 'prepared.json')
+    require(type(prepared) is dict and set(prepared) == {'version', 'source', 'release',
+            'started_monotonic_ns', 'source_identity', 'modules_identity', 'index_identity', 'modules_index'}
+            and type(prepared['version']) is int and prepared['version'] == 1
+            and prepared['source'] == expected, 'appliance_stage_binding')
+    for name in ('source_identity', 'modules_identity', 'index_identity'):
+        value = prepared[name]
+        require(type(value) is list and len(value) == 9
+                and all(type(part) is int and part >= 0 for part in value), 'appliance_stage_binding')
+    started = prepared['started_monotonic_ns']
+    require(type(started) is int and 0 < started <= time.monotonic_ns()
+            and time.monotonic_ns() - started < BUILD_SECONDS * 10 ** 9, 'build_deadline')
+    deadline = started / 1e9 + BUILD_SECONDS
+    token = DEADLINE.set(min(DEADLINE.get() or deadline, deadline))
+    try:
+        kernel, modules = appliance_inputs(prepared['release'])
+        index = digest(modules / 'modules.dep', maximum=16 * 1024 ** 2)
+        require(host_identity(kernel) == prepared['source_identity']
+                and host_identity(modules, directory=True) == prepared['modules_identity']
+                and host_identity(modules / 'modules.dep', maximum=16 * 1024 ** 2) == prepared['index_identity']
+                and index == prepared['modules_index'], 'appliance_source_changed')
+        copied = stage / 'kernel'
+        mode = private_stage_file(copied).st_mode
+        require(stat.S_IMODE(mode) == (0o400 if ready else 0o600), 'appliance_stage_metadata')
+        value = digest(copied, maximum=MAX_APPLIANCE_KERNEL)
+        require(value['bytes'] == prepared['source_identity'][6], 'appliance_kernel_bound')
+        # Validate the x86 bzImage release rather than trusting a renamed copy.
+        # Same bounded HdrS/version fields used by supermin v5.2.2.
+        descriptor = os.open(copied, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        with os.fdopen(descriptor, 'rb') as source:
+            header = source.read(66200)
+        require(header[514:518] == b'HdrS' and int.from_bytes(header[518:520], 'little') >= 0x1ff,
+                'appliance_kernel_release')
+        offset = int.from_bytes(header[526:528], 'little') + 0x200
+        version = re.split(b'[\x00 \t\n]', header[offset:offset + 132], maxsplit=1)
+        require(len(version) == 2 and version[0] == prepared['release'].encode('ascii'),
+                'appliance_kernel_release')
+        require(host_identity(kernel) == prepared['source_identity'], 'appliance_source_changed')
+        receipt = dict(version=1, selection='explicit_host_kernel', kernel_release=prepared['release'],
+            kernel=value, modules_index=index, source_identity_unchanged=True,
+            host_permissions_changed=False, pre_pinned_host_kernel=False, appliance_boot_verified=False)
+        if ready:
+            require(read_stage(stage / 'ready.json') == receipt, 'appliance_stage_binding')
+        checkpoint()
+        return prepared, receipt
+    finally:
+        DEADLINE.reset(token)
+
+
+def finish_appliance(args):
+    require(args.yes, 'explicit_hosted_execution')
+    stage = appliance_stage_path()
+    prepared, receipt = validate_appliance(stage, args.expected_source, ready=False)
+    token = DEADLINE.set(prepared['started_monotonic_ns'] / 1e9 + BUILD_SECONDS)
+    try:
+        source_binding(args.expected_source)
+        (stage / 'kernel').chmod(0o400)
+        record(stage / 'ready.json', receipt)
+        (stage / 'ready.json').chmod(0o600)
+    finally:
+        DEADLINE.reset(token)
+
+
+def adopt_appliance(output, expected):
+    stage = appliance_stage_path()
+    prepared, receipt = validate_appliance(stage, expected, ready=True)
+    deadline = prepared['started_monotonic_ns'] / 1e9 + BUILD_SECONDS
+    token = DEADLINE.set(min(DEADLINE.get() or deadline, deadline))
+    try:
+        checkpoint()
+        require({path.name for path in stage.iterdir()} == {'kernel', 'prepared.json', 'ready.json'},
+                'appliance_stage_binding')
+        target = output / 'appliance'
+        stage.rename(target)
+        checkpoint()
+        return dict(stage=target, source=expected, deadline=deadline, receipt=receipt)
+    finally:
+        DEADLINE.reset(token)
+
+
+def appliance_environment():
+    value = APPLIANCE.get()
+    require(value is not None, 'appliance_stage_binding')
+    prepared, _receipt = validate_appliance(value['stage'], value['source'], ready=True)
+    _kernel, modules = appliance_inputs(prepared['release'])
+    return dict(SUPERMIN_KERNEL=str(value['stage'] / 'kernel'), SUPERMIN_MODULES=str(modules),
+                SUPERMIN_KERNEL_VERSION=prepared['release'])
+
+
+def cleanup_appliance(args):
+    """Only the fixed, unadopted stage; no recursive or privileged deletion."""
+    require(args.yes, 'explicit_hosted_execution')
+    stage = appliance_stage_path()
+    if not stage.exists() and not stage.is_symlink():
+        return
+    private_stage_file(stage, directory=True)
+    files = list(stage.iterdir())
+    require({path.name for path in files} <= {'kernel', 'prepared.json', 'ready.json'},
+            'appliance_stage_binding')
+    for path in files:
+        private_stage_file(path)
+    for path in files:
+        path.unlink()
+    stage.rmdir()
+
+
 def group_absent(group, seconds=2):
     deadline = time.monotonic() + seconds
     while True:
@@ -315,6 +513,8 @@ def command(argv, *, timeout=120, maximum=MAX_LOG, stdout_path=None, operation=N
     deadline = time.monotonic() + timeout
     target = None
     environment = dict(ENV)
+    if str(argv[0]) == 'guestfish':
+        environment.update(appliance_environment())
     if SCRATCH.get() is not None:
         environment.update(LIBGUESTFS_CACHEDIR=str(SCRATCH.get()),
                            LIBGUESTFS_TMPDIR=str(SCRATCH.get()), TMPDIR=str(SCRATCH.get()))
@@ -684,7 +884,10 @@ def failure_reason(error):
         'one_boot_receipt', 'boot_receipt_shape', 'boot_scope', 'boot_outcome',
         'boot_proof', 'integrity_proof', 'boot_rejection', 'boot_inputs_changed',
         'initrd_receipt_binding', 'initrd_receipt_scope', 'initrd_receipt_closure',
-        'initrd_receipt_file', 'initrd_receipt_bound'}
+        'initrd_receipt_file', 'initrd_receipt_bound', 'appliance_host_path', 'appliance_host_parent',
+        'appliance_host_metadata', 'appliance_kernel_bound', 'appliance_kernel_release',
+        'appliance_stage_path', 'appliance_stage_metadata', 'appliance_stage_bound',
+        'appliance_stage_binding', 'appliance_source_changed'}
     if isinstance(error, (ValueError, CleanupUnconfirmed)) and error.args:
         reason = error.args[0]
         if type(reason) is str and reason in allowed:
@@ -703,8 +906,9 @@ def execute(args):
     output.mkdir(mode=0o700)
     deadline, cleanup_safe, completed = time.monotonic() + BUILD_SECONDS, True, False
     stage, failure, cleanup_error, primary = 'source', None, None, None
-    preflight = None
+    preflight, appliance = None, None
     budget_token = DEADLINE.set(deadline)
+    appliance_token = APPLIANCE.set(None)
     scratch = output / 'temporary'
     scratch.mkdir(mode=0o700)
     scratch_token = SCRATCH.set(scratch)
@@ -716,6 +920,12 @@ def execute(args):
         # killed and joined by command() before outer scratch removal.
         signal.signal(number, lambda _number, _frame: CANCELLED.set(True))
     try:
+        stage = 'appliance_stage'
+        appliance = adopt_appliance(output, args.expected_source)
+        deadline = appliance['deadline']
+        DEADLINE.set(deadline)
+        APPLIANCE.set(appliance)
+        stage = 'source'
         source = source_binding(args.expected_source)
         stage = 'host_tools'
         tools = tool_inventory()
@@ -743,6 +953,7 @@ def execute(args):
         descriptor = dict(version=1, kind='protected-resident-public-boot-build',
             source=source, kernel_release=pins['kernel_release'], verity=pins['verity'],
             root_hash=root_hash, data_blocks=blocks, cmdline=CMDLINE, host_tools=tools,
+            appliance_kernel=appliance['receipt'],
             inputs={'image_sha512': pins['debian_image_sha512'], 'packages': pins['packages'],
                     'pins': digest(PINS), 'bootstrap': digest(BOOTSTRAP), 'entrypoint': digest(ENTRYPOINT)},
             files={name: digest(output / name) for name in ('vmlinuz', 'initrd.img', 'root.raw', 'verity.raw')},
@@ -757,6 +968,7 @@ def execute(args):
         require(all(digest(output / name) == expected for name, expected in descriptor['files'].items()),
                 'boot_inputs_changed')
         require(source_binding(args.expected_source) == source, 'source_changed')
+        appliance_environment()
         completed = True
         stage = 'complete'
     except BaseException as error:
@@ -767,6 +979,7 @@ def execute(args):
         raise
     finally:
         DEADLINE.reset(budget_token)
+        APPLIANCE.reset(appliance_token)
         SCRATCH.reset(scratch_token)
         try:
             if cleanup_safe:
@@ -780,6 +993,7 @@ def execute(args):
                     owned_scratch_removed=cleanup_safe and not output.exists(),
                     boot_pair_verified=completed, failure=failure, cleanup_error=cleanup_error,
                     appliance_preflight=preflight,
+                    appliance_kernel=appliance['receipt'] if appliance is not None else None,
                     hardware_attestation=False, private_inputs=False))
             except (OSError, ValueError):
                 if primary is None:
@@ -795,15 +1009,26 @@ def execute(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('execute',))
-    parser.add_argument('--work', required=True)
+    parser.add_argument('action', choices=('execute', 'prepare-appliance', 'finish-appliance', 'cleanup-appliance'))
+    parser.add_argument('--work')
     parser.add_argument('--expected-source', required=True)
     parser.add_argument('--yes', action='store_true')
     args = parser.parse_args()
     try:
-        execute(args)
-    except (OSError, ValueError, subprocess.SubprocessError, CleanupUnconfirmed):
-        print('protected_resident_image_failed', file=sys.stderr)
+        if args.action == 'execute':
+            require(args.work is not None, 'new_private_output')
+            execute(args)
+        elif args.action == 'prepare-appliance':
+            print(prepare_appliance(args))
+        elif args.action == 'finish-appliance':
+            finish_appliance(args)
+        else:
+            cleanup_appliance(args)
+    except (OSError, ValueError, subprocess.SubprocessError, CleanupUnconfirmed) as error:
+        # Preparation may fail before execute creates its evidence directory.
+        # Both labels are closed; never print paths, argv or raw error text.
+        print('protected_resident_image_failed action=' + args.action
+              + ' reason=' + failure_reason(error), file=sys.stderr)
         return 1
     return 0
 

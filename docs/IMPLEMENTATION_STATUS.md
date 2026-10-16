@@ -32,9 +32,10 @@ The immediate milestones build on the retained candidates and evidence below:
 The prepared integration candidate combines native core `a410b015` and Storage
 `728db40b`. Their production changes occupy separate paths; the shared Quality
 workflow and license notices retain both sides. Only this status ledger required
-conflict resolution. The combined source still needs its own verification before
-acceptance for main. Original actual trials keep their dispatched
-sources; this preparation does not replace either trial or change its pins.
+conflict resolution. Its Quality run `38819466450` passes on candidate `dcdf7cfb`,
+but the failing actual Storage consumer trial still prevents acceptance for main.
+Original actual trials keep their dispatched sources; this preparation does not
+replace either trial or change its pins.
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
@@ -196,8 +197,37 @@ kernel/module readability counts and KVM API access, not paths, kernel selection
 or successful guest creation. Exact upstream error lines produce a fixed label;
 unknown or ambiguous output stays explicit and raw output remains private.
 All input pins, deadlines, boot criteria and process cleanup remain unchanged.
-Thirteen new inert cases cover these observations and their privacy bounds;
-hosted verification of this candidate and actual boot acceptance remain open.
+Thirteen new inert cases cover these observations and their privacy bounds.
+Source run
+[`38846464802`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38846464802)
+on `3279be38602fa38ac20649c997e8359182864058` passes 76 unique contracts,
+syntax, ShellCheck and source checks. Original artifact and log ZIP SHA-256 values
+are `643dad46262c92dd5c1672b363431a05748248f8bafbbf585546e235c626f059`
+and `88f2bfcb69a1d65fcf1d019fcb355ffefe77c2720da3ac8151ffb06deaddcf4b`.
+
+Actual run
+[`38846723637`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38846723637)
+on the same source again fails at `inspect_roots` with exit `1` and an
+unclassified stderr result. Its preflight finds no readable kernel among two
+candidates: one is missing and one is denied; both module indexes are readable
+and KVM reports API 12. This establishes an availability problem for the build
+appliance, not the kernel selected by supermin or the exact cause of the exit.
+No image-build, initrd or boot-pair receipt is produced. Child joins, process-group
+absence, scratch removal, KVM ACL restoration/comparison and source checks pass.
+Original boot artifact and log ZIP SHA-256 values are
+`bc5c29ed881b6c1cb6f37122efb94e86aad914f5c1a8fbb75be4b9ca3bd116ea`
+and `feaf84655d61fd4c4a0aeaabb0e90d5effe7d048bec390ce3a7a71c5232b3e7d`.
+
+The correction gives only the hosted libguestfs appliance an explicitly selected,
+bounded copy of the runner's existing kernel and its matching modules. The fixed
+privileged operation only reads that kernel into a new, user-owned private file;
+Guestfish remains unprivileged and the final Debian guest keeps its pinned kernel.
+Source metadata, copied bytes, embedded release and matching module index are
+checked before adoption into the existing cleanup scope. No host kernel permissions
+change, no substitute kernel is installed, and the original 1,200-second budget
+starts before staging. All 96 inert contracts pass locally (76 runner/image and
+20 initrd/bootstrap), including 20 new staging and closed-error cases. Hosted source and actual
+boot verification remain pending; this is not protected resident-model execution.
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).

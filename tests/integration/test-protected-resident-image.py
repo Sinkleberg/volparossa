@@ -651,6 +651,8 @@ class ApplianceDiagnostics(unittest.TestCase):
             raise original
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.object(M, 'hosted_output', return_value=Path(directory)), \
+                mock.patch.object(M, 'adopt_appliance', side_effect=lambda *_: dict(
+                    deadline=M.DEADLINE.get(), receipt={'version': 1})), \
                 mock.patch.object(M, 'source_binding', return_value={'revision': 'a' * 40}), \
                 mock.patch.object(M, 'tool_inventory', return_value={}), \
                 mock.patch.object(M, 'appliance_preflight', side_effect=sample), \
@@ -675,6 +677,8 @@ class FailurePreservation(unittest.TestCase):
     def exercise(self, directory, cause):
         args = SimpleNamespace(yes=True, work=directory, expected_source='a' * 40)
         with mock.patch.object(M, 'hosted_output', return_value=Path(directory)), \
+                mock.patch.object(M, 'adopt_appliance', side_effect=lambda *_: dict(
+                    deadline=M.DEADLINE.get(), receipt={'version': 1})), \
                 mock.patch.object(M, 'source_binding', return_value={'revision': 'a' * 40}), \
                 mock.patch.object(M, 'tool_inventory', side_effect=cause):
             return M.execute(args)
@@ -780,6 +784,334 @@ class FailurePreservation(unittest.TestCase):
                             'stderr_class': 'appliance_launch_failed'}})
             self.assertEqual(value['cleanup_error'], 'scratch_removal_failed')
             self.assertFalse(value['owned_scratch_removed'])
+
+
+class ApplianceStaging(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.stage = self.root / 'stage'
+        self.kernel = self.root / 'host-kernel'
+        self.modules = self.root / 'modules'
+        self.modules.mkdir()
+        (self.modules / 'modules.dep').write_bytes(b'kernel/example.ko:\n')
+        self.release = '6.8.0-1018-azure'
+        self.payload = bytearray(11000)
+        self.payload[514:518] = b'HdrS'
+        self.payload[518:520] = (0x20f).to_bytes(2, 'little')
+        self.payload[526:528] = (0x100).to_bytes(2, 'little')
+        self.payload[768:768 + len(self.release)] = self.release.encode()
+        self.kernel.write_bytes(self.payload)
+        self.args = SimpleNamespace(yes=True, expected_source='a' * 40)
+        self.real_inputs, self.real_identity = M.appliance_inputs, M.host_identity
+        self.real_stage_path = M.appliance_stage_path
+        for patcher in (mock.patch.object(M, 'appliance_stage_path', return_value=self.stage),
+                        mock.patch.object(M.os, 'uname', return_value=SimpleNamespace(release=self.release)),
+                        mock.patch.object(M, 'appliance_inputs', return_value=(self.kernel, self.modules)),
+                        mock.patch.object(M, 'host_identity', side_effect=self.identity),
+                        mock.patch.object(M, 'source_binding', return_value={'revision': 'a' * 40})):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def identity(self, path, **_kwargs):
+        info = path.lstat()
+        return [info.st_dev, info.st_ino, info.st_mode, 0, 0, info.st_nlink,
+                info.st_size, info.st_mtime_ns, info.st_ctime_ns]
+
+    def copied(self):
+        M.prepare_appliance(self.args)
+        (self.stage / 'kernel').write_bytes(self.payload)
+        (self.stage / 'kernel').chmod(0o600)
+
+    def ready(self):
+        self.copied()
+        M.finish_appliance(self.args)
+
+    def rewrite(self, name, value):
+        (self.stage / name).write_text(json.dumps(value))
+
+    def test_prepare_records_original_budget_and_identity_without_privileged_execution(self):
+        with mock.patch.object(M, 'command', side_effect=AssertionError('no privileged reader here')):
+            self.assertEqual(M.prepare_appliance(self.args), self.release)
+        value = M.read_stage(self.stage / 'prepared.json')
+        self.assertEqual(value['source_identity'], self.identity(self.kernel))
+        self.assertEqual(value['modules_identity'], self.identity(self.modules))
+        self.assertLessEqual(value['started_monotonic_ns'], time.monotonic_ns())
+        self.assertEqual(self.stage.stat().st_mode & 0o777, 0o700)
+        self.assertFalse((self.stage / 'kernel').exists())
+        self.assertIsNone(M.DEADLINE.get())
+
+    def test_release_is_strict_and_fixed_paths_do_not_follow_external_module_alias(self):
+        for release in ('../secret', '/tmp/kernel', '', '-option', '6.8\n', '6.8/other', True, '6' * 129):
+            with self.subTest(release=release), self.assertRaisesRegex(ValueError, 'appliance_kernel_release'):
+                self.real_inputs(release)
+        with mock.patch.object(Path, 'resolve', return_value=Path('/usr/lib/modules')):
+            self.assertEqual(self.real_inputs(self.release),
+                (Path('/boot/vmlinuz-' + self.release), Path('/usr/lib/modules') / self.release))
+        with mock.patch.object(Path, 'resolve', return_value=Path('/tmp/PRIVATE_CANARY')), \
+                self.assertRaisesRegex(ValueError, 'appliance_host_path'):
+            self.real_inputs(self.release)
+
+    def test_root_owned_regular_and_parent_modes_are_mandatory(self):
+        def info(mode=M.stat.S_IFREG | 0o600, uid=0, size=11000):
+            return SimpleNamespace(st_mode=mode, st_uid=uid, st_gid=0, st_size=size,
+                st_dev=1, st_ino=2, st_nlink=1, st_mtime_ns=3, st_ctime_ns=4)
+        path = Path('/boot/vmlinuz-' + self.release)
+        for changed in (info(uid=1234), info(mode=M.stat.S_IFREG | 0o622),
+                        info(mode=M.stat.S_IFLNK | 0o777), info(mode=M.stat.S_IFIFO | 0o600),
+                        info(size=0), info(size=M.MAX_APPLIANCE_KERNEL + 1)):
+            def metadata(item):
+                return changed if item == path else info(mode=M.stat.S_IFDIR | 0o755)
+            with self.subTest(mode=changed.st_mode, uid=changed.st_uid, size=changed.st_size), \
+                    mock.patch.object(Path, 'resolve', return_value=path), \
+                    mock.patch.object(Path, 'lstat', metadata), self.assertRaises(ValueError):
+                self.real_identity(path)
+        with mock.patch.object(Path, 'resolve', return_value=path), \
+                mock.patch.object(Path, 'lstat', return_value=info(mode=M.stat.S_IFDIR | 0o777)), \
+                self.assertRaisesRegex(ValueError, 'appliance_host_parent'):
+            self.real_identity(path)
+
+    def test_missing_host_pair_stops_before_creating_stage_or_reading_kernel(self):
+        self.kernel.unlink()
+        with mock.patch.object(M, 'command') as run, self.assertRaises(FileNotFoundError):
+            M.prepare_appliance(self.args)
+        run.assert_not_called()
+        self.assertFalse(self.stage.exists())
+
+    def test_finish_binds_copy_and_preserves_final_debian_pins_and_host_permissions(self):
+        before = self.kernel.stat()
+        pins = M.PINS.read_bytes()
+        self.ready()
+        _prepared, value = M.validate_appliance(self.stage, 'a' * 40, ready=True)
+        self.assertEqual(value['kernel'], {'bytes': len(self.payload),
+            'sha256': hashlib.sha256(self.payload).hexdigest()})
+        self.assertEqual(value['kernel_release'], self.release)
+        for flag in ('host_permissions_changed', 'pre_pinned_host_kernel', 'appliance_boot_verified'):
+            self.assertIs(value[flag], False)
+        self.assertEqual(self.kernel.stat().st_mode, before.st_mode)
+        self.assertEqual(self.kernel.stat().st_ctime_ns, before.st_ctime_ns)
+        self.assertEqual((self.stage / 'kernel').stat().st_mode & 0o777, 0o400)
+        self.assertEqual(M.PINS.read_bytes(), pins)
+        self.assertNotIn(str(self.root), json.dumps(value))
+
+    def test_changed_source_and_modules_are_rejected_before_adoption(self):
+        self.copied()
+        prepared = M.read_stage(self.stage / 'prepared.json')
+        for path in (self.kernel, self.modules / 'modules.dep'):
+            old = path.read_bytes()
+            path.write_bytes(old + b'changed')
+            with self.subTest(path=path.name), self.assertRaisesRegex(ValueError, 'appliance_source_changed'):
+                M.finish_appliance(self.args)
+            path.write_bytes(old)
+            prepared['source_identity'] = self.identity(self.kernel)
+            self.rewrite('prepared.json', prepared)
+        self.assertFalse((self.stage / 'ready.json').exists())
+
+    def test_wrong_kernel_release_magic_and_length_are_not_overridden_by_environment(self):
+        self.copied()
+        for offset, byte in ((514, 0), (768, ord('9'))):
+            broken = bytearray(self.payload)
+            broken[offset] = byte
+            (self.stage / 'kernel').write_bytes(broken)
+            with self.subTest(offset=offset), self.assertRaisesRegex(ValueError, 'appliance_kernel_release'):
+                M.finish_appliance(self.args)
+        (self.stage / 'kernel').write_bytes(self.payload + b'x')
+        with self.assertRaisesRegex(ValueError, 'appliance_kernel_bound'):
+            M.finish_appliance(self.args)
+
+    def test_copy_cap_is_exact_and_does_not_allow_sparse_oversize(self):
+        self.copied()
+        with (self.stage / 'kernel').open('wb') as target:
+            target.truncate(M.MAX_APPLIANCE_KERNEL + 1)
+        with self.assertRaisesRegex(ValueError, 'input_file_shape'):
+            M.finish_appliance(self.args)
+
+    def test_prepared_unknown_fields_wrong_source_and_boolean_identity_fail_closed(self):
+        self.copied()
+        original = M.read_stage(self.stage / 'prepared.json')
+        for changed in ({**original, 'private': 'PRIVATE_CANARY'}, {**original, 'source': 'b' * 40},
+                        {**original, 'source_identity': [True] * 9}, {**original, 'version': True}):
+            self.rewrite('prepared.json', changed)
+            with self.subTest(keys=set(changed)), self.assertRaisesRegex(ValueError, 'appliance_stage_binding'):
+                M.finish_appliance(self.args)
+
+    def test_stage_files_require_private_regular_single_link_ownership(self):
+        self.copied()
+        path = self.stage / 'kernel'
+        path.chmod(0o644)
+        with self.assertRaisesRegex(ValueError, 'appliance_stage_metadata'):
+            M.finish_appliance(self.args)
+        path.chmod(0o600)
+        os.link(path, self.root / 'hardlink')
+        with self.assertRaisesRegex(ValueError, 'appliance_stage_metadata'):
+            M.finish_appliance(self.args)
+        path.unlink()
+        path.symlink_to(self.kernel)
+        with self.assertRaisesRegex(ValueError, 'appliance_stage_metadata'):
+            M.finish_appliance(self.args)
+
+    def test_private_metadata_bound_duplicate_fields_and_replacement_are_rejected(self):
+        self.copied()
+        path = self.stage / 'prepared.json'
+        for content, reason in ((b' ' * 16385, 'appliance_stage_bound'),
+                                (b'{"version":1,"version":1}', 'duplicate_json_key')):
+            path.write_bytes(content)
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                M.read_stage(path)
+        path.unlink()
+        path.symlink_to(self.kernel)
+        with self.assertRaisesRegex(ValueError, 'appliance_stage_metadata'):
+            M.read_stage(path)
+
+    def test_expired_or_future_stage_budget_is_not_restarted(self):
+        self.copied()
+        original = M.read_stage(self.stage / 'prepared.json')
+        for started in (time.monotonic_ns() - (M.BUILD_SECONDS + 1) * 10 ** 9,
+                        time.monotonic_ns() + 60 * 10 ** 9, True):
+            self.rewrite('prepared.json', {**original, 'started_monotonic_ns': started})
+            with mock.patch.object(M, 'digest') as hashed, self.assertRaisesRegex(ValueError, 'build_deadline'):
+                M.finish_appliance(self.args)
+            hashed.assert_not_called()
+        self.assertIsNone(M.DEADLINE.get())
+
+    def test_adopt_moves_stage_under_existing_cleanup_and_exports_only_three_fixed_variables(self):
+        self.ready()
+        prepared = M.read_stage(self.stage / 'prepared.json')
+        output = self.root / 'payload'
+        output.mkdir()
+        state = M.adopt_appliance(output, 'a' * 40)
+        self.assertFalse(self.stage.exists())
+        self.assertEqual(state['deadline'], prepared['started_monotonic_ns'] / 1e9 + 1200)
+        token = M.APPLIANCE.set(state)
+        try:
+            with mock.patch.dict(M.os.environ, {'SUPERMIN_KERNEL': '/PRIVATE_CANARY', 'SECRET': 'canary'}):
+                self.assertEqual(M.appliance_environment(), dict(
+                    SUPERMIN_KERNEL=str(output / 'appliance/kernel'), SUPERMIN_MODULES=str(self.modules),
+                    SUPERMIN_KERNEL_VERSION=self.release))
+        finally:
+            M.APPLIANCE.reset(token)
+
+    def test_only_guestfish_receives_validated_supermin_not_other_children(self):
+        expected = {'SUPERMIN_KERNEL': '/public/staged-kernel', 'SUPERMIN_MODULES': '/public/modules',
+                    'SUPERMIN_KERNEL_VERSION': self.release}
+        original_popen = M.subprocess.Popen
+        seen = []
+        def spawn(argv, **kwargs):
+            seen.append(kwargs['env'])
+            return original_popen([sys.executable, '-c', 'pass'], **kwargs)
+        with mock.patch.object(M, 'appliance_environment', return_value=expected) as bound, \
+                mock.patch.object(M.subprocess, 'Popen', side_effect=spawn), \
+                mock.patch.dict(M.os.environ, {'SUPERMIN_KERNEL': 'PRIVATE_CANARY'}):
+            M.command(['guestfish', 'public-fixture'])
+            M.command([sys.executable, '-c', 'pass'])
+        bound.assert_called_once_with()
+        self.assertEqual({key: seen[0][key] for key in expected}, expected)
+        self.assertTrue(set(expected).isdisjoint(seen[1]))
+        self.assertNotIn('PRIVATE_CANARY', json.dumps(seen))
+
+    def test_missing_binding_or_changed_staged_bytes_rejects_before_guestfish_spawn(self):
+        with mock.patch.object(M.subprocess, 'Popen') as spawned, \
+                self.assertRaisesRegex(ValueError, 'appliance_stage_binding'):
+            M.command(['guestfish'])
+        spawned.assert_not_called()
+        self.ready()
+        changed = bytearray(self.payload)
+        changed[-1] = 1
+        (self.stage / 'kernel').chmod(0o600)
+        (self.stage / 'kernel').write_bytes(changed)
+        (self.stage / 'kernel').chmod(0o400)
+        with self.assertRaisesRegex(ValueError, 'appliance_stage_binding'):
+            M.validate_appliance(self.stage, 'a' * 40, ready=True)
+
+    def test_cleanup_is_exact_nonrecursive_and_does_not_follow_unknown_entries(self):
+        self.ready()
+        (self.stage / 'unknown').write_bytes(b'PRIVATE_CANARY')
+        with self.assertRaisesRegex(ValueError, 'appliance_stage_binding'):
+            M.cleanup_appliance(self.args)
+        (self.stage / 'unknown').unlink()
+        M.cleanup_appliance(self.args)
+        self.assertFalse(self.stage.exists())
+        self.assertTrue(self.kernel.exists())
+        M.cleanup_appliance(self.args)
+
+    def test_execute_adopts_before_original_failure_and_cleans_stage_without_resetting_budget(self):
+        self.ready()
+        start = M.read_stage(self.stage / 'prepared.json')['started_monotonic_ns']
+        work = self.root / 'work'
+        work.mkdir()
+        original = ValueError('download_digest')
+        def fail(*_args):
+            self.assertEqual(M.DEADLINE.get(), start / 1e9 + M.BUILD_SECONDS)
+            self.assertFalse(self.stage.exists())
+            self.assertIsNotNone(M.APPLIANCE.get())
+            raise original
+        with mock.patch.object(M, 'hosted_output', return_value=work), \
+                mock.patch.object(M, 'tool_inventory', return_value={}), \
+                mock.patch.object(M, 'appliance_preflight', return_value={}), \
+                mock.patch.object(M, 'fetch', side_effect=fail), self.assertRaises(ValueError) as raised:
+            M.execute(SimpleNamespace(**vars(self.args), work=str(work)))
+        self.assertIs(raised.exception, original)
+        value = json.loads((work / 'evidence/cleanup.json').read_text())
+        self.assertTrue(value['owned_scratch_removed'])
+        self.assertEqual(value['appliance_kernel']['selection'], 'explicit_host_kernel')
+        self.assertFalse(value['appliance_kernel']['appliance_boot_verified'])
+        self.assertIsNone(M.DEADLINE.get())
+        self.assertIsNone(M.APPLIANCE.get())
+
+    def test_workflow_privilege_is_only_bounded_read_into_exclusive_user_output(self):
+        raw = (M.ROOT / '.github/workflows/protected-resident-image.yml').read_text()
+        self.assertIn('sudo -n /usr/bin/timeout --kill-after=2s 15s /usr/bin/dd', raw)
+        self.assertIn('iflag=nofollow,count_bytes', raw)
+        self.assertIn('count=67108865 bs=1048576 status=none', raw)
+        self.assertIn('set -o noclobber', raw)
+        self.assertIn('>"$appliance_stage/kernel" 2>/dev/null', raw)
+        self.assertNotIn('of=', raw)
+        self.assertNotIn('sudo -n guestfish', raw)
+        self.assertNotIn('chmod /boot', raw)
+        self.assertIn('cleanup-appliance', raw)
+        self.assertEqual(M.BUILD_SECONDS, 1200)
+
+    def test_cli_staging_failures_expose_only_closed_action_and_reason(self):
+        for action, function in (('prepare-appliance', 'prepare_appliance'),
+                                 ('finish-appliance', 'finish_appliance'),
+                                 ('cleanup-appliance', 'cleanup_appliance'), ('execute', 'execute')):
+            for error, reason in ((ValueError('appliance_stage_binding'), 'appliance_stage_binding'),
+                                  (ValueError('PRIVATE_CANARY'), 'unclassified'),
+                                  (OSError('PRIVATE_CANARY'), 'io_error'),
+                                  (M.subprocess.CalledProcessError(1, ['PRIVATE_CANARY']), 'unclassified')):
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with self.subTest(action=action, reason=reason), \
+                        mock.patch.object(sys, 'argv', ['image', action, '--expected-source', 'a' * 40,
+                                                       '--work', '/PRIVATE_CANARY', '--yes']), \
+                        mock.patch.object(sys, 'stdout', stdout), mock.patch.object(sys, 'stderr', stderr), \
+                        mock.patch.object(M, function, side_effect=error):
+                    self.assertEqual(M.main(), 1)
+                self.assertEqual(stdout.getvalue(), '')
+                self.assertEqual(stderr.getvalue(),
+                    'protected_resident_image_failed action=' + action + ' reason=' + reason + '\n')
+                self.assertNotIn('PRIVATE_CANARY', stderr.getvalue())
+
+    def test_stage_path_requires_hosted_nonroot_and_numeric_run_id(self):
+        environment = dict(GITHUB_ACTIONS='true', RUNNER_ENVIRONMENT='github-hosted',
+                           RUNNER_OS='Linux', GITHUB_RUN_ID='123', RUNNER_TEMP=str(self.root))
+        with mock.patch.dict(M.os.environ, environment, clear=True), \
+                mock.patch.object(M.os, 'geteuid', return_value=1234):
+            self.assertEqual(self.real_stage_path(), self.root / 'protected-resident-appliance-123')
+            for run in ('', '../private', '1\n', '1' * 21):
+                with mock.patch.dict(M.os.environ, {'GITHUB_RUN_ID': run}), \
+                        self.assertRaisesRegex(ValueError, 'appliance_stage_path'):
+                    self.real_stage_path()
+            for changed in ({'GITHUB_ACTIONS': 'false'}, {'RUNNER_ENVIRONMENT': 'self-hosted'}):
+                with mock.patch.dict(M.os.environ, changed), self.assertRaisesRegex(ValueError, 'hosted_only'):
+                    self.real_stage_path()
+            for temporary in ('', '.', 'relative/path'):
+                with mock.patch.dict(M.os.environ, {'RUNNER_TEMP': temporary}), \
+                        self.assertRaisesRegex(ValueError, 'appliance_stage_path'):
+                    self.real_stage_path()
+            with mock.patch.object(M.os, 'geteuid', return_value=0), \
+                    self.assertRaisesRegex(ValueError, 'hosted_only'):
+                self.real_stage_path()
 
 
 if __name__ == '__main__':
