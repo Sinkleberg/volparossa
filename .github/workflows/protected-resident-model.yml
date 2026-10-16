@@ -130,6 +130,13 @@ jobs:
           assert re.search(r'^OK$',output,re.M) and 'skipped=' not in output
           PY
 
+      - name: Guest builder and authenticated Debian lock contracts
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 -B tests/integration/test-protected-resident-model-build.py 2>&1 | tee resident-model-evidence/model-build.log
+          python3 -B tests/integration/test-resident-model-debian.py 2>&1 | tee resident-model-evidence/model-debian.log
+
       - name: Model initrd and preserved boot contracts
         if: always()
         run: |
@@ -140,7 +147,7 @@ jobs:
           python3 -B - <<'PY'
           import json,pathlib,re
           root=pathlib.Path('resident-model-evidence')
-          counts={'model-initrd':27,'boot-initrd':21,'workload':28}
+          counts={'model-initrd':27,'boot-initrd':21,'workload':28,'model-build':32,'model-debian':16}
           for name,count in counts.items():
             output=(root/(name+'.log')).read_text()
             assert re.search(r'^Ran '+str(count)+r' tests in ',output,re.M)

@@ -29,13 +29,14 @@ order or change count. Develop core functions with their actual consumers.
 
 The immediate milestones build on the retained candidates and evidence below:
 
-The prepared integration candidate combines native core `a410b015` and Storage
-`728db40b`. Their production changes occupy separate paths; the shared Quality
-workflow and license notices retain both sides. Only this status ledger required
-conflict resolution. Its Quality run `38819466450` passes on candidate `dcdf7cfb`,
-but the failing actual Storage consumer trial still prevents acceptance for main.
-Original actual trials keep their dispatched sources; this preparation does not
-replace either trial or change its pins.
+The earlier combined native/Storage candidate `dcdf7cfb` passes Quality
+`38819466450`, but its actual Storage consumer trial still fails. Native work now
+has a separate integration candidate in PR277, `f5e127c5`, without a Storage
+maintenance parent. It combines main with native `a410b015` and the exact adaptive
+prefill change from `7d0f9f0b`; its 61 worker files match that accepted Code-trial
+source. This separates the main integration gates without discarding Storage
+work. Hosted checks must validate the new composition. Original actual trials
+retain their dispatched sources, and Code retains its existing immutable pin.
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
@@ -69,8 +70,8 @@ adds explicit expired-frame checks. Its original source run
 passes compilation, all 93 unique Rust tests and 28 workload-staging tests, with
 no failures or skips. The formatter patch is empty, the final source check passes,
 and the 560 package identities and versions are unchanged. The run still fails
-strict lint on one import placed after statements; the current candidate moves
-that import to module scope. This is not a fully passing source gate yet.
+strict lint on one import placed after statements; `cac4e0e0` moves that import
+to module scope. The later unchanged-source acceptance is recorded below.
 The guest tests use real TLS and signatures with an inert worker; they are not
 evidence of inference or guest execution.
 The workload stager passes 28 inert tests. It verifies the caller-bound asset
@@ -108,10 +109,46 @@ Original source run
 on `cac4e0e0` compiles both crates and passes strict lint, all 100 unique Rust
 tests (22 grant, 18 guest/requester, 30 resident, 30 local) and all 76 Python
 staging contracts. It fails only the final source-equality assertion: the
-formatter changed the two new requester files. The current candidate applies
-that verified 29,343-byte formatter patch without changing behavior. Exact
-committed-source acceptance requires the following hosted run. None of these
-source checks proves actual model execution inside the sealed guest.
+formatter changed the two new requester files. Revision `a7d04050` applies that
+verified 29,343-byte formatter patch without changing behavior.
+
+Original run
+[`38869077020`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38869077020)
+passes on exact `a7d0405074744ce2ceca209fded0e7b1344b0883`: both crates compile,
+strict lint passes, all 100 unique Rust tests and all 76 Python staging contracts
+pass, with none failed or skipped. The formatter patch is empty and the final
+commit/tree checks pass. All 560 package identities, versions, origins and
+checksums remain unchanged. Original artifact and log ZIP SHA-256 values are
+`8b884a51a08e2d9cbcd608461bf27baf84bae718ebd29e0069b1ccb319530857`
+and `688bfb9195a8330e573a1e1087fbef9d222af2c20b22a4f623385d779c8b91db`.
+These source checks do not execute a model inside the sealed guest.
+
+The Debian model package lock records 198 build packages and a 65-package runtime
+selection from the signed Trixie, security and updates indexes. Three original
+InRelease signatures, the uncompressed index hashes and every selected package's
+version, architecture, download size and SHA-256 were independently verified.
+Resolution downloaded only public indexes into isolated workspace directories;
+it did not download or install packages. Runtime selection supplements the pinned
+Debian OS image; it is not a replacement for its base/Essential packages.
+The image controller must verify exact package bytes before guest installation
+and bind the complete resulting root. A version/status query alone does not
+establish installed payload integrity.
+
+The guest-only asset builder joins the exact core archive and the accepted Code
+validator to native compilation, pinned model provisioning and workload export.
+It retains the original phase deadlines and provisioning budget. The export
+contains only the approved runtime, model, native backend, core executable and
+public TLS/policy fixture; the requester's signing seed is not a guest input.
+Thirty-two inert builder tests pass, including export through the existing
+workload stager, an actual hardlinked executable fixture and interrupted cleanup
+observation. Sixteen lock/parser tests pass, including refusal of APT configuration
+hooks, includes and path overrides before any APT process starts.
+
+The builder does not claim complete descendant cleanup. Its controller must run
+it in a finite guest cgroup, confirm that cgroup is empty, stop and join the
+build VM, and reverify exported bytes before accepting them. The full controller,
+complete sealed model image and actual two-turn model trial remain unimplemented;
+these helper tests neither compile a model backend nor boot a VM.
 
 ### Latest shared-storage consumer trial
 
