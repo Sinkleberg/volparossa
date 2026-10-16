@@ -44,7 +44,7 @@ replace their results or change their pins.
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | The listener correction passes targeted run `38815471227`, including a real Linux MPTCP rejection/reuse test. Actual `38816407455` on `728db40b` instead fails at Image FINALIZE fragment 0/copy 1 while reading the provider challenge; Cloud publication is not reached. Its standalone core lifecycle and two restores pass, but consumer repair, restoration and remote retirement remain unproved. Trace the challenge stall without extending the operation deadline. Earlier `38804192575` retains its separate unresolved flow-acquisition failure. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Publish the accepted bounded coding lifecycle, then join native editor operation and protected remote execution. | Original actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task resources, input integrity and complete cleanup. Source check `38823962068` also passes. Publish Code PR11 with the exact immutable core pin; keep core PR232 draft while its separate Storage integration remains incomplete. General coding quality, competitive speed, native editor UI and protected-peer execution remain open. Earlier failed trials retain their outcomes. |
+| Native coding execution — `volparossa`, `volparossa-code` | Preserve the accepted coding lifecycle and join native editor operation and protected remote execution. | Original actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task resources, input integrity and complete cleanup. Code PR11 is merged at `12197b04`, preserving the exact immutable core pin. Its docs-only update passes source check `38830540692` and CodeQL. Core PR232 remains draft while its separate Storage integration is incomplete. General coding quality, competitive speed, native editor UI and protected-peer execution remain open. Earlier failed trials retain their outcomes. |
 | Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258's authenticated refusal path has actual route evidence; PR262 integrates explicit same-connection key confirmation. The next implementation reuses the native worker lifecycle and existing TLS stack, rather than extending the probe into task authority. Boot/runtime/model integrity, production roots and current vendor appraisal must be checked before private input; task authority needs its own finite grant. Those functions and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 Detailed earlier Android and storage checkpoints remain in the
@@ -92,9 +92,13 @@ checks and failed prerequisites remain in the
 
 ### Next integration boundary
 
-Both focused trials below have completed. Code can publish its accepted
-application slice without changing the exact public core dependency or
-cherry-picking a new, untested CLI composition. That dependency includes the
+Both focused trials below have completed. [Code PR11](https://github.com/VOLPAROSSA/volparossa-code/pull/11)
+is merged at `12197b040e215a9de334c6d68ad347304c1acda6`, without changing
+the exact public core dependency or cherry-picking a new, untested CLI composition.
+The merged tree equals docs-only candidate `32d7a084`; source checks pass
+533 cases with five explicit optional-fixture skips, and CodeQL finds no new
+alerts. Both fully integrated Code branches were removed automatically; the
+immutable core candidate remains publicly reachable. That dependency includes the
 native/Storage source join and prefill correction; core `main` is not an
 interchangeable pin, and the full Storage consumer milestone remains open.
 
