@@ -643,13 +643,20 @@ def reserve_space(work, upcoming, label):
 def qemu_build(work):
     # Match the accepted legacy-BIOS build fixture; display stays headless.
     # The immutable runtime guest still uses its separate direct-kernel profile.
+    # Do not mix implicit if=virtio devices with the explicit runtime disk:
+    # QEMU creates the implicit devices later, regardless of argv placement.
+    # Only the build overlay contains a bootable disk, not the exported ext4
+    # filesystem or cloud-init seed. Bind firmware boot to that overlay alone.
     return ['qemu-system-x86_64', '-name', 'volparossa-resident-build', '-no-user-config', '-nodefaults',
         '-machine', 'q35,accel=kvm', '-cpu', 'host', '-smp', '2', '-m', '12288',
         '-device', 'VGA,id=video0,bus=pcie.0,addr=0x1',
-        '-drive', 'if=virtio,format=qcow2,file=' + str(work / 'build.qcow2'),
-        '-drive', 'if=virtio,format=raw,readonly=on,file=' + str(work / 'seed.img'),
+        '-drive', 'if=none,id=build,format=qcow2,file=' + str(work / 'build.qcow2'),
+        '-device', 'virtio-blk-pci,drive=build,bootindex=1',
+        '-drive', 'if=none,id=seed,format=raw,readonly=on,file=' + str(work / 'seed.img'),
+        '-device', 'virtio-blk-pci,drive=seed',
         '-drive', 'if=none,id=runtime,format=raw,file=' + str(work / 'runtime-root.raw'),
         '-device', 'virtio-blk-pci,drive=runtime,serial=vp-resident-runtime',
+        '-boot', 'strict=on',
         '-device', 'virtio-rng-pci', '-device', 'virtio-net-pci,netdev=buildnet',
         '-netdev', 'user,id=buildnet,hostfwd=tcp:127.0.0.1:22223-:22',
         '-display', 'none', '-monitor', 'none', '-serial', 'file:' + str(work / 'build-console.log'),

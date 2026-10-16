@@ -47,7 +47,7 @@ the merged binary has not been rerun through the model trial.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38860289559` on `08ba6b21` passes the base maintenance lifecycle but fails Cloud RESERVE: first the inner provider TLS handshake expires, then a second flow acquisition reports incomplete helper cleanup. The retained-route cleanup fix has not resolved consumer acceptance. Investigate bounded route lifetime and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven; earlier trials retain their separate outcomes. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 and native-only core PR277 are merged. Code retains its immutable core dependency; source acceptance of the new core composition is not a repeat model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | Public immutable boot `38860629051` passes its read-only boot, write-denial, corruption and cleanup gates. Model source `38896828458` passes 100 Rust and 281 Python cases on `a893a10e`. Actual `38897698650` completes disk export and memory admission, then fails the build VM's 300-second SSH-readiness gate; processes and scratch are cleaned up. Diagnose that boot boundary without changing the resource or authentication gates. Two model turns and protected execution remain unproven; production approval and suitable confidential-computing hardware remain open. Integrate resident-only work separately from the inherited unfinished Storage branch. |
+| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | Public immutable boot `38860629051` passes its read-only boot, write-denial, corruption and cleanup gates. Model source `38901209892` passes 100 Rust and 298 Python cases on `bedd63a2`. Actual `38902275667` completes disk export and memory admission, then fails the unchanged build-VM SSH-readiness gate; processes and scratch are cleaned up. The next correction selects the build disk explicitly instead of relying on implicit firmware ordering; 115 inert controller tests pass, but actual boot remains unproved. Two model turns and protected execution, production approval and suitable confidential-computing hardware remain open. Integrate resident-only work separately from the inherited unfinished Storage branch. |
 
 ### Public resident model integration candidate
 
@@ -379,7 +379,7 @@ CRCs pass. Source-contract, trial and log ZIP SHA-256 values are respectively
 and `f351ec2cd132ff14e15cff0ed9e2b81b6c98b79a5c7eb02f6d13c88bc77c2910`.
 Earlier actual failures retain their original results.
 
-The next candidate adds the fixed VGA device already used by the accepted
+Revision `bedd63a2` adds the fixed VGA device already used by the accepted
 legacy-BIOS build fixtures, while keeping the display headless. This aligns
 the build hardware profile; it does not establish the cause of the failed run.
 The immutable runtime guest's separate direct-kernel profile is unchanged.
@@ -394,10 +394,54 @@ unchanged.
 All 113 inert controller tests pass without skips, including the original 96
 cases and 17 new diagnostic/profile cases. The new cases cover primary-failure
 preservation, cancelled or expired operations, cleanup ordering, closed output,
-bounded reads, unsafe files and replacement races. The hosted source gate now
-requires 100 Rust and 298 Python cases; this candidate still needs that hosted
-validation and a new original runtime trial. Inert tests do not prove VM boot
-or model execution.
+bounded reads, unsafe files and replacement races. Original source run
+[`38901209892`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38901209892)
+passes on exact `bedd63a2ccac56b845f1fa7e6e2db7dc81bf383c`, tree
+`950783f77a30412ecef1f3b8894674f1ef23458b`: compilation, strict lint,
+100 Rust and 298 Python cases, no failed or skipped tests, an empty formatter
+patch and unchanged final source. All 35 source blobs and 560 package identities
+match. Source artifact and log ZIP SHA-256 values are
+`b53503fc8ef3c0e568ea628e4b817afb112c42211faaa29892bd313c0efb6940`
+and `79e711d2d0743cf0a0a3893c9d55eded9b0d251435b6037dd7732c5d9f783c96`.
+
+Original actual run
+[`38902275667`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38902275667)
+on that same source repeats the source checks and passes build-memory admission:
+**15,659,687,936 bytes available against 15,032,385,536 required**. It again fails
+`guest_boot / build_boot_timeout`. The existing SSH loop records 55 attempts;
+the first and last fall in the closed `connect_timeout` category, which includes
+connection and banner-exchange timeouts. Intermediate attempt categories are not
+retained. The console was observed but none of the six selected markers matched;
+this does not establish an empty console, absence of boot or a specific cause.
+
+The build process and scope are stopped and joined, tool cleanup is confirmed,
+and the owned payload is removed. User-manager restoration and final source
+checks pass. Final host route/DNS comparison, package installation, model
+construction, guest TLS and the two model turns are not reached. Artifact API
+digests and ZIP CRCs pass. Source-contract, trial and log ZIP SHA-256 values are
+`8ba1c3f0ab1c64dcf221cd1caf2f99d092d7d28e96a9dd59957701f8fed0d44e`,
+`d9ef19ef4db645c93abc49b2d74957e8d070cfc89971aa21554d289e0bf96410`
+and `3f6d140d589f5090dd01406e5d92ddf18e559c4168a4dec6db7deb8c31aaa525`.
+
+#### Explicit build disk selection
+
+The build VM mixed implicit `if=virtio` build/seed disks with an explicit runtime
+device. QEMU creates those implicit devices later, so their earlier argument
+position does not establish the disk order. Unspecified boot priority can leave
+the exported, non-bootable runtime filesystem ahead of the actual build disk.
+This is a source-level configuration defect, not proof of which firmware path
+the failed original trial took.
+[QEMU device construction](https://github.com/qemu/qemu/blob/v8.2.2/blockdev.c#L907-L914) ·
+[Firmware boot selection](https://www.qemu.org/docs/master/system/bootindex.html)
+
+The correction uses three explicit disk backends and devices, gives only the
+build disk `bootindex=1`, and enables strict boot selection. The seed stays
+read-only and the runtime serial stays unchanged; the installer selects it by
+that serial, not by a fixed device letter. The separate direct-kernel model VM,
+SSH policy, model pins, resource limits and original deadlines are unchanged.
+All 115 inert controller tests pass, including two new boot-selection and
+runtime-preservation cases. Hosted source acceptance and actual boot of this
+correction remain open; the hosted gate requires 100 Rust and 300 Python cases.
 
 Main integration must isolate the resident-only changes: this candidate's
 parent chain also contains unfinished Storage production code. Preserve main's

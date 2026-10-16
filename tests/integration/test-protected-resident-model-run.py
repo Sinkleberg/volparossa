@@ -1491,10 +1491,13 @@ class ReceiptAndBindings(Inert):
         self.assertEqual(argv, ['qemu-system-x86_64', '-name', 'volparossa-resident-build',
             '-no-user-config', '-nodefaults', '-machine', 'q35,accel=kvm', '-cpu', 'host',
             '-smp', '2', '-m', '12288', '-device', 'VGA,id=video0,bus=pcie.0,addr=0x1',
-            '-drive', 'if=virtio,format=qcow2,file=/fixed/build.qcow2',
-            '-drive', 'if=virtio,format=raw,readonly=on,file=/fixed/seed.img',
+            '-drive', 'if=none,id=build,format=qcow2,file=/fixed/build.qcow2',
+            '-device', 'virtio-blk-pci,drive=build,bootindex=1',
+            '-drive', 'if=none,id=seed,format=raw,readonly=on,file=/fixed/seed.img',
+            '-device', 'virtio-blk-pci,drive=seed',
             '-drive', 'if=none,id=runtime,format=raw,file=/fixed/runtime-root.raw',
             '-device', 'virtio-blk-pci,drive=runtime,serial=vp-resident-runtime',
+            '-boot', 'strict=on',
             '-device', 'virtio-rng-pci', '-device', 'virtio-net-pci,netdev=buildnet',
             '-netdev', 'user,id=buildnet,hostfwd=tcp:127.0.0.1:22223-:22',
             '-display', 'none', '-monitor', 'none', '-serial', 'file:/fixed/build-console.log',
@@ -1509,6 +1512,45 @@ class ReceiptAndBindings(Inert):
                        'KbdInteractiveAuthentication=no', 'IdentitiesOnly=yes', 'IdentityAgent=none'):
             self.assertIn(option, options)
         self.assertEqual((R.MAX_SECONDS, R.QEMU_BYTES, R.RUNTIME_BYTES), (14400, 13 * R.GIB, 32 * R.GIB))
+        R.subprocess.Popen.assert_not_called()
+
+    def test_build_firmware_can_only_boot_the_explicit_build_disk(self):
+        argv = R.qemu_build(Path('/fixed'))
+        drives = [dict(item.split('=', 1) for item in argv[index + 1].split(','))
+                  for index, value in enumerate(argv) if value == '-drive']
+        devices = [argv[index + 1] for index, value in enumerate(argv) if value == '-device']
+        blocks = [dict(item.split('=', 1) for item in value.split(',')[1:])
+                  for value in devices if value.startswith('virtio-blk-pci,')]
+        self.assertEqual([drive['id'] for drive in drives], ['build', 'seed', 'runtime'])
+        self.assertEqual([block['drive'] for block in blocks], ['build', 'seed', 'runtime'])
+        self.assertTrue(all(drive['if'] == 'none' for drive in drives))
+        self.assertEqual([device for device in devices if 'bootindex=' in device],
+                         ['virtio-blk-pci,drive=build,bootindex=1'])
+        self.assertEqual([argv[index + 1] for index, value in enumerate(argv) if value == '-boot'],
+                         ['strict=on'])
+        self.assertEqual(drives[0], dict(id='build', **{'if': 'none'}, format='qcow2',
+                                       file='/fixed/build.qcow2'))
+        self.assertEqual(drives[1], dict(id='seed', **{'if': 'none'}, format='raw',
+                                       readonly='on', file='/fixed/seed.img'))
+        self.assertEqual(drives[2], dict(id='runtime', **{'if': 'none'}, format='raw',
+                                       file='/fixed/runtime-root.raw'))
+        self.assertEqual(blocks[2], dict(drive='runtime', serial='vp-resident-runtime'))
+        R.subprocess.Popen.assert_not_called()
+
+    def test_build_boot_selection_does_not_change_direct_kernel_runtime(self):
+        work = Path('/fixed')
+        with mock.patch.object(R, 'module', return_value=types.SimpleNamespace(CMDLINE='fixed')):
+            argv = R.qemu_model(work, {'kernel': '/fixed/kernel'}, work / 'channel')
+        self.assertEqual(argv, ['qemu-system-x86_64', '-name', 'volparossa-resident-public-model',
+            '-no-user-config', '-nodefaults', '-machine', 'q35,accel=kvm', '-cpu', 'host',
+            '-smp', '2', '-m', '12288', '-kernel', '/fixed/kernel', '-initrd', '/fixed/model-initrd.img',
+            '-append', 'fixed',
+            '-drive', 'if=virtio,format=raw,readonly=on,file=/fixed/runtime-root.raw',
+            '-drive', 'if=virtio,format=raw,readonly=on,file=/fixed/verity.raw',
+            '-device', 'virtio-serial-pci', '-chardev', 'socket,id=resident,path=/fixed/channel,server=on,wait=off',
+            '-device', 'virtserialport,chardev=resident,name=org.volparossa.resident',
+            '-nic', 'none', '-display', 'none', '-monitor', 'none', '-serial', 'file:/fixed/model-console.log',
+            '-no-reboot', '-sandbox', 'on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny'])
         R.subprocess.Popen.assert_not_called()
 
 
