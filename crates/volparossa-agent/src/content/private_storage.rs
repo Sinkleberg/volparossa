@@ -31,8 +31,8 @@ use volparossa_local_control::{
     PrivateStorageOutcomeRequest, PrivateStorageReady, PrivateStorageRemoteDetail,
     PrivateStorageRemoteRequest, PrivateStorageRemoteStage as Stage, PrivateStorageServeRequest,
     StorageFixtureCorrelationPhase as FixturePhase,
-    StorageFixtureCorrelationTerminal as FixtureTerminal,
-    control_response::Payload, write_response,
+    StorageFixtureCorrelationTerminal as FixtureTerminal, control_response::Payload,
+    write_response,
 };
 use volparossa_policy::VerifiedManifest as VerifiedPolicy;
 
@@ -541,7 +541,10 @@ async fn exchange(
     let mut remote = observation
         .requester_boundary(Stage::TlsHandshake, local, async {
             tls::connect_observed(
-                super::fixture_correlation::Observed::client(flow.stream_mut(), observation.fixture()),
+                super::fixture_correlation::Observed::client(
+                    flow.stream_mut(),
+                    observation.fixture(),
+                ),
                 request.peer,
                 &provider.offer,
             )

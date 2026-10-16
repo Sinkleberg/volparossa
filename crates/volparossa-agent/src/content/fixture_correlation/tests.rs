@@ -15,7 +15,11 @@ fn request(action: Action) -> Request {
 async fn armed() -> Arc<Correlation> {
     let state = Arc::new(Correlation::default());
     assert_eq!(
-        state.request(UID, &request(Action::Arm)).await.unwrap().state,
+        state
+            .request(UID, &request(Action::Arm))
+            .await
+            .unwrap()
+            .state,
         State::Armed as i32
     );
     state
@@ -84,7 +88,14 @@ async fn rearm_cannot_extend_epoch_or_discard_active_records() {
         Err(ContentError::Busy)
     ));
     assert_eq!(
-        state.bank.try_lock().unwrap().epoch.as_ref().unwrap().expires,
+        state
+            .bank
+            .try_lock()
+            .unwrap()
+            .epoch
+            .as_ref()
+            .unwrap()
+            .expires,
         expires
     );
     assert_eq!(clients(&state).await.records.len(), 1);
@@ -156,10 +167,20 @@ async fn full_bank_replaces_only_oldest_terminal_and_late_guard_is_inert() {
     assert!(response.incomplete);
     assert_eq!(response.records[7].terminal, Terminal::Active as i32);
     assert_eq!(response.records[7].phase, Phase::FlowAcquire as i32);
-    assert_eq!(response.records[7].fingerprint, Some(digest(&EPOCH, &[33; 64])));
-    assert_eq!(response.records[2].terminal, Terminal::OperationError as i32);
     assert_eq!(
-        response.records.iter().filter(|record| record.terminal == Terminal::Active as i32).count(),
+        response.records[7].fingerprint,
+        Some(digest(&EPOCH, &[33; 64]))
+    );
+    assert_eq!(
+        response.records[2].terminal,
+        Terminal::OperationError as i32
+    );
+    assert_eq!(
+        response
+            .records
+            .iter()
+            .filter(|record| record.terminal == Terminal::Active as i32)
+            .count(),
         CAPACITY - 1
     );
 }
@@ -202,10 +223,7 @@ async fn disarm_joins_cleanup_and_clears_before_new_epoch() {
     let guard = state.client(UID);
     guard.bytes(&[7; 64]);
     let old_life = Arc::clone(&guard.0.as_ref().unwrap().life);
-    let response = state
-        .request(UID, &request(Action::Disarm))
-        .await
-        .unwrap();
+    let response = state.request(UID, &request(Action::Disarm)).await.unwrap();
     assert_eq!(response.state, State::Disarmed as i32);
     assert!(!old_life.alive.load(Relaxed));
     assert!(state.bank.try_lock().unwrap().epoch.is_none());

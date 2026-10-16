@@ -55,7 +55,10 @@ pub(super) struct Observation {
 }
 
 impl Observation {
-    pub(super) fn with_fixture(mut self, fixture: super::super::fixture_correlation::Guard) -> Self {
+    pub(super) fn with_fixture(
+        mut self,
+        fixture: super::super::fixture_correlation::Guard,
+    ) -> Self {
         self.fixture = fixture;
         self
     }

@@ -49,6 +49,15 @@ disposable hosted runner, followed by the full storage-maintenance trial on the
 exact verified source. Earlier failures and the separate core lifecycle proof
 remain unchanged.
 
+The first hosted contract run,
+[38834844170](https://github.com/VOLPAROSSA/volparossa/actions/runs/38834844170)
+on `77548728a272092d6d5e146b7f603aed5f5fc62a`, passes source binding and the
+collector/harness checks, but fails compilation because the new CLI test matches
+a boxed command as an unboxed value. Formatting also fails. Rust execution and
+Clippy are skipped, so this run provides no Rust runtime acceptance. The follow-up
+corrects the test pattern and applies the reported formatting without changing
+production behavior, assertions or test budgets.
+
 ### Execution priorities and next milestones
 
 The shared cache and actual Weather delivery into Drizz.li and Overmorrow are

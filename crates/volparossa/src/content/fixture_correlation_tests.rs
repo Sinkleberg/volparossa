@@ -38,12 +38,10 @@ fn snapshot() -> StorageFixtureCorrelationResponse {
 fn fixture_cli_has_no_private_argument_or_implicit_action() {
     let command = ["volparossa", "content", "fixture-correlation"];
     let cli = crate::Cli::try_parse_from(command).unwrap();
-    assert!(matches!(
-        cli.command,
-        crate::CliCommand::Content {
-            command: crate::content::Command::FixtureCorrelation
-        }
-    ));
+    let crate::CliCommand::Content { command: content } = cli.command else {
+        panic!("expected content command");
+    };
+    assert!(matches!(*content, crate::content::Command::FixtureCorrelation));
     for extra in ["--epoch", "--fingerprint", "--action", "arm", "--input"] {
         assert!(crate::Cli::try_parse_from(command.into_iter().chain([extra])).is_err());
     }
@@ -148,7 +146,11 @@ fn fixture_cli_projection_is_private_exact_and_not_acceptance() {
     );
     let encoded = render(&value).unwrap();
     assert_eq!(encoded.last(), Some(&b'\n'));
-    assert!(!String::from_utf8(encoded).unwrap().contains(&"ab".repeat(16)));
+    assert!(
+        !String::from_utf8(encoded)
+            .unwrap()
+            .contains(&"ab".repeat(16))
+    );
     let unavailable = project(&StorageFixtureCorrelationResponse::unavailable(), &request).unwrap();
     assert_eq!(unavailable["state"], "unavailable");
     assert_eq!(unavailable["incomplete"], true);

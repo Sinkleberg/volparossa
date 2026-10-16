@@ -98,7 +98,11 @@ impl Drop for Epoch {
 
 impl Bank {
     fn expire(&mut self, now: Instant) {
-        if self.epoch.as_ref().is_some_and(|epoch| now >= epoch.expires) {
+        if self
+            .epoch
+            .as_ref()
+            .is_some_and(|epoch| now >= epoch.expires)
+        {
             self.epoch = None;
         }
         if let Some(epoch) = &mut self.epoch {

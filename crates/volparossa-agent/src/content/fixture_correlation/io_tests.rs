@@ -110,7 +110,11 @@ async fn partial_pending_zero_and_error_writes_are_passed_through_once() {
     ]);
     let mut stream = Observed::client(&mut raw, &guard);
     let mut cx = Context::from_waker(Waker::noop());
-    assert!(Pin::new(&mut stream).poll_write(&mut cx, &[99; 64]).is_pending());
+    assert!(
+        Pin::new(&mut stream)
+            .poll_write(&mut cx, &[99; 64])
+            .is_pending()
+    );
     assert!(matches!(
         Pin::new(&mut stream).poll_write(&mut cx, &[99; 64]),
         Poll::Ready(Err(_))
@@ -183,18 +187,17 @@ async fn vectored_write_hashes_only_successful_prefix_across_slices() {
 async fn provider_reads_ignore_prefilled_bytes_pending_error_and_eof() {
     let state = armed().await;
     let guard = state.provider();
-    let mut raw = Scripted::new([
-        Step::Pending,
-        Step::Error,
-        Step::Count(0),
-        Step::Count(64),
-    ]);
+    let mut raw = Scripted::new([Step::Pending, Step::Error, Step::Count(0), Step::Count(64)]);
     let mut stream = Observed::provider(&mut raw, &guard);
     let mut cx = Context::from_waker(Waker::noop());
     let mut bytes = [99; 80];
     let mut buf = ReadBuf::new(&mut bytes);
     buf.advance(7);
-    assert!(Pin::new(&mut stream).poll_read(&mut cx, &mut buf).is_pending());
+    assert!(
+        Pin::new(&mut stream)
+            .poll_read(&mut cx, &mut buf)
+            .is_pending()
+    );
     assert!(matches!(
         Pin::new(&mut stream).poll_read(&mut cx, &mut buf),
         Poll::Ready(Err(_))
@@ -212,7 +215,10 @@ async fn provider_reads_ignore_prefilled_bytes_pending_error_and_eof() {
     assert_eq!(raw.reads, 4);
     assert_eq!(raw.writes, 0);
     assert_eq!(
-        providers(&state, &digest(&EPOCH, &[13; 64])).await.records.len(),
+        providers(&state, &digest(&EPOCH, &[13; 64]))
+            .await
+            .records
+            .len(),
         1
     );
 }
@@ -258,14 +264,14 @@ async fn real_duplex_partial_io_preserves_all_bytes_and_matches_endpoints() {
     let mut write = Observed::client(write, &client);
     let mut read = Observed::provider(read, &provider);
     let mut received = [0; 137];
-    let (sent, got) = tokio::join!(
-        write.write_all(&[42; 137]),
-        read.read_exact(&mut received)
-    );
+    let (sent, got) = tokio::join!(write.write_all(&[42; 137]), read.read_exact(&mut received));
     sent.unwrap();
     got.unwrap();
     assert_eq!(received, [42; 137]);
-    let expected = clients(&state).await.records[0].fingerprint.clone().unwrap();
+    let expected = clients(&state).await.records[0]
+        .fingerprint
+        .clone()
+        .unwrap();
     assert_eq!(expected, digest(&EPOCH, &received));
     assert_eq!(providers(&state, &expected).await.records.len(), 1);
 }
@@ -322,6 +328,9 @@ async fn real_inner_tls_uses_identical_ciphertext_prefix_without_protocol_change
             crate::content::tls::finish(&mut stream).await.unwrap();
         }),
     );
-    let expected = clients(&state).await.records[0].fingerprint.clone().unwrap();
+    let expected = clients(&state).await.records[0]
+        .fingerprint
+        .clone()
+        .unwrap();
     assert_eq!(providers(&state, &expected).await.records.len(), 1);
 }
