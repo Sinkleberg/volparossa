@@ -1868,17 +1868,44 @@ impl ClientRouteControl {
                 }
             }
         }
-        if helper_route_was_lost {
-            let prior_route = std::mem::replace(&mut *state, ClientRouteControlState::Idle);
-            drop(state);
-            if let ClientRouteControlState::Established(established) = prior_route {
-                Box::pin(established.shutdown(self.agent_state.as_ref())).await;
-            }
-        }
-        Err(ContentStreamOpenFailure::from_flow_acquire(
+        let failure = ContentStreamOpenFailure::from_flow_acquire(
             ClientRouteConnectError::TransportRuntimeUnavailable,
             history.summary(),
-        ))
+        );
+        Err(self
+            .finish_flow_acquire_failure(state, helper_route_was_lost, failure, |prior| {
+                let ClientRouteControlState::Established(established) = prior else {
+                    unreachable!("validated failed flow route owner")
+                };
+                self.start_retirement(established)
+            })
+            .await)
+    }
+
+    async fn finish_flow_acquire_failure(
+        &self,
+        mut state: tokio::sync::MutexGuard<'_, ClientRouteControlState>,
+        helper_route_was_lost: bool,
+        failure: ContentStreamOpenFailure,
+        start_retirement: impl FnOnce(ClientRouteControlState) -> ClientRouteControlState,
+    ) -> ContentStreamOpenFailure {
+        if helper_route_was_lost {
+            let prior = std::mem::replace(&mut *state, ClientRouteControlState::Connecting);
+            // Publish the retained cleanup owner before unlocking or awaiting. Cancellation of
+            // this failed flow must not admit another route or abandon exact helper cleanup.
+            *state = start_retirement(prior);
+            let ClientRouteControlState::CleanupPending(retirement) = &*state else {
+                unreachable!("failed flow retirement owner retained")
+            };
+            let retirement = retirement.clone();
+            drop(state);
+            let _ = self
+                .confirm_retirement(&retirement, MAXIMUM_CALL_DURATION)
+                .await;
+        }
+        // Cleanup failure/timeout remains owned by the controller, not a replacement for the
+        // original flow-acquire error and its first/last failure history.
+        failure
     }
 
     /// Bind one accepted kernel-observed TCP stream and proxy it over the selected genuine
@@ -8546,6 +8573,8 @@ fn validate_committed(
 
 #[cfg(test)]
 mod tests {
+    mod lost_helper_retirement_tests;
+
     use std::{
         collections::BTreeMap,
         net::{IpAddr, Ipv4Addr},

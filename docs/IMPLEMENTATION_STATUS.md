@@ -16,6 +16,38 @@ Last updated: 2026-10-16
 
 ## Current integration and active work
 
+### Retained route retirement after helper loss
+
+Source inspection following actual `38851643524` found a separate cleanup race.
+When MPTCP acquisition loses helper-route ownership, the controller publishes
+`Idle` before awaiting route shutdown. Another request can therefore see an
+available controller before cleanup finishes, and cancellation can drop the
+caller-owned shutdown future. That path also discards the shutdown result.
+This contradicts the retained `CleanupPending` contract already used by explicit
+disconnect and signed route expiry; it does not prove why the original connection
+poll timed out.
+
+The correction keeps the exact retiring route in `CleanupPending` before
+unlocking admission. It reuses the existing retained cleanup task and bounded
+confirmation, so caller cancellation cannot acknowledge or cancel retirement.
+Only confirmed cleanup of that same owner may publish `Idle`; failure remains
+pending. The original flow-acquisition failure and its diagnostic history remain
+the caller's result. No route lifetime, retry count, helper timeout, consumer pin
+or storage-operation replay policy changes.
+
+Six behavioral regressions target that failure branch, concurrent admission,
+caller cancellation, quarantine recovery, terminal cleanup failure and delayed
+completion against a different owner. A seventh test guards the production
+callsite. Independent source review and local workflow syntax/diff checks pass;
+Rust has not been executed locally. The dedicated hosted source gate compiles
+and tests the affected agent, runs six existing disconnect/expiry/classification
+contracts alongside those seven new cases, and checks strict lint, formatting
+and exact source bindings. Hosted verification remains pending; no runtime
+acceptance is claimed yet. The near-expiry route-selection hypothesis remains
+unresolved.
+Complete Image/Cloud publication, maintenance and remote cleanup must still pass
+the actual consumer trial after the source correction is verified.
+
 ### Closed helper acquisition diagnostic candidate
 
 Actual run
