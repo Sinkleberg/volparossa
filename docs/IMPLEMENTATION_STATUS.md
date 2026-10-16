@@ -85,16 +85,15 @@ It can submit only two fixed public prompts, checks the selected certificate key
 after normal TLS verification, and signs a grant bounded by its original parent
 deadline. Success requires both expected answers, token counters, retained-session
 receipts and the final joined-cleanup receipt. Seven new requester tests include
-a real TLS exchange with an inert worker; their hosted compile and execution are
-pending.
+a real TLS exchange with an inert worker; they do not execute a model.
 
 A separate model initrd stages fixed launch code for a complete caller-supplied
 OS image. It verifies the read-only root, drops privileges to UID 985, exposes only
 the fixed virtio channel, and supplies real read-only cgroup observations to the
 unchanged resource guards. Its readiness marker precedes TLS; process exit alone
 does not prove model execution or worker cleanup. The 27 new initrd, 21 preserved
-boot and 28 workload contracts pass locally with inert inputs and no skipped
-tests. The old boot profile is unchanged. The model controller must enforce its
+boot and 28 workload contracts pass locally and in the hosted run below with inert
+inputs and no skipped tests. The old boot profile is unchanged. The model controller must enforce its
 explicit 12 GiB guest, 13 GiB host-side QEMU cap and 14 GiB available-host-memory
 requirement; this initrd does not claim the earlier Code fixture's 11 GiB guest cap.
 The next acceptance gate must execute two real model turns inside the sealed
@@ -103,6 +102,16 @@ cleanup. The model image also needs the complete Python/native/OS closure and a
 separately sized disk budget: the accepted small boot image cannot contain both
 the original Qwen weights and BF16 execution weights. Workload descriptor binding
 in a fixture is not independent production approval or proof of guest key origin.
+
+Original source run
+[`38867886273`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38867886273)
+on `cac4e0e0` compiles both crates and passes strict lint, all 100 unique Rust
+tests (22 grant, 18 guest/requester, 30 resident, 30 local) and all 76 Python
+staging contracts. It fails only the final source-equality assertion: the
+formatter changed the two new requester files. The current candidate applies
+that verified 29,343-byte formatter patch without changing behavior. Exact
+committed-source acceptance requires the following hosted run. None of these
+source checks proves actual model execution inside the sealed guest.
 
 ### Latest shared-storage consumer trial
 
