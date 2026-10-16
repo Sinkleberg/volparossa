@@ -30,13 +30,15 @@ order or change count. Develop core functions with their actual consumers.
 The immediate milestones build on the retained candidates and evidence below:
 
 The earlier combined native/Storage candidate `dcdf7cfb` passes Quality
-`38819466450`, but its actual Storage consumer trial still fails. Native work now
-has a separate integration candidate in PR277, `f5e127c5`, without a Storage
-maintenance parent. It combines main with native `a410b015` and the exact adaptive
-prefill change from `7d0f9f0b`; its 61 worker files match that accepted Code-trial
-source. This separates the main integration gates without discarding Storage
-work. Hosted checks must validate the new composition. Original actual trials
-retain their dispatched sources, and Code retains its existing immutable pin.
+`38819466450`, but its actual Storage consumer trial still fails. Native-only
+PR277 is now merged as main `28b59840`, without a Storage maintenance parent.
+Its accepted candidate `f5e127c5` combines main with native `a410b015` and the exact
+adaptive prefill change from `7d0f9f0b`; its 61 worker files match that accepted
+Code-trial source. Quality `38869904099` and CodeQL `38869900439` pass for the
+composition, whose accepted tree matches the merge. This integrates native work
+without discarding or accepting unfinished Storage work. Original actual trials
+retain their dispatched sources, and Code retains its existing immutable pin;
+the merged binary has not been rerun through the model trial.
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
@@ -44,7 +46,7 @@ retain their dispatched sources, and Code retains its existing immutable pin.
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38860289559` on `08ba6b21` passes the base maintenance lifecycle but fails Cloud RESERVE: first the inner provider TLS handshake expires, then a second flow acquisition reports incomplete helper cleanup. The retained-route cleanup fix has not resolved consumer acceptance. Investigate bounded route lifetime and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven; earlier trials retain their separate outcomes. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 is merged, retaining that immutable core dependency; the native/Storage core candidate is not merged into core `main`. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
+| Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 and native-only core PR277 are merged. Code retains its immutable core dependency; source acceptance of the new core composition is not a repeat model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
 | Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Public immutable boot `38860629051` now passes on exact `888d79fc`: verified read-only boot, write denial, fixed entrypoint, corrupted-disk rejection and cleanup, alongside 179 contracts. This does not execute a model or establish private/TEE protection. Next join two public model turns to one guest TLS session under a separate finite task grant and an explicitly sized model profile. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 ### Public resident model integration candidate
@@ -144,11 +146,40 @@ workload stager, an actual hardlinked executable fixture and interrupted cleanup
 observation. Sixteen lock/parser tests pass, including refusal of APT configuration
 hooks, includes and path overrides before any APT process starts.
 
-The builder does not claim complete descendant cleanup. Its controller must run
-it in a finite guest cgroup, confirm that cgroup is empty, stop and join the
-build VM, and reverify exported bytes before accepting them. The full controller,
-complete sealed model image and actual two-turn model trial remain unimplemented;
-these helper tests neither compile a model backend nor boot a VM.
+Original source run
+[`38871387523`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38871387523)
+passes on exact `9162f855bcf7e9013bd446faf656b0f32d08d95f`: both crates compile,
+strict lint passes, all 100 unique Rust tests and all 124 Python contracts pass,
+with none failed or skipped. The formatter patch is empty, final source equality
+passes and all 560 dependency records remain unchanged. Original artifact and log
+ZIP SHA-256 values are
+`65956095ef2a1620e95ce1462d1d759e62cc4081e5f004867d04f9251fccffc6`
+and `eb38015f3f4ef7d60d3965a175ff1ed84fc9144f204595b0761169158a46c0cc`.
+This validates the builder and staging source, not a built model image or VM run.
+
+The next candidate connects the offline installer, immutable-image assembly and
+hosted controller. It adds 31 installer, 29 assembly and 35 controller tests;
+all 95 pass locally with inert fixtures and no skips. Independent source reviews
+cover the installer, assembly, controller and workflow. These checks do not
+install packages, launch a VM, compile a native backend or execute a model.
+
+The installer verifies locked package bytes and uses offline APT in a disposable
+guest namespace. It preserves the base OS packages and checks configuration,
+triggers and unmounting. The controller runs installation and compilation in
+finite guest cgroups, requires their cleanup, stops and joins the build VM, then
+verifies the exported assets. Assembly stages those assets into a separate OS
+root before sealing it. The runtime guest has no NIC or SSH service; its only
+request channel is the fixed guest-terminated TLS connection over virtio.
+
+The explicit `public-model` workflow scenario requires an exact reviewed source
+commit. Its controller joins two fixed public model turns, final worker cleanup,
+read-only boot and deliberate corruption rejection under one finite controller
+deadline. Process and cgroup cleanup are distinct from scratch-file deletion:
+the controller currently reports `scratch_removed: false`. Only an explicit list
+of public JSON receipts may be uploaded; keys, filesystems and model payloads are
+excluded. Hosted acceptance of this new composition, a complete built model image
+and the actual two-turn model trial remain open. Neither source checks nor a
+public VM trial establish confidential execution or guest-key origin.
 
 ### Latest shared-storage consumer trial
 

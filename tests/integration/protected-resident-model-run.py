@@ -1,0 +1,796 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+"""Hosted-only controller for the PUBLIC, immutable, two-turn model fixture.
+
+The build VM may fetch pinned public model/compiler inputs. The resulting
+runtime guest has no NIC, SSH, writable root, shared host directory or debug
+shell. Neither VM is confidential computing: private input admission remains
+false. All subprocesses have deadlines; VM export requires stopped processes
+AND empty control groups, not a successful parent process alone.
+"""
+import argparse
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import selectors
+import shlex
+import signal
+import socket
+import stat
+import subprocess
+import tarfile
+import time
+import types
+import urllib.request
+import uuid
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+GIB = 1024 ** 3
+MAX_SECONDS = 14400
+LOCK_SHA = 'e905f824096700919f6e9c376c45259aaec0d4ea6f422f258bef99bd7372eaea'
+CODE = 'fd4ff9688c58d6228e07f2116a7e8dcdb12a89ef'
+HELPER_SHA = '32a79a1801de0979fdca0064c5bbd2c09b71069a0141be7d68aaec01006bbcbf'
+RUNTIME_BYTES = 32 * GIB
+QEMU_BYTES = 13 * GIB
+INPUT = '/home/vpci/resident-inputs'
+OUTPUT = '/home/vpci/resident-output'
+LOCK = INPUT + '/core/tests/integration/protected-resident-model-debian-lock-v1.json'
+INSTALL = INPUT + '/core/tests/integration/protected-resident-model-install.py'
+BUILD = INPUT + '/core/tests/integration/protected-resident-model-build.py'
+READY = b'VP_PROTECTED_MODEL_READY_V1 '
+BOOT = b'VP_PROTECTED_MODEL_BOOT_V1 '
+ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8',
+       'PYTHONDONTWRITEBYTECODE': '1', 'GIT_CONFIG_NOSYSTEM': '1',
+       'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0'}
+CANCELLED = False
+FAILURE_CODES = frozenset(('controller_deadline', 'controller_cancelled', 'command_timeout',
+    'command_output_bound', 'command_failed', 'host_memory_headroom', 'qemu_limits',
+    'qemu_exited_before_scope', 'scope_start_timeout', 'guest_unit_failed', 'guest_unit_cgroup',
+    'base_os', 'base_root_size', 'runtime_uuid', 'build_vm_died', 'build_boot_timeout',
+    'guest_source_bundle', 'guest_package_bundle', 'installer_receipt', 'runtime_still_mounted',
+    'runtime_kernel_binding', 'verity_root_hash', 'channel_path_length', 'model_vm_died',
+    'console_bound', 'model_ready_timeout', 'model_guest_exit_timeout', 'sealed_inputs_changed',
+    'negative_guest_exit_timeout', 'host_network_observation_changed', 'source_changed',
+    'space_download', 'space_root_extract', 'space_build', 'space_asset_export', 'space_workload_stage'))
+
+
+def require(value, reason):
+    if not value:
+        raise ValueError(reason)
+
+
+def module(name):
+    path = HERE / (name + '.py')
+    result = types.ModuleType(name.replace('-', '_'))
+    result.__file__ = str(path)
+    exec(compile(path.read_bytes(), str(path), 'exec'), result.__dict__)
+    return result
+
+
+def encoded(value):
+    return (json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False) + '\n').encode()
+
+
+def write_new(path, raw, mode=0o600):
+    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode), 'wb') as out:
+        out.write(raw)
+        os.fchmod(out.fileno(), mode)
+
+
+def remaining(deadline, cap=MAX_SECONDS):
+    require(not CANCELLED, 'controller_cancelled')
+    value = deadline - time.monotonic()
+    require(0 < value <= MAX_SECONDS and 0 < cap <= MAX_SECONDS, 'controller_deadline')
+    return min(value, cap)
+
+
+def file_hash(path, deadline, maximum=48 * GIB, algorithm='sha256'):
+    remaining(deadline)
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as stream:
+        before = os.fstat(stream.fileno())
+        require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1 and before.st_uid == os.getuid()
+                and not before.st_mode & 0o022 and 0 <= before.st_size <= maximum, 'controller_file')
+        digest = hashlib.new(algorithm)
+        while block := stream.read(1024 ** 2):
+            remaining(deadline)
+            digest.update(block)
+        after = os.fstat(stream.fileno())
+        require((before.st_ino, before.st_dev, before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+                == (after.st_ino, after.st_dev, after.st_size, after.st_mtime_ns, after.st_ctime_ns),
+                'controller_file_changed')
+    return {'bytes': before.st_size, algorithm: digest.hexdigest()}
+
+
+class CleanupUnconfirmed(RuntimeError):
+    pass
+
+
+def joined(process):
+    # Keep the direct child unreaped until the final process-group signal.
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except OSError as error:
+        raise CleanupUnconfirmed('group_signal') from error
+    try:
+        process.wait(timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise CleanupUnconfirmed('child_join') from error
+    stop = time.monotonic() + 3
+    while True:
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            return
+        if time.monotonic() >= stop:
+            raise CleanupUnconfirmed('group_remaining')
+        time.sleep(.02)
+
+
+def run(argv, deadline, *, cap=300, maximum=16 * 1024 ** 2, env=None, check=True):
+    end = time.monotonic() + remaining(deadline, cap)
+    process = subprocess.Popen([str(v) for v in argv], stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env or ENV,
+        close_fds=True, start_new_session=True)
+    stdout, stderr = bytearray(), bytearray()
+    try:
+        with selectors.DefaultSelector() as events:
+            for pipe in (process.stdout, process.stderr):
+                os.set_blocking(pipe.fileno(), False)
+                events.register(pipe, selectors.EVENT_READ)
+            while events.get_map():
+                require(not CANCELLED, 'controller_cancelled')
+                require(time.monotonic() < end, 'command_timeout')
+                for key, _ in events.select(.1):
+                    block = os.read(key.fd, 65536)
+                    if not block:
+                        events.unregister(key.fileobj)
+                        continue
+                    (stdout if key.fileobj is process.stdout else stderr).extend(block)
+                    require(len(stdout) + len(stderr) <= maximum, 'command_output_bound')
+            while os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+                require(not CANCELLED, 'controller_cancelled')
+                require(time.monotonic() < end, 'command_timeout')
+                time.sleep(.02)
+    finally:
+        try:
+            joined(process)
+        finally:
+            process.stdout.close()
+            process.stderr.close()
+    require(not check or process.returncode == 0, 'command_failed')
+    return bytes(stdout), bytes(stderr), process.returncode
+
+
+def source_binding(expected, deadline):
+    require(re.fullmatch('[0-9a-f]{40}', expected or ''), 'source_sha')
+    git = lambda *args: run(['git', '-C', ROOT, *args], deadline)[0].decode().strip()
+    require(git('rev-parse', 'HEAD') == expected and not git('diff', '--name-only', 'HEAD'), 'source_changed')
+    return {'commit': expected, 'tree': git('rev-parse', 'HEAD^{tree}')}
+
+
+def hosted(args, deadline):
+    require(args.execute and args.yes and os.getuid() > 0, 'explicit_hosted_execution')
+    for key, expected in {'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted',
+                          'RUNNER_OS': 'Linux', 'GITHUB_REPOSITORY': 'VOLPAROSSA/volparossa',
+                          'GITHUB_SHA': args.expected_source, 'GITHUB_WORKFLOW_SHA': args.expected_source,
+                          'GITHUB_REF': 'refs/heads/feature/protected-resident-model'}.items():
+        require(os.environ.get(key) == expected, 'hosted_source_scope')
+    require(os.uname().machine == 'x86_64', 'host_architecture')
+    source = source_binding(args.expected_source, deadline)
+    base = module('protected-resident-image')
+    launch = base.verify_kvm_launch()
+    parent = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
+    require(args.work.is_absolute() and args.work.parent.resolve(strict=True) == parent
+            and re.fullmatch(r'vp-resident-model-[0-9]+', args.work.name)
+            and not args.work.exists() and not args.work.is_symlink(), 'hosted_work_path')
+    args.work.mkdir(mode=0o700)
+    runtime = Path('/run/user') / str(os.getuid())
+    meta = runtime.lstat()
+    require(stat.S_ISDIR(meta.st_mode) and meta.st_uid == os.getuid()
+            and stat.S_IMODE(meta.st_mode) == 0o700 and stat.S_ISSOCK((runtime / 'bus').lstat().st_mode),
+            'user_manager')
+    return base, source, launch, dict(ENV, XDG_RUNTIME_DIR=str(runtime),
+                                    DBUS_SESSION_BUS_ADDRESS='unix:path=' + str(runtime / 'bus'))
+
+
+def scope_path(raw, unit):
+    require(type(raw) is str and raw.startswith('/user.slice/') and raw.endswith('/' + unit)
+            and all(p not in ('', '.', '..') for p in raw[1:].split('/')), 'owned_cgroup')
+    return Path('/sys/fs/cgroup' + raw)
+
+
+class Scope:
+    """An inherited-credential scope, never a detached user-manager service."""
+    def __init__(self, argv, work, deadline, env, seconds, label):
+        self.unit = 'vp-resident-' + label + '-' + uuid.uuid4().hex + '.scope'
+        self.env, self.deadline, self.group = env, deadline, None
+        self.process, self.log = None, None
+        self.started, self.cleanup_confirmed = False, False
+        self.logpath = work / (self.unit + '.log')
+        self.argv = ['systemd-run', '--user', '--scope', '--quiet', '--expand-environment=no',
+                     '--unit=' + self.unit, '--property=MemoryMax=' + str(QEMU_BYTES),
+                     '--property=MemorySwapMax=0', '--property=RuntimeMaxSec=' + str(seconds),
+                     '--property=TimeoutStopSec=15', *map(str, argv)]
+
+    def state(self, deadline=None):
+        raw = run(['systemctl', '--user', 'show', self.unit,
+                   '--property=ActiveState,ControlGroup,Result'], deadline or self.deadline,
+                  cap=15, env=self.env, check=False)[0].decode()
+        return dict(line.split('=', 1) for line in raw.splitlines() if '=' in line)
+
+    def start(self):
+        available = next(int(row.split()[1]) * 1024 for row in Path('/proc/meminfo').read_text().splitlines()
+                         if row.startswith('MemAvailable:'))
+        require(available >= 14 * GIB, 'host_memory_headroom')
+        self.available = available
+        self.log = self.logpath.open('xb')
+        self.process = subprocess.Popen(self.argv, stdin=subprocess.DEVNULL, stdout=self.log,
+            stderr=subprocess.STDOUT, env=self.env, close_fds=True, start_new_session=True)
+        self.started = True
+        end = time.monotonic() + remaining(self.deadline, 30)
+        while time.monotonic() < end:
+            current = self.state()
+            if current.get('ControlGroup'):
+                self.group = scope_path(current['ControlGroup'], self.unit)
+                require(int((self.group / 'memory.max').read_text()) == QEMU_BYTES
+                        and (self.group / 'memory.swap.max').read_text().strip() == '0', 'qemu_limits')
+                require(str(self.process.pid) in (self.group / 'cgroup.procs').read_text().split(), 'scope_process')
+                return
+            require(os.waitid(os.P_PID, self.process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None,
+                    'qemu_exited_before_scope')
+            time.sleep(.1)
+        raise ValueError('scope_start_timeout')
+
+    def alive(self):
+        remaining(self.deadline)
+        require(self.logpath.stat().st_size <= 4 * 1024 ** 2, 'qemu_log_bound')
+        return os.waitid(os.P_PID, self.process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None
+
+    def stop(self):
+        global CANCELLED
+        if self.process is None:
+            if self.started and not self.cleanup_confirmed:
+                raise CleanupUnconfirmed('scope_cleanup_unconfirmed')
+            return {'qemu_process_joined': True, 'scope_empty': True}
+        cancelled = CANCELLED
+        CANCELLED = False
+        try:
+            return self._stop()
+        finally:
+            CANCELLED = cancelled
+
+    def _stop(self):
+        # Cleanup has its own finite grace, even when the original work expired.
+        grace = time.monotonic() + 45
+        manager_error = None
+        try:
+            state = self.state(grace)
+            if state.get('ControlGroup'):
+                observed = scope_path(state['ControlGroup'], self.unit)
+                require(self.group is None or self.group == observed, 'scope_changed')
+                self.group = observed
+            run(['systemctl', '--user', 'stop', self.unit], grace, cap=25, env=self.env, check=False)
+        except (OSError, ValueError, subprocess.SubprocessError, CleanupUnconfirmed) as error:
+            manager_error = error
+        finally:
+            # The bus is not the only teardown path. Always join the child and
+            # its retained process group even when the manager is unavailable.
+            try:
+                joined(self.process)
+                self.process = None
+            finally:
+                self.log.close()
+        try:
+            if self.group is not None and self.group.exists():
+                require('populated 0' in (self.group / 'cgroup.events').read_text().splitlines(), 'scope_not_empty')
+            require(self.state(grace).get('ActiveState') in ('inactive', 'failed'), 'scope_still_active')
+            if manager_error is not None:
+                raise CleanupUnconfirmed('scope_manager_cleanup_unconfirmed') from manager_error
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            raise CleanupUnconfirmed('scope_cleanup_unconfirmed') from error
+        self.cleanup_confirmed = True
+        return {'qemu_process_joined': True, 'scope_empty': True}
+
+
+def fish_script(operations):
+    rows = ['set-pgroup false', 'set-network false', 'run']
+    require(len(operations) <= 200000, 'fish_operations')
+    for operation in operations:
+        require(type(operation) in (list, tuple) and operation
+                and re.fullmatch('[a-z][a-z0-9-]+', operation[0]), 'fish_operation')
+        values = list(map(str, operation))
+        require(all(v.isascii() and not any(c in v for c in '\r\n\x00') and len(v) <= 4096 for v in values),
+                'fish_argument')
+        rows.append(values[0] + ''.join(' ' + json.dumps(value) for value in values[1:]))
+    raw = ('\n'.join(rows) + '\n').encode()
+    require(len(raw) <= 64 * 1024 ** 2, 'fish_script_bound')
+    return raw
+
+
+class ImageTools:
+    def __init__(self, work, kernel, deadline):
+        self.work, self.deadline = work, deadline
+        require(kernel.resolve(strict=True).parent == work.parent and not kernel.is_symlink(), 'appliance_kernel_path')
+        record = file_hash(kernel, deadline, 64 * 1024 ** 2)
+        data = kernel.read_bytes()[:66200]
+        require(data[514:518] == b'HdrS', 'appliance_kernel_header')
+        offset = int.from_bytes(data[526:528], 'little') + 0x200
+        release = re.split(b'[\x00 \t\n]', data[offset:offset + 132], maxsplit=1)[0].decode()
+        require(release == os.uname().release and re.fullmatch('[A-Za-z0-9._+-]+', release), 'appliance_kernel_release')
+        modules = Path('/lib/modules') / release
+        require(modules.is_dir() and (modules / 'modules.dep').is_file(), 'appliance_modules')
+        self.kernel, self.kernel_record = kernel, record
+        self.env = dict(ENV, LIBGUESTFS_BACKEND='direct', LIBGUESTFS_BACKEND_SETTINGS='force_kvm',
+                        LIBGUESTFS_MEMSIZE='2048', SUPERMIN_KERNEL=str(kernel), SUPERMIN_MODULES=str(modules),
+                        SUPERMIN_KERNEL_VERSION=release, LIBGUESTFS_CACHEDIR=str(work), LIBGUESTFS_TMPDIR=str(work))
+
+    def fish(self, image, operations, *, readonly=True, image_format='raw', timeout=600, operation=None):
+        require(image_format in ('raw', 'qcow2') and type(readonly) is bool, 'fish_format')
+        require(image.resolve(strict=True).is_relative_to(self.work), 'fish_image_path')
+        require(file_hash(self.kernel, self.deadline, 64 * 1024 ** 2) == self.kernel_record, 'appliance_changed')
+        script = self.work / ('fish-' + uuid.uuid4().hex + '.txt')
+        write_new(script, fish_script(operations))
+        maximum = 64 * 1024 ** 2 if operation == 'model_export_metadata' else 4 * 1024 ** 2
+        try:
+            output, _, _ = run(['guestfish', '--ro' if readonly else '--rw', '--format=' + image_format,
+                '-a', image, '-f', script], self.deadline, cap=timeout, maximum=maximum, env=self.env)
+            return output.decode('utf-8', errors='strict')
+        finally:
+            script.unlink()
+
+
+def reserve_space(work, upcoming, label):
+    statv = os.statvfs(work)
+    free = statv.f_bavail * statv.f_frsize
+    require(type(upcoming) is int and upcoming >= 0 and free >= upcoming + GIB, 'space_' + label)
+    return {'phase': label, 'free_bytes': free, 'upcoming_bytes': upcoming}
+
+
+def qemu_build(work):
+    return ['qemu-system-x86_64', '-name', 'volparossa-resident-build', '-no-user-config', '-nodefaults',
+        '-machine', 'q35,accel=kvm', '-cpu', 'host', '-smp', '2', '-m', '12288',
+        '-drive', 'if=virtio,format=qcow2,file=' + str(work / 'build.qcow2'),
+        '-drive', 'if=virtio,format=raw,readonly=on,file=' + str(work / 'seed.img'),
+        '-drive', 'if=none,id=runtime,format=raw,file=' + str(work / 'runtime-root.raw'),
+        '-device', 'virtio-blk-pci,drive=runtime,serial=vp-resident-runtime',
+        '-device', 'virtio-rng-pci', '-device', 'virtio-net-pci,netdev=buildnet',
+        '-netdev', 'user,id=buildnet,hostfwd=tcp:127.0.0.1:22223-:22',
+        '-display', 'none', '-monitor', 'none', '-serial', 'file:' + str(work / 'build-console.log'),
+        '-no-reboot', '-sandbox', 'on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny']
+
+
+def qemu_model(work, closure, channel):
+    initrd = module('protected-resident-model-initrd')
+    return ['qemu-system-x86_64', '-name', 'volparossa-resident-public-model', '-no-user-config', '-nodefaults',
+        '-machine', 'q35,accel=kvm', '-cpu', 'host', '-smp', '2', '-m', '12288',
+        '-kernel', str(closure['kernel']), '-initrd', str(work / 'model-initrd.img'), '-append', initrd.CMDLINE,
+        '-drive', 'if=virtio,format=raw,readonly=on,file=' + str(work / 'runtime-root.raw'),
+        '-drive', 'if=virtio,format=raw,readonly=on,file=' + str(work / 'verity.raw'),
+        '-device', 'virtio-serial-pci', '-chardev', 'socket,id=resident,path=' + str(channel) + ',server=on,wait=off',
+        '-device', 'virtserialport,chardev=resident,name=org.volparossa.resident',
+        '-nic', 'none', '-display', 'none', '-monitor', 'none', '-serial', 'file:' + str(work / 'model-console.log'),
+        '-no-reboot', '-sandbox', 'on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny']
+
+
+class Guest:
+    def __init__(self, work, deadline):
+        self.work, self.deadline = work, deadline
+        self.options = ['-F', '/dev/null', '-i', str(work / 'ssh-key'), '-o', 'BatchMode=yes',
+            '-o', 'ConnectTimeout=5', '-o', 'ClearAllForwardings=yes', '-o', 'ControlMaster=no',
+            '-o', 'ControlPath=none', '-o', 'ForwardAgent=no', '-o', 'GlobalKnownHostsFile=/dev/null',
+            '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', '-o', 'KbdInteractiveAuthentication=no',
+            '-o', 'PasswordAuthentication=no', '-o', 'ProxyCommand=none', '-o', 'ProxyJump=none',
+            '-o', 'RequestTTY=no', '-o', 'StrictHostKeyChecking=yes', '-o', 'Tunnel=no',
+            '-o', 'UserKnownHostsFile=' + str(work / 'known-hosts')]
+
+    def ssh(self, argv, *, cap=120, check=True, deadline=None):
+        return run(['ssh', *self.options, '-p', '22223', 'vpci@127.0.0.1', shlex.join(map(str, argv))],
+                   deadline or self.deadline, cap=cap, check=check)
+
+    def upload(self, source, target):
+        run(['scp', *self.options, '-P', '22223', source, 'vpci@127.0.0.1:' + target],
+            self.deadline, cap=600)
+
+    def unit(self, name, argv, guest_deadline, *, user='root'):
+        require(name in ('vp-resident-install-build', 'vp-resident-install-runtime', 'vp-resident-builder'),
+                'guest_unit_name')
+        unit = name + '.service'
+        cap = int(remaining(self.deadline, 7200))
+        unit_end = time.monotonic() + remaining(self.deadline, cap)
+        try:
+            # RemainAfterExit preserves the original status. Do not combine it
+            # with --wait: active(exited) is intentionally not an inactive unit.
+            self.ssh(['sudo', '-n', 'systemd-run', '--unit=' + unit,
+                '--quiet', '--expand-environment=no', '--property=Type=exec', '--property=RemainAfterExit=yes',
+                '--property=KillMode=control-group', '--property=RuntimeMaxSec=' + str(cap),
+                '--property=TimeoutStopSec=15', '--property=MemoryMax=10G', '--property=MemorySwapMax=0',
+                '--property=StandardOutput=null', '--property=StandardError=journal',
+                '--property=User=' + user, *argv, '--deadline-monotonic-ns', str(guest_deadline)], cap=30)
+            while True:
+                remaining(unit_end, cap)
+                state = self.ssh(['sudo', '-n', 'systemctl', 'show', unit,
+                    '--property=Result,ExecMainStatus,ExecMainCode,ActiveState,SubState,ControlGroup'])[0].decode()
+                fields = dict(row.split('=', 1) for row in state.splitlines() if '=' in row)
+                require(fields.get('ControlGroup') in ('', '/system.slice/' + unit), 'guest_unit_cgroup')
+                require(fields.get('Result') == 'success' and fields.get('ActiveState') in ('activating', 'active'),
+                        'guest_unit_failed')
+                if fields.get('SubState') == 'exited':
+                    require(fields.get('ExecMainCode') == '1' and fields.get('ExecMainStatus') == '0',
+                            'guest_unit_failed')
+                    break
+                time.sleep(1)
+        finally:
+            grace = time.monotonic() + 40
+            self.ssh(['sudo', '-n', 'systemctl', 'stop', unit], cap=25, deadline=grace, check=False)
+            # A stopped unit's exact cgroup either disappeared or is unpopulated.
+            proof = ('import pathlib; p=pathlib.Path("/sys/fs/cgroup/system.slice/' + unit + '"); '
+                     'assert not p.exists() or "populated 0" in (p/"cgroup.events").read_text().splitlines()')
+            self.ssh(['sudo', '-n', 'python3', '-c', proof], cap=10, deadline=grace)
+        return True
+
+
+def seed(work, deadline):
+    for name in ('ssh-key', 'host-key'):
+        run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', 'volparossa-public-fixture', '-f', work / name], deadline)
+    public = (work / 'ssh-key.pub').read_text().strip()
+    host = (work / 'host-key.pub').read_text().strip()
+    write_new(work / 'known-hosts', ('[127.0.0.1]:22223 ' + host + '\n').encode())
+    data = '#cloud-config\nusers:\n  - name: vpci\n    groups: [sudo]\n    sudo: "ALL=(ALL) NOPASSWD:ALL"\n'
+    data += '    shell: /bin/bash\n    lock_passwd: true\n    ssh_authorized_keys:\n      - ' + public + '\n'
+    data += 'ssh_pwauth: false\ndisable_root: true\nssh_deletekeys: true\nssh_keys:\n  ed25519_private: |\n'
+    data += ''.join('    ' + line + '\n' for line in (work / 'host-key').read_text().splitlines())
+    data += '  ed25519_public: ' + host + '\ngrowpart:\n  mode: auto\n  devices: [/]\nresize_rootfs: true\n'
+    write_new(work / 'user-data', data.encode())
+    write_new(work / 'meta-data', ('instance-id: vp-resident-' + uuid.uuid4().hex + '\nlocal-hostname: volparossa-alpha\n').encode())
+    run(['cloud-localds', work / 'seed.img', work / 'user-data', work / 'meta-data'], deadline)
+
+
+def source_bundle(work, expected, requester, deadline):
+    raw = run(['git', '-C', ROOT, 'archive', '--format=tar', '--prefix=core/', expected],
+              deadline, maximum=512 * 1024 ** 2)[0]
+    write_new(work / 'inputs.tar', raw)
+    url = 'https://raw.githubusercontent.com/VOLPAROSSA/volparossa-code/' + CODE + '/scripts/opencode_native_cpu.py'
+    with urllib.request.urlopen(url, timeout=30) as response:
+        helper = response.read(1024 ** 2 + 1)
+    require(len(helper) <= 1024 ** 2 and hashlib.sha256(helper).hexdigest() == HELPER_SHA, 'helper_digest')
+    policy = json.loads(run([requester, 'compute', 'resident-public-trial', '--socket', work / 'unused.sock',
+        '--certificate', work / 'server.der', '--requester-key', work / 'requester.seed',
+        '--workload-sha256', '0' * 64], deadline)[0])
+    fixture = {key: policy[key] for key in ('requester_key', 'public_input_sha256')}
+    additions = {'core.commit': run(['git', '-C', ROOT, 'cat-file', 'commit', expected], deadline)[0],
+                 'code/scripts/opencode_native_cpu.py': helper, 'fixture/requester.json': encoded(fixture),
+                 'fixture/server.der': (work / 'server.der').read_bytes(),
+                 'fixture/server-key.der': (work / 'server-key.der').read_bytes()}
+    with tarfile.open(work / 'inputs.tar', 'a') as archive:
+        for name, data in additions.items():
+            info = tarfile.TarInfo(name)
+            info.size, info.mode = len(data), 0o600
+            archive.addfile(info, io.BytesIO(data))
+    return file_hash(work / 'inputs.tar', deadline, 512 * 1024 ** 2)
+
+
+def public_keys(work, deadline):
+    write_new(work / 'requester.seed', os.urandom(32))
+    run(['openssl', 'req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256',
+        '-nodes', '-days', '2', '-subj', '/CN=resident.test', '-addext', 'subjectAltName=DNS:resident.test',
+        '-addext', 'basicConstraints=critical,CA:FALSE', '-addext', 'keyUsage=critical,digitalSignature',
+        '-addext', 'extendedKeyUsage=serverAuth', '-keyout', work / 'server.pem', '-out', work / 'certificate.pem'], deadline)
+    run(['openssl', 'x509', '-in', work / 'certificate.pem', '-outform', 'DER', '-out', work / 'server.der'], deadline)
+    run(['openssl', 'pkcs8', '-topk8', '-nocrypt', '-in', work / 'server.pem', '-outform', 'DER',
+         '-out', work / 'server-key.der'], deadline)
+
+
+def boot_record(raw, outcome):
+    require(len(raw) <= 4 * 1024 ** 2, 'console_bound')
+    matches = [line[len(BOOT):] for line in raw.splitlines() if line.startswith(BOOT)]
+    require(len(matches) == 1, 'one_model_boot_receipt')
+    value = module('protected-resident-model-workload').parse(matches[0])
+    flags = ('verity_verified', 'root_readonly', 'write_denied', 'entrypoint_invoked', 'process_exit_zero')
+    forbidden = ('hardware_attestation', 'private_inputs', 'model_execution', 'worker_execution',
+                 'guest_key_origin_proven', 'worker_cleanup_confirmed')
+    require(type(value) is dict and value.keys() == {'version', 'outcome', 'stage', *flags, *forbidden}
+            and type(value['version']) is int and value['version'] == 1 and value['outcome'] == outcome,
+            'model_boot_outcome')
+    require(outcome in ('guest_process_returned', 'integrity_failure'), 'model_boot_outcome')
+    good = outcome == 'guest_process_returned'
+    require(value['stage'] == ('complete' if good else 'verity_read')
+            and all(value[key] is good for key in flags), 'model_boot_proof')
+    for key in forbidden:
+        require(value.get(key) is False, 'model_boot_scope')
+    return value
+
+
+def ready_record(raw):
+    require(type(raw) is bytes and len(raw) <= 4 * 1024 ** 2, 'console_bound')
+    rows = [line[len(READY):] for line in raw.splitlines() if line.startswith(READY)]
+    if not rows:
+        return False
+    require(len(rows) == 1, 'one_model_ready_receipt')
+    expected = {'version': 1, 'scope': 'public_fixture', 'privileges_dropped': True,
+        'hardware_attestation': False, 'private_inputs': False, 'model_execution': False,
+        'worker_execution': False}
+    require(encoded(module('protected-resident-model-workload').parse(rows[0])) == encoded(expected),
+            'model_ready_receipt')
+    return True
+
+
+def requester_record(raw, workload):
+    require(type(raw) is bytes and len(raw) <= 65536 and re.fullmatch('[0-9a-f]{64}', workload),
+            'requester_receipt_bound')
+    value = module('protected-resident-model-workload').parse(raw)
+    require(type(value) is dict and value.keys() == {'version', 'kind', 'public_fixture_only',
+        'workload_sha256', 'tls_spki_sha256', 'turns', 'final_cleanup', 'private_inputs',
+        'hardware_attestation', 'guest_key_origin_proven', 'production_approval'}
+        and type(value['version']) is int and value['version'] == 1
+        and value['kind'] == 'public_resident_requester' and value['public_fixture_only'] is True
+        and value['workload_sha256'] == workload and type(value['tls_spki_sha256']) is str
+        and re.fullmatch('[0-9a-f]{64}', value['tls_spki_sha256']), 'requester_receipt_scope')
+    require(all(value[key] is False for key in ('private_inputs', 'hardware_attestation',
+                'guest_key_origin_proven', 'production_approval')), 'requester_receipt_scope')
+    require(type(value['turns']) is list and len(value['turns']) == 2, 'requester_turns')
+    for index, (turn, answer) in enumerate(zip(value['turns'], ('READY', '4')), 1):
+        require(type(turn) is dict and turn.keys() == {'sequence', 'answer', 'prompt_tokens',
+                'generated_tokens', 'per_turn_cleanup'} and type(turn['sequence']) is int
+                and turn['sequence'] == index and type(turn['answer']) is str and turn['answer'].strip() == answer,
+                'requester_turn')
+        require(type(turn['prompt_tokens']) is int and 1 <= turn['prompt_tokens'] <= 12288
+                and type(turn['generated_tokens']) is int and 1 <= turn['generated_tokens'] <= 1024,
+                'requester_tokens')
+        require(encoded(turn['per_turn_cleanup']) == encoded({'version': 2, 'request_files_removed': True,
+                'session_closed': False, 'session_private_state_retained': True}), 'requester_turn_cleanup')
+    require(encoded(value['final_cleanup']) == encoded({'version': 1, 'child_reaped': True, 'private_state_removed': True}),
+            'requester_final_cleanup')
+    return value
+
+
+def execute(args):
+    os.umask(0o077)
+    deadline = time.monotonic() + MAX_SECONDS
+    base, source, launch, env = hosted(args, deadline)
+    work = args.work
+    evidence = work / 'evidence'
+    evidence.mkdir(mode=0o700)
+    report = dict(version=1, kind='protected-resident-public-model-trial', source=source,
+                  state='failed', phase='prepare', process_launch=launch, model_execution=False,
+                  private_inputs=False, hardware_attestation=False, confidential_execution=False,
+                  production_approval=False, vm_cleanup_confirmed=False, scratch_removed=False)
+    current = None
+    try:
+        images = ImageTools(work, args.appliance_kernel, deadline)
+        require(args.requester.resolve(strict=True).is_relative_to(ROOT / 'target'), 'requester_source_path')
+        report['requester_binary'] = file_hash(args.requester, deadline, 256 * 1024 ** 2)
+        report['host_before'] = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest()
+                                 for name in ('/proc/net/route', '/proc/net/ipv6_route', '/etc/resolv.conf')}
+        public_keys(work, deadline)
+        bundle = source_bundle(work, args.expected_source, args.requester, deadline)
+        lock_path = HERE / 'protected-resident-model-debian-lock-v1.json'
+        require(hashlib.sha256(lock_path.read_bytes()).hexdigest() == LOCK_SHA, 'debian_lock')
+        lock = json.loads(lock_path.read_bytes())
+        pins = json.loads((HERE / 'protected-resident-image-pins-v1.json').read_bytes())
+        image_pin = json.loads((ROOT / pins['debian_image_manifest']).read_bytes())
+        report['phase'] = 'download'
+        reserve_space(work, 6 * GIB, 'download')
+        base.fetch(image_pin, work / 'base.qcow2', 'sha512', 4 * GIB, deadline)
+        packages = work / 'packages'
+        packages.mkdir(mode=0o700)
+        for name, pin in lock['packages'].items():
+            require(re.fullmatch('[a-z0-9][a-z0-9+.-]*', name), 'package_name')
+            base.fetch(pin, packages / (name + '.deb'), 'sha256', pin['bytes'], deadline)
+        with tarfile.open(work / 'packages.tar', 'x') as archive:
+            for path in sorted(packages.iterdir()):
+                archive.add(path, arcname=path.name, recursive=False)
+        report['phase'] = 'prepare_disks'
+        device = base.root_device(images.fish(work / 'base.qcow2', [['inspect-os']], image_format='qcow2'))
+        details = images.fish(work / 'base.qcow2', [['inspect-os'], ['inspect-get-distro', device],
+            ['inspect-get-major-version', device], ['vfs-type', device], ['blockdev-getsize64', device]],
+            image_format='qcow2').splitlines()
+        require(details[:4] == [device, 'debian', '13', 'ext4'], 'base_os')
+        size = int(details[4])
+        require(0 < size <= 16 * GIB and size % 4096 == 0, 'base_root_size')
+        reserve_space(work, size + 2 * GIB, 'root_extract')
+        images.fish(work / 'base.qcow2', [['download-offset', device, work / 'runtime-root.raw', '0', str(size)]],
+                    image_format='qcow2')
+        run(['qemu-img', 'resize', '-f', 'raw', work / 'runtime-root.raw', str(RUNTIME_BYTES)], deadline)
+        runtime_uuid = str(uuid.uuid4())
+        observed = images.fish(work / 'runtime-root.raw', [['set-uuid', '/dev/sda', runtime_uuid],
+            ['resize2fs', '/dev/sda'], ['vfs-uuid', '/dev/sda']], readonly=False)
+        require(observed.strip() == runtime_uuid, 'runtime_uuid')
+        run(['qemu-img', 'create', '-q', '-f', 'qcow2', '-F', 'qcow2', '-b', work / 'base.qcow2',
+             work / 'build.qcow2', '40G'], deadline)
+        seed(work, deadline)
+        # This reservation is conservative physical headroom for model/compiler
+        # growth, not a fabricated measurement of maximum simultaneous usage.
+        report['build_space'] = reserve_space(work, 40 * GIB, 'build')
+        with socket.socket() as test:
+            test.bind(('127.0.0.1', 22223))
+        current = Scope(qemu_build(work), work, deadline, env, min(7500, int(remaining(deadline))), 'build')
+        current.start()
+        guest = Guest(work, deadline)
+        report['phase'] = 'guest_boot'
+        end = time.monotonic() + remaining(deadline, 300)
+        while time.monotonic() < end:
+            if guest.ssh(['true'], cap=10, check=False)[2] == 0:
+                break
+            require(current.alive(), 'build_vm_died')
+            time.sleep(.5)
+        else:
+            raise ValueError('build_boot_timeout')
+        guest.ssh(['sudo', '-n', 'cloud-init', 'status', '--wait'], cap=120)
+        guest_deadline = int(guest.ssh(['python3', '-c', 'import time; print(time.monotonic_ns())'])[0])
+        guest_deadline += int(remaining(deadline, 7200) * 10 ** 9)
+        guest_uid = int(guest.ssh(['id', '-u', 'vpci'])[0])
+        guest_gid = int(guest.ssh(['id', '-g', 'vpci'])[0])
+        guest.upload(work / 'inputs.tar', '/home/vpci/resident-inputs.tar')
+        guest.upload(work / 'packages.tar', '/home/vpci/resident-packages.tar')
+        require(guest.ssh(['sha256sum', '/home/vpci/resident-inputs.tar'])[0].decode().split()[0] == bundle['sha256'],
+                'guest_source_bundle')
+        package_tar = file_hash(work / 'packages.tar', deadline, GIB)
+        require(guest.ssh(['sha256sum', '/home/vpci/resident-packages.tar'])[0].decode().split()[0] == package_tar['sha256'],
+                'guest_package_bundle')
+        guest.ssh(['sh', '-c', 'umask 077; mkdir -m 0700 ' + INPUT + ' /home/vpci/resident-packages; '
+                   'tar --no-same-owner --no-same-permissions -xf /home/vpci/resident-inputs.tar -C ' + INPUT + '; '
+                   'tar --no-same-owner --no-same-permissions -xf /home/vpci/resident-packages.tar -C /home/vpci/resident-packages'])
+        guest.ssh(['sudo', '-n', 'install', '-d', '-m', '0700', '/var/lib/volparossa-resident'])
+        report['phase'] = 'guest_packages'
+        for mode in ('build', 'runtime'):
+            guest.unit('vp-resident-install-' + mode, ['python3', '-B', INSTALL, '--execute', '--yes',
+                '--disposable-guest', '--mode', mode, '--package-lock', LOCK, '--package-lock-sha256', LOCK_SHA,
+                '--packages', '/home/vpci/resident-packages', '--result', '/var/lib/volparossa-resident/install-' + mode + '.json'],
+                guest_deadline)
+            raw = guest.ssh(['sudo', '-n', 'cat', '/var/lib/volparossa-resident/install-' + mode + '.json'])[0]
+            installed = json.loads(raw)
+            require(installed.get('kind') == 'protected-resident-offline-package-install'
+                    and installed.get('mode') == mode and installed.get('state') == 'configured'
+                    and installed.get('package_lock_sha256') == LOCK_SHA
+                    and installed.get('packages_verified') == (198 if mode == 'build' else 65)
+                    and all(installed.get(key) is True for key in ('archives_verified', 'status_verified',
+                        'triggers_clear', 'audit_clear', 'policy_restored', 'runtime_unmounted', 'namespace_joined',
+                        'direct_child_groups_joined')), 'installer_receipt')
+            write_new(evidence / ('install-' + mode + '.json'), raw)
+        report['phase'] = 'guest_model_build'
+        guest.unit('vp-resident-builder', ['python3', '-B', BUILD, '--execute', '--yes', '--disposable-guest',
+            '--input', INPUT, '--output', OUTPUT, '--expected-source', args.expected_source,
+            '--package-lock', LOCK, '--package-lock-sha256', LOCK_SHA], guest_deadline, user='vpci')
+        # A successful process is insufficient: verify detached units and disk use.
+        device = guest.ssh(['readlink', '-f', '/dev/disk/by-id/virtio-vp-resident-runtime'])[0].decode().strip()
+        require(re.fullmatch('/dev/vd[a-z]', device), 'runtime_device')
+        require(guest.ssh(['findmnt', '-rn', '-S', device], check=False)[2] == 1, 'runtime_still_mounted')
+        guest.ssh(['sync'])
+        cleanup = current.stop()
+        current = None
+        cleanup.update(version=1, kind='protected-resident-model-build-cleanup', source_commit=args.expected_source,
+                       source_tree=source['tree'], guest_uid=guest_uid, guest_gid=guest_gid,
+                       guest_build_units_empty=True, guest_root_units_empty=True, runtime_unmounted=True,
+                       build_image=file_hash(work / 'build.qcow2', deadline),
+                       runtime_image=file_hash(work / 'runtime-root.raw', deadline))
+        write_new(evidence / 'build-cleanup.json', encoded(cleanup))
+        report['phase'] = 'immutable_export'
+        assembler = module('protected-resident-model-assemble')
+        reserve_space(work, 21 * GIB, 'asset_export')
+        exported = assembler.export_assets(work / 'build.qcow2', work / 'export', cleanup,
+                                          args.expected_source, source['tree'], images.fish, deadline)
+        write_new(evidence / 'model-build.json', encoded(exported['build_result']))
+        # Only this known joined build overlay is released. Base/source/evidence
+        # remain; runtime and exported assets have independent validated bindings.
+        (work / 'build.qcow2').unlink()
+        report['phase'] = 'runtime_assembly'
+        reserve_space(work, 21 * GIB, 'workload_stage')
+        closure = assembler.assemble_runtime(work / 'runtime-root.raw', exported, work / 'assembled',
+                                             cleanup, images.fish, deadline)
+        require(closure['kernel_release'] == pins['kernel_release'], 'runtime_kernel_binding')
+        write_new(evidence / 'workload.json', encoded(closure['staging_receipt']))
+        report['phase'] = 'seal'
+        options = ['--no-superblock', '--format=1', '--hash=sha256', '--data-block-size=4096',
+                   '--hash-block-size=4096', '--data-blocks=' + str(RUNTIME_BYTES // 4096), '--salt=' + '0' * 64]
+        run(['veritysetup', *options, '--root-hash-file=' + str(work / 'root.hash'), 'format',
+             work / 'runtime-root.raw', work / 'verity.raw'], deadline, cap=900)
+        root_hash = (work / 'root.hash').read_text().strip()
+        require(re.fullmatch('[0-9a-f]{64}', root_hash), 'verity_root_hash')
+        run(['veritysetup', *options, 'verify', work / 'runtime-root.raw', work / 'verity.raw', root_hash], deadline, cap=900)
+        initrd = module('protected-resident-model-initrd')
+        initrd_result = initrd.build(closure['root_tree'], closure['original_initrd'], pins['kernel_release'],
+                                    root_hash, RUNTIME_BYTES // 4096, work / 'model-initrd.img')
+        write_new(evidence / 'initrd.json', encoded(initrd_result))
+        sealed = {name: file_hash(work / name, deadline) for name in ('runtime-root.raw', 'verity.raw', 'model-initrd.img')}
+        write_new(evidence / 'sealed-inputs.json', encoded(sealed))
+        channel = work / 'channel.sock'
+        require(len(os.fsencode(channel)) < 104, 'channel_path_length')
+        report['phase'] = 'model_boot'
+        current = Scope(qemu_model(work, closure, channel), work, deadline, env, 2700, 'model')
+        current.start()
+        end = time.monotonic() + remaining(deadline, 300)
+        console = work / 'model-console.log'
+        while time.monotonic() < end:
+            require(current.alive(), 'model_vm_died')
+            if console.exists():
+                raw = console.read_bytes()
+                require(len(raw) <= 4 * 1024 ** 2, 'console_bound')
+                if ready_record(raw):
+                    break
+            time.sleep(.2)
+        else:
+            raise ValueError('model_ready_timeout')
+        report['phase'] = 'two_public_turns'
+        raw, _, _ = run([args.requester, 'compute', 'resident-public-trial', '--socket', channel,
+            '--certificate', work / 'server.der', '--requester-key', work / 'requester.seed',
+            '--workload-sha256', closure['staging_receipt']['workload_sha256'], '--execute'], deadline, cap=2420)
+        report['model_result'] = requester_record(raw, closure['staging_receipt']['workload_sha256'])
+        write_new(evidence / 'requester.json', encoded(report['model_result']))
+        end = time.monotonic() + remaining(deadline, 60)
+        while current.alive() and time.monotonic() < end:
+            time.sleep(.1)
+        require(not current.alive(), 'model_guest_exit_timeout')
+        write_new(evidence / 'model-boot.json', encoded(boot_record(console.read_bytes(), 'guest_process_returned')))
+        current.stop()
+        current = None
+        require(all(file_hash(work / name, deadline) == record for name, record in sealed.items()), 'sealed_inputs_changed')
+        # Corrupt in place only AFTER the successful VM is joined and all sealed
+        # hashes checked. The image is disposable, not a published good artifact.
+        report['phase'] = 'corruption_negative'
+        with (work / 'runtime-root.raw').open('r+b') as image:
+            image.seek(1024)
+            old = image.read(1)
+            image.seek(1024)
+            image.write(bytes([old[0] ^ 1]))
+            image.flush()
+            os.fsync(image.fileno())
+        console.unlink()
+        channel.unlink()
+        current = Scope(qemu_model(work, closure, channel), work, deadline, env, 360, 'corrupt')
+        current.start()
+        end = time.monotonic() + remaining(deadline, 300)
+        while current.alive() and time.monotonic() < end:
+            time.sleep(.1)
+        require(not current.alive(), 'negative_guest_exit_timeout')
+        write_new(evidence / 'corrupt-boot.json', encoded(boot_record(console.read_bytes(), 'integrity_failure')))
+        current.stop()
+        current = None
+        require(source_binding(args.expected_source, deadline) == source, 'source_changed')
+        after = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in report['host_before']}
+        require(after == report['host_before'], 'host_network_observation_changed')
+        report.update(state='passed', phase='complete', model_execution=True, vm_cleanup_confirmed=True,
+                      host_observed_routes_dns_unchanged=True, runtime_image_deliberately_corrupted=True)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, CleanupUnconfirmed) as error:
+        code = str(error) if type(error) is ValueError else ''
+        report['failure'] = code if code in FAILURE_CODES else 'controller_stage_failed'
+    finally:
+        if current is not None:
+            try:
+                current.stop()
+                report['vm_cleanup_confirmed'] = True
+            except (OSError, ValueError, subprocess.SubprocessError, CleanupUnconfirmed):
+                report['vm_cleanup_confirmed'] = False
+        write_new(evidence / 'result.json', encoded(report))
+    return report
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--execute', action='store_true', required=True)
+    parser.add_argument('--yes', action='store_true', required=True)
+    parser.add_argument('--expected-source', required=True)
+    parser.add_argument('--work', type=Path, required=True)
+    parser.add_argument('--appliance-kernel', type=Path, required=True)
+    parser.add_argument('--requester', type=Path, required=True)
+    args = parser.parse_args()
+    def cancel(_number, _frame):
+        global CANCELLED
+        CANCELLED = True
+    for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(number, cancel)
+    try:
+        result = execute(args)
+    except (OSError, ValueError, KeyError, TypeError, CleanupUnconfirmed, subprocess.SubprocessError):
+        result = {'version': 1, 'kind': 'protected-resident-public-model-trial', 'state': 'rejected'}
+    print(encoded(result).decode(), end='')
+    return 0 if result['state'] == 'passed' else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
