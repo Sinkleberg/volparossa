@@ -53,6 +53,13 @@ DISK_STAGES = ('inspect_roots', 'inspect_details', 'root_export', 'raw_resize',
                'runtime_uuid', 'build_overlay', 'seed')
 
 
+def inspected_root(device='/dev/sda1', size=4096, disk_size=16384, partitions=((1, 4096, 4096),)):
+    table = ''.join(f'[{index}] = {{\n  part_num: {number}\n  part_start: {start}\n'
+                    f'  part_end: {start + length - 1}\n  part_size: {length}\n}}\n'
+                    for index, (number, start, length) in enumerate(partitions))
+    return f'{device}\ndebian\n13\next4\n{size}\n{disk_size}\n' + table
+
+
 @contextlib.contextmanager
 def fake_tool(*, join_error=None, returncode=0):
     """Exercise real run bookkeeping without a process, pipe, wait or signal."""
@@ -360,7 +367,7 @@ class MemoryObservation(Inert):
         R.subprocess.Popen.assert_not_called()
 
     def execute_disk_case(self, available, baseline, *, disk_sample=None, failure=None, wrong_uuid=False,
-                          scope_cleanup_error=None):
+                          scope_cleanup_error=None, export_error=None):
         pins = R.json.loads((R.HERE / 'protected-resident-image-pins-v1.json').read_bytes())
         if disk_sample is None:
             disk_sample = memory(available=available)
@@ -394,15 +401,24 @@ class MemoryObservation(Inert):
                     return '/dev/sda1\n'
                 if ops[0][0] == 'inspect-os':
                     operation('inspect_details')
-                    return '/dev/sda1\ndebian\n13\next4\n4096\n'
+                    self.assertEqual(ops, [['inspect-os'], ['inspect-get-distro', '/dev/sda1'],
+                        ['inspect-get-major-version', '/dev/sda1'], ['vfs-type', '/dev/sda1'],
+                        ['blockdev-getsize64', '/dev/sda1'], ['blockdev-getsize64', '/dev/sda'],
+                        ['part-list', '/dev/sda']])
+                    return inspected_root()
                 if ops[0][0] == 'set-uuid':
                     operation('runtime_uuid')
                     self.assertEqual(ops, [['set-uuid', '/dev/sda', ops[0][2]], ['vfs-uuid', '/dev/sda']],
                                      'host_must_not_resize_runtime_filesystem')
                     return 'wrong-public-uuid' if wrong_uuid else ops[0][2]
-                self.assertEqual(ops[0][0], 'download-offset')
+                self.fail('unexpected_guestfish_operation')
+            def exported(path, geometry, _pin, deadline):
+                self.assertEqual(path, work / 'payload')
+                self.assertEqual(geometry, {'offset': 4096, 'size': 4096, 'disk_size': 16384})
+                self.assertEqual(deadline, 100 + R.MAX_SECONDS)
+                if export_error is not None:
+                    raise export_error
                 operation('root_export')
-                return ''
             def command(argv, *_args, **_options):
                 if argv[:2] == ['qemu-img', 'resize']:
                     self.assertEqual(argv[2:], ['-f', 'raw', work / 'payload/runtime-root.raw', str(32 * R.GIB)])
@@ -433,6 +449,7 @@ class MemoryObservation(Inert):
                 patches.enter_context(mock.patch.object(R, 'hosted', return_value=(base,
                     {'commit': '1' * 40, 'tree': '2' * 40}, {}, {})))
                 patches.enter_context(mock.patch.object(R, 'ImageTools', return_value=types.SimpleNamespace(fish=fish)))
+                patches.enter_context(mock.patch.object(R, 'export_root', side_effect=exported))
                 patches.enter_context(mock.patch.object(R, 'file_hash', return_value={'bytes': 1, 'sha256': 'a' * 64}))
                 patches.enter_context(mock.patch.object(R, 'public_keys'))
                 patches.enter_context(mock.patch.object(R, 'seed', side_effect=lambda *_args: operation('seed')))
@@ -518,6 +535,17 @@ class MemoryObservation(Inert):
         self.assertEqual(launches, 0)
         self.assertEqual(result['memory_admissions'], [])
         self.assertEqual(result['failure'], 'runtime_uuid')
+
+    def test_compare_failure_stops_before_resize_admission_and_vm(self):
+        result, reads, launches, operations = self.execute_disk_case(15 * R.GIB, memory(),
+            export_error=ValueError('root_export_compare'))
+        self.assertEqual(operations, list(DISK_STAGES[:2]))
+        self.assertEqual([row['label'] for row in result['disk_memory_observations']], list(DISK_STAGES[:2]))
+        self.assertEqual((reads, launches), (3, 0))
+        self.assertEqual(result['memory_admissions'], [])
+        self.assertEqual((result['failure'], result['phase']), ('root_export_compare', 'prepare_disks'))
+        self.assertTrue(result['scratch_removed'])
+        self.assertFalse(result['model_execution'])
 
     def test_scope_cleanup_failure_keeps_payload_and_original_failure(self):
         result, reads, launches, _ = self.execute_disk_case(15 * R.GIB, memory(),
@@ -624,6 +652,292 @@ class DiskMemoryObservation(Inert):
             self.assertIsNone(rows[0]['admitted'])
             self.assertNotIn(b'private-read-canary', R.encoded(rows))
             R.subprocess.Popen.assert_not_called()
+
+
+class RootGeometry(Inert):
+    def test_selected_root_is_exact_byte_range_among_valid_partitions(self):
+        raw = inspected_root('/dev/sdb3', partitions=((1, 512, 512), (3, 4096, 4096), (2, 12288, 1024)))
+        self.assertEqual(R.root_geometry('/dev/sdb3', raw),
+                         {'offset': 4096, 'size': 4096, 'disk_size': 16384})
+        R.subprocess.Popen.assert_not_called()
+
+    def test_wrong_root_os_or_filesystem_never_produces_geometry(self):
+        raw = inspected_root()
+        for device in (None, True, '/dev/sda', '/dev/sda0', '/dev/sda01', '/dev/sdaa1', '/dev/sda1,driver=host_device'):
+            with self.subTest(device=device), self.assertRaises(ValueError):
+                R.root_geometry(device, raw)
+        for old, new in (('/dev/sda1', '/dev/sda2'), ('debian', 'other'), ('13', '12'),
+                         ('ext4', 'xfs'), ('/dev/sda1\n', '/dev/sda1\n/dev/sda2\n')):
+            with self.subTest(value=new), self.assertRaises(ValueError):
+                R.root_geometry('/dev/sda1', raw.replace(old, new, 1))
+
+    def test_missing_truncated_extra_or_malformed_table_is_denied(self):
+        raw = inspected_root()
+        invalid = (None, b'wrong type', raw[:20], raw[:-4], raw + 'private-canary\n',
+                   raw.replace('part_num:', 'unknown:'), raw.replace('part_start: 4096', 'part_start: 0x1000'),
+                   raw.replace('part_end: 8191', 'part_end: 8192'), raw.replace('[0]', '[1]'),
+                   raw.replace('4096\n16384', '+4096\n16384'), raw + 'x' * 16384)
+        for value in invalid:
+            with self.subTest(value=type(value).__name__), self.assertRaises(ValueError):
+                R.root_geometry('/dev/sda1', value)
+
+    def test_duplicate_overlapping_missing_root_or_wrong_size_is_denied(self):
+        for partitions in (((1, 4096, 4096), (1, 12288, 512)),
+                           ((1, 4096, 4096), (2, 7680, 512)),
+                           ((2, 4096, 4096),), ((1, 4096, 8192),)):
+            with self.subTest(partitions=partitions), self.assertRaises(ValueError):
+                R.root_geometry('/dev/sda1', inspected_root(partitions=partitions))
+
+    def test_geometry_bounds_alignment_and_table_count_fail_closed(self):
+        invalid = [inspected_root(size=value) for value in (0, 4095, 4097, 16 * R.GIB + 4096)]
+        invalid += [inspected_root(disk_size=value) for value in (0, 4096, 16385, R.RUNTIME_BYTES + 512)]
+        invalid += [inspected_root(partitions=((1, start, length),))
+                    for start, length in ((0, 4096), (1, 4096), (4096, 4095), (12288, 8192))]
+        invalid.append(inspected_root(disk_size=65536,
+            partitions=tuple((index + 1, (index + 1) * 512, 512) for index in range(65))))
+        for raw in invalid:
+            with self.subTest(raw=raw[:64]), self.assertRaises(ValueError):
+                R.root_geometry('/dev/sda1', raw)
+
+
+class SparseRootExport(Inert):
+    @contextlib.contextmanager
+    def fixture(self, *, header_change=None, parent_name='owned'):
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary) / parent_name
+            parent.mkdir(mode=0o700)
+            work = parent / 'payload'
+            work.mkdir(mode=0o700)
+            header = bytearray(104)
+            header[:4] = b'QFI\xfb'
+            header[4:8] = (3).to_bytes(4, 'big')
+            header[20:24] = (16).to_bytes(4, 'big')
+            header[24:32] = (16384).to_bytes(8, 'big')
+            header[100:104] = (104).to_bytes(4, 'big')
+            if header_change:
+                header_change(header)
+            image = work / 'base.qcow2'
+            image.write_bytes(header)
+            image.chmod(0o600)
+            pin = {'sha512': hashlib.sha512(header).hexdigest()}
+            yield work, {'offset': 4096, 'size': 4096, 'disk_size': 16384}, pin
+
+    def converter(self, work, geometry, calls, *, mismatch=0, change=None):
+        def command(argv, deadline, **options):
+            calls.append((argv, deadline, options))
+            target = work / 'runtime-root.raw'
+            if argv[1] == 'convert':
+                self.assertEqual(target.stat().st_size, geometry['size'])
+                target.write_bytes(b'public-fixture' + bytes(geometry['size'] - 14))
+            else:
+                self.assertEqual(argv[1], 'compare')
+            if change:
+                change(argv[1], target)
+            return b'', b'', mismatch if argv[1] == 'compare' else 0
+        return command
+
+    def test_sparse_convert_exact_graph_and_compare_before_return(self):
+        with self.fixture(parent_name='owned,driver=canary:json') as (work, geometry, pin):
+            calls = []
+            with mock.patch.object(R, 'run', side_effect=self.converter(work, geometry, calls)):
+                R.export_root(work, geometry, pin, 200)
+            graph = 'json:' + R.encoded(dict(driver='raw', offset=4096, size=4096,
+                file=dict(driver='qcow2', file=dict(driver='file', filename=str(work / 'base.qcow2'))))).decode().strip()
+            target = work / 'runtime-root.raw'
+            self.assertEqual(calls, [(['qemu-img', 'convert', '-q', '-n', '-O', 'raw', '-S', '4096',
+                '-m', '1', '-t', 'writeback', graph, target], 200.0, {'cap': 600, 'maximum': 4096}),
+                (['qemu-img', 'compare', '-q', '-F', 'raw', graph, target], 200.0,
+                 {'cap': 600, 'maximum': 4096, 'check': False})])
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(target.stat().st_nlink, 1)
+            self.assertEqual(hashlib.sha512((work / 'base.qcow2').read_bytes()).hexdigest(), pin['sha512'])
+        R.subprocess.Popen.assert_not_called()
+
+    def test_export_revalidates_geometry_before_files_or_commands(self):
+        invalid = [None, [], {}, dict(offset=True, size=4096, disk_size=16384)]
+        for field, values in {'offset': (0, 1, -512, 16384), 'size': (0, 4095, 16 * R.GIB + 4096),
+                              'disk_size': (4096, 16385, R.RUNTIME_BYTES + 512)}.items():
+            for value in values:
+                row = dict(offset=4096, size=4096, disk_size=16384)
+                row[field] = value
+                invalid.append(row)
+        invalid.append(dict(offset=4096, size=4096, disk_size=16384, extra=True))
+        with mock.patch.object(R, 'run') as command, mock.patch.object(R, 'directory_identity') as identity:
+            for geometry in invalid:
+                with self.subTest(geometry=geometry), self.assertRaisesRegex(ValueError, 'root_geometry'):
+                    R.export_root(Path('/not-opened/payload'), geometry, {}, 200)
+            command.assert_not_called()
+            identity.assert_not_called()
+
+    def test_backing_external_data_encryption_and_bad_header_denied_before_qemu(self):
+        changes = ((0, 4, b'nope'), (4, 8, (4).to_bytes(4, 'big')),
+                   (8, 16, (104).to_bytes(8, 'big')), (16, 20, (1).to_bytes(4, 'big')),
+                   (24, 32, (32768).to_bytes(8, 'big')), (32, 36, (1).to_bytes(4, 'big')),
+                   (72, 80, (4).to_bytes(8, 'big')), (100, 104, b''))
+        for start, stop, value in changes:
+            with self.subTest(field=start), self.fixture(
+                    header_change=lambda header: header.__setitem__(slice(start, stop), value)) as (work, geometry, pin):
+                with mock.patch.object(R, 'run') as command, self.assertRaisesRegex(ValueError, 'root_export_source'):
+                    R.export_root(work, geometry, pin, 200)
+                command.assert_not_called()
+                self.assertFalse((work / 'runtime-root.raw').exists())
+
+    def test_sha512_mismatch_or_malformed_pin_prevents_export(self):
+        with self.fixture() as (work, geometry, _pin), mock.patch.object(R, 'run') as command:
+            for pin in ({}, {'sha512': True}, {'sha512': 'z' * 128}, {'sha512': '0' * 128}, None):
+                with self.subTest(pin=pin), self.assertRaisesRegex(ValueError, 'root_export_source'):
+                    R.export_root(work, geometry, pin, 200)
+            command.assert_not_called()
+            self.assertFalse((work / 'runtime-root.raw').exists())
+
+    def test_source_symlink_hardlink_writable_or_nonregular_denied(self):
+        for kind in ('symlink', 'hardlink', 'writable', 'directory'):
+            with self.subTest(kind=kind), self.fixture() as (work, geometry, pin):
+                image = work / 'base.qcow2'
+                if kind == 'hardlink':
+                    os.link(image, work / 'other')
+                elif kind == 'writable':
+                    image.chmod(0o620)
+                else:
+                    image.rename(work / 'original')
+                    image.symlink_to(work / 'original') if kind == 'symlink' else image.mkdir()
+                with mock.patch.object(R, 'run') as command, self.assertRaisesRegex(ValueError, 'root_export_source'):
+                    R.export_root(work, geometry, pin, 200)
+                command.assert_not_called()
+
+    def test_identity_rejects_wrong_owner_and_oversize(self):
+        with self.fixture() as (work, _geometry, _pin):
+            path = work / 'base.qcow2'
+            meta = path.lstat()
+            with mock.patch.object(R.os, 'getuid', return_value=meta.st_uid + 1):
+                with self.assertRaisesRegex(ValueError, 'root_export_source'):
+                    R.export_identity(path, 104)
+            with self.assertRaisesRegex(ValueError, 'root_export_source'):
+                R.export_identity(path, 103)
+
+    def test_wrong_payload_name_symlink_or_writable_directory_is_denied(self):
+        for kind in ('name', 'symlink', 'writable', 'relative'):
+            with self.subTest(kind=kind), self.fixture() as (work, geometry, pin):
+                if kind == 'name':
+                    destination = work.with_name('wrong')
+                    work.rename(destination)
+                    work = destination
+                elif kind == 'symlink':
+                    work.rename(work.with_name('original'))
+                    work.symlink_to(work.with_name('original'))
+                elif kind == 'writable':
+                    work.chmod(0o770)
+                else:
+                    work = Path('not-opened/payload')
+                with mock.patch.object(R, 'run') as command, self.assertRaises((ValueError, OSError)):
+                    R.export_root(work, geometry, pin, 200)
+                command.assert_not_called()
+
+    def test_existing_target_regular_or_symlink_is_never_overwritten(self):
+        for symlink in (False, True):
+            with self.subTest(symlink=symlink), self.fixture() as (work, geometry, pin):
+                original = work / 'public-canary'
+                original.write_bytes(b'preserve this file')
+                target = work / 'runtime-root.raw'
+                target.symlink_to(original) if symlink else target.write_bytes(b'existing target')
+                with mock.patch.object(R, 'run') as command, self.assertRaises(FileExistsError):
+                    R.export_root(work, geometry, pin, 200)
+                command.assert_not_called()
+                self.assertEqual(original.read_bytes(), b'preserve this file')
+                self.assertEqual(target.read_bytes(), b'preserve this file' if symlink else b'existing target')
+
+    def test_conversion_output_replacement_or_wrong_size_prevents_compare(self):
+        for replacement in (False, True):
+            with self.subTest(replacement=replacement), self.fixture() as (work, geometry, pin):
+                calls = []
+                def change(_operation, target):
+                    if replacement:
+                        target.rename(work / 'old')
+                        target.write_bytes(bytes(4096))
+                    else:
+                        target.write_bytes(b'short')
+                with mock.patch.object(R, 'run', side_effect=self.converter(work, geometry, calls, change=change)):
+                    with self.assertRaisesRegex(ValueError, 'root_export_source'):
+                        R.export_root(work, geometry, pin, 200)
+                self.assertEqual([call[0][1] for call in calls], ['convert'])
+
+    def test_source_mutation_during_conversion_or_comparison_is_denied(self):
+        for phase in ('convert', 'compare'):
+            with self.subTest(phase=phase), self.fixture() as (work, geometry, pin):
+                calls = []
+                def change(operation, _target):
+                    if operation == phase:
+                        (work / 'base.qcow2').write_bytes(b'changed source')
+                with mock.patch.object(R, 'run', side_effect=self.converter(work, geometry, calls, change=change)):
+                    with self.assertRaisesRegex(ValueError, 'root_export_source'):
+                        R.export_root(work, geometry, pin, 200)
+                self.assertEqual([call[0][1] for call in calls], ['convert'] if phase == 'convert'
+                                 else ['convert', 'compare'])
+
+    def test_compare_mismatch_or_error_never_returns_accepted_root(self):
+        for code in (1, 2, 3, 4, -9):
+            with self.subTest(code=code), self.fixture() as (work, geometry, pin):
+                calls = []
+                with mock.patch.object(R, 'run', side_effect=self.converter(work, geometry, calls, mismatch=code)):
+                    with self.assertRaisesRegex(ValueError, 'root_export_compare'):
+                        R.export_root(work, geometry, pin, 200)
+                self.assertEqual([call[0][1] for call in calls], ['convert', 'compare'])
+                self.assertTrue((work / 'runtime-root.raw').exists(), 'outer_cleanup_owns_partial_output')
+
+    def test_original_export_cap_covers_hash_conversion_and_comparison(self):
+        with self.fixture() as (work, geometry, pin):
+            calls, deadlines = [], []
+            original_hash = R.file_hash
+            def hashed(path, deadline, *args):
+                deadlines.append(deadline)
+                return original_hash(path, deadline, *args)
+            with mock.patch.object(R, 'file_hash', side_effect=hashed), \
+                    mock.patch.object(R, 'run', side_effect=self.converter(work, geometry, calls)):
+                R.export_root(work, geometry, pin, 10000)
+            self.assertEqual(deadlines, [700])
+            self.assertEqual([call[1] for call in calls], [700, 700])
+
+    def test_cancellation_and_expiry_never_restart_export_budget(self):
+        for phase in ('before', 'convert', 'compare'):
+            for cancelled in (False, True):
+                with self.subTest(phase=phase, cancelled=cancelled), self.fixture() as (work, geometry, pin):
+                    calls = []
+                    def change(operation, _target):
+                        if operation == phase:
+                            if cancelled:
+                                R.CANCELLED = True
+                            else:
+                                R.time.monotonic.return_value = 201
+                    try:
+                        if phase == 'before':
+                            R.CANCELLED = cancelled
+                            R.time.monotonic.return_value = 100 if cancelled else 201
+                        with mock.patch.object(R, 'run', side_effect=self.converter(work, geometry, calls, change=change)):
+                            with self.assertRaisesRegex(ValueError, 'controller_cancelled' if cancelled else 'controller_deadline'):
+                                R.export_root(work, geometry, pin, 200)
+                        expected = [] if phase == 'before' else ['convert'] if phase == 'convert' else ['convert', 'compare']
+                        self.assertEqual([call[0][1] for call in calls], expected)
+                    finally:
+                        R.CANCELLED = False
+                        R.time.monotonic.return_value = 100
+
+    def test_export_join_failure_keeps_real_tool_pending_and_partial_target(self):
+        with self.fixture() as (work, geometry, pin):
+            pending = {}
+            token = R.TOOL_PROCESSES.set(pending)
+            error = R.CleanupUnconfirmed('private-cleanup-canary')
+            try:
+                with fake_tool(join_error=error) as (process, join):
+                    with self.assertRaises(R.CleanupUnconfirmed) as caught:
+                        R.export_root(work, geometry, pin, 200)
+                    self.assertIs(caught.exception, error)
+                    self.assertEqual(pending, {id(process): process})
+                    join.assert_called_once_with(process)
+                    self.assertTrue((work / 'runtime-root.raw').exists())
+                    process.stdout.close.assert_called_once()
+                    process.stderr.close.assert_called_once()
+            finally:
+                R.TOOL_PROCESSES.reset(token)
 
 
 class GuestUnit(Inert):

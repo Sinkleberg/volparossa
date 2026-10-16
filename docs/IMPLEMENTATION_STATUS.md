@@ -314,11 +314,44 @@ process cleanup preserves the payload and remains a failed result. Script-remova
 errors no longer replace an original guestfish failure. All 76 inert controller
 tests pass locally with no skips, including 22 new cleanup and kernel-layout
 cases. These exercise real small temporary-file deletion with mocked processes,
-not a model VM. Independent source review passes; the next hosted gate requires
-100 Rust and 261 Python cases plus compilation, lint, formatting and source
-preservation. An original hosted model trial remains required. The long model trial
-is deferred until this cleanup slice is ready, avoiding a repeat build solely
-to verify scratch disposal; previous actual failures remain unchanged.
+not a model VM. Original source run
+[`38891781257`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38891781257)
+on `bf652806752dfaae8bcaf875215ead1109217877`, tree
+`3b7a2b058abf4fbd182d93c3e0c2e137fafcee87`, passes compilation, strict lint,
+100 Rust and 261 Python cases, an empty formatter patch and source preservation.
+
+Original actual run
+[`38893010738`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38893010738)
+repeats those source checks but again refuses build admission during disk
+preparation: **14,682,869,760 available bytes against 15,032,385,536 required**,
+a shortfall of 349,515,776 bytes. No build/model VM, guest TLS session or model
+turn starts. The largest observed preparation decrease follows root export:
+15,530,643,456 to 14,611,501,056 available bytes. This locates a change, not its
+cause; it proves neither a leaked appliance nor an OOM event.
+
+The new cleanup path succeeds on this early failure: owned tool groups are
+confirmed joined and the validated payload directory is removed, while public
+evidence remains. The VM-cleanup flag still covers a no-spawn path. User-manager
+restoration and final source checks pass; final host route/DNS comparison is
+not reached. All 35 source blobs, 560 package identities and original artifact
+API digests match, and all ZIP CRC checks pass. Source-contract, trial and log
+ZIP SHA-256 values are respectively
+`88e4de947b51a80b3e7e48b087eda3252f5c22b3e0bb896e69005daa440daf29`,
+`2a4f925495d0fe67205ecf9c4dfea04bb140375f02d3cc91ed96a28aa342e749`
+and `02e43da90216742c8e6460973188d897ae682edbdf438a6df8280e15e87cd375`.
+
+The follow-up replaces the third libguestfs appliance's full root-block export
+with a bounded QEMU sparse conversion of the same authenticated image and
+inspected partition. It validates partition geometry, source identity and the
+absence of external backing/data sources, then checks exact output size and
+byte-equivalence before resizing. Conversion and comparison share the original
+600-second export budget and joined process ownership. The 12 GiB guest,
+13 GiB QEMU cap, 14 GiB admission requirement, zero swap and model pins remain
+unchanged. This removes an appliance and its FileOut copy stream; it is not a
+proven fix for admission. Independent source review and 96 inert controller
+tests pass without skips. Actual conversion, sparse allocation and model turns
+remain for the hosted gate; its expected source count is 100 Rust and 281 Python
+cases. Earlier actual failures retain their original results.
 
 ### Latest shared-storage consumer trial
 

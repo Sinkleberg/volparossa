@@ -56,7 +56,8 @@ TOOL_PROCESSES = contextvars.ContextVar('resident_model_tool_processes', default
 FAILURE_CODES = frozenset(('controller_deadline', 'controller_cancelled', 'command_timeout',
     'command_output_bound', 'command_failed', 'host_memory_headroom', 'host_memory_snapshot', 'qemu_limits',
     'qemu_exited_before_scope', 'scope_start_timeout', 'guest_unit_failed', 'guest_unit_cgroup',
-    'base_os', 'base_root_size', 'runtime_uuid', 'build_vm_died', 'build_boot_timeout',
+    'base_os', 'base_root_size', 'root_geometry', 'root_export_source', 'root_export_compare',
+    'runtime_uuid', 'build_vm_died', 'build_boot_timeout',
     'guest_source_bundle', 'guest_package_bundle', 'installer_receipt', 'runtime_still_mounted',
     'runtime_kernel_binding', 'verity_root_hash', 'channel_path_length', 'model_vm_died',
     'console_bound', 'model_ready_timeout', 'model_guest_exit_timeout', 'sealed_inputs_changed',
@@ -432,6 +433,104 @@ class ImageTools:
             return value
 
 
+def root_geometry(device, details):
+    """Bind the inspected filesystem to one complete byte range, never a guessed sector offset."""
+    require(type(device) is str, 'root_geometry')
+    match = re.fullmatch(r'(/dev/sd[a-z])([1-9][0-9]{0,2})', device)
+    require(match is not None and type(details) is str and len(details) <= 16384, 'root_geometry')
+    rows = details.splitlines()
+    require(len(rows) >= 12 and rows[:4] == [device, 'debian', '13', 'ext4'], 'base_os')
+    require(all(re.fullmatch('[1-9][0-9]{0,11}', value) for value in rows[4:6]), 'root_geometry')
+    size, disk_size = map(int, rows[4:6])
+    require(0 < size <= 16 * GIB and size % 4096 == 0, 'base_root_size')
+    require(size <= disk_size <= RUNTIME_BYTES and disk_size % 512 == 0, 'root_geometry')
+    # Exact libguestfs v1.52 generator/fish.ml + partition struct rendering;
+    # daemon/parted.ml returns byte offsets, not sector numbers.
+    pattern = (r'\[([0-9]{1,2})\] = \{\n  part_num: ([1-9][0-9]{0,2})\n'
+               r'  part_start: ([0-9]{1,12})\n  part_end: ([0-9]{1,12})\n'
+               r'  part_size: ([0-9]{1,12})\n\}\n')
+    table = '\n'.join(rows[6:]) + '\n'
+    entries = list(re.finditer(pattern, table))
+    require(0 < len(entries) <= 64 and ''.join(row[0] for row in entries) == table, 'root_geometry')
+    partitions, intervals = {}, []
+    for index, row in enumerate(entries):
+        ordinal, number, start, end, length = map(int, row.groups())
+        require(ordinal == index and number not in partitions and 0 < start <= end < disk_size
+                and length == end - start + 1 and start % 512 == length % 512 == 0,
+                'root_geometry')
+        require(all(end < old_start or start > old_end for old_start, old_end in intervals), 'root_geometry')
+        partitions[number] = (start, length)
+        intervals.append((start, end))
+    require(int(match[2]) in partitions, 'root_geometry')
+    offset, length = partitions[int(match[2])]
+    require(length == size, 'root_geometry')
+    return {'offset': offset, 'size': size, 'disk_size': disk_size}
+
+
+def export_identity(path, maximum):
+    meta = path.lstat()
+    require(stat.S_ISREG(meta.st_mode) and meta.st_uid == os.getuid() and meta.st_nlink == 1
+            and not meta.st_mode & 0o022 and 0 < meta.st_size <= maximum, 'root_export_source')
+    return meta.st_dev, meta.st_ino, meta.st_size, meta.st_mtime_ns, meta.st_ctime_ns
+
+
+def export_root(work, geometry, pin, deadline):
+    """Sparse, byte-equivalent export without another appliance/FileOut stream.
+
+    This removes work, not proof of sufficient subsequent VM memory headroom.
+    The same existing export budget covers validation, conversion and comparison.
+    """
+    end = time.monotonic() + remaining(deadline, 600)
+    require(type(geometry) is dict and geometry.keys() == {'offset', 'size', 'disk_size'}
+            and all(type(value) is int for value in geometry.values()), 'root_geometry')
+    offset, size, disk_size = (geometry[name] for name in ('offset', 'size', 'disk_size'))
+    require(0 < size <= 16 * GIB and size % 4096 == 0 and offset > 0 and offset % 512 == 0
+            and offset + size <= disk_size <= RUNTIME_BYTES and disk_size % 512 == 0, 'root_geometry')
+    directory_identity(work)
+    require(work.name == 'payload' and work.is_absolute() and work.resolve(strict=True) == work,
+            'root_export_source')
+    image, target = work / 'base.qcow2', work / 'runtime-root.raw'
+    before = export_identity(image, 4 * GIB)
+    require(type(pin) is dict and type(pin.get('sha512')) is str
+            and re.fullmatch('[0-9a-f]{128}', pin['sha512']),
+            'root_export_source')
+    require(file_hash(image, end, 4 * GIB, 'sha512')['sha512'] == pin['sha512'], 'root_export_source')
+    with os.fdopen(os.open(image, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as source:
+        header = source.read(104)
+    # QEMU v8.2.2 docs/interop/qcow2.txt: refuse external backing/data sources
+    # before any QEMU open. All interpretation remains in the existing QEMU.
+    version = int.from_bytes(header[4:8], 'big')
+    require(len(header) == 104 and header[:4] == b'QFI\xfb' and version in (2, 3)
+            and int.from_bytes(header[8:20], 'big') == 0
+            and int.from_bytes(header[24:32], 'big') == disk_size
+            and int.from_bytes(header[32:36], 'big') == 0
+            and (version == 2 or not int.from_bytes(header[72:80], 'big') & 4), 'root_export_source')
+    require(export_identity(image, 4 * GIB) == before, 'root_export_source')
+    # JSON filenames are parsed by QEMU's block layer, not a shell or keyval
+    # parser; a comma/colon in the owned filename cannot inject another node.
+    graph = 'json:' + encoded(dict(driver='raw', offset=offset, size=size,
+        file=dict(driver='qcow2', file=dict(driver='file', filename=str(image))))).decode().strip()
+    remaining(end)
+    with target.open('xb') as output:
+        os.fchmod(output.fileno(), 0o600)
+        output.truncate(size)
+    created = export_identity(target, size)
+    run(['qemu-img', 'convert', '-q', '-n', '-O', 'raw', '-S', '4096', '-m', '1',
+         '-t', 'writeback', graph, target], end, cap=600, maximum=4096)
+    written = export_identity(target, size)
+    require(written[:3] == created[:3] and written[2] == size
+            and export_identity(image, 4 * GIB) == before, 'root_export_source')
+    remaining(end)
+    # -s would also compare allocation, which intentionally differs for holes.
+    # Equal sizes are checked separately; compare still checks every data byte.
+    _, _, code = run(['qemu-img', 'compare', '-q', '-F', 'raw', graph, target],
+                     end, cap=600, maximum=4096, check=False)
+    require(code == 0, 'root_export_compare')
+    require(export_identity(target, size) == written and export_identity(image, 4 * GIB) == before,
+            'root_export_source')
+    remaining(end)
+
+
 def reserve_space(work, upcoming, label):
     statv = os.statvfs(work)
     free = statv.f_bavail * statv.f_frsize
@@ -734,16 +833,16 @@ def execute_owned(args, pending):
         report['phase'] = 'prepare_disks'
         device = base.root_device(images.fish(work / 'base.qcow2', [['inspect-os']], image_format='qcow2'))
         disk_memory_observation(report['disk_memory_observations'], 'inspect_roots', deadline)
+        disk = re.fullmatch(r'(/dev/sd[a-z])([1-9][0-9]{0,2})', device)
+        require(disk is not None, 'root_geometry')
         details = images.fish(work / 'base.qcow2', [['inspect-os'], ['inspect-get-distro', device],
-            ['inspect-get-major-version', device], ['vfs-type', device], ['blockdev-getsize64', device]],
-            image_format='qcow2').splitlines()
-        require(details[:4] == [device, 'debian', '13', 'ext4'], 'base_os')
-        size = int(details[4])
-        require(0 < size <= 16 * GIB and size % 4096 == 0, 'base_root_size')
+            ['inspect-get-major-version', device], ['vfs-type', device], ['blockdev-getsize64', device],
+            ['blockdev-getsize64', disk[1]], ['part-list', disk[1]]], image_format='qcow2')
+        geometry = root_geometry(device, details)
+        size = geometry['size']
         disk_memory_observation(report['disk_memory_observations'], 'inspect_details', deadline)
         reserve_space(work, size + 2 * GIB, 'root_extract')
-        images.fish(work / 'base.qcow2', [['download-offset', device, work / 'runtime-root.raw', '0', str(size)]],
-                    image_format='qcow2')
+        export_root(work, geometry, image_pin, deadline)
         disk_memory_observation(report['disk_memory_observations'], 'root_export', deadline)
         run(['qemu-img', 'resize', '-f', 'raw', work / 'runtime-root.raw', str(RUNTIME_BYTES)], deadline)
         disk_memory_observation(report['disk_memory_observations'], 'raw_resize', deadline)
