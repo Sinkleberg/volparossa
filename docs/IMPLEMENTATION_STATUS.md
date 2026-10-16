@@ -47,7 +47,7 @@ the merged binary has not been rerun through the model trial.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38860289559` on `08ba6b21` passes the base maintenance lifecycle but fails Cloud RESERVE: first the inner provider TLS handshake expires, then a second flow acquisition reports incomplete helper cleanup. The retained-route cleanup fix has not resolved consumer acceptance. Investigate bounded route lifetime and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven; earlier trials retain their separate outcomes. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 and native-only core PR277 are merged. Code retains its immutable core dependency; source acceptance of the new core composition is not a repeat model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Public immutable boot `38860629051` now passes on exact `888d79fc`: verified read-only boot, write denial, fixed entrypoint, corrupted-disk rejection and cleanup, alongside 179 contracts. This does not execute a model or establish private/TEE protection. Next join two public model turns to one guest TLS session under a separate finite task grant and an explicitly sized model profile. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
+| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Public immutable boot `38860629051` passes on exact `888d79fc`: verified read-only boot, write denial, fixed entrypoint, corrupted-disk rejection and cleanup, alongside 179 contracts. Model source `38884241688` passes 100 Rust and 230 Python cases, but actual `38885192379` fails host-memory admission during disk preparation, before build/model VM launch. Two public model turns on one guest TLS session remain unproven. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 ### Public resident model integration candidate
 
@@ -235,8 +235,49 @@ and log ZIP SHA-256 values are
 `614085c21750bd30dda20a6030ddc02f8dadd30b5d886da8583a1aef133127a2`
 and `70ecd9df670df28786367f7f11ebed8fa6f7817a27b10f1b8156c72b2bb8004a`.
 The narrow correction uses an exit stack for the same fixture patches without
-changing production code, test assertions or the required case count. Its
-hosted verification remains pending.
+changing production code, test assertions or the required case count.
+
+Corrected source run
+[`38884241688`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38884241688)
+passes on exact `e8ead3c9a72c75bba0a6564c3847ba8954725963`, tree
+`ebfb4c25b5ab30f7a6b83505641272a7f3c43e98`: compilation, strict Clippy,
+100 unique Rust cases and 230 Python cases (124 existing, 31 installer,
+29 assembly and 46 controller), with no failures or skips. The formatter patch
+is empty; all 35 source blobs, 560 dependency identities and final source
+preservation match. The public-model job is intentionally skipped on this push.
+Original artifact and log ZIP SHA-256 values are
+`dfdc499efc3c4510305d1ff6298d193ac3a99a51b06b067977e254baa6791bbb`
+and `43d3e29c5674b48fbfe42719e5fd54dcbbe3e6b6079b14d6a07edb922301531e`.
+
+The next original actual
+[`38885192379`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38885192379)
+on that same commit/tree repeats the 100 Rust and 230 Python source checks
+successfully, but fails `prepare_disks / host_memory_headroom`. Build admission
+records **14,665,232,384 available bytes against 15,032,385,536 required bytes**.
+Only the build admission is attempted and it refuses before process launch;
+no build/model VM, guest TLS session or model turn starts. Earlier libguestfs
+appliance activity is not a model-guest boot.
+
+Before disk preparation, available memory was 15,555,989,504 bytes and Dirty was
+1,371,762,688 bytes. At admission, Dirty was 1,761,280 bytes. Both snapshots report
+MemTotal 16,765,378,560 bytes and Writeback zero. These counters locate a change
+between observations, not its cause; they do not establish an OOM kill. The
+12 GiB guest, 13 GiB QEMU cap, 14 GiB admission requirement, zero swap, model and
+deadlines remain unchanged.
+
+The actual artifact contains only `result.json`. Its `vm_cleanup_confirmed: true`
+applies to the no-spawn build/model scope; `scratch_removed: false` remains
+explicit. User-manager restoration and final source checks pass, but the final
+host route/DNS comparison is not reached. There are no installer, model-build,
+sealed-runtime, requester, model-boot or corruption receipts. Private inputs,
+hardware attestation, confidential execution and production approval remain
+false. Original source-contract, trial and log ZIP SHA-256 values are respectively
+`af21ffa0e82b67e003b29040753447b8135d60edb6e5b40aba9800544055c9c0`,
+`8c534cac9167d1296dae0b9c6c3597a9df29dce90e4f8648df9ac8db2bf121c0`
+and `fd18096ab8203e6ac3cec10baeb50b630606254ac40964c5c2598053102d1b2b`.
+All original ZIP CRC checks and both artifact API digests pass. The earlier
+`38878112559` failure retains its own source and absent memory measurements;
+neither failure is replaced by the successful source gate.
 
 ### Latest shared-storage consumer trial
 
