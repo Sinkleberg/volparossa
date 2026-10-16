@@ -33,7 +33,8 @@ The prepared integration candidate combines native core `a410b015` and Storage
 `728db40b`. Their production changes occupy separate paths; the shared Quality
 workflow and license notices retain both sides. Only this status ledger required
 conflict resolution. Combined Quality and CodeQL pass on the exact candidate
-tree; the actual coding and storage failures below still require resolution.
+tree. The adaptive-prefill continuation now passes the complete bounded coding
+trial; the Image/Cloud storage failure below still requires resolution.
 Original trials retain their dispatched sources; source integration does not
 replace their results or change their pins.
 
@@ -43,7 +44,7 @@ replace their results or change their pins.
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | The listener correction passes targeted run `38815471227`, including a real Linux MPTCP rejection/reuse test. Actual `38816407455` on `728db40b` instead fails at Image FINALIZE fragment 0/copy 1 while reading the provider challenge; Cloud publication is not reached. Its standalone core lifecycle and two restores pass, but consumer repair, restoration and remote retirement remain unproved. Trace the challenge stall without extending the operation deadline. Earlier `38804192575` retains its separate unresolved flow-acquisition failure. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Finish the real read/edit/test task while preserving timely owner pause/resume and complete post-task checks. | Earlier actual `38806073909` completes the task but fails afterward. The holder correction in `38816006720` retains task status and memory, but this task misses a pause acknowledgement after two reads and an edit. Separate core PR266 (`7d0f9f0b`) adds adaptive prefill checkpoints and passes 116 inert cases without changing the ten-second guard, full prompt, model, tools, permissions or budgets. Code `fd4ff968` pins that core; source check `38823962068` passes. Actual `38824828727` is dispatched on those exact sources; responsiveness, throughput, whole-trial and protected-peer acceptance remain open. |
+| Native coding execution — `volparossa`, `volparossa-code` | Publish the accepted bounded coding lifecycle, then join native editor operation and protected remote execution. | Original actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task resources, input integrity and complete cleanup. Source check `38823962068` also passes. Publish Code PR11 with the exact immutable core pin; keep core PR232 draft while its separate Storage integration remains incomplete. General coding quality, competitive speed, native editor UI and protected-peer execution remain open. Earlier failed trials retain their outcomes. |
 | Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258's authenticated refusal path has actual route evidence; PR262 integrates explicit same-connection key confirmation. The next implementation reuses the native worker lifecycle and existing TLS stack, rather than extending the probe into task authority. Boot/runtime/model integrity, production roots and current vendor appraisal must be checked before private input; task authority needs its own finite grant. Those functions and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 Detailed earlier Android and storage checkpoints remain in the
@@ -89,24 +90,69 @@ grants, deadlines, resource limits or production authority. Earlier Cloud source
 checks and failed prerequisites remain in the
 [previous candidate ledger](https://github.com/VOLPAROSSA/volparossa/blob/0456782ad8d58db91d53cf3d14fe3edcf505aa7a/docs/IMPLEMENTATION_STATUS.md#current-cloud-upload-producer-integration).
 
-### Focused trials awaiting results
+### Next integration boundary
 
-[Code trial `38824828727`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38824828727)
-uses exact Code `fd4ff9688c58d6228e07f2116a7e8dcdb12a89ef` and core
-`7d0f9f0b492c5e692cc9d26f23d95f55f2c1e651`. It exercises the adaptive
-prefill checkpoints with the same model-driven read/edit/test task, owner
-controls, resource limits and post-task checks. The new core pin includes the
-separately verified native/Storage source join; it is not only a prefill change.
+Both focused trials below have completed. Code can publish its accepted
+application slice without changing the exact public core dependency or
+cherry-picking a new, untested CLI composition. That dependency includes the
+native/Storage source join and prefill correction; core `main` is not an
+interchangeable pin, and the full Storage consumer milestone remains open.
 
-[Storage kernel follow-up `38829082612`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38829082612)
-uses exact test-only source `d5f13087a4c8e03d0cca209edc274ae9bd6b9c9a`
-in PR268. It applies only the five formatter hunks and one documentation-lint
-correction reported by the first run below. The exchange, assertions, isolation,
-ten-second deadline and all production source are unchanged. This single
-automatic follow-up still awaits its original result; the first run's passing
-runtime does not make its failed code checks pass retroactively.
+The next Storage diagnosis needs observations of the same client/provider
+connection. Existing aggregate provider snapshots cannot identify the failed
+Image operation. A development-only, explicitly armed, short-lived in-memory
+correlation is the next candidate; it must not log payloads or export connection
+identifiers, change the wire protocol, or extend deadlines. Missing or ambiguous
+matches must remain unknown. This diagnostic is not implemented yet and does
+not establish the cause of the original stall.
 
 ### Latest completed integration evidence — 15–16 October
+
+- **The complete bounded OpenCode coding lifecycle passes.**
+  [Original actual `38824828727`](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38824828727)
+  passes on Code `fd4ff9688c58d6228e07f2116a7e8dcdb12a89ef` and core
+  `7d0f9f0b492c5e692cc9d26f23d95f55f2c1e651`. Five real native model
+  requests produce two reads, one approved edit, one approved bash test and a
+  final response. The independent three-case check passes and original tests
+  stay unchanged. No injected answer or synthetic core supplies the result.
+  The task takes 2,219,455 ms, about 37 minutes.
+
+  Task peak memory is 740,847,616 bytes within 768 MiB; core peak is
+  6,912,872,448 bytes within 11 GiB, both without swap or OOM kills. The outer
+  VM records memory-max events, but no OOM or OOM kill. All request cleanups,
+  separate runtime/session closure, project removal, unchanged inputs, empty
+  guest units and graceful core shutdown pass. QEMU joins, scratch is removed,
+  job-owned host changes are restored and observed route/DNS configuration
+  matches after normalization; this is not a full host firewall inventory.
+
+  All 35 packed Code files and the complete core archive match their exact
+  commits. Native wrapper/build/model provenance and the original manifest
+  are verified. Successful per-turn validation checks correlated worker-control
+  acknowledgements; no exported per-acknowledgement count or latency is claimed.
+  The receipt's historical hardcoded dirty-source label is not a measured Git
+  status; independent source binding and the clean-checkout guard establish
+  the inputs. Native editor UI, general coding quality, competitive performance
+  and protected private-peer execution remain unproved.
+  Original artifact and log ZIP SHA-256 values are respectively
+  `abf57ddb609c631746d1d9bcd532a17e73c52d5a321f096eaef3e6a713bf3abe`
+  and `18098c557bb8a56caa78c2a7823c9007bd71474e85f687595c8339d944943ab4`.
+
+- **The corrected signed kernel receipt proof passes all its gates.**
+  [Run `38829082612`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38829082612)
+  passes on exact test-only source `d5f13087a4c8e03d0cca209edc274ae9bd6b9c9a`:
+  compile, one runtime case in 1.90 seconds, strict Clippy, formatting and
+  original source/host readback. It applies only the first run's formatter and
+  documentation-lint recommendations; production source and earlier tests
+  remain unchanged. Genuine kernel MPTCP, signed OPEN_TCP and FINALIZE receipt
+  before close, three joined tasks, four endpoint drops and removal of the
+  original socket identities are verified in the isolated loopback namespace.
+  The privilege-drop and unchanged host route/DNS/firewall checks also pass.
+  Reserve/Append preparation remains in memory; deployed relay paths,
+  multiple active subflows, full consumer acceptance and the cause of the
+  original stall are not proved. The earlier run remains failed as recorded below.
+  Original artifact and log ZIP SHA-256 values are respectively
+  `27d6813b2a358688fb226c26d01bb5edc966009ddabd211021c73462c7959b44`
+  and `3d30de98c21892acf54fa80f49efb92aa8d6cc8ea2ebb1af2ca5562cff4eadbe`.
 
 - **The signed FINALIZE receipt passes over kernel MPTCP; code checks fail.**
   [Original run `38827974182`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38827974182)
