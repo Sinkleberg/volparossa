@@ -120,6 +120,21 @@ jobs:
           cargo fmt --all -- --check
           ./scripts/check-shell.sh
 
+      - name: Check native CPU contracts without loading models
+        working-directory: workers/volparossa-ml
+        run: python3 -B -m unittest test_llama_cpu test_conversion_diagnostic test_native_output_constraint test_native_source_lifecycle test_native_session test_native_prefill
+
+      - name: Check native CPU cache hints and unchanged admission without loading models
+        run: |
+          cargo test --locked -p volparossa compute::native_cpu
+          cargo test --locked -p volparossa compute::supervise::native_session
+          cargo test --locked -p volparossa compute::private_serve::tests::native_session
+          cargo test --locked -p volparossa compute::sandbox::tests::native_session
+          cargo test --locked -p volparossa compute::resources::tests
+          cargo test --locked -p volparossa compute::spare_capacity::memory::tests
+          python3 -B tests/integration/test-agent-private-conversation.py
+          python3 -B tests/integration/test-native-source-weight-cache-contract.py
+
       - name: Check bounded bidirectional streaming before audit tool builds
         # In-memory duplex and real TLS only; no host sockets or namespace setup.
         run: cargo test --locked -p volparossa-tcp-proxy --test streaming
