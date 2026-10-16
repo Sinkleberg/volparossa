@@ -39,7 +39,8 @@ def encoded(value):
 
 def launch_receipt():
     return dict(version=1, scope='execute_process', same_unprivileged_uid=True,
-                primary_kvm_group_verified=True, device_group_access_verified=True)
+                primary_kvm_group_verified=True, device_group_access_verified=True,
+                supplementary_groups_cleared=True, capabilities_cleared=True, no_new_privileges=True)
 
 
 class InputContracts(unittest.TestCase):
@@ -2100,12 +2101,19 @@ class OriginalProbeContext(unittest.TestCase):
 
 
 class KvmGroupLaunch(unittest.TestCase):
+    @staticmethod
+    def status():
+        return b''.join(name + b':\t0000000000000000\n' for name in
+                        (b'CapInh', b'CapPrm', b'CapEff', b'CapBnd', b'CapAmb')) + b'NoNewPrivs:\t1\n'
+
     def setUp(self):
         self.uid, self.gid = 1234, 108
         self.device = SimpleNamespace(st_dev=1, st_ino=2, st_rdev=3, st_mode=stat.S_IFCHR | 0o660,
                                       st_uid=0, st_gid=self.gid, st_nlink=1, st_ctime_ns=4)
         for patcher in (mock.patch.object(M.os, 'getresuid', return_value=(self.uid,) * 3),
                         mock.patch.object(M.os, 'getresgid', return_value=(self.gid,) * 3),
+                        mock.patch.object(M.os, 'getgroups', return_value=[]),
+                        mock.patch.object(M, 'context_read', return_value=self.status()),
                         mock.patch.object(M.grp, 'getgrnam', return_value=SimpleNamespace(
                             gr_name='kvm', gr_gid=self.gid)),
                         mock.patch.object(M.os, 'lstat', return_value=self.device),
@@ -2222,6 +2230,48 @@ class KvmGroupLaunch(unittest.TestCase):
         for text in ('1234', '108', '/dev/', 'api_12', 'boot_verified'):
             self.assertNotIn(text, json.dumps(value))
 
+    def test_execute_requires_empty_supplementary_groups(self):
+        for groups in ([0], [self.gid], [1000, 1001]):
+            with mock.patch.object(M.os, 'getgroups', return_value=groups), \
+                    self.assertRaisesRegex(ValueError, '^kvm_launch_privileges$'):
+                M.verify_kvm_launch()
+
+    def test_execute_requires_every_capability_set_zero_and_no_new_privileges(self):
+        for name in (b'CapInh', b'CapPrm', b'CapEff', b'CapBnd', b'CapAmb'):
+            raw = self.status().replace(name + b':\t0000000000000000', name + b':\t0000000000000001')
+            with mock.patch.object(M, 'context_read', return_value=raw), \
+                    self.assertRaisesRegex(ValueError, '^kvm_launch_privileges$'):
+                M.verify_kvm_launch()
+        with mock.patch.object(M, 'context_read', return_value=self.status().replace(b'NoNewPrivs:\t1', b'NoNewPrivs:\t0')), \
+                self.assertRaisesRegex(ValueError, '^kvm_launch_privileges$'):
+            M.verify_kvm_launch()
+
+    def test_execute_rejects_missing_duplicate_malformed_and_unreadable_privileges(self):
+        for raw in (b'', b'PRIVATE_CANARY', self.status() + b'CapEff:\t0000000000000000\n',
+                    self.status().replace(b'CapBnd:\t0000000000000000\n', b''),
+                    self.status().replace(b'0000000000000000', b'0'),
+                    self.status().replace(b'NoNewPrivs:\t1', b'NoNewPrivs:\ttrue')):
+            with mock.patch.object(M, 'context_read', return_value=raw), \
+                    self.assertRaisesRegex(ValueError, '^kvm_launch_privileges$'):
+                M.verify_kvm_launch()
+        with mock.patch.object(M, 'context_read', side_effect=PermissionError('PRIVATE_CANARY')), \
+                self.assertRaises(PermissionError):
+            M.verify_kvm_launch()
+        with mock.patch.object(M, 'context_read', return_value=self.status()) as read:
+            self.assertEqual(M.verify_kvm_launch(), launch_receipt())
+        read.assert_called_once_with('/proc/self/status', 32768)
+
+    def test_failed_privilege_drop_prevents_work_adoption_and_child_spawn(self):
+        args = SimpleNamespace(yes=True, expected_source='a' * 40, work='/PRIVATE_CANARY')
+        with mock.patch.object(M.os, 'getgroups', return_value=[0]), \
+                mock.patch.object(M, 'hosted_output') as work, mock.patch.object(M, 'adopt_appliance') as adopt, \
+                mock.patch.object(M, 'command') as child, self.assertRaisesRegex(ValueError, '^kvm_launch_privileges$'):
+            M.execute(args)
+        work.assert_not_called()
+        adopt.assert_not_called()
+        child.assert_not_called()
+        self.assertEqual(M.failure_reason(ValueError('kvm_launch_privileges')), 'kvm_launch_privileges')
+
     def test_preselection_keeps_original_prepared_source_and_absolute_deadline(self):
         args = SimpleNamespace(yes=True, expected_source='a' * 40)
         started, now = 1, [35 * 10 ** 9]
@@ -2281,8 +2331,9 @@ class KvmGroupLaunch(unittest.TestCase):
         raw = (M.ROOT / '.github/workflows/protected-resident-image.yml').read_text()
         function = raw.split('          image_tool() {\n', 1)[1].split('          }\n', 1)[0]
         self.assertIn('if test "$1" = execute; then', function)
-        self.assertIn('launch=(sudo -n -u "#$launch_uid" -g "#$launch_gid" --)', function)
-        self.assertIn('"${launch[@]}" env -i', function)
+        self.assertIn('launch=(sudo -n -- /usr/bin/setpriv --reuid="$launch_uid" --regid="$launch_gid"', function)
+        self.assertIn('--clear-groups --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs --)', function)
+        self.assertIn('"${launch[@]}" /usr/bin/env -i', function)
         self.assertIn('VP_PUBLIC_BOOT_UID="${launch_uid:-}" VP_PUBLIC_BOOT_KVM_GID="${launch_gid:-}"', function)
         self.assertLess(raw.index('image_tool finish-appliance'), raw.index('launch_ids="$(image_tool kvm-launch-ids)"'))
         self.assertIn('test "$launch_uid" = "$(id -u)"', raw)
@@ -2291,6 +2342,30 @@ class KvmGroupLaunch(unittest.TestCase):
         for forbidden in ('usermod', 'gpasswd', 'sudo -n guestfish', 'chmod /dev/kvm', 'udevadm trigger'):
             self.assertNotIn(forbidden, raw)
         self.assertEqual(M.BUILD_SECONDS, 1200)
+
+    def test_original_workflow_execute_argv_uses_fixed_drop_before_env_without_privilege_execution(self):
+        raw = (M.ROOT / '.github/workflows/protected-resident-image.yml').read_text()
+        function = raw.split('          image_tool() {\n', 1)[1].split('          }\n', 1)[0]
+        # A shell function captures sudo's argv and never invokes any binary.
+        script = ('set -eu\nsudo() { printf "%s\\0" "$@"; }\n'
+                  'launch_uid=1234\nlaunch_gid=108\nimage_tool() {\n' + function +
+                  '\n}\nimage_tool execute --work /public-fixture\n')
+        environment = dict(GITHUB_REPOSITORY='VOLPAROSSA/volparossa', GITHUB_RUN_ID='123',
+            GITHUB_SHA='a' * 40, GITHUB_REF='refs/heads/feature/protected-resident-image',
+            RUNNER_TEMP='/public-temp', EXPECTED_SOURCE='a' * 40, PRIVATE_CANARY='never-forward')
+        result = M.subprocess.check_output(['/bin/bash', '--noprofile', '--norc', '-c', script],
+                                           env=environment, timeout=5)
+        self.assertEqual(result.decode().split('\0'), ['-n', '--', '/usr/bin/setpriv',
+            '--reuid=1234', '--regid=108', '--clear-groups', '--inh-caps=-all', '--ambient-caps=-all',
+            '--bounding-set=-all', '--no-new-privs', '--', '/usr/bin/env', '-i', 'PATH=/usr/bin:/bin',
+            'LANG=C.UTF-8', 'PYTHONDONTWRITEBYTECODE=1', 'GITHUB_ACTIONS=true',
+            'RUNNER_ENVIRONMENT=github-hosted', 'RUNNER_OS=Linux',
+            'GITHUB_REPOSITORY=VOLPAROSSA/volparossa', 'GITHUB_RUN_ID=123', 'GITHUB_SHA=' + 'a' * 40,
+            'GITHUB_REF=refs/heads/feature/protected-resident-image', 'RUNNER_TEMP=/public-temp',
+            'VP_PUBLIC_BOOT_UID=1234', 'VP_PUBLIC_BOOT_KVM_GID=108',
+            'python3', '-B', 'tests/integration/protected-resident-image.py', 'execute',
+            '--work', '/public-fixture', '--expected-source', 'a' * 40, '--yes', ''])
+        self.assertNotIn(b'PRIVATE_CANARY', result)
 
 
 if __name__ == '__main__':

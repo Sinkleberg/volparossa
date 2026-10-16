@@ -942,9 +942,23 @@ def verify_kvm_launch():
         expected.append(int(value))
     require(os.getresuid() == (expected[0],) * 3
             and os.getresgid() == (expected[1],) * 3, 'kvm_launch_identity')
+    require(os.getgroups() == [], 'kvm_launch_privileges')
+    # Validate the result of the fixed system setpriv launcher, never perform
+    # privilege changes inside this builder or rely on a requested flag alone.
+    wanted = {name: b'0000000000000000' for name in
+              (b'CapInh', b'CapPrm', b'CapEff', b'CapBnd', b'CapAmb')}
+    wanted[b'NoNewPrivs'] = b'1'
+    fields = {}
+    for line in context_read('/proc/self/status', 32768).splitlines():
+        name, separator, value = line.partition(b':')
+        if name in wanted:
+            require(separator and name not in fields, 'kvm_launch_privileges')
+            fields[name] = value.strip()
+    require(fields == wanted, 'kvm_launch_privileges')
     require(kvm_group_ids() == tuple(expected), 'kvm_launch_identity')
     return dict(version=1, scope='execute_process', same_unprivileged_uid=True,
-                primary_kvm_group_verified=True, device_group_access_verified=True)
+                primary_kvm_group_verified=True, device_group_access_verified=True,
+                supplementary_groups_cleared=True, capabilities_cleared=True, no_new_privileges=True)
 
 
 def private_stage_file(path, *, directory=False):
@@ -1532,7 +1546,7 @@ def failure_reason(error):
         'appliance_stage_path', 'appliance_stage_metadata', 'appliance_stage_bound',
         'appliance_stage_binding', 'appliance_source_changed', 'hypervisor_binding',
         'qmp_input', 'qmp_protocol', 'qmp_kvm_unavailable', 'kvm_launch_identity',
-        'kvm_launch_group', 'kvm_launch_device', 'kvm_launch_acl'}
+        'kvm_launch_group', 'kvm_launch_device', 'kvm_launch_acl', 'kvm_launch_privileges'}
     if isinstance(error, (ValueError, CleanupUnconfirmed)) and error.args:
         reason = error.args[0]
         if type(reason) is str and reason in allowed:

@@ -399,9 +399,39 @@ source checks pass. Original contract-artifact and log ZIP SHA-256 values are
 and `e57ae98704d204672ed34bbaf4cee69f5309655ff0d51c9c9d1383595a6eac37`.
 The correction makes the test clock explicit and checks both early-uptime
 admission and expiry of the original budget; it does not change production code
-or deadlines. A passing corrected source gate is still required before the next
-actual trial. Immutable guest boot and protected resident-model execution remain
-open.
+or deadlines. Corrected source run
+[`38857241396`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38857241396)
+passes on exact `b0a48354a7d668bcf761bfbb7322f53fc50b245e`: all 171 unique
+contracts, syntax, ShellCheck, ten source blobs and seven unchanged dependencies.
+Its original artifact and log ZIP SHA-256 values are
+`be49852fdf4b7b949e3741251a90aca2339c3fd77d5433c06f3caed9b2efb5cd`
+and `c1988d8452bbef25dff9d5d2d87f9f9ff32c9d4c61c03c284b851f3fa0b081f4`.
+
+Actual run
+[`38857430394`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38857430394)
+uses that same source but fails before builder execution: the same-user,
+different-group `sudo` launch reports that a password is required. No process
+launch, KVM, boot or cleanup JSON receipt exists, so this run does not test the
+group remedy itself. The exact sudoers rule was not observed. Preparation,
+kernel-copy completion and ID selection precede the failed launch by source
+order, not by independent staging receipts. Unadopted staging cleanup, original
+KVM ACL restoration/comparison and unchanged-source checks pass. This is not a
+generic child-join receipt or successful boot. Original boot-artifact and log ZIP
+SHA-256 values are
+`82641a1bfa06527dd5f2f8287e0a649616911e87871e7012bfff6a4130e0c24f`
+and `c753a7dd6b19b2f60c91a070293b6a074a38a0b76d64174743d3fc9fb451d24e`.
+
+The launcher correction now uses the runner's ordinary authorized root launch
+only for the fixed system `setpriv` executable. Before running Python, it drops
+to the same non-root UID and validated primary KVM group, clears supplementary
+groups and capability sets, and enables no-new-privileges. The builder rechecks
+that restricted state before creating work or adopting staging. This follows
+[the upstream privilege-drop interface](https://github.com/util-linux/util-linux/blob/v2.39.3/sys-utils/setpriv.1.adoc)
+and adds no permanent permission or sudoers change. All 176 inert contracts pass
+locally: 156 image cases, including five new privilege-drop cases, and 20 initrd
+cases. The launch-argument test uses an inert `sudo` stub, not actual privilege
+execution. Hosted source verification and an actual trial are still required.
+Immutable guest boot and protected resident-model execution remain open.
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).

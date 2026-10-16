@@ -110,7 +110,7 @@ jobs:
           import json, pathlib, re
           root = pathlib.Path('protected-image-contracts')
           counts = {}
-          expected = {'image': 151, 'initrd': 20}
+          expected = {'image': 156, 'initrd': 20}
           for group in ('image', 'initrd'):
               raw = (root / (group + '-tests.log')).read_text()
               totals = re.findall(r'^Ran ([0-9]+) tests? in [0-9.]+s$', raw, re.M)
@@ -197,9 +197,12 @@ jobs:
             if test "$1" = execute; then
               # Process-scoped primary group only; the UID stays unprivileged.
               # uaccess change events may remove the earlier named-user ACL.
-              launch=(sudo -n -u "#$launch_uid" -g "#$launch_gid" --)
+              # Only this fixed system privilege-drop tool starts as root;
+              # env/Python and all descendants run after its irreversible drop.
+              launch=(sudo -n -- /usr/bin/setpriv --reuid="$launch_uid" --regid="$launch_gid"
+                --clear-groups --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs --)
             fi
-            "${launch[@]}" env -i PATH=/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 \
+            "${launch[@]}" /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 \
               GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted RUNNER_OS=Linux \
               GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_RUN_ID="$GITHUB_RUN_ID" \
               GITHUB_SHA="$GITHUB_SHA" GITHUB_REF="$GITHUB_REF" RUNNER_TEMP="$RUNNER_TEMP" \
