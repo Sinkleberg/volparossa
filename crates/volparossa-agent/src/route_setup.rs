@@ -1859,6 +1859,7 @@ impl ClientRouteControl {
                     history.record_round(Some(Failure {
                         stage: Stage::SourcePort,
                         reason: Reason::Entropy,
+                        helper_diagnostic: None,
                     }));
                     ContentStreamOpenFailure::from_flow_acquire(error, history.summary())
                 })?;

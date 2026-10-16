@@ -82,6 +82,24 @@ jobs:
           .github/workflows/alpha-topology.yml
           docs/IMPLEMENTATION_STATUS.md
           crates/volparossa-agent/src/route_setup.rs
+          crates/volparossa-agent/src/helper_v3.rs
+          crates/volparossa-agent/src/mptcp_transport.rs
+          crates/volparossa-agent/src/mptcp_transport/acquire_diagnostic.rs
+          crates/volparossa-agent/src/mptcp_transport/acquire_diagnostic/tests.rs
+          crates/volparossa-agent/src/mptcp_transport/retirement/diagnostic_tests.rs
+          crates/volparossa-agent/src/route_setup/content_stream.rs
+          crates/volparossa-agent/src/content/fixture_correlation.rs
+          crates/volparossa-agent/src/content/fixture_correlation/tests.rs
+          crates/volparossa-agent/src/content/private_storage/observation.rs
+          crates/volparossa-agent/src/content/private_storage/observation/fixture_correlation_tests.rs
+          crates/volparossa-agent/src/content/private_storage/observation/flow_acquire.rs
+          crates/volparossa-agent/src/content/private_storage/observation/flow_acquire/tests.rs
+          crates/volparossa-local-control/src/fixture_correlation.rs
+          crates/volparossa-local-control/src/fixture_correlation/tests.rs
+          crates/volparossa/src/content/fixture_correlation.rs
+          crates/volparossa/src/content/fixture_correlation_tests.rs
+          tests/integration/storage-fixture-correlation-sampler.py
+          tests/integration/test-storage-fixture-correlation-sampler.py
           crates/volparossa-agent/src/route_setup/tests/lost_helper_retirement_tests.rs
           crates/volparossa-agent/src/route_setup/tests/tcp_flow_admission_tests.rs
           crates/volparossa-agent/src/content/tls.rs
@@ -126,7 +144,6 @@ jobs:
           dependencies = ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml',
               'crates/volparossa-agent/Cargo.toml',
               'crates/volparossa-local-control/Cargo.toml', 'crates/volparossa/Cargo.toml',
-              'crates/volparossa-agent/src/mptcp_transport/acquire_diagnostic.rs',
               'crates/volparossa-helper/src/worker_transport.rs',
               'crates/volparossa-helper/src/engine_v3.rs',
               'tests/integration/agent-private-task-code.py',
@@ -150,6 +167,7 @@ jobs:
               scope='retained-route-retirement-tls-close-v9-and-consumer-profile-10-contracts',
               kernel_test_scope='signed-reserve-loopback-mptcp-and-tcp-provider-close-order',
               tls_production_diagnostic_changed=True, historical_consumer_pins_unchanged=True,
+              fixture_helper_diagnostic_version=2, fixture_fragment_copy_binding=False,
               live_consumer_acceptance=False, original_timeout_cause_proven=False,
               full_relay_datapath_execution=False, feature_equivalence_to_full_workspace_proven=False)
           pathlib.Path('storage-retirement-evidence/source.json').write_text(json.dumps(record, sort_keys=True) + '\n')
@@ -228,6 +246,7 @@ jobs:
               counts[suite] = len(passed)
               names.extend(suite + ':' + scope + ':' + name for name, scope in passed)
           assert len(names) == len(set(names))
+          assert counts['storage-fixture-correlation-sampler'] == 33
           node = (root / 'node-consumer.log').read_text()
           node_names = re.findall(r'^ok [0-9]+ - ([^\n]+)$', node, re.M)
           node_totals = re.findall(r'^# tests ([0-9]+)$', node, re.M)
@@ -344,6 +363,61 @@ jobs:
               unique_tests=24, test_names=sorted(all_names), previous_contracts=21,
               total_disjoint_contracts=45, live_consumer_acceptance=False,
               original_timeout_cause_proven=False), sort_keys=True) + '\n')
+          PY
+      - name: Inventory and execute fixture v2 and unchanged acquisition contracts
+        run: |
+          set -euo pipefail
+          export RUST_BACKTRACE=1
+          group() {
+            local label="$1" package="$2" filter="$3"
+            local -a target=(--lib)
+            if test "$package" = volparossa; then target=(--bin volparossa); fi
+            timeout --kill-after=5s 180s cargo test --locked --offline -p "$package" "${target[@]}" "$filter" -- --list \
+              2>&1 | tee "storage-retirement-evidence/fixture-$label-inventory.log"
+            timeout --kill-after=5s 180s cargo test --locked --offline -p "$package" "${target[@]}" "$filter" \
+              2>&1 | tee "storage-retirement-evidence/fixture-$label-test.log"
+          }
+          group wire volparossa-local-control fixture_correlation::
+          group bank volparossa-agent fixture_correlation::
+          group observer volparossa-agent content::private_storage::observation::fixture_correlation_tests::
+          group cli volparossa content::fixture_correlation::
+          group helper volparossa-agent helper::tests::fixture_acquire_
+          group helper-legacy volparossa-agent helper::tests::acquire_transport_
+          group acquire volparossa-agent mptcp_transport::acquire_diagnostic::tests::
+          group retirement volparossa-agent mptcp_transport::retirement::tests::
+          group retirement-diagnostic volparossa-agent mptcp_transport::retirement::diagnostic_tests::
+          group content-stream volparossa-agent route_setup::content_stream::tests::
+          group projection volparossa-agent content::private_storage::observation::flow_acquire::tests::
+          python3 -B - <<'PY'
+          import json, pathlib, re
+          root = pathlib.Path('storage-retirement-evidence')
+          groups = {'wire': ('volparossa-local-control', 12), 'bank': ('volparossa-agent', 33),
+              'observer': ('volparossa-agent', 7), 'cli': ('volparossa', 10),
+              'helper': ('volparossa-agent', 4), 'helper-legacy': ('volparossa-agent', 3),
+              'acquire': ('volparossa-agent', 7), 'retirement': ('volparossa-agent', 7),
+              'retirement-diagnostic': ('volparossa-agent', 4),
+              'content-stream': ('volparossa-agent', 6),
+              'projection': ('volparossa-agent', 7)}
+          all_names, counts = [], {}
+          prior = set(json.loads((root / 'rust-tests.json').read_text())['test_names'])
+          prior.update(json.loads((root / 'tls-v9-tests.json').read_text())['test_names'])
+          for label, (package, expected) in groups.items():
+              inventory = (root / f'fixture-{label}-inventory.log').read_text()
+              output = (root / f'fixture-{label}-test.log').read_text()
+              names = re.findall(r'^([^\n]+): test$', inventory, re.M)
+              assert len(names) == len(set(names)) == expected, label
+              assert re.findall(r'^test result: ok\. (\d+) passed; 0 failed; 0 ignored; 0 measured; \d+ filtered out;', output, re.M) == [str(expected)], label
+              for name in names:
+                  assert len(re.findall(r'^test ' + re.escape(name) + r' \.\.\. ok$', output, re.M)) == 1
+              assert not set(names).intersection(prior), label
+              counts[label] = expected
+              all_names.extend(package + ':' + name for name in names)
+          assert len(all_names) == len(set(all_names)) == 100
+          (root / 'fixture-v2-tests.json').write_text(json.dumps(dict(version=1, counts=counts,
+              unique_tests=100, test_names=sorted(all_names), previous_contracts=45,
+              total_disjoint_contracts=145, fixture_version=2, legacy_fixture_version=1,
+              causal_attribution=False, fragment_copy_binding=False,
+              live_consumer_acceptance=False), sort_keys=True) + '\n')
           PY
       - name: Check firewall snapshot normalization before the isolated test
         run: |

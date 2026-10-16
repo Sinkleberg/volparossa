@@ -18,6 +18,72 @@ Last updated: 2026-10-16
 
 ### Latest storage consumer outcome
 
+Source run
+[`38898873084`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38898873084)
+passes on `2ce38aa9e336f48f11f21d9ffdd7c95ddc9083fb`: 47 unique Rust tests
+(21 existing contracts, 24 TLS-v9 cases and two explicitly executed kernel cases),
+290 Python tests, 50 Node tests and 48 firewall-normalizer checks. Compilation,
+strict lint, formatting, final source and host-state comparisons pass. Original
+source artifact and log ZIP SHA-256 values are
+`bf2c850bee6b5cfac785b3407e3081486b6a2cf63c8ffe59959f731c5770f27f`
+and `db24795af5be0c8d27560681ca0b28a8b3f61fa2b71bb469f3c450f1a16004ee`.
+
+Actual run
+[`38900639690`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38900639690)
+uses that exact source, tree `52630940c62af032612c8ae97158cfa1b9080565`,
+consumer profile 10 and the unchanged Image `1e812ec6` / Cloud `35598609` pins.
+The separate core lifecycle passes loss/resume, two hash-verified non-consuming
+restores, three verified replacements, deletion of all eleven retained copies
+and the foreground copy, and zero final usage at all three base providers.
+
+The combined consumer gate fails Cloud FINALIZE, fragment 0/copy 0, at
+`stream_open / flow_acquire`. Two acquisition rounds report `helper_kernel`
+then `helper_cleanup_incomplete`; there is no TLS-close outcome for this failure.
+The separate helper sidecar contains one `poll / timed_out` observation without
+an errno. It is not request-bound and cannot establish this failure's cause.
+Image publication precedes Cloud by the tested source's control flow, but no
+separate completed Image receipt was exported. Consumer repair, restoration and
+final deletion are not reached; remote consumer cleanup and usage remain unknown.
+
+Local consumer cleanup, guest cleanup with zero owned objects, normalized
+guest-root network-state equality and normal QEMU stop/join pass. There is no
+independent scratch-removal receipt. The conditional double Debian-package build
+is skipped, not passed. Both original ZIP CRC checks and the artifact API digest
+pass; artifact and log SHA-256 values are
+`2c07ad288397cbd1e8b275d809cd79ffa4c5b62cb6cf1aaacdba72219c73ab0b`
+and `1b08929555cfb09bdcf08affd0330c81610aa4fc384ef3d675103be36ae9cd0e`.
+
+### Request-bound helper diagnostics in the development fixture
+
+The next candidate retains a closed helper rejection category after checking
+the helper's credentials, request identifier and operation digest. It records
+the original first/last acquisition failures and round count in fixture schema
+2. Missing authenticated detail remains absent; an authenticated but unrecognized
+token becomes `unknown`, never raw text. The two expired-cleanup categories refer
+to the helper's global reap boundary, not proof that this request's route expired.
+
+Only a client acquisition ending in an operation error can expose that summary.
+Stage changes, cancellation and non-error completion invalidate it, including
+when a contended observation lock prevents clearing the retained record. The
+existing caller-owned epoch binds the selected fixture version. Version-1 wire
+and JSON, production diagnostics 7–9, helper results, deadlines, retry limits,
+route retirement, descriptor ownership and application pins remain unchanged.
+
+This fixture-only detail is request-local, not a TLS fingerprint or a binding to
+a provider, fragment or copy. It does not establish a cause or remote cleanup.
+The bounded sampler keeps the existing query and record limits; no extra helper
+operation or network probe is added. Hosted compilation, lint and targeted
+contracts must pass before another full consumer trial. Image/Cloud maintenance
+and the dependent upload-to-repair-to-restore trial remain incomplete.
+
+The local inert checks pass 296 Python tests and 50 Node tests, including the
+33 sampler cases and existing maintenance exporters. Independent source review
+passes. The hosted gate selects 147 distinct Rust cases: 17 new fixture cases,
+128 existing contracts and the two isolated kernel tests. These Rust cases have
+not yet run on this candidate; no runtime fix is claimed from the inert checks.
+
+### Earlier storage TLS close outcome
+
 Original actual run
 [`38884826395`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38884826395)
 fails on exact `33faa7449ee982f8114c001107692eedf03cb5d5`, tree
@@ -407,20 +473,18 @@ order or change count. Develop core functions with their actual consumers.
 
 The immediate milestones build on the retained candidates and evidence below:
 
-The prepared integration candidate combines native core `a410b015` and Storage
-`728db40b`. Their production changes occupy separate paths; the shared Quality
-workflow and license notices retain both sides. Only this status ledger required
-conflict resolution. The combined source still needs its own verification before
-acceptance for main. Original actual trials keep their dispatched
-sources; this preparation does not replace either trial or change its pins.
+Core main now contains the native coding backend through PR277. This Storage
+candidate remains separate and still requires complete Image/Cloud acceptance.
+Original actual trials retain their exact dispatched sources and application pins;
+neither source checks nor this diagnostic extension replace those trials.
 
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | The listener correction passes targeted run `38815471227`, including a real Linux MPTCP rejection/reuse test. Actual `38816407455` on `728db40b` instead fails at Image FINALIZE fragment 0/copy 1 while reading the provider challenge; Cloud publication is not reached. Its standalone core lifecycle and two restores pass, but consumer repair, restoration and remote retirement remain unproved. Trace the challenge stall without extending the operation deadline. Earlier `38804192575` retains its separate unresolved flow-acquisition failure. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resolve Cloud transport acquisition, then complete publication, repair, repeated restoration, deletion and confirmed provider cleanup. | Source `38898873084` passes on `2ce38aa9`; actual `38900639690` passes the separate core lifecycle but fails Cloud FINALIZE fragment 0/copy 0 with `helper_kernel` then `helper_cleanup_incomplete`. The fixture-v2 candidate retains the authenticated request-local rejection category without changing retries or cleanup. Hosted source checks and a new actual trial remain required; consumer remote cleanup and provider usage are unconfirmed. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 is merged, retaining that immutable core dependency; the native/Storage core candidate is not merged into core `main`. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
+| Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 retains that immutable core pin. Core PR277 integrates the native-only composition after source checks; it does not transfer the model trial to that new binary. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. |
 | Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258's authenticated refusal path has actual route evidence; PR262 integrates explicit same-connection key confirmation. The next implementation reuses the native worker lifecycle and existing TLS stack, rather than extending the probe into task authority. Boot/runtime/model integrity, production roots and current vendor appraisal must be checked before private input; task authority needs its own finite grant. Those functions and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 Detailed earlier Android and storage checkpoints remain in the

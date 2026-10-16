@@ -146,6 +146,7 @@ async fn tcp_flow_admission_retry_expiry_keeps_history_without_second_acquire() 
     history.record_round(Some(Failure {
         stage: Stage::HelperAcquire,
         reason: Reason::HelperKernel,
+        helper_diagnostic: None,
     }));
     let original = ContentStreamOpenFailure::from_flow_acquire(
         ClientRouteConnectError::TransportRuntimeUnavailable,

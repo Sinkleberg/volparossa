@@ -36,10 +36,11 @@ pub use custody::{
     ContentCustodyReady, ContentCustodyRequest,
 };
 pub use fixture_correlation::{
-    StorageFixtureCorrelationAction, StorageFixtureCorrelationPhase,
-    StorageFixtureCorrelationRecord, StorageFixtureCorrelationRequest,
-    StorageFixtureCorrelationResponse, StorageFixtureCorrelationRole,
-    StorageFixtureCorrelationState, StorageFixtureCorrelationTerminal,
+    StorageFixtureAcquireFailure, StorageFixtureAcquireSummary, StorageFixtureCorrelationAction,
+    StorageFixtureCorrelationPhase, StorageFixtureCorrelationRecord,
+    StorageFixtureCorrelationRequest, StorageFixtureCorrelationResponse,
+    StorageFixtureCorrelationRole, StorageFixtureCorrelationState,
+    StorageFixtureCorrelationTerminal, StorageFixtureHelperDiagnostic,
 };
 pub use mailbox::{MailboxReady, MailboxRemoteRequest, MailboxServeRequest};
 pub use private_storage::{
