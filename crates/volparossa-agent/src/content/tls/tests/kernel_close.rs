@@ -520,7 +520,10 @@ async fn sequence(
     controls: Sequence,
     proof: &Proof,
 ) -> Result<ClientResult, &'static str> {
-    controls.inner_done.await.map_err(|_| "inner close failed")?;
+    controls
+        .inner_done
+        .await
+        .map_err(|_| "inner close failed")?;
     controls
         .reached
         .await

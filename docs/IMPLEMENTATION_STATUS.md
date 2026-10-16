@@ -59,12 +59,27 @@ aborts the proxy before its outer close notification and must reject an actual
 EOF/reset, not merely expire a test timer. Both retain one ten-second scenario
 deadline and join owned tasks before checking that all four sockets are gone.
 
-Hosted compilation and execution are pending. The workflow explicitly runs the
-two otherwise ignored cases in disposable network/PID namespaces and checks
-unchanged host routes, DNS and firewall state. This is a focused close-lifecycle
-test, not a deployed WireGuard route, multipath throughput test or acceptance of
-the Image/Cloud lifecycle. Production closure behavior, deadlines and consumer
-validation remain unchanged.
+Original hosted run
+[`38893288966`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38893288966)
+on `fd4ba6a3cfb81c1ac28ab1c349fe532e8ac2f291` compiles the agent and passes strict
+lint, the 21 existing contracts and both explicitly selected kernel cases, with
+none failed or ignored. The normal case completes in 0.78 seconds and the abrupt
+negative control in 0.77 seconds. Both run in disposable network/PID namespaces;
+host route, DNS and normalized firewall snapshots are identical. All seven source
+blobs, twelve unchanged dependencies and the isolation runner match. The 48
+firewall-normalizer cases and final source-preservation check also pass.
+
+The run fails only one formatter hunk. The follow-up applies that exact layout
+change without changing behavior. Original artifact and log ZIP SHA-256 are
+`e35f38c2403a64415f0c5330302df29739e98ac76c0477c1c476985a418e4939`
+and `0771c2d8d8aabcc91cb7b0ab4a87be7a54c1769c29924cbdde0bc0fb5d1e4a4a`;
+the artifact API digest and both ZIP CRC checks pass.
+
+These scoped results do not reproduce the consumer failure or prove a deployed
+WireGuard/multipath route. Production closure behavior, deadlines and consumer
+validation remain unchanged. Next, preserve the actual outer-close failure class
+in the existing caller-bound diagnostic, without exposing payloads or changing
+success criteria, before another full Image/Cloud trial.
 
 ### Fresh TCP admission after route-slot waits
 
