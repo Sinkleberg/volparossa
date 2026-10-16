@@ -9,6 +9,7 @@ approval, a hardware appraisal, or authorization to release private inputs.
 """
 import argparse
 import contextvars
+import fcntl
 import hashlib
 import json
 import os
@@ -52,6 +53,26 @@ SCRATCH = contextvars.ContextVar('protected_public_boot_scratch', default=None)
 CANCELLED = contextvars.ContextVar('protected_public_boot_cancelled', default=False)
 GUESTFISH_OPERATIONS = frozenset(('inspect_roots', 'inspect_details', 'extract_boot_files',
     'readlink_bin', 'readlink_sbin', 'readlink_lib', 'readlink_lib64', 'stage_root'))
+MAX_KERNEL_CANDIDATES = 32
+MAX_PREFLIGHT_ENTRIES = 128
+STDERR_CLASSES = frozenset(('kernel_not_found', 'kvm_unavailable', 'appliance_launch_failed',
+    'appliance_launch_timeout', 'appliance_connection_closed', 'unclassified', 'ambiguous'))
+# Exact C-locale lines from the public upstream sources; no arbitrary suffixes.
+# https://github.com/libguestfs/supermin/blob/v5.2.2/src/format_ext2_kernel.ml#L57-L65
+# https://github.com/libguestfs/libguestfs/blob/v1.52.0/lib/launch-direct.c#L483-L498
+# https://github.com/libguestfs/libguestfs/blob/v1.52.0/lib/errors.c#L451-L491
+STDERR_PATTERNS = {
+    b'supermin: failed to find a suitable kernel (host_cpu=x86_64).': 'kernel_not_found',
+    b'supermin: failed to find a suitable kernel (host_cpu=amd64).': 'kernel_not_found',
+    b'libguestfs: error: force_kvm supplied but kvm not available.': 'kvm_unavailable',
+    b'libguestfs: error: guestfs_launch failed.': 'appliance_launch_failed',
+    b'libguestfs: error: appliance launch timed out.': 'appliance_launch_timeout',
+    b'libguestfs: error: appliance closed the connection unexpectedly.': 'appliance_connection_closed',
+}
+# Noninteractive argv commands use this fixed fish error-callback prefix.
+# https://github.com/libguestfs/libguestfs/blob/v1.52.0/fish/fish.c#L1225-L1235
+STDERR_PATTERNS.update({b'*stdin*:0: ' + line: label for line, label in list(STDERR_PATTERNS.items())
+                        if line.startswith(b'libguestfs: error: ')})
 
 
 def require(condition, reason):
@@ -143,18 +164,128 @@ class CleanupUnconfirmed(RuntimeError):
 
 
 class CommandFailed(ValueError):
-    def __init__(self, returncode, operation=None):
+    def __init__(self, returncode, operation=None, stderr_class=None):
         super().__init__('command_failed')
         self.returncode = returncode
         self.operation = operation
+        self.stderr_class = stderr_class
 
 
 def command_failure(error):
     if (isinstance(error, CommandFailed) and type(error.operation) is str
             and error.operation in GUESTFISH_OPERATIONS and type(error.returncode) is int
             and -64 <= error.returncode <= 255 and error.returncode != 0):
-        return {'operation': error.operation, 'returncode': error.returncode}
+        label = error.stderr_class
+        return {'operation': error.operation, 'returncode': error.returncode,
+                'stderr_class': label if type(label) is str and label in STDERR_CLASSES else None}
     return None
+
+
+class GuestfishStderr:
+    """Match bounded stderr lines, retaining neither raw output nor dynamic fields."""
+    def __init__(self):
+        self.pending = bytearray()
+        self.dropping = False
+        self.matches = set()
+
+    def feed(self, block):
+        for index, part in enumerate(block.split(b'\n')):
+            if index:
+                self.line()
+            if not self.dropping:
+                if len(self.pending) + len(part) > 4096:
+                    self.pending.clear()
+                    self.dropping = True
+                else:
+                    self.pending.extend(part)
+
+    def line(self):
+        if not self.dropping:
+            label = STDERR_PATTERNS.get(bytes(self.pending).removesuffix(b'\r'))
+            if label is not None:
+                self.matches.add(label)
+        self.pending.clear()
+        self.dropping = False
+
+    def finish(self):
+        self.line()
+        if len(self.matches) > 1:
+            return 'ambiguous'
+        return next(iter(self.matches), 'unclassified')
+
+
+def readable_regular(path):
+    """Observe access only, without reading/exporting file contents or metadata."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK)
+        try:
+            return 'readable' if stat.S_ISREG(os.fstat(descriptor).st_mode) else 'other'
+        finally:
+            os.close(descriptor)
+    except FileNotFoundError:
+        return 'missing'
+    except PermissionError:
+        return 'denied'
+    except OSError:
+        return 'other'
+
+
+def kvm_observation():
+    # A system query only: no KVM_CREATE_VM, permission change or TCG fallback.
+    # https://docs.kernel.org/virt/kvm/api.html#kvm-get-api-version
+    try:
+        descriptor = os.open('/dev/kvm', os.O_RDWR | os.O_CLOEXEC | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISCHR(os.fstat(descriptor).st_mode):
+                return 'not_character_device'
+            return 'api_12' if fcntl.ioctl(descriptor, 0xAE00, 0) == 12 else 'api_mismatch'
+        finally:
+            os.close(descriptor)
+    except FileNotFoundError:
+        return 'missing'
+    except PermissionError:
+        return 'denied'
+    except OSError:
+        return 'io_error'
+
+
+def appliance_preflight():
+    """Bounded host observations, NOT supermin selection or boot acceptance."""
+    counts = lambda: dict(readable=0, missing=0, denied=0, other=0)
+    result = dict(version=1, diagnostic_only=True, selected_kernel=False,
+                  kernel_selection='unobserved', candidates=0, incomplete=False,
+                  kernel=counts(), modules_index=counts(), kvm=None)
+    checkpoint()
+    result['kvm'] = kvm_observation()
+    examined = 0
+    # Supermin searches both trees. This is only a bounded candidate census;
+    # it deliberately does not duplicate its version/content selection logic.
+    for directory in (Path('/lib/modules'), Path('/boot')):
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    checkpoint()
+                    if examined == MAX_PREFLIGHT_ENTRIES or result['candidates'] == MAX_KERNEL_CANDIDATES:
+                        result['incomplete'] = True
+                        return result
+                    examined += 1
+                    name = entry.name
+                    if directory == Path('/boot'):
+                        if not re.fullmatch(r'vmlinu[xz]-[A-Za-z0-9_+.-]{1,128}', name):
+                            continue
+                        version, kernel = name[8:], directory / name
+                        if version in ('.', '..'):
+                            continue
+                    else:
+                        if not re.fullmatch(r'[A-Za-z0-9_+.-]{1,128}', name) or name in ('.', '..'):
+                            continue
+                        version, kernel = name, directory / name / 'vmlinuz'
+                    result['candidates'] += 1
+                    result['kernel'][readable_regular(kernel)] += 1
+                    result['modules_index'][readable_regular(Path('/lib/modules') / version / 'modules.dep')] += 1
+        except OSError:
+            result['incomplete'] = True
+    return result
 
 
 def group_absent(group, seconds=2):
@@ -180,6 +311,7 @@ def command(argv, *, timeout=120, maximum=MAX_LOG, stdout_path=None, operation=N
         timeout = min(timeout, DEADLINE.get() - time.monotonic())
         require(timeout > 0, 'build_deadline')
     output = bytearray()
+    stderr = GuestfishStderr() if operation is not None else None
     deadline = time.monotonic() + timeout
     target = None
     environment = dict(ENV)
@@ -207,6 +339,8 @@ def command(argv, *, timeout=120, maximum=MAX_LOG, stdout_path=None, operation=N
                         continue
                     total += len(block)
                     require(total <= maximum, 'command_output_bound')
+                    if stderr is not None and key.fileobj is process.stderr:
+                        stderr.feed(block)
                     if target is not None and key.fileobj is process.stdout:
                         target.write(block)
                     else:
@@ -240,7 +374,7 @@ def command(argv, *, timeout=120, maximum=MAX_LOG, stdout_path=None, operation=N
             if target is not None:
                 target.close()
     if process.returncode != 0:
-        raise CommandFailed(process.returncode, operation)
+        raise CommandFailed(process.returncode, operation, stderr.finish() if stderr is not None else None)
     return bytes(output)
 
 
@@ -569,6 +703,7 @@ def execute(args):
     output.mkdir(mode=0o700)
     deadline, cleanup_safe, completed = time.monotonic() + BUILD_SECONDS, True, False
     stage, failure, cleanup_error, primary = 'source', None, None, None
+    preflight = None
     budget_token = DEADLINE.set(deadline)
     scratch = output / 'temporary'
     scratch.mkdir(mode=0o700)
@@ -584,6 +719,8 @@ def execute(args):
         source = source_binding(args.expected_source)
         stage = 'host_tools'
         tools = tool_inventory()
+        stage = 'appliance_preflight'
+        preflight = appliance_preflight()
         stage = 'input_download'
         image_pin = exact_json((ROOT / pins['debian_image_manifest']).read_bytes())
         image = output / 'debian.qcow2'
@@ -642,6 +779,7 @@ def execute(args):
                     child_leaders_reaped=cleanup_safe, original_process_groups_absent=cleanup_safe,
                     owned_scratch_removed=cleanup_safe and not output.exists(),
                     boot_pair_verified=completed, failure=failure, cleanup_error=cleanup_error,
+                    appliance_preflight=preflight,
                     hardware_attestation=False, private_inputs=False))
             except (OSError, ValueError):
                 if primary is None:

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Inert image/boot contract tests: no image tools, downloads, models or VMs."""
 import hashlib
+from contextlib import nullcontext
 import importlib.util
 import io
 import json
@@ -469,6 +470,207 @@ class OwnedChildContracts(unittest.TestCase):
         self.assertEqual(M.ENV['LIBGUESTFS_BACKEND_SETTINGS'], 'force_kvm')
 
 
+class ApplianceDiagnostics(unittest.TestCase):
+    def entries(self, names):
+        return nullcontext(iter(SimpleNamespace(name=name) for name in names))
+
+    def test_candidate_census_is_closed_and_never_claims_actual_selection(self):
+        canary = 'PRIVATE_KERNEL_CANARY'
+        def scan(path):
+            return self.entries([canary] if path == Path('/lib/modules') else
+                                ['vmlinuz-' + canary, 'config-ignored', 'vmlinuz-../bad',
+                                 'vmlinuz-.', 'vmlinuz-..'])
+        def readable(path):
+            return 'missing' if str(path).startswith('/lib/modules/') and path.name == 'vmlinuz' else 'readable'
+        with mock.patch.object(M.os, 'scandir', side_effect=scan), \
+                mock.patch.object(M, 'readable_regular', side_effect=readable) as access, \
+                mock.patch.object(M, 'kvm_observation', return_value='api_12'):
+            value = M.appliance_preflight()
+        self.assertEqual(value, dict(version=1, diagnostic_only=True, selected_kernel=False,
+            kernel_selection='unobserved', candidates=2, incomplete=False,
+            kernel=dict(readable=1, missing=1, denied=0, other=0),
+            modules_index=dict(readable=2, missing=0, denied=0, other=0), kvm='api_12'))
+        self.assertEqual(access.call_count, 4)
+        self.assertNotIn(canary, json.dumps(value))
+        self.assertNotIn('/lib/', json.dumps(value))
+
+    def test_candidate_and_directory_scan_caps_mark_incomplete(self):
+        for names, candidates, calls in (([f'6.{i}' for i in range(40)], 32, 64),
+                                         (['invalid/name'] * 140, 0, 0)):
+            with self.subTest(candidates=candidates), \
+                    mock.patch.object(M.os, 'scandir', return_value=self.entries(names)) as scan, \
+                    mock.patch.object(M, 'readable_regular', return_value='readable') as access, \
+                    mock.patch.object(M, 'kvm_observation', return_value='api_12'):
+                value = M.appliance_preflight()
+            self.assertEqual(value['candidates'], candidates)
+            self.assertTrue(value['incomplete'])
+            self.assertFalse(value['selected_kernel'])
+            self.assertEqual(access.call_count, calls)
+            scan.assert_called_once_with(Path('/lib/modules'))
+
+    def test_unavailable_census_is_observation_not_raw_error_or_kernel_selection(self):
+        with mock.patch.object(M.os, 'scandir', side_effect=PermissionError('PRIVATE_PATH_CANARY')), \
+                mock.patch.object(M, 'kvm_observation', return_value='denied'):
+            value = M.appliance_preflight()
+        self.assertTrue(value['incomplete'])
+        self.assertEqual(value['candidates'], 0)
+        self.assertEqual(value['kvm'], 'denied')
+        self.assertEqual(value['kernel_selection'], 'unobserved')
+        self.assertNotIn('PRIVATE', json.dumps(value))
+
+    def test_file_access_observation_reads_no_contents_and_closes_descriptor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'kernel'
+            path.write_bytes(b'PRIVATE_KERNEL_CONTENT')
+            with mock.patch.object(M.os, 'read', side_effect=AssertionError('must not read')):
+                self.assertEqual(M.readable_regular(path), 'readable')
+                self.assertEqual(M.readable_regular(path.parent), 'other')
+                self.assertEqual(M.readable_regular(path.with_name('missing')), 'missing')
+        for error, expected in ((PermissionError('PRIVATE'), 'denied'), (OSError('PRIVATE'), 'other')):
+            with mock.patch.object(M.os, 'open', side_effect=error):
+                self.assertEqual(M.readable_regular('/unread'), expected)
+        with mock.patch.object(M.os, 'open', return_value=123), \
+                mock.patch.object(M.os, 'fstat', side_effect=OSError('PRIVATE')), \
+                mock.patch.object(M.os, 'close') as close:
+            self.assertEqual(M.readable_regular('/unread'), 'other')
+        close.assert_called_once_with(123)
+
+    def test_kvm_query_is_only_system_api_read_and_always_closes(self):
+        for mode, answer, expected in ((M.stat.S_IFCHR, 12, 'api_12'),
+                                      (M.stat.S_IFCHR, 11, 'api_mismatch'),
+                                      (M.stat.S_IFREG, 12, 'not_character_device')):
+            with self.subTest(expected=expected), mock.patch.object(M.os, 'open', return_value=123) as opened, \
+                    mock.patch.object(M.os, 'fstat', return_value=SimpleNamespace(st_mode=mode)), \
+                    mock.patch.object(M.fcntl, 'ioctl', return_value=answer) as ioctl, \
+                    mock.patch.object(M.os, 'close') as close:
+                self.assertEqual(M.kvm_observation(), expected)
+            opened.assert_called_once_with('/dev/kvm', M.os.O_RDWR | M.os.O_CLOEXEC | M.os.O_NONBLOCK)
+            close.assert_called_once_with(123)
+            if mode == M.stat.S_IFCHR:
+                ioctl.assert_called_once_with(123, 0xAE00, 0)
+            else:
+                ioctl.assert_not_called()
+        for error, expected in ((FileNotFoundError('PRIVATE'), 'missing'),
+                                (PermissionError('PRIVATE'), 'denied'), (OSError('PRIVATE'), 'io_error')):
+            with mock.patch.object(M.os, 'open', side_effect=error):
+                self.assertEqual(M.kvm_observation(), expected)
+        with mock.patch.object(M.os, 'open', return_value=123), \
+                mock.patch.object(M.os, 'fstat', return_value=SimpleNamespace(st_mode=M.stat.S_IFCHR)), \
+                mock.patch.object(M.fcntl, 'ioctl', side_effect=OSError('PRIVATE')), \
+                mock.patch.object(M.os, 'close') as close:
+            self.assertEqual(M.kvm_observation(), 'io_error')
+        close.assert_called_once_with(123)
+
+    def test_preflight_obeys_original_absolute_deadline_before_host_queries(self):
+        token = M.DEADLINE.set(time.monotonic() - 1)
+        try:
+            with mock.patch.object(M, 'kvm_observation') as kvm, \
+                    mock.patch.object(M.os, 'scandir') as scan, \
+                    self.assertRaisesRegex(ValueError, 'build_deadline'):
+                M.appliance_preflight()
+            kvm.assert_not_called()
+            scan.assert_not_called()
+        finally:
+            M.DEADLINE.reset(token)
+
+    def test_exact_upstream_stderr_patterns_survive_every_chunk_boundary(self):
+        for line, label in M.STDERR_PATTERNS.items():
+            with self.subTest(label=label):
+                observed = M.GuestfishStderr()
+                for byte in line + b'\r\n' + line:
+                    observed.feed(bytes([byte]))
+                self.assertEqual(observed.finish(), label)
+                self.assertEqual(observed.pending, b'')
+
+    def test_unknown_near_match_and_private_stderr_never_become_a_known_class(self):
+        line = b'libguestfs: error: force_kvm supplied but kvm not available.'
+        for raw in (b'PRIVATE_CANARY/path: Permission denied\n', b'canary ' + line,
+                    line + b' PRIVATE_CANARY', line.upper(), b'\xff' + line):
+            with self.subTest(raw=raw):
+                observed = M.GuestfishStderr()
+                observed.feed(raw)
+                self.assertEqual(observed.finish(), 'unclassified')
+        for bad in ('PRIVATE_CANARY', [], True):
+            self.assertIsNone(M.command_failure(M.CommandFailed(1, 'inspect_roots', bad))['stderr_class'])
+
+    def test_fixed_guestfish_argv_prefix_is_supported_without_arbitrary_source_paths(self):
+        line = b'libguestfs: error: guestfs_launch failed.'
+        for prefix, expected in ((b'*stdin*:0: ', 'appliance_launch_failed'),
+                                 (b'*stdin*:1: ', 'unclassified'),
+                                 (b'/PRIVATE_PATH:0: ', 'unclassified')):
+            observed = M.GuestfishStderr()
+            observed.feed(prefix[:4])
+            observed.feed(prefix[4:] + line)
+            self.assertEqual(observed.finish(), expected)
+
+    def test_long_lines_are_bounded_and_multiple_known_classes_are_ambiguous(self):
+        observed = M.GuestfishStderr()
+        observed.feed(b'P' * 4097)
+        self.assertEqual(observed.pending, b'')
+        self.assertTrue(observed.dropping)
+        first = b'libguestfs: error: guestfs_launch failed.'
+        observed.feed(first + b'\n' + first + b'\n')
+        observed.feed(b'libguestfs: error: appliance launch timed out.\n')
+        self.assertEqual(observed.finish(), 'ambiguous')
+
+    def test_real_child_classifies_only_stderr_not_stdout_or_unlabelled_commands(self):
+        line = b'libguestfs: error: force_kvm supplied but kvm not available.'
+        for descriptor, operation, expected in ((1, 'inspect_roots', 'unclassified'),
+                                                (2, 'inspect_roots', 'kvm_unavailable'),
+                                                (2, None, None)):
+            program = f'import os,sys; os.write({descriptor}, {line!r}); sys.exit(7)'
+            with self.subTest(descriptor=descriptor, operation=operation), \
+                    self.assertRaises(M.CommandFailed) as raised:
+                M.command([sys.executable, '-c', program], operation=operation)
+            self.assertEqual(raised.exception.stderr_class, expected)
+            self.assertEqual(raised.exception.args, ('command_failed',))
+
+    def test_stderr_classifier_does_not_expand_total_output_limit_or_change_success(self):
+        line = b'libguestfs: error: guestfs_launch failed.\n'
+        program = f'import os; os.write(2, {line!r}); os.write(1, b"public output\\n")'
+        result = M.command([sys.executable, '-c', program], operation='inspect_roots')
+        self.assertEqual(sorted(result.splitlines()), sorted([line.rstrip(), b'public output']))
+        with self.assertRaisesRegex(ValueError, 'command_output_bound') as raised:
+            M.command([sys.executable, '-c', program], operation='inspect_roots', maximum=len(line))
+        self.assertNotIsInstance(raised.exception, M.CommandFailed)
+        self.assertIsNone(M.command_failure(raised.exception))
+
+    def test_preflight_runs_before_download_without_changing_deadline_or_admission(self):
+        observed = dict(version=1, diagnostic_only=True, selected_kernel=False,
+                        kernel_selection='unobserved', candidates=0, incomplete=True,
+                        kernel={}, modules_index={}, kvm='denied')
+        order, deadlines = [], []
+        original = ValueError('download_digest')
+        def sample():
+            order.append('observe')
+            deadlines.append(M.DEADLINE.get())
+            return observed
+        def download(*_args):
+            order.append('download')
+            deadlines.append(M.DEADLINE.get())
+            raise original
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(M, 'hosted_output', return_value=Path(directory)), \
+                mock.patch.object(M, 'source_binding', return_value={'revision': 'a' * 40}), \
+                mock.patch.object(M, 'tool_inventory', return_value={}), \
+                mock.patch.object(M, 'appliance_preflight', side_effect=sample), \
+                mock.patch.object(M, 'fetch', side_effect=download), \
+                self.assertRaises(ValueError) as raised:
+            try:
+                M.execute(SimpleNamespace(yes=True, work=directory, expected_source='a' * 40))
+            finally:
+                evidence = Path(directory) / 'evidence'
+                value = json.loads((evidence / 'cleanup.json').read_text())
+                self.assertEqual(set(path.name for path in evidence.iterdir()), {'cleanup.json'})
+                self.assertEqual(value['appliance_preflight'], observed)
+                self.assertEqual(value['failure']['reason'], 'download_digest')
+                self.assertTrue(value['owned_scratch_removed'])
+        self.assertIs(raised.exception, original)
+        self.assertEqual(order, ['observe', 'download'])
+        self.assertIsNotNone(deadlines[0])
+        self.assertEqual(deadlines[0], deadlines[1])
+
+
 class FailurePreservation(unittest.TestCase):
     def exercise(self, directory, cause):
         args = SimpleNamespace(yes=True, work=directory, expected_source='a' * 40)
@@ -536,7 +738,8 @@ class FailurePreservation(unittest.TestCase):
             for code in (-64, -9, 1, 255):
                 failure = M.CommandFailed(code, operation)
                 self.assertEqual(M.failure_reason(failure), 'command_failed')
-                self.assertEqual(M.command_failure(failure), {'operation': operation, 'returncode': code})
+                self.assertEqual(M.command_failure(failure), {'operation': operation, 'returncode': code,
+                                                             'stderr_class': None})
         for operation, code in (('PRIVATE_CANARY/path', 1), (None, 1), ('inspect_roots', 0),
                                 ('inspect_roots', True), ('inspect_roots', -65),
                                 ('inspect_roots', 256), ('inspect_roots', 'PRIVATE_CANARY')):
@@ -552,7 +755,7 @@ class FailurePreservation(unittest.TestCase):
                 operation='inspect_roots')
         self.assertEqual(raised.exception.args, ('command_failed',))
         value = M.command_failure(raised.exception)
-        self.assertEqual(value, {'operation': 'inspect_roots', 'returncode': 7})
+        self.assertEqual(value, {'operation': 'inspect_roots', 'returncode': 7, 'stderr_class': 'unclassified'})
         self.assertNotIn('PRIVATE', json.dumps(value))
 
     def test_timeout_never_projects_its_cleanup_signal_as_program_returncode(self):
@@ -564,7 +767,7 @@ class FailurePreservation(unittest.TestCase):
 
     def test_typed_failure_context_survives_scratch_cleanup_failure_without_masking_primary(self):
         with tempfile.TemporaryDirectory() as directory:
-            original = M.CommandFailed(1, 'inspect_details')
+            original = M.CommandFailed(1, 'inspect_details', 'appliance_launch_failed')
             with mock.patch.object(M.shutil, 'rmtree', side_effect=PermissionError('PRIVATE_CANARY')), \
                     self.assertRaises(M.CommandFailed) as raised:
                 self.exercise(directory, original)
@@ -573,7 +776,8 @@ class FailurePreservation(unittest.TestCase):
             self.assertNotIn('PRIVATE', raw)
             value = json.loads(raw)
             self.assertEqual(value['failure'], {'stage': 'host_tools', 'reason': 'command_failed',
-                'command': {'operation': 'inspect_details', 'returncode': 1}})
+                'command': {'operation': 'inspect_details', 'returncode': 1,
+                            'stderr_class': 'appliance_launch_failed'}})
             self.assertEqual(value['cleanup_error'], 'scratch_removal_failed')
             self.assertFalse(value['owned_scratch_removed'])
 

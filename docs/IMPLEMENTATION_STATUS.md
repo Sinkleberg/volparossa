@@ -171,8 +171,33 @@ without exporting arguments, paths or raw tool output. Timeout and cancellation
 do not report cleanup's termination signal as an original command result.
 Seven new regressions cover handle-local inspection, changed or ambiguous roots
 and bounded failure records; the local suite passes 43 image/runner and 20 initrd
-cases. This defect is not yet established as the cause of the original trial's
-failure, and corrected hosted verification remains pending.
+cases. Corrected source run
+[`38844660428`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38844660428)
+on `9beb6d3f8cb1b1b70d94f6a355e65f5b5fb8cbd2` passes those 63 contracts,
+syntax, ShellCheck and source checks. Original artifact and log ZIP SHA-256 values
+are `0f947a57c547ea4d38a9bf2261720a04687d386aa1f0c89cc14f70bc10c92e73`
+and `cb236f022845e349d81e5d1ae0de51b9bfe21c164614436f63898246f365037d`.
+
+Actual trial
+[`38844838861`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38844838861)
+on the same source fails at the **first** guestfish call: `image_extract /
+command_failed`, operation `inspect_roots`, natural exit status `1`. It never
+reaches the corrected second handle, a sealed image or the public boot pair.
+The original receipt does not distinguish appliance preparation, launch or
+inspection failure. Child joins, process-group absence and scratch removal are
+reported; KVM ACL restoration/comparison and source checks pass. Original boot
+artifact and log ZIP SHA-256 values are
+`ad098b640fe82f4ce848c4201b51748b8c41e4072f50f92978090d396dbffca2`
+and `64fafca3301f45b3054efd31f9866d1fb5559c23f82fa1108fbb9926e53576d5`.
+
+The next candidate adds a bounded host preflight before downloads and a closed
+classification of the failing command's stderr. The preflight reports only
+kernel/module readability counts and KVM API access, not paths, kernel selection
+or successful guest creation. Exact upstream error lines produce a fixed label;
+unknown or ambiguous output stays explicit and raw output remains private.
+All input pins, deadlines, boot criteria and process cleanup remain unchanged.
+Thirteen new inert cases cover these observations and their privacy bounds;
+hosted verification of this candidate and actual boot acceptance remain open.
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
