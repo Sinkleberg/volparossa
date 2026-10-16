@@ -15,6 +15,7 @@ mod public_code;
 mod public_serve;
 mod quote;
 mod resources;
+mod resident_guest;
 mod sandbox;
 mod serving_snapshot;
 mod spare_capacity;
@@ -51,6 +52,8 @@ pub(crate) enum Command {
     PrivateTask(Box<private_task::Options>),
     /// Serve bounded same-owner private questions locally; never exports them to peers.
     PrivateServe(Box<private_serve::Options>),
+    /// Explicit public-input resident guest fixture; not confidential peer admission.
+    ResidentGuest(Box<resident_guest::Options>),
     /// Serve explicitly public questions using selected real peers and checked synthesis.
     PublicServe(Box<public_serve::Options>),
     /// Fetch one explicitly selected signed public training source, train, and pack an adapter.
@@ -175,6 +178,7 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
         Command::Run(options) => options,
         Command::PrivateTask(options) => return private_task::run(&options).await,
         Command::PrivateServe(options) => return private_serve::run(*options).await,
+        Command::ResidentGuest(options) => return resident_guest::run(*options).await,
         Command::PublicServe(options) => return public_serve::run(*options, socket).await,
         Command::TrainCycle(options) => return train_cycle::run(&options, socket).await,
         Command::TrainLoop(options) => return train_loop::run(&options, socket).await,

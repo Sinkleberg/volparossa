@@ -46,6 +46,26 @@ replace either trial or change its pins.
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 is merged, retaining that immutable core dependency; the native/Storage core candidate is not merged into core `main`. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
 | Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Public immutable boot `38860629051` now passes on exact `888d79fc`: verified read-only boot, write denial, fixed entrypoint, corrupted-disk rejection and cleanup, alongside 179 contracts. This does not execute a model or establish private/TEE protection. Next join two public model turns to one guest TLS session under a separate finite task grant and an explicitly sized model profile. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
+### Public resident model integration candidate
+
+The next candidate adds a guest-side `compute resident-guest` command. It accepts
+one TLS 1.3 channel through a fixed virtio console port and requires a separately
+signed, single-use public task grant. The grant binds the requester, TLS key and
+channel, workload descriptor, two preapproved public inputs and finite execution
+limits. It cannot be obtained from quote evidence or authorize private peer input.
+The adapter calls the existing resident worker with the original grant deadline;
+disconnect, invalid requests and expiry cancel the same worker and await cleanup.
+The local Unix-socket service and accepted boot fixture remain unchanged.
+
+Source validation is pending. The new tests exercise real TLS and signatures with
+an explicitly inert worker; they are not evidence of inference or guest execution.
+The next acceptance gate must execute two real model turns inside the sealed
+guest, preserve one model lifetime, reject excess/replayed requests and confirm
+cleanup. The model image also needs the complete Python/native/OS closure and a
+separately sized disk budget: the accepted small boot image cannot contain both
+the original Qwen weights and BF16 execution weights. Workload descriptor binding
+in a fixture is not independent production approval or proof of guest key origin.
+
 ### Finite resident execution candidate
 
 The existing resident worker uses one absolute parent deadline for preparation,
