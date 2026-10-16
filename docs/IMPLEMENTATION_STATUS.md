@@ -16,9 +16,59 @@ Last updated: 2026-10-16
 
 ## Current integration and active work
 
+### Latest storage consumer outcome
+
+Original actual run
+[`38884826395`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38884826395)
+fails on exact `33faa7449ee982f8114c001107692eedf03cb5d5`, tree
+`2bfdb093e2783bad00419c22ede27edeef5fd9a0`. The base storage lifecycle passes:
+eight uploaded copies, repair after provider withdrawal, two restores, deletion
+of all eleven copies and zero remaining usage at all three base providers.
+The strict base evidence and real two-path MPTCP/privacy checks pass. Those
+results do not accept the separate application-consumer lifecycle.
+
+Cloud RESERVE fragment 0/copy 0 fails at `agent_terminal`, with outcome phase
+`transport_tls_close`, category `unavailable` and no enclosing deadline expiry.
+The source reaches that phase only after the admitted bridge and inner provider
+TLS closure succeed. The outer TLS close function combines shutdown, read,
+trailing-byte and its own timeout failures; the specific cause is not yet known.
+Final route/grant/lifetime validation and `CONTENT_OK` are not reached. This is
+not the earlier handshake failure, and does not prove that its cause is fixed.
+The helper bind observation and matched fixture-closing records are not bound
+to this exact copy and cannot establish its cause.
+
+Guest cleanup reports zero owned objects and unchanged host network state;
+QEMU stop/join and local fixture cleanup are supported by the original run.
+Remote consumer cleanup and usage remain unproved, as do complete Image/Cloud
+repair and restoration. Original application pins remain unchanged: Image
+`9694a2b9` and Cloud `47b0f03b`; all 23 provisioned app blobs match. The workflow,
+consumer profiles and acceptance validators also match the previous trial.
+Original artifact API digest and both ZIP CRCs pass; artifact and log SHA-256 are
+`537c75bd4de2f3239073633671d96023394569ece23921a20b202d91f24ef759`
+and `c999e511e28b15437007ff7e883bb427e2bdb5d3ab6c0c9c83f43b9f147607c0`.
+The next step is to distinguish and reproduce the outer TLS close failure before
+another actual consumer run; do not extend deadlines or accept abrupt EOF.
+
+### Isolated kernel test for nested TLS closure
+
+Two new test-only cases exercise a signed RESERVE through negotiated loopback
+kernel MPTCP, the production bidirectional proxy and a real TCP storage provider.
+The normal case closes and drops the provider, then joins and drops the proxy
+before the client explicitly finishes its outer TLS stream. The negative case
+aborts the proxy before its outer close notification and must reject an actual
+EOF/reset, not merely expire a test timer. Both retain one ten-second scenario
+deadline and join owned tasks before checking that all four sockets are gone.
+
+Hosted compilation and execution are pending. The workflow explicitly runs the
+two otherwise ignored cases in disposable network/PID namespaces and checks
+unchanged host routes, DNS and firewall state. This is a focused close-lifecycle
+test, not a deployed WireGuard route, multipath throughput test or acceptance of
+the Image/Cloud lifecycle. Production closure behavior, deadlines and consumer
+validation remain unchanged.
+
 ### Fresh TCP admission after route-slot waits
 
-The latest actual consumer trial
+The preceding actual consumer trial
 [`38860289559`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38860289559)
 on `08ba6b21b79bef8fb0f124f114fb5ba3df7d93b7` still fails Cloud publication.
 The first copy fails during the provider TLS handshake; the next fails flow
@@ -54,10 +104,18 @@ on exact `6c817ccc6dcc2130fc3df823fea23948dba032c7` passes compilation,
 strict lint and source preservation, with none failed or ignored. Five source
 blobs and twelve unchanged dependencies match. The overall run fails only six
 formatter hunks in two files. The follow-up applies those exact hunks, with no
-behavioral change; its hosted verification is pending. No local Rust execution
-is claimed. Original artifact and log ZIP SHA-256 values are
+behavioral change. No local Rust execution is claimed. Original artifact and log
+ZIP SHA-256 values are
 `b36a814b451cc69b8dc83c4653cad4ba25db6ca240e610a752964500e75b5cee`
 and `5c10d94b54b0991883e588ece4960a00d2213992227e3b766ce88c3dc2e688e7`.
+
+Corrected source run
+[`38883801795`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38883801795)
+on `33faa744` passes compilation, all 21 contracts, strict lint, formatting and
+final source preservation. Five changed blobs and twelve dependency identities
+are verified. Artifact and log SHA-256 are
+`b5e7d1fce35d45d24a4027fb87bc599f5816243e78ce5f932031281bf955fcb9`
+and `c7752a29d12860ae102e0e3600e26f0428f025b15525887c4ef910d5ea0ab482`.
 
 ### Retained route retirement after helper loss
 

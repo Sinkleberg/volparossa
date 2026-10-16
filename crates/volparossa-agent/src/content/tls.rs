@@ -233,6 +233,8 @@ mod diagnostic_tests;
 
 #[cfg(test)]
 mod tests {
+    mod kernel_close;
+
     use super::*;
     use ed25519_dalek::SigningKey;
     use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
