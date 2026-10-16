@@ -1445,5 +1445,414 @@ class QmpAdmission(unittest.TestCase):
                 self.assertIsNone(M.DEADLINE.get())
 
 
+class OriginalQmpObservation(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.scratch = self.root / 'temporary'
+        self.scratch.mkdir(mode=0o700)
+        self.binary = Path(sys.executable).resolve(strict=True)
+        self.binding = dict(path=self.binary, identity=M.host_identity(self.binary, maximum=128 * 1024 ** 2),
+                            sha256=M.digest(self.binary, maximum=128 * 1024 ** 2)['sha256'])
+        self.tokens = [(M.SCRATCH, M.SCRATCH.set(self.scratch)),
+                       (M.HYPERVISOR, M.HYPERVISOR.set(self.binding)),
+                       (M.QMP_CAPTURE, M.QMP_CAPTURE.set(None))]
+        self.value = M.prepare_qmp_capture()
+        self.assertIn('wrapper', self.value)
+
+    def tearDown(self):
+        for variable, token in reversed(self.tokens):
+            variable.reset(token)
+        self.temporary.cleanup()
+
+    def config(self):
+        return dict(binary=str(self.binary), identity=self.binding['identity'], sha256=self.binding['sha256'],
+                    scratch=str(self.scratch), capture=str(self.value['directory']),
+                    interpreter=self.value['interpreter'])
+
+    def error_file(self, name='cmderr1.txt', data=b''):
+        parent = self.scratch / 'libguestfsABC123'
+        parent.mkdir(mode=0o700, exist_ok=True)
+        path = parent / name
+        path.write_bytes(data)
+        path.chmod(0o600)
+        return path
+
+    def retain(self, path):
+        original_stat, original_link = os.fstat, os.readlink
+        with path.open('rb') as source, \
+                mock.patch.object(M.os, 'fstat', side_effect=lambda fd:
+                    original_stat(source.fileno()) if fd == 2 else original_stat(fd)), \
+                mock.patch.object(M.os, 'readlink', side_effect=lambda target, **kwargs:
+                    str(path) if str(target) == '/proc/self/fd/2' else original_link(target, **kwargs)):
+            M.retain_probe_stderr(self.scratch, self.value['directory'])
+
+    def cache(self, raw=b'{"return":{"present":true,"enabled":false}}\n'):
+        directory = self.scratch / ('.guestfs-' + str(os.geteuid()))
+        directory.mkdir(mode=0o755, exist_ok=True)
+        directory.chmod(0o755)
+        name = 'qemu-' + str(self.value['size']) + '-' + str(self.value['mtime']) + '.query-kvm'
+        path = directory / name
+        path.write_bytes(raw)
+        path.chmod(0o600)
+        return path
+
+    def observed_pair(self):
+        for index in (1, 2):
+            path = self.error_file('cmderr' + str(index) + '.txt',
+                b'PRIVATE_CANARY unknown text\nqemu-system-x86_64: failed to initialize kvm: Permission denied\n')
+            self.retain(path)
+            path.unlink()
+        self.cache()
+
+    def test_retains_actual_inode_after_original_unlink_without_stream_replacement(self):
+        path = self.error_file(data=b'public stderr')
+        original = path.stat()
+        self.retain(path)
+        retained = self.value['directory'] / 'probe-1'
+        self.assertEqual((retained.stat().st_dev, retained.stat().st_ino),
+                         (original.st_dev, original.st_ino))
+        self.assertEqual(path.stat().st_nlink, 2)
+        path.unlink()
+        self.assertEqual(M.capture_read(retained, M.MAX_QMP), b'public stderr')
+        self.assertEqual((self.value['directory'] / 'probe-1.verified').read_bytes(), b'')
+
+    def test_only_two_retained_inodes_and_third_is_not_captured(self):
+        for index in (1, 2):
+            self.retain(self.error_file('cmderr' + str(index) + '.txt'))
+        third = self.error_file('cmderr3.txt')
+        with self.assertRaisesRegex(ValueError, '^qmp_capture_bound$'):
+            self.retain(third)
+        self.assertEqual(third.stat().st_nlink, 1)
+        self.assertEqual(len(list(self.value['directory'].iterdir())), 4)
+
+    def test_rejects_wrong_fd_identity_and_nonregular_fd(self):
+        path = self.error_file()
+        other = self.error_file('cmderr2.txt')
+        for info in (other.stat(), path.parent.stat()):
+            with self.subTest(mode=info.st_mode), \
+                    mock.patch.object(M.os, 'readlink', return_value=str(path)), \
+                    mock.patch.object(M.os, 'fstat', return_value=info), \
+                    self.assertRaisesRegex(ValueError, '^qmp_capture_binding$'):
+                M.retain_probe_stderr(self.scratch, self.value['directory'])
+        self.assertEqual(list(self.value['directory'].iterdir()), [])
+
+    def test_rejects_wrong_paths_symlinks_modes_owner_and_existing_links(self):
+        path = self.error_file()
+        for name in ('other.txt', 'cmderr0.txt', 'cmderr1.txt (deleted)', 'cmderr12345678901.txt'):
+            with self.subTest(name=name), mock.patch.object(M.os, 'readlink', return_value=str(path.with_name(name))), \
+                    self.assertRaises(ValueError):
+                M.retain_probe_stderr(self.scratch, self.value['directory'])
+        for mode in (0o644, 0o660, 0o400):
+            path.chmod(mode)
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                self.retain(path)
+        path.chmod(0o600)
+        with mock.patch.object(M.os, 'geteuid', return_value=os.geteuid() + 1), self.assertRaises(ValueError):
+            self.retain(path)
+        alias = path.with_name('alias')
+        os.link(path, alias)
+        with self.assertRaises(ValueError):
+            self.retain(path)
+        alias.unlink()
+        path.rename(alias)
+        path.symlink_to(alias)
+        with self.assertRaises(ValueError):
+            self.retain(path)
+
+    def test_rejects_nonprivate_or_replaced_parent_and_capture_directory(self):
+        path = self.error_file()
+        for directory in (path.parent, self.scratch, self.value['directory']):
+            directory.chmod(0o755)
+            with self.subTest(directory=directory.name), self.assertRaises(ValueError):
+                self.retain(path)
+            directory.chmod(0o700)
+        directory = self.value['directory']
+        directory.rename(self.scratch / 'moved')
+        directory.symlink_to(self.scratch / 'moved')
+        with self.assertRaises(ValueError):
+            self.retain(path)
+
+    def test_post_link_identity_change_never_publishes_verified_marker(self):
+        path = self.error_file()
+        original_link = os.link
+        def replace(source, target, **kwargs):
+            original_link(source, target, **kwargs)
+            target.unlink()
+            target.write_bytes(b'PRIVATE_CANARY')
+            target.chmod(0o600)
+        with mock.patch.object(M.os, 'link', side_effect=replace), self.assertRaises(ValueError):
+            self.retain(path)
+        self.assertFalse((self.value['directory'] / 'probe-1.verified').exists())
+        self.cache()
+        M.project_qmp_capture(self.value, joined=True)
+        self.assertEqual(self.value['receipt']['probe_stderr'], [])
+        self.assertEqual(self.value['receipt']['state'], 'incomplete')
+
+    def test_nonprobe_passthrough_never_inspects_stderr_and_preserves_arguments_environment(self):
+        arguments = ['-display', 'none', '-help']
+        before = dict(os.environ)
+        with mock.patch.object(M, 'retain_probe_stderr') as retain, \
+                mock.patch.object(M.os, 'execv') as execute, mock.patch.object(M.signal, 'signal'):
+            M.hypervisor_exec(self.config(), arguments)
+        retain.assert_not_called()
+        execute.assert_called_once_with(str(self.binary), [str(self.binary), *arguments])
+        self.assertEqual(dict(os.environ), before)
+        self.assertEqual(arguments, ['-display', 'none', '-help'])
+
+    def test_exact_probe_only_and_capture_failure_preserves_exec(self):
+        original = list(M.LIBGUESTFS_QMP_ARGV)
+        variants = [original, original + ['-S'], original[:-1],
+                    ['-display', 'none', '-machine', 'q35,accel=kvm', '-qmp', 'stdio']]
+        for arguments in variants:
+            with self.subTest(arguments=arguments), \
+                    mock.patch.object(M, 'retain_probe_stderr', side_effect=PermissionError('PRIVATE_CANARY')) as retain, \
+                    mock.patch.object(M.os, 'execv') as execute, mock.patch.object(M.signal, 'signal'):
+                M.hypervisor_exec(self.config(), arguments)
+            self.assertEqual(retain.call_count, int(arguments == original))
+            execute.assert_called_once_with(str(self.binary), [str(self.binary), *arguments])
+        self.assertEqual((self.value['directory'] / 'incomplete').read_bytes(), b'')
+
+    def test_restores_only_python_changed_signal_dispositions_before_exec(self):
+        order = []
+        with mock.patch.object(M.signal, 'signal', side_effect=lambda number, value: order.append((number, value))), \
+                mock.patch.object(M.os, 'execv', side_effect=lambda *_: order.append('exec')):
+            M.hypervisor_exec(self.config(), ['-help'])
+        expected = [(getattr(signal, name), signal.SIG_DFL) for name in ('SIGPIPE', 'SIGXFZ', 'SIGXFSZ')
+                    if hasattr(signal, name)]
+        self.assertEqual(order, [*expected, 'exec'])
+
+    def test_changed_real_binary_binding_rejects_before_any_exec_or_capture(self):
+        config = self.config()
+        config['sha256'] = '0' * 64
+        with mock.patch.object(M.os, 'execv') as execute, \
+                mock.patch.object(M, 'retain_probe_stderr') as retain, \
+                self.assertRaisesRegex(ValueError, '^hypervisor_binding$'):
+            M.hypervisor_exec(config, list(M.LIBGUESTFS_QMP_ARGV))
+        execute.assert_not_called()
+        retain.assert_not_called()
+
+    def test_generated_script_loads_exact_source_without_bytecode_or_environment_change(self):
+        raw = self.value['wrapper'].read_bytes()
+        self.assertTrue(raw.startswith(b'#!/usr/bin/python3 -I\n'))
+        self.assertIn(b'sys.dont_write_bytecode = True', raw)
+        before = dict(os.environ)
+        caches = set(HERE.glob('__pycache__/*'))
+        with mock.patch.object(sys, 'argv', [str(self.value['wrapper']), '-help']), \
+                mock.patch.object(os, 'execv') as execute, mock.patch.object(signal, 'signal'), \
+                mock.patch.object(os, '_exit', side_effect=AssertionError('unexpected script rejection')):
+            exec(compile(raw, '<fixed-public-trampoline>', 'exec'), {})
+        execute.assert_called_once_with(str(self.binary), [str(self.binary), '-help'])
+        self.assertEqual(dict(os.environ), before)
+        self.assertEqual(set(HERE.glob('__pycache__/*')), caches)
+
+    def test_generated_script_rejects_changed_builder_hash_without_raw_traceback(self):
+        raw = self.value['wrapper'].read_bytes()
+        source_hash = M.digest(HERE / 'protected-resident-image.py')['sha256'].encode()
+        self.assertIn(source_hash, raw)
+        raw = raw.replace(source_hash, b'0' * 64)
+        with mock.patch.object(os, 'execv') as execute, \
+                mock.patch.object(os, '_exit', side_effect=SystemExit(126)), \
+                self.assertRaises(SystemExit) as raised:
+            exec(compile(raw, '<fixed-public-trampoline>', 'exec'), {})
+        self.assertEqual(raised.exception.code, 126)
+        execute.assert_not_called()
+
+    def test_guestfish_uses_same_validated_wrapper_and_other_children_do_not(self):
+        M.QMP_CAPTURE.set(self.value)
+        with mock.patch.object(M, 'command', return_value=b'') as run:
+            M.guestfish(Path('/public/root.raw'), [['inspect-os']], operation='inspect_roots')
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[argv.index('set-hv') + 1], str(self.value['wrapper']))
+        original_popen, environments = M.subprocess.Popen, []
+        def spawn(_argv, **kwargs):
+            environments.append(kwargs['env'])
+            return original_popen([sys.executable, '-c', 'pass'], **kwargs)
+        with mock.patch.object(M, 'appliance_environment', return_value={}), \
+                mock.patch.object(M.subprocess, 'Popen', side_effect=spawn):
+            M.command(argv, operation='inspect_roots')
+            M.command([sys.executable, '-c', 'pass'])
+        self.assertEqual(environments[0]['LIBGUESTFS_HV'], str(self.value['wrapper']))
+        self.assertNotIn('LIBGUESTFS_HV', environments[1])
+
+    def test_changed_wrapper_is_not_executed_and_falls_back_to_validated_real_binary(self):
+        M.QMP_CAPTURE.set(self.value)
+        self.value['wrapper'].chmod(0o700)
+        self.value['wrapper'].write_bytes(b'PRIVATE_CANARY')
+        self.assertEqual(M.guestfish_hypervisor(), str(self.binary))
+        self.assertEqual(self.value['receipt']['state'], 'incomplete')
+
+    def test_changed_interpreter_refuses_trampoline_and_never_executes_unbound_program(self):
+        M.QMP_CAPTURE.set(self.value)
+        changed = {**self.value['interpreter'], 'sha256': '0' * 64}
+        with mock.patch.object(M, 'capture_interpreter', return_value=changed), \
+                mock.patch.object(M.os, 'execv') as execute:
+            self.assertEqual(M.guestfish_hypervisor(), str(self.binary))
+            with self.assertRaisesRegex(ValueError, '^qmp_capture_binding$'):
+                M.hypervisor_exec(self.config(), ['-help'])
+        execute.assert_not_called()
+        self.assertEqual(self.value['receipt']['state'], 'incomplete')
+
+    def test_different_argv_and_handle_creation_hypervisors_reject_before_spawn(self):
+        M.QMP_CAPTURE.set(self.value)
+        with mock.patch.object(M, 'guestfish_hypervisor',
+                               side_effect=[str(self.value['wrapper']), str(self.binary)]), \
+                mock.patch.object(M.subprocess, 'Popen') as spawn, \
+                self.assertRaisesRegex(ValueError, '^hypervisor_binding$'):
+            M.guestfish(Path('/public/root.raw'), [['inspect-os']], operation='inspect_roots')
+        spawn.assert_not_called()
+
+    def test_two_original_stderr_classes_and_cache_booleans_remain_uncorrelated(self):
+        self.observed_pair()
+        M.project_qmp_capture(self.value, joined=True)
+        observed = self.value['receipt']
+        self.assertEqual(observed['state'], 'observed')
+        self.assertEqual(observed['probe_stderr'], [dict(slot=slot, stderr_class='kvm_permission_denied')
+                                                   for slot in (1, 2)])
+        self.assertEqual(observed['query_kvm'], dict(state='observed', present=True, enabled=False))
+        self.assertIs(observed['query_correlated'], False)
+        self.assertIs(observed['appliance_boot_verified'], False)
+        self.assertIs(observed['diagnostic_only'], True)
+        public = json.dumps(observed)
+        for canary in ('PRIVATE_CANARY', str(self.root), 'cmderr', 'Permission denied'):
+            self.assertNotIn(canary, public)
+
+    def test_missing_slot_or_gap_marker_never_implies_query_identity_or_completeness(self):
+        path = self.error_file(data=b'unknown')
+        self.retain(path)
+        path.unlink()
+        self.cache()
+        M.project_qmp_capture(self.value, joined=True)
+        self.assertEqual(self.value['receipt']['state'], 'incomplete')
+        self.assertFalse(self.value['receipt']['query_correlated'])
+        (self.value['directory'] / 'probe-1').rename(self.value['directory'] / 'probe-2')
+        (self.value['directory'] / 'probe-1.verified').rename(self.value['directory'] / 'probe-2.verified')
+        M.project_qmp_capture(self.value, joined=True)
+        self.assertEqual(self.value['receipt']['probe_stderr'], [dict(slot=2, stderr_class='unclassified')])
+        self.assertEqual(self.value['receipt']['state'], 'incomplete')
+        self.assertFalse(self.value['receipt']['query_correlated'])
+
+    def test_cache_parser_rejects_malformed_extra_duplicate_and_nonboolean_values(self):
+        for raw in (b'', b'PRIVATE_CANARY', b'{"return":{"present":true,"enabled":"false"}}',
+                    b'{"return":{"present":1,"enabled":false}}', b'{"return":null}',
+                    b'{"return":{"present":true,"enabled":false},"id":"private"}',
+                    b'{"return":{"present":true,"enabled":false,"extra":1}}',
+                    b'{"return":{"present":true,"enabled":false,"enabled":true}}',
+                    b'{"return":{"present":NaN,"enabled":false}}', b' ' * 4097):
+            with self.subTest(raw=raw[:40]):
+                self.cache(raw)
+                M.project_qmp_capture(self.value, joined=True)
+                self.assertEqual(self.value['receipt']['query_kvm'],
+                                 dict(state='unavailable', present=None, enabled=None))
+                self.assertEqual(self.value['receipt']['state'], 'incomplete')
+
+    def test_reprojection_clears_old_cache_and_stderr_on_missing_file_or_expired_budget(self):
+        self.observed_pair()
+        M.project_qmp_capture(self.value, joined=True)
+        self.assertEqual(self.value['receipt']['state'], 'observed')
+        self.cache().unlink()
+        M.project_qmp_capture(self.value, joined=True)
+        self.assertEqual(self.value['receipt']['state'], 'incomplete')
+        self.assertEqual(self.value['receipt']['query_kvm'],
+                         dict(state='unavailable', present=None, enabled=None))
+        self.cache()
+        M.project_qmp_capture(self.value, joined=True)
+        self.assertEqual(self.value['receipt']['state'], 'observed')
+        token = M.DEADLINE.set(time.monotonic() - 1)
+        try:
+            M.project_qmp_capture(self.value, joined=True)
+        finally:
+            M.DEADLINE.reset(token)
+        self.assertEqual(self.value['receipt']['probe_stderr'], [])
+        self.assertEqual(self.value['receipt']['query_kvm'],
+                         dict(state='unavailable', present=None, enabled=None))
+        self.assertEqual(self.value['receipt']['state'], 'incomplete')
+
+    def test_cache_exact_key_and_owner_regular_nofollow_mode_link_guards(self):
+        path = self.cache()
+        path.rename(path.with_suffix('.wrong'))
+        M.project_qmp_capture(self.value, joined=True)
+        self.assertEqual(self.value['receipt']['query_kvm']['state'], 'unavailable')
+        path.symlink_to(path.with_suffix('.wrong'))
+        M.project_qmp_capture(self.value, joined=True)
+        self.assertEqual(self.value['receipt']['query_kvm']['state'], 'unavailable')
+        path.unlink()
+        path = self.cache()
+        for mode in (0o666, 0o660, 0o400):
+            path.chmod(mode)
+            M.project_qmp_capture(self.value, joined=True)
+            self.assertEqual(self.value['receipt']['query_kvm']['state'], 'unavailable')
+        path.chmod(0o600)
+        os.link(path, path.with_suffix('.alias'))
+        M.project_qmp_capture(self.value, joined=True)
+        self.assertEqual(self.value['receipt']['query_kvm']['state'], 'unavailable')
+
+    def test_bounded_capture_read_rejects_changed_regular_inode_and_oversize(self):
+        path = self.error_file(data=b'public')
+        with self.assertRaises(ValueError):
+            M.capture_read(path, 5)
+        original_stat = M.os.fstat
+        calls = 0
+        def changed(fd):
+            nonlocal calls
+            calls += 1
+            result = original_stat(fd)
+            if calls == 2:
+                path.write_bytes(b'changed')
+                return original_stat(fd)
+            return result
+        with mock.patch.object(M.os, 'fstat', side_effect=changed), self.assertRaises(ValueError):
+            M.capture_read(path, M.MAX_QMP)
+
+    def test_capture_bounds_unknown_text_and_incomplete_cleanup_never_export_raw_or_claim_join(self):
+        path = self.error_file(data=b'PRIVATE_CANARY' * M.MAX_QMP)
+        self.retain(path)
+        path.unlink()
+        self.cache()
+        M.project_qmp_capture(self.value, joined=True)
+        self.assertEqual(self.value['receipt']['state'], 'incomplete')
+        self.assertEqual(self.value['receipt']['probe_stderr'], [])
+        with mock.patch.object(M, 'capture_read') as read:
+            M.project_qmp_capture(self.value, joined=False)
+        read.assert_not_called()
+        self.assertNotIn('PRIVATE_CANARY', json.dumps(self.value['receipt']))
+
+    def test_execute_keeps_original_failure_receipt_cleanup_and_deadline_on_capture_fault(self):
+        for uncertain in (False, True):
+            with tempfile.TemporaryDirectory() as directory:
+                original = (M.CleanupUnconfirmed('process_group_remaining') if uncertain
+                            else M.CommandFailed(1, 'inspect_roots', 'kvm_unavailable'))
+                original_deadline = time.monotonic() + 900
+                def admit(_tools, observed):
+                    M.HYPERVISOR.set(self.binding)
+                    observed.update(state='passed', present=True, enabled=True)
+                def fail(*_args):
+                    self.assertEqual(M.DEADLINE.get(), original_deadline)
+                    value = M.QMP_CAPTURE.get()
+                    (value['directory'] / 'probe-1').symlink_to('/PRIVATE_CANARY')
+                    raise original
+                with mock.patch.object(M, 'hosted_output', return_value=Path(directory)), \
+                        mock.patch.object(M, 'adopt_appliance', return_value=dict(
+                            deadline=original_deadline, receipt={'version': 1})), \
+                        mock.patch.object(M, 'source_binding', return_value={'revision': 'a' * 40}), \
+                        mock.patch.object(M, 'tool_inventory', return_value={}), \
+                        mock.patch.object(M, 'appliance_preflight', return_value={}), \
+                        mock.patch.object(M, 'qmp_preflight', side_effect=admit), \
+                        mock.patch.object(M, 'fetch'), mock.patch.object(M, 'extract_boot', side_effect=fail), \
+                        self.assertRaises(type(original)) as raised:
+                    M.execute(SimpleNamespace(yes=True, work=directory, expected_source='a' * 40))
+                self.assertIs(raised.exception, original)
+                evidence = Path(directory) / 'evidence'
+                self.assertEqual([path.name for path in evidence.iterdir()], ['cleanup.json'])
+                raw = (evidence / 'cleanup.json').read_text()
+                value = json.loads(raw)
+                self.assertNotIn('PRIVATE_CANARY', raw)
+                self.assertEqual(value['failure']['reason'], 'process_group_remaining' if uncertain else 'command_failed')
+                self.assertEqual(value['child_leaders_reaped'], not uncertain)
+                self.assertEqual(value['owned_scratch_removed'], not uncertain)
+                self.assertEqual(value['original_qmp_observation']['state'], 'incomplete')
+                self.assertFalse(value['boot_pair_verified'])
+
+
 if __name__ == '__main__':
     unittest.main()

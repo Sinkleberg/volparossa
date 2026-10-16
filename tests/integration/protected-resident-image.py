@@ -54,6 +54,7 @@ DEADLINE = contextvars.ContextVar('protected_public_boot_deadline', default=None
 SCRATCH = contextvars.ContextVar('protected_public_boot_scratch', default=None)
 APPLIANCE = contextvars.ContextVar('protected_public_boot_appliance', default=None)
 HYPERVISOR = contextvars.ContextVar('protected_public_boot_hypervisor', default=None)
+QMP_CAPTURE = contextvars.ContextVar('protected_public_boot_qmp_capture', default=None)
 CANCELLED = contextvars.ContextVar('protected_public_boot_cancelled', default=False)
 GUESTFISH_OPERATIONS = frozenset(('inspect_roots', 'inspect_details', 'extract_boot_files',
     'readlink_bin', 'readlink_sbin', 'readlink_lib', 'readlink_lib64', 'stage_root'))
@@ -82,6 +83,7 @@ QMP_COMMANDS = (b'{"execute":"qmp_capabilities","id":"capabilities"}\n'
                 b'{"execute":"query-kvm","id":"kvm"}\n'
                 b'{"execute":"quit","id":"quit"}\n')
 MAX_QMP = 32768
+LIBGUESTFS_QMP_ARGV = ('-display', 'none', '-machine', 'q35,accel=kvm:tcg', '-qmp', 'stdio')
 # QEMU 8.2.2 accel/kvm/kvm-all.c (open failure), system/vl.c
 # (accelerator initialization), util/error-report.c (fixed program/location).
 # Only enumerated C-locale errno strings; neither syscall nor causal attribution.
@@ -361,6 +363,225 @@ def qmp_preflight(tools, observed):
     except BaseException as error:
         observed.update(state='failed', failure=failure_reason(error), command=command_failure(error))
         raise
+
+
+def capture_directory(path, mode=0o700):
+    info = path.lstat()
+    require(path.is_absolute() and path.resolve(strict=True) == path
+            and stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid()
+            and stat.S_IMODE(info.st_mode) == mode, 'qmp_capture_binding')
+
+
+def capture_read(path, maximum, *, modes=(0o600,), links=(1,)):
+    """Read only a bounded, same-owner regular inode; never export its text."""
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'rb') as source:
+        before = os.fstat(source.fileno())
+        require(stat.S_ISREG(before.st_mode) and before.st_uid == os.geteuid()
+                and stat.S_IMODE(before.st_mode) in modes and before.st_nlink in links
+                and 0 <= before.st_size <= maximum, 'qmp_capture_binding')
+        raw = source.read(maximum + 1)
+        after = os.fstat(source.fileno())
+        identity = lambda value: (value.st_dev, value.st_ino, value.st_mode, value.st_uid,
+            value.st_nlink, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+        require(len(raw) == before.st_size and identity(before) == identity(after)
+                and identity(after) == identity(path.lstat()), 'qmp_capture_binding')
+    return raw
+
+
+def retain_probe_stderr(scratch, destination):
+    """Keep the existing libguestfs cmderr inode, not a second stderr stream.
+
+    v1.52.0 command.c:767-817 creates fd2; tmpdirs.c:169-237 fixes its shape.
+    No stdin read, argv rewrite, extra process, or interpretation of probe order.
+    """
+    capture_directory(scratch)
+    capture_directory(destination)
+    require(destination.parent == scratch, 'qmp_capture_binding')
+    source = Path(os.readlink('/proc/self/fd/2'))
+    require(source.parent.parent == scratch
+            and re.fullmatch(r'libguestfs[A-Za-z0-9]{6}', source.parent.name)
+            and re.fullmatch(r'cmderr[1-9][0-9]{0,9}\.txt', source.name), 'qmp_capture_binding')
+    capture_directory(source.parent)
+    opened, named = os.fstat(2), source.lstat()
+    identity = lambda value: (value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_nlink)
+    require(stat.S_ISREG(opened.st_mode) and opened.st_uid == os.geteuid()
+            and stat.S_IMODE(opened.st_mode) == 0o600 and opened.st_nlink == 1
+            and identity(opened) == identity(named), 'qmp_capture_binding')
+    for slot in ('probe-1', 'probe-2'):
+        retained = destination / slot
+        try:
+            os.link(source, retained, follow_symlinks=False)
+        except FileExistsError:
+            continue
+        after = os.fstat(2)
+        require(after.st_nlink == 2 and identity(after) == identity(source.lstat())
+                and identity(after) == identity(retained.lstat())
+                and (after.st_dev, after.st_ino) == (opened.st_dev, opened.st_ino),
+                'qmp_capture_binding')
+        descriptor = os.open(destination / (slot + '.verified'),
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        os.close(descriptor)
+        return
+    raise ValueError('qmp_capture_bound')
+
+
+def hypervisor_exec(config, arguments):
+    """Fixed generated trampoline: validate the real ELF, then replace ourselves."""
+    require(capture_interpreter() == config['interpreter']
+            and str(Path(sys.executable).resolve(strict=True)) == config['interpreter']['path'],
+            'qmp_capture_binding')
+    binary = Path(config['binary'])
+    require(host_identity(binary, maximum=128 * 1024 ** 2) == config['identity']
+            and digest(binary, maximum=128 * 1024 ** 2)['sha256'] == config['sha256']
+            and host_identity(binary, maximum=128 * 1024 ** 2) == config['identity'],
+            'hypervisor_binding')
+    if tuple(arguments) == LIBGUESTFS_QMP_ARGV:
+        try:
+            retain_probe_stderr(Path(config['scratch']), Path(config['capture']))
+        except (OSError, ValueError):
+            # Capture is optional. A fixed marker makes a gap explicit, without
+            # replacing the original command's argv, streams, environment or exit.
+            try:
+                capture_directory(Path(config['capture']))
+                descriptor = os.open(Path(config['capture']) / 'incomplete',
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+                os.close(descriptor)
+            except (OSError, ValueError):
+                pass
+    # CPython ignores these signals at startup; unlike caught handlers, an
+    # ignored disposition survives exec. libguestfs run_child sets them to DFL.
+    for name in ('SIGPIPE', 'SIGXFZ', 'SIGXFSZ'):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), signal.SIG_DFL)
+    os.execv(str(binary), [str(binary), *arguments])
+
+
+def capture_interpreter():
+    path = Path('/usr/bin/python3').resolve(strict=True)
+    identity = host_identity(path, maximum=128 * 1024 ** 2)
+    hashed = digest(path, maximum=128 * 1024 ** 2)['sha256']
+    require(host_identity(path, maximum=128 * 1024 ** 2) == identity, 'qmp_capture_binding')
+    return dict(path=str(path), identity=identity, sha256=hashed)
+
+
+def prepare_qmp_capture():
+    observed = dict(version=1, diagnostic_only=True, state='unavailable',
+        trampoline_sha256=None, interpreter_sha256=None, binary_sha256=None,
+        probe_stderr=[], query_correlated=False,
+        query_kvm=dict(state='unavailable', present=None, enabled=None), appliance_boot_verified=False)
+    result = {'receipt': observed}
+    try:
+        checkpoint()
+        binary = bound_hypervisor()
+        scratch = SCRATCH.get()
+        capture_directory(scratch)
+        directory = scratch / 'qmp-observation'
+        directory.mkdir(mode=0o700)
+        config = dict(binary=binary, identity=HYPERVISOR.get()['identity'],
+                      sha256=HYPERVISOR.get()['sha256'], scratch=str(scratch), capture=str(directory),
+                      interpreter=capture_interpreter())
+        builder = Path(__file__).resolve(strict=True)
+        source_hash = digest(builder, maximum=262144)['sha256']
+        # No imports from the checkout and no bytecode writes: compile only the
+        # bounded exact builder bytes in memory, under isolated system Python.
+        script = ('#!/usr/bin/python3 -I\nimport hashlib, os, stat, sys\nsys.dont_write_bytecode = True\n'
+            'try:\n'
+            f'    fd = os.open({str(builder)!r}, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)\n'
+            '    with os.fdopen(fd, "rb") as source:\n'
+            '        info = os.fstat(source.fileno())\n'
+            '        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 262144:\n'
+            '            raise ValueError()\n'
+            '        raw = source.read(262145)\n'
+            f'    if len(raw) > 262144 or hashlib.sha256(raw).hexdigest() != {source_hash!r}:\n'
+            '        raise ValueError()\n'
+            f'    namespace = {{"__name__": "protected_hypervisor", "__file__": {str(builder)!r}}}\n'
+            f'    exec(compile(raw, {str(builder)!r}, "exec"), namespace)\n'
+            f'    namespace["hypervisor_exec"]({config!r}, sys.argv[1:])\n'
+            'except BaseException:\n    os._exit(126)\n').encode()
+        wrapper = scratch / 'qmp-exec'
+        with wrapper.open('xb') as target:
+            target.write(script)
+        wrapper.chmod(0o500)
+        info = wrapper.lstat()
+        result.update(wrapper=wrapper, directory=directory, scratch=scratch,
+                      size=info.st_size, mtime=int(info.st_mtime), interpreter=config['interpreter'])
+        observed.update(state='unobserved', trampoline_sha256=hashlib.sha256(script).hexdigest(),
+                        interpreter_sha256=config['interpreter']['sha256'], binary_sha256=config['sha256'])
+    except Exception:
+        # This optional observation must not stop the original operation.
+        pass
+    return result
+
+
+def guestfish_hypervisor():
+    binary = bound_hypervisor()
+    value = QMP_CAPTURE.get()
+    if value is not None and 'wrapper' in value:
+        try:
+            capture_directory(value['scratch'])
+            script = capture_read(value['wrapper'], 262144, modes=(0o500,))
+            require(hashlib.sha256(script).hexdigest() == value['receipt']['trampoline_sha256'],
+                    'qmp_capture_binding')
+            require(capture_interpreter() == value['interpreter'], 'qmp_capture_binding')
+            return str(value['wrapper'])
+        except (OSError, ValueError):
+            value['receipt']['state'] = 'incomplete'
+    return binary
+
+
+def project_qmp_capture(value, *, joined):
+    """Two original probe observations, deliberately NOT correlated to a query."""
+    if value is None or 'wrapper' not in value:
+        return
+    observed = value['receipt']
+    observed.update(state='incomplete', probe_stderr=[],
+                    query_kvm=dict(state='unavailable', present=None, enabled=None))
+    if not joined:
+        return
+    try:
+        checkpoint()
+        capture_directory(value['scratch'])
+        capture_directory(value['directory'])
+        wrapper = capture_read(value['wrapper'], 262144, modes=(0o500,))
+        info = value['wrapper'].lstat()
+        require(hashlib.sha256(wrapper).hexdigest() == observed['trampoline_sha256']
+                and info.st_size == value['size'] and int(info.st_mtime) == value['mtime'],
+                'qmp_capture_binding')
+        names = set()
+        with os.scandir(value['directory']) as entries:
+            for entry in entries:
+                require(len(names) < 5, 'qmp_capture_bound')
+                names.add(entry.name)
+        require(names <= {'probe-1', 'probe-2', 'probe-1.verified', 'probe-2.verified', 'incomplete'},
+                'qmp_capture_binding')
+        records = []
+        for slot in (1, 2):
+            if 'probe-' + str(slot) in names:
+                require(capture_read(value['directory'] / ('probe-' + str(slot) + '.verified'), 0) == b'',
+                        'qmp_capture_binding')
+                raw = capture_read(value['directory'] / ('probe-' + str(slot)), MAX_QMP, links=(1, 2))
+                classifier = QemuStderr()
+                classifier.feed(raw)
+                records.append(dict(slot=slot, stderr_class=classifier.finish()))
+        observed['probe_stderr'] = records
+        # Upstream qemu.c:233-240 derives exactly this cache key from the
+        # hypervisor executable's stat, not the underlying ELF or a glob match.
+        cache = value['scratch'] / ('.guestfs-' + str(os.geteuid()))
+        capture_directory(cache, mode=0o755)
+        name = 'qemu-' + str(value['size']) + '-' + str(value['mtime']) + '.query-kvm'
+        raw = capture_read(cache / name, 4096, modes=(0o600, 0o644))
+        result = exact_json(raw)
+        require(type(result) is dict and set(result) == {'return'}
+                and type(result['return']) is dict and set(result['return']) == {'present', 'enabled'}
+                and all(type(item) is bool for item in result['return'].values()), 'qmp_capture_binding')
+        observed['query_kvm'] = dict(state='observed', **result['return'])
+        if len(records) == 2 and 'incomplete' not in names:
+            observed['state'] = 'observed'
+    except Exception:
+        # No arbitrary error text, and no diagnostic failure replacing the
+        # original guestfish result or its mandatory cleanup/quarantine.
+        pass
 
 
 def readable_regular(path):
@@ -676,7 +897,10 @@ def command(argv, *, timeout=120, maximum=MAX_LOG, stdout_path=None, operation=N
     if str(argv[0]) == 'guestfish':
         # Bind at handle creation too: -a processing precedes explicit set-hv.
         # https://libguestfs.org/guestfish.1.html#set-hv
-        environment['LIBGUESTFS_HV'] = bound_hypervisor()
+        environment['LIBGUESTFS_HV'] = guestfish_hypervisor()
+        if QMP_CAPTURE.get() is not None and 'wrapper' in QMP_CAPTURE.get():
+            require(len(argv) >= 13 and argv[11] == 'set-hv'
+                    and argv[12] == environment['LIBGUESTFS_HV'], 'hypervisor_binding')
         environment.update(appliance_environment())
     if SCRATCH.get() is not None:
         environment.update(LIBGUESTFS_CACHEDIR=str(SCRATCH.get()),
@@ -781,7 +1005,7 @@ def fetch(item, target, algorithm, maximum, deadline):
 def guestfish(image, operations, *, readonly=True, image_format='raw', timeout=300, operation=None):
     argv = ['guestfish', '--ro' if readonly else '--rw', '--format=' + image_format,
             '-a', image, 'set-pgroup', 'false', ':', 'set-network', 'false',
-            ':', 'set-hv', bound_hypervisor(), ':', 'run']
+            ':', 'set-hv', guestfish_hypervisor(), ':', 'run']
     for subcommand in operations:
         argv.extend([':', *subcommand])
     return command(argv, timeout=timeout, operation=operation).decode('utf-8', errors='strict')
@@ -1074,10 +1298,11 @@ def execute(args):
     output.mkdir(mode=0o700)
     deadline, cleanup_safe, completed = time.monotonic() + BUILD_SECONDS, True, False
     stage, failure, cleanup_error, primary = 'source', None, None, None
-    preflight, appliance, qmp = None, None, None
+    preflight, appliance, qmp, capture = None, None, None, None
     budget_token = DEADLINE.set(deadline)
     appliance_token = APPLIANCE.set(None)
     hypervisor_token = HYPERVISOR.set(None)
+    capture_token = QMP_CAPTURE.set(None)
     scratch = output / 'temporary'
     scratch.mkdir(mode=0o700)
     scratch_token = SCRATCH.set(scratch)
@@ -1103,6 +1328,8 @@ def execute(args):
         stage = 'qmp_kvm_preflight'
         qmp = qmp_observation()
         qmp_preflight(tools, qmp)
+        capture = prepare_qmp_capture()
+        QMP_CAPTURE.set(capture)
         stage = 'input_download'
         image_pin = exact_json((ROOT / pins['debian_image_manifest']).read_bytes())
         image = output / 'debian.qcow2'
@@ -1122,10 +1349,12 @@ def execute(args):
             output / 'original-initrd.img', pins['kernel_release'], root_hash, str(blocks),
             output / 'initrd.img'], timeout=300)
         record(evidence / 'initrd.json', initrd_receipt(initrd, output, pins, root_hash, blocks))
+        project_qmp_capture(capture, joined=True)
         descriptor = dict(version=1, kind='protected-resident-public-boot-build',
             source=source, kernel_release=pins['kernel_release'], verity=pins['verity'],
             root_hash=root_hash, data_blocks=blocks, cmdline=CMDLINE, host_tools=tools,
             appliance_kernel=appliance['receipt'], qmp_kvm_preflight=qmp,
+            original_qmp_observation=capture['receipt'],
             inputs={'image_sha512': pins['debian_image_sha512'], 'packages': pins['packages'],
                     'pins': digest(PINS), 'bootstrap': digest(BOOTSTRAP), 'entrypoint': digest(ENTRYPOINT)},
             files={name: digest(output / name) for name in ('vmlinuz', 'initrd.img', 'root.raw', 'verity.raw')},
@@ -1150,9 +1379,11 @@ def execute(args):
             cleanup_safe = False
         raise
     finally:
+        project_qmp_capture(capture, joined=cleanup_safe)
         DEADLINE.reset(budget_token)
         APPLIANCE.reset(appliance_token)
         HYPERVISOR.reset(hypervisor_token)
+        QMP_CAPTURE.reset(capture_token)
         SCRATCH.reset(scratch_token)
         try:
             if cleanup_safe:
@@ -1167,6 +1398,7 @@ def execute(args):
                     boot_pair_verified=completed, failure=failure, cleanup_error=cleanup_error,
                     appliance_preflight=preflight,
                     qmp_kvm_preflight=qmp,
+                    original_qmp_observation=capture['receipt'] if capture is not None else None,
                     appliance_kernel=appliance['receipt'] if appliance is not None else None,
                     hardware_attestation=False, private_inputs=False))
             except (OSError, ValueError):
