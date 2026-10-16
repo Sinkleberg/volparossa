@@ -49,6 +49,10 @@ def memory(total=16 * R.GIB, available=15 * R.GIB, dirty=1024, writeback=2048):
             f'Dirty: {dirty // 1024} kB\nWriteback: {writeback // 1024} kB\n').encode()
 
 
+DISK_STAGES = ('inspect_roots', 'inspect_details', 'root_export', 'raw_resize',
+               'runtime_uuid', 'build_overlay', 'seed')
+
+
 class Inert(unittest.TestCase):
     def setUp(self):
         # Any missed mock is an immediate test failure, never a real command.
@@ -339,91 +343,250 @@ class MemoryObservation(Inert):
         self.assertIsNone(rows[0]['admitted'])
         R.subprocess.Popen.assert_not_called()
 
-    def test_execute_persists_pass_or_failure_snapshot_without_model_claim(self):
+    def execute_disk_case(self, available, baseline, *, disk_sample=None, failure=None, wrong_uuid=False):
         pins = R.json.loads((R.HERE / 'protected-resident-image-pins-v1.json').read_bytes())
-        for available, baseline in ((14 * R.GIB - 1024, memory()),
-                                    (14 * R.GIB, OSError('private-baseline-canary')),
-                                    (14 * R.GIB, memory(available=0))):
-            with self.subTest(available=available), tempfile.TemporaryDirectory() as temporary:
-                work = Path(temporary)
-                requester_path = work / 'target/requester'
-                requester_path.parent.mkdir()
-                requester_path.write_bytes(b'public inert executable placeholder, never run')
-                manifest = work / pins['debian_image_manifest']
-                manifest.parent.mkdir(parents=True, exist_ok=True)
-                manifest.write_bytes(b'{}')
-                group = work / 'cgroup'
-                group.mkdir()
-                for name, raw in {'memory.max': str(R.QEMU_BYTES), 'memory.swap.max': '0',
-                                  'cgroup.procs': '313', 'cgroup.events': 'populated 0\n'}.items():
-                    (group / name).write_text(raw)
-                args = types.SimpleNamespace(work=work, appliance_kernel=Path('/not-opened'),
-                    expected_source='1' * 40, requester=requester_path)
-                base = types.SimpleNamespace(fetch=mock.Mock(), root_device=lambda _raw: '/dev/sda1')
-                memory_reads = []
-                def fish(_image, ops, **_options):
-                    self.assertEqual(len(memory_reads), 1, 'baseline_not_observed_before_disk_work')
-                    if len(ops) == 1 and ops[0][0] == 'inspect-os':
-                        return '/dev/sda1\n'
-                    if ops[0][0] == 'inspect-os':
-                        return '/dev/sda1\ndebian\n13\next4\n4096\n'
-                    if ops[0][0] == 'set-uuid':
-                        return ops[0][2]
-                    return ''
-                original_open, original_read = Path.open, Path.read_bytes
-                def opened(path, *args, **kwargs):
-                    if path == Path('/proc/meminfo'):
-                        raw = baseline if not memory_reads else memory(available=available)
-                        memory_reads.append(True)
-                        if isinstance(raw, OSError):
-                            raise raw
-                        return io.BytesIO(raw)
-                    return original_open(path, *args, **kwargs)
-                def read(path):
-                    if str(path) in ('/proc/net/route', '/proc/net/ipv6_route', '/etc/resolv.conf'):
-                        return b'public test network observation'
-                    return original_read(path)
-                process = types.SimpleNamespace(pid=313)
-                with contextlib.ExitStack() as patches:
-                    patches.enter_context(mock.patch.object(R, 'ROOT', work))
-                    patches.enter_context(mock.patch.object(R.os, 'umask'))
-                    patches.enter_context(mock.patch.object(R, 'hosted', return_value=(base,
-                        {'commit': '1' * 40, 'tree': '2' * 40}, {}, {})))
-                    patches.enter_context(mock.patch.object(R, 'ImageTools', return_value=types.SimpleNamespace(fish=fish)))
-                    patches.enter_context(mock.patch.object(R, 'file_hash', return_value={'bytes': 1, 'sha256': 'a' * 64}))
-                    patches.enter_context(mock.patch.object(R, 'public_keys'))
-                    patches.enter_context(mock.patch.object(R, 'seed'))
-                    patches.enter_context(mock.patch.object(R, 'source_bundle', return_value={'sha256': 'a' * 64}))
-                    patches.enter_context(mock.patch.object(R, 'reserve_space', return_value={}))
-                    patches.enter_context(mock.patch.object(R.socket, 'socket'))
-                    patches.enter_context(mock.patch.object(R, 'run', return_value=(b'', b'', 0)))
-                    patches.enter_context(mock.patch.object(Path, 'open', opened))
-                    patches.enter_context(mock.patch.object(Path, 'read_bytes', read))
-                    launch = patches.enter_context(mock.patch.object(R.subprocess, 'Popen', return_value=process))
-                    patches.enter_context(mock.patch.object(R.Scope, 'state', return_value={
-                        'ControlGroup': '/user.slice/test.scope', 'ActiveState': 'inactive'}))
-                    patches.enter_context(mock.patch.object(R, 'scope_path', return_value=group))
-                    patches.enter_context(mock.patch.object(R, 'joined'))
-                    patches.enter_context(mock.patch.object(R, 'Guest', side_effect=ValueError('after_admission')))
-                    result = R.execute(args)
-                self.assertEqual((work / 'evidence/result.json').read_bytes(), R.encoded(result))
-                self.assertEqual(len(memory_reads), 2, 'baseline_or_admission_was_retried')
+        if disk_sample is None:
+            disk_sample = memory(available=available)
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            requester_path = work / 'target/requester'
+            requester_path.parent.mkdir()
+            requester_path.write_bytes(b'public inert executable placeholder, never run')
+            manifest = work / pins['debian_image_manifest']
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_bytes(b'{}')
+            group = work / 'cgroup'
+            group.mkdir()
+            for name, raw in {'memory.max': str(R.QEMU_BYTES), 'memory.swap.max': '0',
+                              'cgroup.procs': '313', 'cgroup.events': 'populated 0\n'}.items():
+                (group / name).write_text(raw)
+            args = types.SimpleNamespace(work=work, appliance_kernel=Path('/not-opened'),
+                expected_source='1' * 40, requester=requester_path)
+            base = types.SimpleNamespace(fetch=mock.Mock(), root_device=lambda _raw: '/dev/sda1')
+            memory_reads, operations = [], []
+            def operation(label):
+                self.assertEqual(len(memory_reads), 1 + len(operations),
+                                 'observation_missing_or_precedes_joined_operation')
+                self.assertEqual(label, DISK_STAGES[len(operations)])
+                if label == failure:
+                    raise ValueError('private-operation-canary')
+                operations.append(label)
+            def fish(_image, ops, **_options):
+                if len(ops) == 1 and ops[0][0] == 'inspect-os':
+                    operation('inspect_roots')
+                    return '/dev/sda1\n'
+                if ops[0][0] == 'inspect-os':
+                    operation('inspect_details')
+                    return '/dev/sda1\ndebian\n13\next4\n4096\n'
+                if ops[0][0] == 'set-uuid':
+                    operation('runtime_uuid')
+                    self.assertEqual(ops, [['set-uuid', '/dev/sda', ops[0][2]], ['vfs-uuid', '/dev/sda']],
+                                     'host_must_not_resize_runtime_filesystem')
+                    return 'wrong-public-uuid' if wrong_uuid else ops[0][2]
+                self.assertEqual(ops[0][0], 'download-offset')
+                operation('root_export')
+                return ''
+            def command(argv, *_args, **_options):
+                if argv[:2] == ['qemu-img', 'resize']:
+                    self.assertEqual(argv[2:], ['-f', 'raw', work / 'runtime-root.raw', str(32 * R.GIB)])
+                    operation('raw_resize')
+                elif argv[:2] == ['qemu-img', 'create']:
+                    operation('build_overlay')
+                else:
+                    self.assertEqual(argv[0], 'systemctl', 'unexpected_process_path')
+                return b'', b'', 0
+            original_open, original_read = Path.open, Path.read_bytes
+            def opened(path, *args, **kwargs):
+                if path == Path('/proc/meminfo'):
+                    index = len(memory_reads)
+                    raw = baseline if index == 0 else disk_sample if index <= 7 else memory(available=available)
+                    memory_reads.append(True)
+                    if isinstance(raw, OSError):
+                        raise raw
+                    return io.BytesIO(raw)
+                return original_open(path, *args, **kwargs)
+            def read(path):
+                if str(path) in ('/proc/net/route', '/proc/net/ipv6_route', '/etc/resolv.conf'):
+                    return b'public test network observation'
+                return original_read(path)
+            process = types.SimpleNamespace(pid=313)
+            with contextlib.ExitStack() as patches:
+                patches.enter_context(mock.patch.object(R, 'ROOT', work))
+                patches.enter_context(mock.patch.object(R.os, 'umask'))
+                patches.enter_context(mock.patch.object(R, 'hosted', return_value=(base,
+                    {'commit': '1' * 40, 'tree': '2' * 40}, {}, {})))
+                patches.enter_context(mock.patch.object(R, 'ImageTools', return_value=types.SimpleNamespace(fish=fish)))
+                patches.enter_context(mock.patch.object(R, 'file_hash', return_value={'bytes': 1, 'sha256': 'a' * 64}))
+                patches.enter_context(mock.patch.object(R, 'public_keys'))
+                patches.enter_context(mock.patch.object(R, 'seed', side_effect=lambda *_args: operation('seed')))
+                patches.enter_context(mock.patch.object(R, 'source_bundle', return_value={'sha256': 'a' * 64}))
+                patches.enter_context(mock.patch.object(R, 'reserve_space', return_value={}))
+                patches.enter_context(mock.patch.object(R.socket, 'socket'))
+                patches.enter_context(mock.patch.object(R, 'run', side_effect=command))
+                patches.enter_context(mock.patch.object(Path, 'open', opened))
+                patches.enter_context(mock.patch.object(Path, 'read_bytes', read))
+                launch = patches.enter_context(mock.patch.object(R.subprocess, 'Popen', return_value=process))
+                patches.enter_context(mock.patch.object(R.Scope, 'state', return_value={
+                    'ControlGroup': '/user.slice/test.scope', 'ActiveState': 'inactive'}))
+                patches.enter_context(mock.patch.object(R, 'scope_path', return_value=group))
+                patches.enter_context(mock.patch.object(R, 'joined'))
+                patches.enter_context(mock.patch.object(R, 'Guest', side_effect=ValueError('after_admission')))
+                result = R.execute(args)
+            self.assertEqual((work / 'evidence/result.json').read_bytes(), R.encoded(result))
+            self.assertNotIn(b'private-operation-canary', R.encoded(result))
+            return result, len(memory_reads), launch.call_count, operations
+
+    def test_execute_persists_pass_or_failure_snapshot_without_model_claim(self):
+        for available, baseline, disk_sample in (
+                (14 * R.GIB - 1024, memory(), memory()),
+                (14 * R.GIB, OSError('private-baseline-canary'), OSError('private-disk-canary')),
+                (14 * R.GIB, memory(available=0), memory(available=0))):
+            with self.subTest(available=available):
+                result, reads, launches, operations = self.execute_disk_case(
+                    available, baseline, disk_sample=disk_sample)
+                self.assertEqual(reads, 9, 'baseline_disk_observations_or_admission_retried')
+                self.assertEqual(operations, list(DISK_STAGES))
+                observations = result['disk_memory_observations']
+                self.assertEqual([row['label'] for row in observations], list(DISK_STAGES))
+                self.assertTrue(all(row['phase'] == 'after_disk_operation' and row['admitted'] is None
+                                    for row in observations))
+                self.assertTrue(all(row['state'] == ('unavailable' if isinstance(disk_sample, OSError)
+                                                    else 'observed') for row in observations))
                 before_disks = result['memory_before_disks']
                 self.assertEqual((before_disks['label'], before_disks['phase']), ('baseline', 'before_disks'))
                 self.assertEqual(before_disks['state'], 'unavailable' if isinstance(baseline, OSError) else 'observed')
                 self.assertIsNone(before_disks['admitted'])
                 self.assertNotIn(b'private-baseline-canary', R.encoded(result))
+                self.assertNotIn(b'private-disk-canary', R.encoded(result))
                 self.assertEqual(len(result['memory_admissions']), 1)
                 snapshot = result['memory_admissions'][0]
                 admitted = available >= 14 * R.GIB
                 self.assertEqual(snapshot['admitted'], admitted)
                 self.assertEqual(snapshot['mem_available_bytes'], available)
-                self.assertEqual(launch.call_count, int(admitted))
+                self.assertEqual(launches, int(admitted))
                 self.assertEqual(result['failure'], 'controller_stage_failed' if admitted else 'host_memory_headroom')
                 self.assertEqual(result['state'], 'failed')
                 self.assertFalse(result['model_execution'])
                 self.assertFalse(result['private_inputs'])
                 self.assertFalse(result['hardware_attestation'])
+
+    def test_failed_disk_operation_keeps_only_completed_prefix_and_never_spawns(self):
+        for index, label in enumerate(DISK_STAGES):
+            with self.subTest(label=label):
+                result, reads, launches, operations = self.execute_disk_case(
+                    15 * R.GIB, memory(), failure=label)
+                self.assertEqual(operations, list(DISK_STAGES[:index]))
+                self.assertEqual([row['label'] for row in result['disk_memory_observations']],
+                                 list(DISK_STAGES[:index]))
+                self.assertEqual(reads, 1 + index)
+                self.assertEqual(launches, 0)
+                self.assertEqual(result['memory_admissions'], [])
+                self.assertEqual((result['state'], result['phase']), ('failed', 'prepare_disks'))
+                self.assertFalse(result['model_execution'])
+
+    def test_uuid_validation_precedes_observation_overlay_and_vm_attach(self):
+        result, reads, launches, operations = self.execute_disk_case(15 * R.GIB, memory(), wrong_uuid=True)
+        self.assertEqual(operations, list(DISK_STAGES[:5]))
+        self.assertEqual([row['label'] for row in result['disk_memory_observations']], list(DISK_STAGES[:4]))
+        self.assertEqual(reads, 5)
+        self.assertEqual(launches, 0)
+        self.assertEqual(result['memory_admissions'], [])
+        self.assertEqual(result['failure'], 'runtime_uuid')
+
+
+class DiskMemoryObservation(Inert):
+    def test_exact_seven_ordered_observations_have_closed_schema_and_bound(self):
+        self.assertEqual(R.DISK_MEMORY_STAGES, DISK_STAGES)
+        rows = []
+        with mock.patch.object(Path, 'open', side_effect=lambda *_a, **_k: io.BytesIO(memory())) as opened:
+            for label in DISK_STAGES:
+                R.disk_memory_observation(rows, label, 200)
+            for label in (*DISK_STAGES, 'private-stage-canary'):
+                with self.assertRaisesRegex(ValueError, 'host_memory_snapshot'):
+                    R.disk_memory_observation(rows, label, 200)
+            self.assertEqual(opened.call_count, 7)
+        self.assertEqual([row['label'] for row in rows], list(DISK_STAGES))
+        for row in rows:
+            self.assertEqual(row.keys(), {'version', 'phase', 'label', 'state', 'mem_total_bytes',
+                'mem_available_bytes', 'dirty_bytes', 'writeback_bytes', 'required_available_bytes',
+                'guest_memory_bytes', 'qemu_memory_max_bytes', 'qemu_swap_max_bytes', 'admitted'})
+            self.assertEqual((row['phase'], row['state'], row['version']), ('after_disk_operation', 'observed', 1))
+            self.assertEqual((row['mem_total_bytes'], row['mem_available_bytes'], row['dirty_bytes'],
+                              row['writeback_bytes']), (16 * R.GIB, 15 * R.GIB, 1024, 2048))
+            self.assertEqual((row['required_available_bytes'], row['guest_memory_bytes'],
+                              row['qemu_memory_max_bytes'], row['qemu_swap_max_bytes']),
+                             (14 * R.GIB, 12 * R.GIB, 13 * R.GIB, 0))
+            self.assertIsNone(row['admitted'])
+        R.subprocess.Popen.assert_not_called()
+
+    def test_unknown_duplicate_and_out_of_order_labels_fail_before_read_or_append(self):
+        for prefix in range(len(DISK_STAGES)):
+            rows = [dict(label=label, phase='after_disk_operation') for label in DISK_STAGES[:prefix]]
+            for label in (*DISK_STAGES[:prefix], *DISK_STAGES[prefix + 1:], 'private-stage-canary', None, True):
+                before = copy.deepcopy(rows)
+                with self.subTest(prefix=prefix, label=label), mock.patch.object(Path, 'open') as opened:
+                    with self.assertRaisesRegex(ValueError, 'host_memory_snapshot'):
+                        R.disk_memory_observation(rows, label, 200)
+                    opened.assert_not_called()
+                self.assertEqual(rows, before)
+        with mock.patch.object(Path, 'open') as opened:
+            for rows in (None, (), {}, 'private-list-canary'):
+                with self.assertRaisesRegex(ValueError, 'host_memory_snapshot'):
+                    R.disk_memory_observation(rows, 'inspect_roots', 200)
+            opened.assert_not_called()
+
+    def test_low_and_unavailable_observations_neither_admit_nor_reject(self):
+        for raw in (memory(available=0), OSError('private-read-canary'), b'Dirty: 0 kB\n', b'x' * 65537):
+            rows = []
+            with self.subTest(kind=type(raw).__name__), mock.patch.object(R, 'memory_admission') as admission:
+                with mock.patch.object(Path, 'open', side_effect=raw if isinstance(raw, OSError) else None,
+                                       return_value=io.BytesIO(raw if isinstance(raw, bytes) else b'')) as opened:
+                    R.disk_memory_observation(rows, 'inspect_roots', 200)
+                opened.assert_called_once_with('rb')
+                admission.assert_not_called()
+            observed = raw == memory(available=0)
+            self.assertEqual(rows[0]['state'], 'observed' if observed else 'unavailable')
+            self.assertIsNone(rows[0]['admitted'])
+            self.assertEqual(rows[0]['mem_available_bytes'], 0 if observed else None)
+            self.assertNotIn(b'private-read-canary', R.encoded(rows))
+            R.subprocess.Popen.assert_not_called()
+
+    def test_disk_snapshot_rejects_cross_phase_free_labels_and_extra_keys(self):
+        invalid = [dict(label=label, phase='before_scope_start') for label in DISK_STAGES]
+        invalid += [dict(label=label, phase='after_disk_operation') for label in ('build', 'baseline', 'private-label')]
+        invalid += [dict(label='inspect_roots', phase='after_disk_operation', extra=True)]
+        with mock.patch.object(Path, 'open') as opened:
+            for snapshot in invalid:
+                with self.subTest(snapshot=snapshot), self.assertRaisesRegex(ValueError, 'host_memory_snapshot'):
+                    R.memory_snapshot(snapshot, 200)
+            opened.assert_not_called()
+
+    def test_expiry_and_cancellation_before_read_do_not_restart_or_spawn(self):
+        for end, cancelled, reason in ((99, False, 'controller_deadline'), (200, True, 'controller_cancelled')):
+            rows = []
+            with self.subTest(reason=reason), mock.patch.object(R, 'CANCELLED', cancelled), \
+                    mock.patch.object(Path, 'open') as opened:
+                with self.assertRaisesRegex(ValueError, reason):
+                    R.disk_memory_observation(rows, 'inspect_roots', end)
+                opened.assert_not_called()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]['state'], 'unavailable')
+            self.assertIsNone(rows[0]['admitted'])
+            R.subprocess.Popen.assert_not_called()
+
+    def test_original_deadline_is_checked_after_successful_or_failed_read(self):
+        for fail in (False, True):
+            rows = []
+            with self.subTest(read_failure=fail), mock.patch.object(R.time, 'monotonic', side_effect=[100, 201]), \
+                    mock.patch.object(Path, 'open', side_effect=OSError('private-read-canary') if fail else None,
+                                      return_value=io.BytesIO(memory())) as opened:
+                with self.assertRaisesRegex(ValueError, 'controller_deadline'):
+                    R.disk_memory_observation(rows, 'inspect_roots', 200)
+                opened.assert_called_once_with('rb')
+            self.assertEqual(rows[0]['state'], 'unavailable')
+            self.assertIsNone(rows[0]['admitted'])
+            self.assertNotIn(b'private-read-canary', R.encoded(rows))
+            R.subprocess.Popen.assert_not_called()
 
 
 class GuestUnit(Inert):

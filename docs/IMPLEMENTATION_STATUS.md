@@ -279,6 +279,27 @@ All original ZIP CRC checks and both artifact API digests pass. The earlier
 `38878112559` failure retains its own source and absent memory measurements;
 neither failure is replaced by the successful source gate.
 
+The next preparation candidate removes a duplicate host-side `resize2fs`.
+The raw disk still grows to 32 GiB and receives a distinct, checked filesystem
+UUID before both disks are attached. Filesystem growth remains in the existing
+offline runtime installer's `e2fsck`, `resize2fs`, then mount sequence; no package,
+model, guest-memory or final disk-capacity requirement is reduced. This removes
+redundant work, but is not a proven explanation of the measured memory decrease.
+
+Seven fixed observations follow the existing, joined disk-preparation operations:
+root inspection, detail validation, root export, raw resize, UUID validation,
+build overlay and seed creation. Each retains only the existing four bounded
+memory counters. Unavailable readings stay explicit; these observations never
+admit a VM or trigger a retry. The original baseline and three ordered admission
+checks remain separate, with unchanged deadlines and resource limits.
+All 54 inert controller and 32 installer cases pass locally without skips,
+including the new phase-order, failure-prefix, UUID and installer-growth checks.
+The hosted gate must still verify the candidate's 100 Rust and 239 Python cases,
+compilation, lint, formatting and exact source. An original hosted model trial
+is also still required.
+Scratch removal remains unimplemented; an unstarted VM's cleanup flag is not
+proof that all preparation tools or scratch files have been cleaned up.
+
 ### Latest shared-storage consumer trial
 
 Original actual run

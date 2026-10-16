@@ -36,6 +36,8 @@ CODE = 'fd4ff9688c58d6228e07f2116a7e8dcdb12a89ef'
 HELPER_SHA = '32a79a1801de0979fdca0064c5bbd2c09b71069a0141be7d68aaec01006bbcbf'
 RUNTIME_BYTES = 32 * GIB
 QEMU_BYTES = 13 * GIB
+DISK_MEMORY_STAGES = ('inspect_roots', 'inspect_details', 'root_export', 'raw_resize',
+                      'runtime_uuid', 'build_overlay', 'seed')
 INPUT = '/home/vpci/resident-inputs'
 OUTPUT = '/home/vpci/resident-output'
 LOCK = INPUT + '/core/tests/integration/protected-resident-model-debian-lock-v1.json'
@@ -229,7 +231,9 @@ def memory_snapshot(snapshot, deadline):
     """One observation; unavailable is not itself an admission decision."""
     require(snapshot in [dict(label=label, phase='before_scope_start')
                          for label in ('build', 'model', 'corrupt')]
-            or snapshot == dict(label='baseline', phase='before_disks'), 'host_memory_snapshot')
+            or snapshot == dict(label='baseline', phase='before_disks')
+            or snapshot in [dict(label=label, phase='after_disk_operation')
+                            for label in DISK_MEMORY_STAGES], 'host_memory_snapshot')
     snapshot.update(version=1, state='unavailable', mem_total_bytes=None, mem_available_bytes=None,
                     dirty_bytes=None, writeback_bytes=None, required_available_bytes=14 * GIB,
                     guest_memory_bytes=12 * GIB, qemu_memory_max_bytes=QEMU_BYTES,
@@ -244,6 +248,15 @@ def memory_snapshot(snapshot, deadline):
     remaining(deadline)
     snapshot.update(state='observed', mem_total_bytes=total, mem_available_bytes=available,
                     dirty_bytes=dirty, writeback_bytes=writeback)
+
+
+def disk_memory_observation(observations, label, deadline):
+    """One closed observation after each joined preparation operation, never admission."""
+    require(type(observations) is list and len(observations) < len(DISK_MEMORY_STAGES)
+            and label == DISK_MEMORY_STAGES[len(observations)], 'host_memory_snapshot')
+    snapshot = dict(phase='after_disk_operation', label=label)
+    observations.append(snapshot)
+    memory_snapshot(snapshot, deadline)
 
 
 def memory_admission(observations, label, deadline):
@@ -615,7 +628,7 @@ def execute(args):
                   state='failed', phase='prepare', process_launch=launch, model_execution=False,
                   private_inputs=False, hardware_attestation=False, confidential_execution=False,
                   production_approval=False, vm_cleanup_confirmed=False, scratch_removed=False,
-                  memory_admissions=[])
+                  memory_admissions=[], disk_memory_observations=[])
     current = None
     try:
         images = ImageTools(work, args.appliance_kernel, deadline)
@@ -645,23 +658,33 @@ def execute(args):
         memory_snapshot(report['memory_before_disks'], deadline)
         report['phase'] = 'prepare_disks'
         device = base.root_device(images.fish(work / 'base.qcow2', [['inspect-os']], image_format='qcow2'))
+        disk_memory_observation(report['disk_memory_observations'], 'inspect_roots', deadline)
         details = images.fish(work / 'base.qcow2', [['inspect-os'], ['inspect-get-distro', device],
             ['inspect-get-major-version', device], ['vfs-type', device], ['blockdev-getsize64', device]],
             image_format='qcow2').splitlines()
         require(details[:4] == [device, 'debian', '13', 'ext4'], 'base_os')
         size = int(details[4])
         require(0 < size <= 16 * GIB and size % 4096 == 0, 'base_root_size')
+        disk_memory_observation(report['disk_memory_observations'], 'inspect_details', deadline)
         reserve_space(work, size + 2 * GIB, 'root_extract')
         images.fish(work / 'base.qcow2', [['download-offset', device, work / 'runtime-root.raw', '0', str(size)]],
                     image_format='qcow2')
+        disk_memory_observation(report['disk_memory_observations'], 'root_export', deadline)
         run(['qemu-img', 'resize', '-f', 'raw', work / 'runtime-root.raw', str(RUNTIME_BYTES)], deadline)
+        disk_memory_observation(report['disk_memory_observations'], 'raw_resize', deadline)
         runtime_uuid = str(uuid.uuid4())
+        # Change identity before attaching both disks. Filesystem growth belongs
+        # to the existing offline runtime installer's e2fsck -> resize2fs -> mount
+        # sequence, not a duplicate appliance pass here. Raw capacity stays 32 GiB.
         observed = images.fish(work / 'runtime-root.raw', [['set-uuid', '/dev/sda', runtime_uuid],
-            ['resize2fs', '/dev/sda'], ['vfs-uuid', '/dev/sda']], readonly=False)
+            ['vfs-uuid', '/dev/sda']], readonly=False)
         require(observed.strip() == runtime_uuid, 'runtime_uuid')
+        disk_memory_observation(report['disk_memory_observations'], 'runtime_uuid', deadline)
         run(['qemu-img', 'create', '-q', '-f', 'qcow2', '-F', 'qcow2', '-b', work / 'base.qcow2',
              work / 'build.qcow2', '40G'], deadline)
+        disk_memory_observation(report['disk_memory_observations'], 'build_overlay', deadline)
         seed(work, deadline)
+        disk_memory_observation(report['disk_memory_observations'], 'seed', deadline)
         # This reservation is conservative physical headroom for model/compiler
         # growth, not a fabricated measurement of maximum simultaneous usage.
         report['build_space'] = reserve_space(work, 40 * GIB, 'build')

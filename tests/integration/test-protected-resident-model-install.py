@@ -402,11 +402,19 @@ class LifecycleTests(unittest.TestCase):
                 report.update(packages_verified=1, status_verified=True, triggers_clear=True, audit_clear=True)
             with mock.patch.object(M, 'namespace_guard'), mock.patch.object(M, 'guest_guard'), \
                  mock.patch.object(M, 'load_lock', return_value={'public': item()}), \
-                 mock.patch.object(M, 'runtime_device', return_value=Path('/dev/vdc')), \
+                 mock.patch.object(M, 'runtime_device', return_value=Path('/dev/vdc')) as device, \
                  mock.patch.object(M, 'Runner', return_value=runner), \
                  mock.patch.object(M, 'install', side_effect=configured):
                 report = M.worker({'mode': 'runtime', 'deadline': deadline()}, stage)
             self.assertEqual(report['state'], 'configured')
+            device.assert_called_once_with(runner)
+            calls = [argv for argv, _ in runner.calls]
+            self.assertEqual(calls[:3], [
+                ['/usr/sbin/e2fsck', '-f', '-p', '/dev/vdc'],
+                ['/usr/sbin/resize2fs', '/dev/vdc'],
+                ['/usr/bin/mount', '-t', 'ext4', '-o', 'rw,nosuid,nodev', '/dev/vdc', str(stage / 'root')]])
+            self.assertEqual(runner.calls[0][1], {'allowed': (0, 1), 'cap': 600})
+            self.assertEqual(runner.calls[1][1], {'cap': 600})
             mounts = [argv[-1] for argv, _ in runner.calls
                       if argv[0] == '/usr/bin/mount' and 'remount,bind,ro,nosuid,nodev,noexec' not in argv]
             unmounts = [argv[-1] for argv, _ in runner.calls if argv[0] == '/usr/bin/umount']
@@ -414,6 +422,32 @@ class LifecycleTests(unittest.TestCase):
             self.assertIn(['/usr/sbin/e2fsck', '-f', '-p', '/dev/vdc'], [argv for argv, _ in runner.calls])
             self.assertTrue(report['runtime_unmounted'])
             self.assertFalse(report['complete_guest_cleanup'])
+
+    def test_runtime_check_or_growth_failure_prevents_mount_and_package_install(self):
+        for failure in ('/usr/sbin/e2fsck', '/usr/sbin/resize2fs'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                stage = Path(directory)
+                runner = FakeRunner()
+                runner.failure = lambda argv: argv[0] == failure
+                with mock.patch.object(M.subprocess, 'Popen', side_effect=AssertionError('real_process_forbidden')) as spawn, \
+                     mock.patch.object(M, 'namespace_guard'), mock.patch.object(M, 'guest_guard'), \
+                     mock.patch.object(M, 'load_lock', return_value={'public': item()}), \
+                     mock.patch.object(M, 'runtime_device', return_value=Path('/dev/vdc')) as device, \
+                     mock.patch.object(M, 'Runner', return_value=runner), mock.patch.object(M, 'install') as install:
+                    report = M.worker({'mode': 'runtime', 'deadline': deadline()}, stage)
+                    spawn.assert_not_called()
+                    install.assert_not_called()
+                device.assert_called_once_with(runner)
+                expected = [['/usr/sbin/e2fsck', '-f', '-p', '/dev/vdc']]
+                if failure == '/usr/sbin/resize2fs':
+                    expected.append(['/usr/sbin/resize2fs', '/dev/vdc'])
+                self.assertEqual([argv for argv, _ in runner.calls], expected)
+                self.assertFalse((stage / 'root').exists())
+                self.assertEqual((report['state'], report['phase']), ('failed', 'runtime_device'))
+                self.assertTrue(report['runtime_unmounted'])
+                self.assertFalse(report['complete_guest_cleanup'])
+                self.assertNotIn('PRIVATE_CANARY', json.dumps(report))
+                self.assertEqual(json.loads((stage / 'worker-result.json').read_bytes()), report)
 
     def test_outer_fixed_namespace_launcher_and_original_deadline_receipt(self):
         with tempfile.TemporaryDirectory() as directory:
