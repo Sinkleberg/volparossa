@@ -269,6 +269,108 @@ def disk_memory_observation(observations, label, deadline):
     memory_snapshot(snapshot, deadline)
 
 
+def build_boot_diagnostic():
+    return dict(version=1, diagnostic_only=True, acceptance_evidence=False,
+        ssh=dict(attempts=0, first=None, last=None, incomplete=False),
+        console=dict(state='unavailable', linux_banner_seen=None, kernel_panic_seen=None,
+            initramfs_prompt_seen=None, cloud_init_seen=None, login_prompt_seen=None,
+            ssh_service_seen=None))
+
+
+def build_ssh_class(result):
+    """Only existing SSH stderr/status, not stdout, keys, paths or remote output.
+
+    Literal diagnostics: OpenSSH V_9_6_P1 sshconnect.c/sshconnect2.c/kex.c.
+    Host-key rejection deliberately combines unknown/changed/revoked trust.
+    """
+    if (type(result) is not tuple or len(result) != 3 or type(result[0]) is not bytes or type(result[1]) is not bytes
+            or len(result[1]) > 65536 or type(result[2]) is not int or not -255 <= result[2] <= 255):
+        return 'unavailable'
+    if result[2] == 0:
+        return 'ready'
+    if result[2] != 255:
+        return 'other'
+    lines = result[1].splitlines()
+    if any(len(line) > 4096 or b'\x00' in line for line in lines):
+        return 'unavailable'
+    classes = set()
+    for line in lines:
+        if line == b'ssh: connect to host 127.0.0.1 port 22223: Connection refused':
+            classes.add('refused')
+        elif line in (b'Connection closed by 127.0.0.1 port 22223',
+                      b'kex_exchange_identification: Connection closed by remote host'):
+            classes.add('closed')
+        elif line in (b'ssh: connect to host 127.0.0.1 port 22223: Connection timed out',
+                      b'Connection timed out during banner exchange',
+                      b'Connection to 127.0.0.1 port 22223 timed out'):
+            classes.add('connect_timeout')
+        elif line == b'Host key verification failed.':
+            classes.add('host_key_rejected')
+        elif re.fullmatch(rb'vpci@127\.0\.0\.1: Permission denied \([a-z0-9@.,_-]{1,256}\)\.', line):
+            classes.add('auth_failed')
+    return next(iter(classes)) if len(classes) == 1 else 'ambiguous' if classes else 'other'
+
+
+def observe_build_ssh(diagnostic, result):
+    # Optional projection must neither retry nor replace the original command
+    # result. Saturation affects diagnostics only, never the readiness loop.
+    row = diagnostic['ssh']
+    try:
+        label = build_ssh_class(result)
+        if row['attempts'] == 1024:
+            row['incomplete'] = True
+            return
+        row['attempts'] += 1
+        if row['first'] is None:
+            row['first'] = label
+        row['last'] = label
+        row['incomplete'] |= label == 'unavailable'
+    except Exception:
+        row['incomplete'] = True
+
+
+def build_console_projection(work, payload_identity, deadline):
+    """Read only this stopped build's console; text markers are not boot proof."""
+    remaining(deadline)
+    require(work.name == 'payload' and work.is_absolute() and work.resolve(strict=True) == work
+            and directory_identity(work) == payload_identity, 'console_owner')
+    identity = lambda meta: (meta.st_dev, meta.st_ino, meta.st_size, meta.st_mtime_ns, meta.st_ctime_ns)
+    directory_fd = os.open(work, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        directory = os.fstat(directory_fd)
+        require((directory.st_dev, directory.st_ino) == payload_identity
+                and directory.st_uid == os.getuid() and stat.S_IMODE(directory.st_mode) == 0o700,
+                'console_owner')
+        before = os.stat('build-console.log', dir_fd=directory_fd, follow_symlinks=False)
+        require(stat.S_ISREG(before.st_mode) and before.st_uid == os.getuid() and before.st_nlink == 1
+                and stat.S_IMODE(before.st_mode) == 0o600 and before.st_size <= 4 * 1024 ** 2,
+                'console_owner')
+        with os.fdopen(os.open('build-console.log', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                              dir_fd=directory_fd), 'rb') as stream:
+            require(identity(os.fstat(stream.fileno())) == identity(before), 'console_changed')
+            raw = stream.read(4 * 1024 ** 2 + 1)
+            require(len(raw) == before.st_size and identity(os.fstat(stream.fileno())) == identity(before)
+                    and identity(os.stat('build-console.log', dir_fd=directory_fd, follow_symlinks=False))
+                    == identity(before), 'console_changed')
+    finally:
+        os.close(directory_fd)
+    remaining(deadline)
+    require(directory_identity(work) == payload_identity and b'\x00' not in raw, 'console_changed')
+    raw.decode('utf-8')  # Malformed binary data is unavailable, never exported.
+    raw = re.sub(rb'\x1b\[[0-9;]{0,32}m', b'', raw)  # Only terminal colour sequences.
+    lines = raw.splitlines()
+    require(all(len(line) <= 8192 for line in lines), 'console_bound')
+    prefix = rb'(?:\[[ 0-9.]{1,24}\] )?'
+    patterns = dict(linux_banner_seen=prefix + rb'Linux version .+',
+        kernel_panic_seen=prefix + rb'Kernel panic - not syncing:.*',
+        initramfs_prompt_seen=rb'\(initramfs\) ?',
+        cloud_init_seen=prefix + rb'(?:cloud-init\[[0-9]{1,10}\]: )?Cloud-init v\. .+',
+        login_prompt_seen=rb'volparossa-alpha login: ?',
+        ssh_service_seen=rb'(?:\[  OK  \] )?Started ssh\.service - OpenBSD Secure Shell server\.')
+    return dict(state='observed', **{name: any(re.fullmatch(pattern, line) for line in lines)
+                                   for name, pattern in patterns.items()})
+
+
 def memory_admission(observations, label, deadline):
     labels = ('build', 'model', 'corrupt')
     require(type(observations) is list and len(observations) < len(labels)
@@ -539,8 +641,11 @@ def reserve_space(work, upcoming, label):
 
 
 def qemu_build(work):
+    # Match the accepted legacy-BIOS build fixture; display stays headless.
+    # The immutable runtime guest still uses its separate direct-kernel profile.
     return ['qemu-system-x86_64', '-name', 'volparossa-resident-build', '-no-user-config', '-nodefaults',
         '-machine', 'q35,accel=kvm', '-cpu', 'host', '-smp', '2', '-m', '12288',
+        '-device', 'VGA,id=video0,bus=pcie.0,addr=0x1',
         '-drive', 'if=virtio,format=qcow2,file=' + str(work / 'build.qcow2'),
         '-drive', 'if=virtio,format=raw,readonly=on,file=' + str(work / 'seed.img'),
         '-drive', 'if=none,id=runtime,format=raw,file=' + str(work / 'runtime-root.raw'),
@@ -802,8 +907,9 @@ def execute_owned(args, pending):
                   private_inputs=False, hardware_attestation=False, confidential_execution=False,
                   production_approval=False, vm_cleanup_confirmed=False, scratch_removed=False,
                   tool_cleanup_confirmed=False, scratch_cleanup_failure=None,
-                  memory_admissions=[], disk_memory_observations=[])
-    current = None
+                  memory_admissions=[], disk_memory_observations=[],
+                  build_boot_diagnostic=build_boot_diagnostic())
+    current = build_scope = None
     try:
         images = ImageTools(work, args.appliance_kernel, deadline)
         require(args.requester.resolve(strict=True).is_relative_to(ROOT / 'target'), 'requester_source_path')
@@ -864,13 +970,18 @@ def execute_owned(args, pending):
         report['build_space'] = reserve_space(work, 40 * GIB, 'build')
         with socket.socket() as test:
             test.bind(('127.0.0.1', 22223))
-        current = Scope(qemu_build(work), work, deadline, env, min(7500, int(remaining(deadline))), 'build')
+        current = build_scope = Scope(qemu_build(work), work, deadline, env, min(7500, int(remaining(deadline))), 'build')
         current.start(report['memory_admissions'])
         guest = Guest(work, deadline)
         report['phase'] = 'guest_boot'
         end = time.monotonic() + remaining(deadline, 300)
         while time.monotonic() < end:
-            if guest.ssh(['true'], cap=10, check=False)[2] == 0:
+            reply = guest.ssh(['true'], cap=10, check=False)
+            try:
+                observe_build_ssh(report['build_boot_diagnostic'], reply)
+            except Exception:
+                report['build_boot_diagnostic']['ssh']['incomplete'] = True
+            if reply[2] == 0:
                 break
             require(current.alive(), 'build_vm_died')
             time.sleep(.5)
@@ -1023,6 +1134,11 @@ def execute_owned(args, pending):
                 scopes_safe = True
             except (OSError, ValueError, subprocess.SubprocessError, CleanupUnconfirmed):
                 report['vm_cleanup_confirmed'] = False
+        if build_scope is not None and build_scope.cleanup_confirmed:
+            try:
+                report['build_boot_diagnostic']['console'] = build_console_projection(work, payload_identity, deadline)
+            except Exception:
+                pass  # Optional evidence cannot replace primary failure or skip cleanup.
         report['tool_cleanup_confirmed'] = not pending
         if scopes_safe and not pending:
             try:

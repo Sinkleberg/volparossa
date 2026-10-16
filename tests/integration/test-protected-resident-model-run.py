@@ -367,7 +367,7 @@ class MemoryObservation(Inert):
         R.subprocess.Popen.assert_not_called()
 
     def execute_disk_case(self, available, baseline, *, disk_sample=None, failure=None, wrong_uuid=False,
-                          scope_cleanup_error=None, export_error=None):
+                          scope_cleanup_error=None, export_error=None, boot_case=None):
         pins = R.json.loads((R.HERE / 'protected-resident-image-pins-v1.json').read_bytes())
         if disk_sample is None:
             disk_sample = memory(available=available)
@@ -443,6 +443,40 @@ class MemoryObservation(Inert):
                     return b'public test network observation'
                 return original_read(path)
             process = types.SimpleNamespace(pid=313)
+            def spawned(*_args, **_kwargs):
+                if boot_case is not None:
+                    console = work / 'payload/build-console.log'
+                    console.write_bytes(boot_case.get('console', b'public unknown boot output\n'))
+                    console.chmod(0o600)
+                return process
+            def ssh(argv, **options):
+                self.assertEqual(argv, ['true'])
+                self.assertEqual(options, {'cap': 10, 'check': False})
+                reply = boot_case['replies'].pop(0)
+                if isinstance(reply, Exception):
+                    raise reply
+                if reply[2] == 0:
+                    # Preserve success of true, then stop at the next original
+                    # cloud-init wait without executing it or claiming a boot.
+                    guest.ssh = mock.Mock(side_effect=ValueError('after_ssh_ready'))
+                elif not boot_case['replies']:
+                    R.time.monotonic.return_value = 401
+                return reply
+            guest = types.SimpleNamespace(ssh=ssh)
+            cleanup_order = []
+            original_stop, original_projection = R.Scope.stop, R.build_console_projection
+            def stopped(scope):
+                value = original_stop(scope)
+                self.assertTrue(scope.cleanup_confirmed)
+                cleanup_order.append('joined')
+                return value
+            def projected(*args):
+                self.assertEqual(cleanup_order, ['joined'])
+                self.assertTrue((work / 'payload').exists(), 'projection_after_scratch_deletion')
+                cleanup_order.append('projection')
+                if boot_case.get('projection_error'):
+                    raise OSError('private-console-error-canary')
+                return original_projection(*args)
             with contextlib.ExitStack() as patches:
                 patches.enter_context(mock.patch.object(R, 'ROOT', work))
                 patches.enter_context(mock.patch.object(R.os, 'umask'))
@@ -459,12 +493,21 @@ class MemoryObservation(Inert):
                 patches.enter_context(mock.patch.object(R, 'run', side_effect=command))
                 patches.enter_context(mock.patch.object(Path, 'open', opened))
                 patches.enter_context(mock.patch.object(Path, 'read_bytes', read))
-                launch = patches.enter_context(mock.patch.object(R.subprocess, 'Popen', return_value=process))
+                launch = patches.enter_context(mock.patch.object(R.subprocess, 'Popen', side_effect=spawned))
                 patches.enter_context(mock.patch.object(R.Scope, 'state', return_value={
                     'ControlGroup': '/user.slice/test.scope', 'ActiveState': 'inactive'}))
                 patches.enter_context(mock.patch.object(R, 'scope_path', return_value=group))
                 patches.enter_context(mock.patch.object(R, 'joined'))
-                patches.enter_context(mock.patch.object(R, 'Guest', side_effect=ValueError('after_admission')))
+                patches.enter_context(mock.patch.object(R, 'Guest', return_value=guest,
+                    side_effect=ValueError('after_admission') if boot_case is None else None))
+                if boot_case is not None:
+                    patches.enter_context(mock.patch.object(R.Scope, 'alive', return_value=True))
+                    if scope_cleanup_error is None:
+                        patches.enter_context(mock.patch.object(R.Scope, 'stop', autospec=True, side_effect=stopped))
+                    patches.enter_context(mock.patch.object(R, 'build_console_projection', side_effect=projected))
+                    if boot_case.get('observer_error'):
+                        patches.enter_context(mock.patch.object(R, 'observe_build_ssh',
+                            side_effect=ValueError('private-observer-error-canary')))
                 if scope_cleanup_error is not None:
                     def failed_stop(scope):
                         if scope.log is not None:
@@ -472,6 +515,9 @@ class MemoryObservation(Inert):
                         raise scope_cleanup_error
                     patches.enter_context(mock.patch.object(R.Scope, 'stop', autospec=True, side_effect=failed_stop))
                 result = R.execute(args)
+            if boot_case is not None:
+                self.assertEqual(boot_case['replies'], [], 'extra_or_skipped_ssh_attempt')
+                self.assertEqual(cleanup_order, [] if scope_cleanup_error is not None else ['joined', 'projection'])
             self.assertEqual((work / 'evidence/result.json').read_bytes(), R.encoded(result))
             self.assertNotIn(b'private-operation-canary', R.encoded(result))
             self.assertEqual((work / 'payload').exists(), scope_cleanup_error is not None)
@@ -557,6 +603,237 @@ class MemoryObservation(Inert):
         self.assertFalse(result['scratch_removed'])
         self.assertFalse(result['vm_cleanup_confirmed'])
         self.assertNotIn(b'private-scope-canary', R.encoded(result))
+
+    def test_boot_timeout_projects_existing_ssh_attempts_then_stopped_console(self):
+        replies = [(b'private-stdout-canary', b'ssh: connect to host 127.0.0.1 port 22223: Connection refused\n', 255),
+                   (b'', b'Host key verification failed.\nprivate-key-canary\n', 255)]
+        result, reads, launches, operations = self.execute_disk_case(15 * R.GIB, memory(),
+            boot_case=dict(replies=replies, console=b'[    0.000000] Linux version public-fixture\n'))
+        self.assertEqual((reads, launches, operations), (9, 1, list(DISK_STAGES)))
+        self.assertEqual((result['phase'], result['failure']), ('guest_boot', 'build_boot_timeout'))
+        self.assertEqual(result['build_boot_diagnostic']['ssh'],
+            dict(attempts=2, first='refused', last='host_key_rejected', incomplete=False))
+        self.assertTrue(result['build_boot_diagnostic']['console']['linux_banner_seen'])
+        self.assertTrue(result['vm_cleanup_confirmed'] and result['scratch_removed'])
+        self.assertFalse(result['model_execution'])
+        self.assertNotIn(b'private-', R.encoded(result))
+
+    def test_optional_boot_observer_and_console_failure_preserve_original_timeout_cleanup(self):
+        result, _, launches, _ = self.execute_disk_case(15 * R.GIB, memory(),
+            boot_case=dict(replies=[(b'', b'private-error-canary', 255)], observer_error=True, projection_error=True))
+        self.assertEqual(launches, 1)
+        self.assertEqual(result['failure'], 'build_boot_timeout')
+        self.assertTrue(result['scratch_removed'] and result['vm_cleanup_confirmed'])
+        self.assertTrue(result['build_boot_diagnostic']['ssh']['incomplete'])
+        self.assertEqual(result['build_boot_diagnostic']['console']['state'], 'unavailable')
+        self.assertNotIn(b'private-', R.encoded(result))
+
+    def test_failed_scope_cleanup_never_reads_console_or_changes_primary_boot_error(self):
+        result, _, _, _ = self.execute_disk_case(15 * R.GIB, memory(),
+            boot_case=dict(replies=[(b'', b'Host key verification failed.\n', 255)]),
+            scope_cleanup_error=R.CleanupUnconfirmed('private-cleanup-canary'))
+        self.assertEqual(result['failure'], 'build_boot_timeout')
+        self.assertFalse(result['scratch_removed'] or result['vm_cleanup_confirmed'])
+        self.assertEqual(result['build_boot_diagnostic']['console']['state'], 'unavailable')
+
+    def test_existing_ssh_command_error_is_not_retried_or_reclassified_as_timeout(self):
+        for reason in ('command_timeout', 'controller_cancelled', 'controller_deadline'):
+            with self.subTest(reason=reason):
+                result, _, launches, _ = self.execute_disk_case(15 * R.GIB, memory(),
+                    boot_case=dict(replies=[ValueError(reason)]))
+                self.assertEqual((launches, result['failure']), (1, reason))
+                self.assertEqual(result['build_boot_diagnostic']['ssh']['attempts'], 0)
+                self.assertTrue(result['scratch_removed'])
+
+    def test_successful_original_ssh_true_remains_ready_without_model_success_claim(self):
+        result, _, launches, _ = self.execute_disk_case(15 * R.GIB, memory(),
+            boot_case=dict(replies=[(b'private-stdout-canary', b'', 0)]))
+        self.assertEqual((launches, result['failure']), (1, 'controller_stage_failed'))
+        self.assertEqual(result['build_boot_diagnostic']['ssh'],
+            dict(attempts=1, first='ready', last='ready', incomplete=False))
+        self.assertFalse(result['model_execution'])
+        self.assertTrue(result['scratch_removed'])
+
+
+class BuildBootDiagnostics(Inert):
+    def test_exact_original_ssh_failures_have_only_closed_classes(self):
+        rows = {
+            b'ssh: connect to host 127.0.0.1 port 22223: Connection refused\n': 'refused',
+            b'Connection closed by 127.0.0.1 port 22223\n': 'closed',
+            b'kex_exchange_identification: Connection closed by remote host\r\n': 'closed',
+            b'ssh: connect to host 127.0.0.1 port 22223: Connection timed out\n': 'connect_timeout',
+            b'Connection timed out during banner exchange\n': 'connect_timeout',
+            b'Connection to 127.0.0.1 port 22223 timed out\n': 'connect_timeout',
+            b'Host key verification failed.\n': 'host_key_rejected',
+            b'vpci@127.0.0.1: Permission denied (publickey,password).\n': 'auth_failed',
+            b'private-unclassified-error\n': 'other',
+        }
+        for raw, expected in rows.items():
+            with self.subTest(expected=expected):
+                self.assertEqual(R.build_ssh_class((b'private-stdout', raw, 255)), expected)
+        self.assertEqual(R.build_ssh_class((b'', b'private-error', 0)), 'ready')
+        self.assertEqual(R.build_ssh_class((b'', b'Host key verification failed.\n', 1)), 'other')
+
+    def test_unrelated_stdout_or_canary_strings_cannot_forge_ssh_class(self):
+        known = b'Host key verification failed.'
+        for stderr in (b'private-prefix ' + known, b'ssh: connect to host private-host port 22223: Connection refused',
+                       b'vpci@private-host: Permission denied (publickey).',
+                       b'private-user@127.0.0.1: Permission denied (publickey).',
+                       b'ssh: connect to host 127.0.0.1 port 22: Connection refused'):
+            with self.subTest(stderr=stderr):
+                self.assertEqual(R.build_ssh_class((known, stderr, 255)), 'other')
+        self.assertEqual(R.build_ssh_class((known, b'', 255)), 'other')
+        self.assertEqual(R.build_ssh_class((b'', known + b'\nvpci@127.0.0.1: Permission denied (publickey).', 255)),
+                         'ambiguous')
+
+    def test_malformed_or_oversized_ssh_data_is_unavailable_without_raw_export(self):
+        invalid = (None, (), [b'', b'', 255], (b'', 'private-error', 255), (None, b'', 255),
+                   (b'', b'', True), (b'', b'', 256), (b'', b'', -256),
+                   (b'', b'x' * 65537, 255), (b'', b'x' * 4097, 255), (b'', b'\x00private', 255))
+        for value in invalid:
+            with self.subTest(kind=type(value).__name__):
+                self.assertEqual(R.build_ssh_class(value), 'unavailable')
+        diagnostic = R.build_boot_diagnostic()
+        R.observe_build_ssh(diagnostic, (b'private-key', b'private-path', 255))
+        R.observe_build_ssh(diagnostic, (b'', b'x' * 65537, 255))
+        self.assertEqual(diagnostic['ssh'], dict(attempts=2, first='other', last='unavailable', incomplete=True))
+        self.assertNotIn(b'private', R.encoded(diagnostic))
+        self.assertFalse(diagnostic['acceptance_evidence'])
+        self.assertTrue(diagnostic['diagnostic_only'])
+
+    def test_observation_failure_or_counter_saturation_does_not_raise_or_retry(self):
+        diagnostic = R.build_boot_diagnostic()
+        with mock.patch.object(R, 'build_ssh_class', side_effect=OSError('private-canary')) as classify:
+            R.observe_build_ssh(diagnostic, (b'', b'', 255))
+            classify.assert_called_once()
+        self.assertEqual(diagnostic['ssh'], dict(attempts=0, first=None, last=None, incomplete=True))
+        diagnostic['ssh'].update(attempts=1024, first='refused', last='closed', incomplete=False)
+        R.observe_build_ssh(diagnostic, (b'', b'', 0))
+        self.assertEqual(diagnostic['ssh'], dict(attempts=1024, first='refused', last='closed', incomplete=True))
+        R.subprocess.Popen.assert_not_called()
+
+    @contextlib.contextmanager
+    def console(self, raw=b''):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary) / 'payload'
+            work.mkdir(mode=0o700)
+            path = work / 'build-console.log'
+            path.write_bytes(raw)
+            path.chmod(0o600)
+            yield work, path, R.directory_identity(work)
+
+    def test_console_projects_only_finite_text_markers_not_boot_or_model_success(self):
+        raw = (b'[    0.000000] Linux version public-fixture\n'
+               b'[    1.000000] Kernel panic - not syncing: private-reason-canary\n'
+               b'(initramfs) \nCloud-init v. public-version running init\n'
+               b'volparossa-alpha login: \n'
+               b'\x1b[32m[  OK  ]\x1b[0m Started ssh.service - OpenBSD Secure Shell server.\n'
+               b'private-key-path-payload-canary\n')
+        with self.console(raw) as (work, _, identity):
+            value = R.build_console_projection(work, identity, 200)
+        expected = R.build_boot_diagnostic()['console']
+        self.assertEqual(value.keys(), expected.keys())
+        self.assertEqual(value['state'], 'observed')
+        self.assertTrue(all(v is True for key, v in value.items() if key != 'state'))
+        self.assertNotIn(b'private', R.encoded(value))
+        self.assertNotIn('model_execution', value)
+
+    def test_empty_unknown_and_nonmatching_console_have_no_positive_marker_or_proof(self):
+        for raw in (b'', b'private unknown console\n', b'private-prefix Linux version x\n',
+                    b'private-host login: \nSSH startup could not be determined\n'):
+            with self.subTest(raw=raw), self.console(raw) as (work, _, identity):
+                value = R.build_console_projection(work, identity, 200)
+            self.assertEqual(value['state'], 'observed')
+            self.assertTrue(all(v is False for key, v in value.items() if key != 'state'))
+            self.assertNotIn(b'private', R.encoded(value))
+
+    def test_console_oversized_binary_or_overlong_line_is_rejected(self):
+        for raw in (b'x' * (4 * 1024 ** 2 + 1), b'\x00private', b'\xffprivate', b'x' * 8193):
+            with self.subTest(length=len(raw)), self.console(raw) as (work, _, identity):
+                with self.assertRaises((ValueError, UnicodeError)):
+                    R.build_console_projection(work, identity, 200)
+
+    def test_console_unsafe_path_mode_links_owner_or_payload_is_rejected(self):
+        for kind in ('symlink', 'hardlink', 'directory', 'mode', 'owner', 'payload', 'identity', 'name'):
+            with self.subTest(kind=kind), self.console(b'preserve public fixture') as (work, path, identity):
+                original = work / 'public-original'
+                if kind == 'symlink':
+                    path.rename(original)
+                    path.symlink_to(original)
+                elif kind == 'hardlink':
+                    os.link(path, original)
+                elif kind == 'directory':
+                    path.unlink()
+                    path.mkdir()
+                elif kind == 'mode':
+                    path.chmod(0o644)
+                elif kind == 'payload':
+                    work.chmod(0o770)
+                elif kind == 'identity':
+                    identity = (0, 0)
+                elif kind == 'name':
+                    renamed = work.with_name('wrong')
+                    work.rename(renamed)
+                    work = renamed
+                with contextlib.ExitStack() as patches:
+                    if kind == 'owner':
+                        patches.enter_context(mock.patch.object(R.os, 'getuid', return_value=os.getuid() + 1))
+                    with self.assertRaises((ValueError, OSError)):
+                        R.build_console_projection(work, identity, 200)
+                if kind in ('symlink', 'hardlink'):
+                    self.assertEqual(original.read_bytes(), b'preserve public fixture')
+
+    def test_console_replacement_during_open_is_not_projected_or_deleted(self):
+        with self.console(b'Linux version original\n') as (work, path, identity):
+            original_open = R.os.open
+            def changed(name, *args, **kwargs):
+                if name == work:
+                    return original_open(name, *args, **kwargs)
+                self.assertEqual(name, 'build-console.log')
+                self.assertIn('dir_fd', kwargs)
+                path.rename(work / 'original')
+                path.write_bytes(b'private-replacement-canary')
+                path.chmod(0o600)
+                return original_open(name, *args, **kwargs)
+            with mock.patch.object(R.os, 'open', side_effect=changed):
+                with self.assertRaisesRegex(ValueError, 'console_changed'):
+                    R.build_console_projection(work, identity, 200)
+            self.assertEqual(path.read_bytes(), b'private-replacement-canary')
+
+    def test_payload_replacement_never_opens_replacement_console(self):
+        with self.console(b'Linux version original\n') as (work, path, identity):
+            original_inode = path.stat().st_ino
+            original_open = R.os.open
+            opened = []
+            def changed(name, *args, **kwargs):
+                descriptor = original_open(name, *args, **kwargs)
+                if name == work:
+                    work.rename(work.with_name('original-payload'))
+                    work.mkdir(mode=0o700)
+                    path.write_bytes(b'private-outside-console-canary')
+                    path.chmod(0o600)
+                else:
+                    self.assertEqual(name, 'build-console.log')
+                    self.assertIn('dir_fd', kwargs)
+                    self.assertEqual(os.fstat(descriptor).st_ino, original_inode)
+                    opened.append(name)
+                return descriptor
+            with mock.patch.object(R.os, 'open', side_effect=changed):
+                with self.assertRaisesRegex(ValueError, 'console_changed'):
+                    R.build_console_projection(work, identity, 200)
+            self.assertEqual(opened, ['build-console.log'])
+            self.assertEqual(path.read_bytes(), b'private-outside-console-canary')
+
+    def test_console_projection_uses_original_deadline_and_cancellation_without_read(self):
+        with self.console(b'Linux version fixture\n') as (work, _, identity):
+            with mock.patch.object(R.os, 'open') as opened:
+                with self.assertRaisesRegex(ValueError, 'controller_deadline'):
+                    R.build_console_projection(work, identity, 99)
+                R.CANCELLED = True
+                with self.assertRaisesRegex(ValueError, 'controller_cancelled'):
+                    R.build_console_projection(work, identity, 200)
+                opened.assert_not_called()
+        R.subprocess.Popen.assert_not_called()
 
 
 class DiskMemoryObservation(Inert):
@@ -1207,6 +1484,32 @@ class ReceiptAndBindings(Inert):
         self.assertTrue(all('readonly=on' in value for value in disks))
         self.assertNotIn('-virtfs', argv)
         self.assertNotIn('-netdev', argv)
+
+    def test_build_vga_is_fixed_headless_and_does_not_change_runtime_auth_or_limits(self):
+        work = Path('/fixed')
+        argv = R.qemu_build(work)
+        self.assertEqual(argv, ['qemu-system-x86_64', '-name', 'volparossa-resident-build',
+            '-no-user-config', '-nodefaults', '-machine', 'q35,accel=kvm', '-cpu', 'host',
+            '-smp', '2', '-m', '12288', '-device', 'VGA,id=video0,bus=pcie.0,addr=0x1',
+            '-drive', 'if=virtio,format=qcow2,file=/fixed/build.qcow2',
+            '-drive', 'if=virtio,format=raw,readonly=on,file=/fixed/seed.img',
+            '-drive', 'if=none,id=runtime,format=raw,file=/fixed/runtime-root.raw',
+            '-device', 'virtio-blk-pci,drive=runtime,serial=vp-resident-runtime',
+            '-device', 'virtio-rng-pci', '-device', 'virtio-net-pci,netdev=buildnet',
+            '-netdev', 'user,id=buildnet,hostfwd=tcp:127.0.0.1:22223-:22',
+            '-display', 'none', '-monitor', 'none', '-serial', 'file:/fixed/build-console.log',
+            '-no-reboot', '-sandbox', 'on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny'])
+        with mock.patch.object(R, 'module', return_value=types.SimpleNamespace(CMDLINE='fixed')):
+            runtime = R.qemu_model(work, {'kernel': '/fixed/kernel'}, work / 'channel')
+        self.assertFalse(any('VGA' in item for item in runtime))
+        self.assertEqual(runtime[runtime.index('-nic') + 1], 'none')
+        options = R.Guest(work, 200).options
+        for option in ('StrictHostKeyChecking=yes', 'UserKnownHostsFile=/fixed/known-hosts',
+                       'BatchMode=yes', 'ConnectTimeout=5', 'PasswordAuthentication=no',
+                       'KbdInteractiveAuthentication=no', 'IdentitiesOnly=yes', 'IdentityAgent=none'):
+            self.assertIn(option, options)
+        self.assertEqual((R.MAX_SECONDS, R.QEMU_BYTES, R.RUNTIME_BYTES), (14400, 13 * R.GIB, 32 * R.GIB))
+        R.subprocess.Popen.assert_not_called()
 
 
 class ExecutionScratchCleanup(Inert):

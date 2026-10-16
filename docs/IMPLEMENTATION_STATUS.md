@@ -47,7 +47,7 @@ the merged binary has not been rerun through the model trial.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38860289559` on `08ba6b21` passes the base maintenance lifecycle but fails Cloud RESERVE: first the inner provider TLS handshake expires, then a second flow acquisition reports incomplete helper cleanup. The retained-route cleanup fix has not resolved consumer acceptance. Investigate bounded route lifetime and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven; earlier trials retain their separate outcomes. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 and native-only core PR277 are merged. Code retains its immutable core dependency; source acceptance of the new core composition is not a repeat model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Public immutable boot `38860629051` passes on exact `888d79fc`: verified read-only boot, write denial, fixed entrypoint, corrupted-disk rejection and cleanup, alongside 179 contracts. Model source `38884241688` passes 100 Rust and 230 Python cases, but actual `38885192379` fails host-memory admission during disk preparation, before build/model VM launch. Two public model turns on one guest TLS session remain unproven. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
+| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | Public immutable boot `38860629051` passes its read-only boot, write-denial, corruption and cleanup gates. Model source `38896828458` passes 100 Rust and 281 Python cases on `a893a10e`. Actual `38897698650` completes disk export and memory admission, then fails the build VM's 300-second SSH-readiness gate; processes and scratch are cleaned up. Diagnose that boot boundary without changing the resource or authentication gates. Two model turns and protected execution remain unproven; production approval and suitable confidential-computing hardware remain open. Integrate resident-only work separately from the inherited unfinished Storage branch. |
 
 ### Public resident model integration candidate
 
@@ -347,11 +347,64 @@ absence of external backing/data sources, then checks exact output size and
 byte-equivalence before resizing. Conversion and comparison share the original
 600-second export budget and joined process ownership. The 12 GiB guest,
 13 GiB QEMU cap, 14 GiB admission requirement, zero swap and model pins remain
-unchanged. This removes an appliance and its FileOut copy stream; it is not a
-proven fix for admission. Independent source review and 96 inert controller
-tests pass without skips. Actual conversion, sparse allocation and model turns
-remain for the hosted gate; its expected source count is 100 Rust and 281 Python
-cases. Earlier actual failures retain their original results.
+unchanged. This removes an appliance and its FileOut copy stream. Independent
+source review and 96 inert controller tests pass without skips. Original source
+run [`38896828458`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38896828458)
+on `a893a10e53d6fd4fd70c129ea426d0cfb1d249c5`, tree
+`ff7fd4d76d9800f1df38c6a8d68dbea9164adadb`, passes compilation, strict lint,
+100 Rust and 281 Python cases, an empty formatter patch and final source equality.
+
+Original actual run
+[`38897698650`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38897698650)
+repeats those source checks and completes the authenticated root export and byte
+comparison before resizing. Build admission passes with **15,660,908,544 bytes
+available against 15,032,385,536 required**, a margin of 628,523,008 bytes. The
+before-disks observation was 15,653,896,192 bytes; no disk-allocation measurement
+or general host-memory guarantee is inferred from this single successful admission.
+
+The run fails later at `guest_boot / build_boot_timeout`: the build scope has
+started and its 13 GiB memory cap and zero-swap setting are verified, but SSH is
+not ready within the unchanged 300-second gate. Package installation, model
+construction, guest TLS and the two model turns are not reached. The original
+result does not retain the last SSH failure or a console classification, so it
+cannot distinguish early boot, network setup or authentication failures.
+
+The original build process and scope are stopped and joined, owned tools are
+joined, and payload removal succeeds. User-manager restoration and final source
+checks pass; the final host route/DNS comparison is not reached. All 35 source
+blobs and 560 dependency identities match. Original artifact API digests and ZIP
+CRCs pass. Source-contract, trial and log ZIP SHA-256 values are respectively
+`6e50c999c0395c1d43e70529aa2966558e047c5234bcf5a7fc4d5dace9384f40`,
+`8918b27ca62414fc19e458c168a5db50e39b525ad873dc6fc25f25db4de95956`
+and `f351ec2cd132ff14e15cff0ed9e2b81b6c98b79a5c7eb02f6d13c88bc77c2910`.
+Earlier actual failures retain their original results.
+
+The next candidate adds the fixed VGA device already used by the accepted
+legacy-BIOS build fixtures, while keeping the display headless. This aligns
+the build hardware profile; it does not establish the cause of the failed run.
+The immutable runtime guest's separate direct-kernel profile is unchanged.
+The controller also retains closed SSH failure categories from its existing
+readiness attempts and bounded console-marker observations after the build
+scope is stopped. Neither raw console text nor key material is exported;
+missing evidence stays unknown. These diagnostic observations cannot authorize
+acceptance, replace the primary failure or prevent cleanup. Authentication,
+network configuration, resource limits and the 300-second readiness gate stay
+unchanged.
+
+All 113 inert controller tests pass without skips, including the original 96
+cases and 17 new diagnostic/profile cases. The new cases cover primary-failure
+preservation, cancelled or expired operations, cleanup ordering, closed output,
+bounded reads, unsafe files and replacement races. The hosted source gate now
+requires 100 Rust and 298 Python cases; this candidate still needs that hosted
+validation and a new original runtime trial. Inert tests do not prove VM boot
+or model execution.
+
+Main integration must isolate the resident-only changes: this candidate's
+parent chain also contains unfinished Storage production code. Preserve main's
+accepted native worker and existing application pins, explicitly include the
+resident tests' inherited Tokio `test-util` feature, and validate the resulting
+composition. A new main commit, binary or sealed image needs its own provenance;
+the candidate's runtime results cannot be relabeled as proof of that new image.
 
 ### Latest shared-storage consumer trial
 
