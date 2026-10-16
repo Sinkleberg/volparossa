@@ -12768,8 +12768,9 @@ mod tests {
             assert!(descriptor.is_none());
             assert_eq!(observed, detail);
         }
-        let (result, _, _, detail) =
-            child_acquire_failure(&AcquireTransportFailure::from(WorkerTransportError::Timeout));
+        let (result, _, _, detail) = child_acquire_failure(&AcquireTransportFailure::from(
+            WorkerTransportError::Timeout,
+        ));
         assert_eq!(result, InternalWorkerResult::Kernel);
         assert!(detail.is_none());
     }

@@ -61,9 +61,17 @@ it is not a passing source gate. Original artifact and log ZIP SHA-256 values ar
 `2fd3f05b512fb5a893708f62683a7b13edfbc43a3958a528b18a0769bbf3ae42`
 and `77004ac080d65b3c45d865ac95291f15a522619ccfd14a905d027df6ed3d25e1`.
 All 16 source blobs and 11 unchanged dependencies match the original manifest.
-The narrow lint/format correction needs its own hosted check. Image/Cloud pins,
-consumer profile 9 and network profile 2 remain unchanged; the next actual trial
-waits for that gate rather than repeating the same opaque failure.
+The narrow correction passes compilation, the same 33 Rust and 168 Python cases,
+and strict lint in original hosted run
+[`38848309510`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38848309510)
+on `85de72d41a9eb9350179c65aefd00dcf66909a0d`. One test-call layout still fails
+formatting, so this run also remains failed. Its original artifact and log ZIP
+SHA-256 values are `02633bc99253ea96af875a96a51308807e6921a3c973c25366ed8fdd344ad146`
+and `1d2d3c0cfa534ce491f318fc1cda96950ea59742b7f4db8e9513aa2ddb3fb37b`;
+all source and dependency blobs match. The remaining correction applies that
+exact formatter hunk without changing behavior. Image/Cloud pins, consumer
+profile 9 and network profile 2 remain unchanged; the next actual trial waits
+for the passing source gate rather than repeating the same opaque failure.
 
 ### Storage connection correlation candidate
 
