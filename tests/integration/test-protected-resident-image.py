@@ -1457,7 +1457,8 @@ class OriginalQmpObservation(unittest.TestCase):
         self.tokens = [(M.SCRATCH, M.SCRATCH.set(self.scratch)),
                        (M.HYPERVISOR, M.HYPERVISOR.set(self.binding)),
                        (M.QMP_CAPTURE, M.QMP_CAPTURE.set(None))]
-        self.value = M.prepare_qmp_capture()
+        with mock.patch.object(M, 'context_snapshot', return_value=dict.fromkeys(M.CONTEXT_KEYS, 'a' * 64)):
+            self.value = M.prepare_qmp_capture()
         self.assertIn('wrapper', self.value)
 
     def tearDown(self):
@@ -1707,8 +1708,9 @@ class OriginalQmpObservation(unittest.TestCase):
         M.project_qmp_capture(self.value, joined=True)
         observed = self.value['receipt']
         self.assertEqual(observed['state'], 'observed')
-        self.assertEqual(observed['probe_stderr'], [dict(slot=slot, stderr_class='kvm_permission_denied')
-                                                   for slot in (1, 2)])
+        self.assertEqual(observed['probe_stderr'], [dict(slot=slot, stderr_class='kvm_permission_denied',
+            failure_boundary={'open': 'unobserved', 'init': 'eacces'}, pre_exec=M.pre_exec_unavailable())
+            for slot in (1, 2)])
         self.assertEqual(observed['query_kvm'], dict(state='observed', present=True, enabled=False))
         self.assertIs(observed['query_correlated'], False)
         self.assertIs(observed['appliance_boot_verified'], False)
@@ -1728,7 +1730,8 @@ class OriginalQmpObservation(unittest.TestCase):
         (self.value['directory'] / 'probe-1').rename(self.value['directory'] / 'probe-2')
         (self.value['directory'] / 'probe-1.verified').rename(self.value['directory'] / 'probe-2.verified')
         M.project_qmp_capture(self.value, joined=True)
-        self.assertEqual(self.value['receipt']['probe_stderr'], [dict(slot=2, stderr_class='unclassified')])
+        self.assertEqual(self.value['receipt']['probe_stderr'], [dict(slot=2, stderr_class='unclassified',
+            failure_boundary={'open': 'unobserved', 'init': 'unobserved'}, pre_exec=M.pre_exec_unavailable())])
         self.assertEqual(self.value['receipt']['state'], 'incomplete')
         self.assertFalse(self.value['receipt']['query_correlated'])
 
@@ -1852,6 +1855,238 @@ class OriginalQmpObservation(unittest.TestCase):
                 self.assertEqual(value['owned_scratch_removed'], not uncertain)
                 self.assertEqual(value['original_qmp_observation']['state'], 'incomplete')
                 self.assertFalse(value['boot_pair_verified'])
+
+
+class OriginalProbeContext(unittest.TestCase):
+    def setUp(self):
+        self.fixture = OriginalQmpObservation()
+        self.fixture.setUp()
+        self.baseline = dict.fromkeys(M.CONTEXT_KEYS, 'a' * 64)
+
+    def tearDown(self):
+        self.fixture.tearDown()
+
+    @staticmethod
+    def status():
+        return (b'Uid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\n'
+                b'Groups:\t10 20\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\n'
+                b'CapEff:\t0000000000000000\nCapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\n'
+                b'NoNewPrivs:\t0\nSeccomp:\t0\nSeccomp_filters:\t0\n')
+
+    def test_exact_error_boundaries_distinguish_eacces_and_eperm_without_raw_text(self):
+        for message, expected in ((b'Permission denied', 'eacces'), (b'Operation not permitted', 'eperm')):
+            parser = M.QemuFailureBoundary()
+            data = (b'Could not access KVM kernel module: ' + message + b'\n'
+                    b'qemu-system-x86_64: failed to initialize kvm: ' + message + b'\n')
+            for part in (data[:13], data[13:49], data[49:]):
+                parser.feed(part)
+            self.assertEqual(parser.result(), dict(open=expected, init=expected))
+
+    def test_boundary_unknown_conflict_and_other_do_not_invent_open_failure(self):
+        for data, expected in ((b'PRIVATE_CANARY Permission denied\n', 'unobserved'),
+                (b'qemu-system-x86_64: failed to initialize kvm: Invalid argument\n', 'other'),
+                (b'qemu-system-x86_64: failed to initialize kvm: Permission denied\n'
+                 b'qemu-system-x86_64: failed to initialize kvm: Operation not permitted\n', 'ambiguous')):
+            parser = M.QemuFailureBoundary()
+            parser.feed(data)
+            self.assertEqual(parser.result(), dict(open='unobserved', init=expected))
+            self.assertNotIn('PRIVATE_CANARY', json.dumps(parser.result()))
+
+    def test_status_projection_is_bounded_hashed_and_partitioned(self):
+        original = M.status_context(self.status())
+        self.assertEqual(set(original), {'credentials', 'capabilities', 'seccomp'})
+        self.assertTrue(all(len(value) == 64 for value in original.values()))
+        for before, after, changed in ((b'10 20', b'10 21', 'credentials'),
+                (b'CapEff:\t0000000000000000', b'CapEff:\t0000000000000001', 'capabilities'),
+                (b'Seccomp:\t0', b'Seccomp:\t2', 'seccomp')):
+            current = M.status_context(self.status().replace(before, after))
+            self.assertEqual({key for key in current if current[key] != original[key]}, {changed})
+
+    def test_status_rejects_missing_duplicate_unbounded_and_invalid_fields(self):
+        for raw in (b'', b'X' * 32769, self.status() + b'Uid: 0 0 0 0\n',
+                self.status().replace(b'Seccomp_filters:\t0\n', b''),
+                self.status().replace(b'10 20', b' '.join([b'1'] * 257)),
+                self.status().replace(b'1000', b'4294967296'),
+                self.status().replace(b'Seccomp:\t0', b'Seccomp:\t9'),
+                self.status().replace(b'CapEff:\t0000000000000000', b'CapEff: PRIVATE_CANARY')):
+            with self.subTest(raw=raw[:20]), self.assertRaises(ValueError):
+                M.status_context(raw)
+
+    def test_fixed_proc_read_bounds_nofollow_and_closes_descriptor(self):
+        with mock.patch.object(M.os, 'open', return_value=71) as opened, \
+                mock.patch.object(M.os, 'fdopen', return_value=io.BytesIO(b'public')) as file, \
+                mock.patch.object(M.os, 'fstat', return_value=SimpleNamespace(st_mode=stat.S_IFREG)):
+            file.return_value.fileno = lambda: 71
+            self.assertEqual(M.context_read('/proc/self/attr/current', 6), b'public')
+            self.assertTrue(file.return_value.closed)
+        self.assertEqual(opened.call_args.args, ('/proc/self/attr/current',
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK))
+        with self.assertRaises(ValueError):
+            M.context_read('/PRIVATE_CANARY', 10)
+        with mock.patch.object(M.os, 'open', return_value=71), \
+                mock.patch.object(M.os, 'fdopen', return_value=io.BytesIO(b'x' * 7)) as file, \
+                mock.patch.object(M.os, 'fstat', return_value=SimpleNamespace(st_mode=stat.S_IFREG)), \
+                self.assertRaises(ValueError):
+            file.return_value.fileno = lambda: 71
+            M.context_read('/proc/self/attr/current', 6)
+
+    @staticmethod
+    def device(inode=5, mode=stat.S_IFCHR | 0o660):
+        return SimpleNamespace(st_dev=1, st_ino=inode, st_rdev=42, st_mode=mode,
+                               st_uid=0, st_gid=10, st_ctime_ns=100)
+
+    def snapshot(self, acl=b'public ACL', metadata=None):
+        def read(path, maximum):
+            return self.status() if path.endswith('status') else b'PRIVATE_LSM_CANARY'
+        with mock.patch.object(M, 'context_read', side_effect=read), \
+                mock.patch.object(M.os, 'lstat', side_effect=metadata or [self.device(), self.device()]), \
+                mock.patch.object(M.os, 'getxattr', side_effect=acl if isinstance(acl, Exception) else None,
+                                  return_value=acl) as xattr:
+            result = M.context_snapshot()
+        xattr.assert_called_once_with('/dev/kvm', 'system.posix_acl_access', follow_symlinks=False)
+        return result
+
+    def test_snapshot_keeps_only_private_digests_and_distinguishes_absent_acl(self):
+        present = self.snapshot()
+        absent = self.snapshot(OSError(M.errno.ENODATA, 'PRIVATE_CANARY'))
+        self.assertNotEqual(present['device_acl'], absent['device_acl'])
+        self.assertTrue(M.valid_context_baseline(present))
+        self.assertTrue(M.valid_context_baseline(absent))
+        for value in (present, absent):
+            self.assertNotIn('PRIVATE', json.dumps(value))
+            self.assertTrue(all(item is not None for item in value.values()))
+
+    def test_unreadable_acl_is_unavailable_not_known_absent(self):
+        for number in (M.errno.EACCES, M.errno.ENOTSUP):
+            value = self.snapshot(OSError(number, 'PRIVATE_CANARY'))
+            self.assertIsNone(value['device_acl'])
+            self.assertIsNotNone(value['device_metadata'])
+
+    def test_changed_device_or_oversized_acl_cannot_make_positive_identity(self):
+        for value in (self.snapshot(metadata=[self.device(), self.device(inode=6)]),
+                      self.snapshot(b'x' * 4097)):
+            self.assertIsNone(value['device_metadata'])
+            self.assertIsNone(value['device_acl'])
+        with mock.patch.object(M, 'context_read', side_effect=PermissionError('PRIVATE_CANARY')), \
+                mock.patch.object(M.os, 'lstat', return_value=self.device(mode=stat.S_IFLNK)), \
+                mock.patch.object(M.os, 'getxattr') as acl:
+            self.assertEqual(M.context_snapshot(), dict.fromkeys(M.CONTEXT_KEYS))
+        acl.assert_not_called()
+
+    def test_equal_different_missing_are_closed_and_kvm_result_is_only_observation(self):
+        current = dict(self.baseline, lsm='b' * 64, device_acl=None)
+        with mock.patch.object(M, 'context_snapshot', return_value=current), \
+                mock.patch.object(M, 'kvm_observation', return_value='denied') as kvm:
+            result = M.pre_exec_observation(self.baseline, time.monotonic() + 5)
+        self.assertEqual(result['scope'], 'wrapper_pre_exec')
+        self.assertEqual(result['kvm'], 'denied')
+        self.assertEqual(result['equality']['credentials'], 'equal')
+        self.assertEqual(result['equality']['lsm'], 'different')
+        self.assertEqual(result['equality']['device_acl'], 'unavailable')
+        kvm.assert_called_once_with()
+        self.assertNotIn('a' * 64, json.dumps(result))
+
+    def test_two_missing_components_never_compare_equal(self):
+        missing = dict.fromkeys(M.CONTEXT_KEYS)
+        with mock.patch.object(M, 'context_snapshot', return_value=missing), \
+                mock.patch.object(M, 'kvm_observation', return_value='api_12'):
+            result = M.pre_exec_observation(missing, None)
+        self.assertEqual(result['equality'], dict.fromkeys(M.CONTEXT_KEYS, 'unavailable'))
+        self.assertEqual(result['kvm'], 'api_12')
+
+    def test_malformed_baseline_and_expired_budget_never_run_observation(self):
+        for baseline, deadline in (({}, None), ({**self.baseline, 'extra': 'PRIVATE_CANARY'}, None),
+                ({**self.baseline, 'lsm': True}, None), ({**self.baseline, 'lsm': 'PRIVATE_CANARY'}, None),
+                (self.baseline, time.monotonic() - 1), (self.baseline, True),
+                (self.baseline, float('nan')), (self.baseline, float('inf'))):
+            with mock.patch.object(M, 'context_snapshot') as snapshot, \
+                    mock.patch.object(M, 'kvm_observation') as kvm:
+                self.assertEqual(M.pre_exec_observation(baseline, deadline), M.pre_exec_unavailable())
+            snapshot.assert_not_called()
+            kvm.assert_not_called()
+
+    def test_baseline_is_private_file_not_script_or_exported_configuration_hash(self):
+        path = self.fixture.scratch / 'qmp-context-parent'
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertEqual(path.stat().st_nlink, 1)
+        self.assertEqual(json.loads(path.read_bytes()), self.baseline)
+        self.assertNotIn(('a' * 64).encode(), self.fixture.value['wrapper'].read_bytes())
+        self.assertNotIn('a' * 64, json.dumps(self.fixture.value['receipt']))
+
+    def test_private_baseline_guards_and_read_failure_do_not_suppress_passthrough(self):
+        path = self.fixture.scratch / 'qmp-context-parent'
+        for raw in (b'PRIVATE_CANARY', b'{}', b' ' * 2049, b'[' * 1024 + b']' * 1024):
+            path.write_bytes(raw)
+            self.assertEqual(M.probe_pre_exec(self.fixture.config()), M.pre_exec_unavailable())
+        path.unlink()
+        path.symlink_to('/PRIVATE_CANARY')
+        self.assertEqual(M.probe_pre_exec(self.fixture.config()), M.pre_exec_unavailable())
+        error = self.fixture.error_file()
+        original_stat, original_link = os.fstat, os.readlink
+        with error.open('rb') as source, \
+                mock.patch.object(M.os, 'fstat', side_effect=lambda fd:
+                    original_stat(source.fileno()) if fd == 2 else original_stat(fd)), \
+                mock.patch.object(M.os, 'readlink', side_effect=lambda target, **kwargs:
+                    str(error) if str(target) == '/proc/self/fd/2' else original_link(target, **kwargs)), \
+                mock.patch.object(M.os, 'execv') as execute, mock.patch.object(M.signal, 'signal'):
+            M.hypervisor_exec(self.fixture.config(), list(M.LIBGUESTFS_QMP_ARGV))
+        execute.assert_called_once_with(str(self.fixture.binary),
+                                       [str(self.fixture.binary), *M.LIBGUESTFS_QMP_ARGV])
+
+    def test_context_sampling_occurs_only_in_two_reserved_existing_probe_slots(self):
+        observed = M.pre_exec_unavailable()
+        observed['kvm'] = 'api_12'
+        for index in (1, 2):
+            path = self.fixture.error_file('cmderr' + str(index) + '.txt')
+            original_stat, original_link = os.fstat, os.readlink
+            with path.open('rb') as source, \
+                    mock.patch.object(M.os, 'fstat', side_effect=lambda fd:
+                        original_stat(source.fileno()) if fd == 2 else original_stat(fd)), \
+                    mock.patch.object(M.os, 'readlink', side_effect=lambda target, **kwargs:
+                        str(path) if str(target) == '/proc/self/fd/2' else original_link(target, **kwargs)), \
+                    mock.patch.object(M, 'probe_pre_exec', return_value=observed) as sample, \
+                    mock.patch.object(M.os, 'execv') as execute, mock.patch.object(M.signal, 'signal'):
+                M.hypervisor_exec(self.fixture.config(), list(M.LIBGUESTFS_QMP_ARGV))
+            sample.assert_called_once_with(self.fixture.config())
+            execute.assert_called_once()
+        with mock.patch.object(M, 'probe_pre_exec') as sample:
+            with self.assertRaises(ValueError):
+                # Both slots occupied: do not even call the optional sampler.
+                path = self.fixture.error_file('cmderr3.txt')
+                original_stat, original_link = os.fstat, os.readlink
+                with path.open('rb') as source, \
+                        mock.patch.object(M.os, 'fstat', side_effect=lambda fd:
+                            original_stat(source.fileno()) if fd == 2 else original_stat(fd)), \
+                        mock.patch.object(M.os, 'readlink', return_value=str(path)):
+                    M.retain_probe_stderr(self.fixture.scratch, self.fixture.value['directory'], sample)
+        sample.assert_not_called()
+        self.fixture.cache()
+        M.project_qmp_capture(self.fixture.value, joined=True)
+        self.assertEqual([item['pre_exec'] for item in self.fixture.value['receipt']['probe_stderr']],
+                         [observed, observed])
+
+    def test_closed_marker_rejects_extra_keys_types_and_canary_fields(self):
+        self.fixture.observed_pair()
+        marker = self.fixture.value['directory'] / 'probe-1.verified'
+        good = M.pre_exec_unavailable()
+        for changed in ({**good, 'extra': 'PRIVATE_CANARY'}, {**good, 'version': True},
+                {**good, 'scope': 'qemu_after_exec'}, {**good, 'kvm': 'PRIVATE_CANARY'},
+                {**good, 'equality': {**good['equality'], 'lsm': True}},
+                {**good, 'equality': {**good['equality'], 'unknown': 'equal'}}):
+            marker.write_text(json.dumps(changed))
+            M.project_qmp_capture(self.fixture.value, joined=True)
+            self.assertEqual(self.fixture.value['receipt']['state'], 'incomplete')
+            self.assertEqual(self.fixture.value['receipt']['probe_stderr'], [])
+            self.assertNotIn('PRIVATE_CANARY', json.dumps(self.fixture.value['receipt']))
+
+    def test_observation_read_failure_never_invents_positive_security_equality(self):
+        with mock.patch.object(M, 'context_snapshot', side_effect=PermissionError('PRIVATE_CANARY')), \
+                mock.patch.object(M, 'kvm_observation') as kvm:
+            self.assertEqual(M.pre_exec_observation(self.baseline, None), M.pre_exec_unavailable())
+        kvm.assert_not_called()
+        self.fixture.observed_pair()
+        M.project_qmp_capture(self.fixture.value, joined=False)
+        self.assertEqual(self.fixture.value['receipt']['probe_stderr'], [])
 
 
 if __name__ == '__main__':

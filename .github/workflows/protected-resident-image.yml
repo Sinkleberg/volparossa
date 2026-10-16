@@ -110,7 +110,7 @@ jobs:
           import json, pathlib, re
           root = pathlib.Path('protected-image-contracts')
           counts = {}
-          expected = {'image': 120, 'initrd': 20}
+          expected = {'image': 136, 'initrd': 20}
           for group in ('image', 'initrd'):
               raw = (root / (group + '-tests.log')).read_text()
               totals = re.findall(r'^Ran ([0-9]+) tests? in [0-9.]+s$', raw, re.M)

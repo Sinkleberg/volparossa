@@ -9,6 +9,7 @@ approval, a hardware appraisal, or authorization to release private inputs.
 """
 import argparse
 import contextvars
+import errno
 import fcntl
 import hashlib
 import json
@@ -107,6 +108,10 @@ QEMU_STDERR_PATTERNS.update({
     for text, label in QEMU_ERRNO_LABELS.items()
 })
 QEMU_STDERR_CLASSES = frozenset(QEMU_ERRNO_LABELS.values()) | {'unclassified', 'ambiguous'}
+CONTEXT_KEYS = ('credentials', 'capabilities', 'seccomp', 'lsm', 'device_metadata', 'device_acl')
+CONTEXT_EQUALITY = frozenset(('equal', 'different', 'unavailable'))
+KVM_OBSERVATIONS = frozenset(('api_12', 'api_mismatch', 'not_character_device',
+                             'missing', 'denied', 'io_error', 'unavailable'))
 
 
 def require(condition, reason):
@@ -256,6 +261,156 @@ class QemuStderr(GuestfishStderr):
     patterns = QEMU_STDERR_PATTERNS
 
 
+class QemuFailureBoundary(GuestfishStderr):
+    """Independent exact line facts; init failure alone does not identify a syscall."""
+    patterns = {
+        prefix + text: (boundary, {b'Permission denied': 'eacces',
+                                  b'Operation not permitted': 'eperm'}.get(text, 'other'))
+        for boundary, prefix in (
+            ('open', b'Could not access KVM kernel module: '),
+            ('init', b'qemu-system-x86_64: failed to initialize kvm: '))
+        for text in QEMU_ERRNO_LABELS
+    }
+
+    def result(self):
+        self.line()
+        result = {}
+        for boundary in ('open', 'init'):
+            values = {value for stage, value in self.matches if stage == boundary}
+            result[boundary] = ('ambiguous' if len(values) > 1
+                                else next(iter(values), 'unobserved'))
+        return result
+
+
+def context_read(path, maximum):
+    """Fixed proc inputs only; zero-size proc metadata is not a content bound."""
+    require(path in ('/proc/self/status', '/proc/self/attr/current'), 'qmp_context')
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'rb') as source:
+        require(stat.S_ISREG(os.fstat(source.fileno()).st_mode), 'qmp_context')
+        raw = source.read(maximum + 1)
+    require(0 < len(raw) <= maximum, 'qmp_context')
+    return raw
+
+
+def context_hash(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def status_context(raw):
+    require(type(raw) is bytes and 0 < len(raw) <= 32768, 'qmp_context')
+    names = ('Uid', 'Gid', 'Groups', 'CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb',
+             'NoNewPrivs', 'Seccomp', 'Seccomp_filters')
+    fields = {}
+    for line in raw.splitlines():
+        key, separator, value = line.partition(b':')
+        if key in tuple(name.encode() for name in names):
+            require(separator and key.decode() not in fields, 'qmp_context')
+            fields[key.decode()] = value.strip().decode('ascii')
+    require(set(fields) == set(names), 'qmp_context')
+    for name, minimum, maximum in (('Uid', 4, 4), ('Gid', 4, 4), ('Groups', 0, 256)):
+        values = fields[name].split()
+        require(minimum <= len(values) <= maximum
+                and all(re.fullmatch(r'[0-9]{1,10}', value) and int(value) < 2 ** 32
+                        for value in values), 'qmp_context')
+        fields[name] = [int(value) for value in values]
+    for name in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb'):
+        require(re.fullmatch('[0-9a-f]{16}', fields[name]), 'qmp_context')
+    require(fields['NoNewPrivs'] in ('0', '1') and fields['Seccomp'] in ('0', '1', '2')
+            and re.fullmatch('[0-9]{1,10}', fields['Seccomp_filters'])
+            and int(fields['Seccomp_filters']) < 2 ** 32, 'qmp_context')
+    return {
+        'credentials': context_hash({key: fields[key] for key in ('Uid', 'Gid', 'Groups')}),
+        'capabilities': context_hash({key: fields[key] for key in names if key.startswith('Cap')}),
+        'seccomp': context_hash({key: fields[key] for key in ('NoNewPrivs', 'Seccomp', 'Seccomp_filters')}),
+    }
+
+
+def context_snapshot():
+    """Private digests only, never public process metadata or device authority."""
+    result = dict.fromkeys(CONTEXT_KEYS)
+    try:
+        result.update(status_context(context_read('/proc/self/status', 32768)))
+    except (OSError, ValueError, UnicodeError):
+        pass
+    try:
+        raw = context_read('/proc/self/attr/current', 4096)
+        result['lsm'] = hashlib.sha256(raw).hexdigest()
+    except (OSError, ValueError):
+        pass
+    try:
+        before = os.lstat('/dev/kvm')
+        require(stat.S_ISCHR(before.st_mode), 'qmp_context')
+        identity = lambda value: (value.st_dev, value.st_ino, value.st_rdev,
+                                  value.st_mode, value.st_uid, value.st_gid, value.st_ctime_ns)
+        acl = None
+        try:
+            raw = os.getxattr('/dev/kvm', 'system.posix_acl_access', follow_symlinks=False)
+            require(len(raw) <= 4096, 'qmp_context')
+            acl = context_hash({'present': raw.hex()})
+        except OSError as error:
+            if error.errno == errno.ENODATA:
+                acl = context_hash({'absent': True})
+        require(identity(before) == identity(os.lstat('/dev/kvm')), 'qmp_context')
+        result.update(device_metadata=context_hash(identity(before)), device_acl=acl)
+    except (OSError, ValueError):
+        pass
+    return result
+
+
+def valid_context_baseline(value):
+    return (type(value) is dict and set(value) == set(CONTEXT_KEYS)
+            and all(item is None or (type(item) is str and re.fullmatch('[0-9a-f]{64}', item))
+                    for item in value.values()))
+
+
+def pre_exec_unavailable():
+    return dict(version=1, scope='wrapper_pre_exec', kvm='unavailable',
+                equality=dict.fromkeys(CONTEXT_KEYS, 'unavailable'))
+
+
+def pre_exec_observation(baseline, deadline):
+    result = pre_exec_unavailable()
+    # This is optional observation, never a new admission decision or deadline.
+    if not valid_context_baseline(baseline) or (deadline is not None and
+            (type(deadline) not in (int, float) or not 0 < deadline < 2 ** 53
+             or not time.monotonic() < deadline)):
+        return result
+    try:
+        current = context_snapshot()
+        if valid_context_baseline(current):
+            result['equality'] = {key: ('unavailable' if baseline[key] is None or current[key] is None
+                                      else 'equal' if baseline[key] == current[key] else 'different')
+                                  for key in CONTEXT_KEYS}
+        observed = kvm_observation()
+        if type(observed) is str and observed in KVM_OBSERVATIONS:
+            result['kvm'] = observed
+    except (OSError, ValueError):
+        pass
+    return result
+
+
+def validate_pre_exec(value):
+    require(type(value) is dict and set(value) == {'version', 'scope', 'kvm', 'equality'}
+            and type(value['version']) is int and value['version'] == 1
+            and value['scope'] == 'wrapper_pre_exec'
+            and type(value['kvm']) is str and value['kvm'] in KVM_OBSERVATIONS
+            and type(value['equality']) is dict and set(value['equality']) == set(CONTEXT_KEYS)
+            and all(type(item) is str and item in CONTEXT_EQUALITY
+                    for item in value['equality'].values()), 'qmp_context')
+    return value
+
+
+def probe_pre_exec(config):
+    try:
+        scratch = Path(config['scratch'])
+        capture_directory(scratch)
+        baseline = exact_json(capture_read(scratch / 'qmp-context-parent', 2048))
+        return pre_exec_observation(baseline, config.get('deadline'))
+    except (OSError, ValueError, RecursionError):
+        return pre_exec_unavailable()
+
+
 def bind_hypervisor(tools):
     binary = shutil.which('qemu-system-x86_64', path=ENV['PATH'])
     require(binary is not None, 'host_tool_missing')
@@ -389,7 +544,7 @@ def capture_read(path, maximum, *, modes=(0o600,), links=(1,)):
     return raw
 
 
-def retain_probe_stderr(scratch, destination):
+def retain_probe_stderr(scratch, destination, observation=None):
     """Keep the existing libguestfs cmderr inode, not a second stderr stream.
 
     v1.52.0 command.c:767-817 creates fd2; tmpdirs.c:169-237 fixes its shape.
@@ -421,7 +576,12 @@ def retain_probe_stderr(scratch, destination):
                 'qmp_capture_binding')
         descriptor = os.open(destination / (slot + '.verified'),
             os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
-        os.close(descriptor)
+        with os.fdopen(descriptor, 'wb') as marker:
+            if observation is not None:
+                value = validate_pre_exec(observation())
+                raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+                require(len(raw) <= 2048, 'qmp_context')
+                marker.write(raw)
         return
     raise ValueError('qmp_capture_bound')
 
@@ -438,7 +598,8 @@ def hypervisor_exec(config, arguments):
             'hypervisor_binding')
     if tuple(arguments) == LIBGUESTFS_QMP_ARGV:
         try:
-            retain_probe_stderr(Path(config['scratch']), Path(config['capture']))
+            retain_probe_stderr(Path(config['scratch']), Path(config['capture']),
+                lambda: probe_pre_exec(config))
         except (OSError, ValueError):
             # Capture is optional. A fixed marker makes a gap explicit, without
             # replacing the original command's argv, streams, environment or exit.
@@ -478,9 +639,19 @@ def prepare_qmp_capture():
         capture_directory(scratch)
         directory = scratch / 'qmp-observation'
         directory.mkdir(mode=0o700)
+        # Kept outside the generated script: neither baseline digests nor a
+        # digest of their configuration is part of any exported receipt/hash.
+        baseline = context_snapshot()
+        require(valid_context_baseline(baseline), 'qmp_context')
+        raw_baseline = json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()
+        require(len(raw_baseline) <= 2048, 'qmp_context')
+        descriptor = os.open(scratch / 'qmp-context-parent',
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        with os.fdopen(descriptor, 'wb') as target:
+            target.write(raw_baseline)
         config = dict(binary=binary, identity=HYPERVISOR.get()['identity'],
                       sha256=HYPERVISOR.get()['sha256'], scratch=str(scratch), capture=str(directory),
-                      interpreter=capture_interpreter())
+                      interpreter=capture_interpreter(), deadline=DEADLINE.get())
         builder = Path(__file__).resolve(strict=True)
         source_hash = digest(builder, maximum=262144)['sha256']
         # No imports from the checkout and no bytecode writes: compile only the
@@ -558,12 +729,15 @@ def project_qmp_capture(value, *, joined):
         records = []
         for slot in (1, 2):
             if 'probe-' + str(slot) in names:
-                require(capture_read(value['directory'] / ('probe-' + str(slot) + '.verified'), 0) == b'',
-                        'qmp_capture_binding')
+                marker = capture_read(value['directory'] / ('probe-' + str(slot) + '.verified'), 2048)
+                context = validate_pre_exec(exact_json(marker)) if marker else pre_exec_unavailable()
                 raw = capture_read(value['directory'] / ('probe-' + str(slot)), MAX_QMP, links=(1, 2))
                 classifier = QemuStderr()
                 classifier.feed(raw)
-                records.append(dict(slot=slot, stderr_class=classifier.finish()))
+                boundary = QemuFailureBoundary()
+                boundary.feed(raw)
+                records.append(dict(slot=slot, stderr_class=classifier.finish(),
+                                    failure_boundary=boundary.result(), pre_exec=context))
         observed['probe_stderr'] = records
         # Upstream qemu.c:233-240 derives exactly this cache key from the
         # hypervisor executable's stat, not the underlying ELF or a glob match.

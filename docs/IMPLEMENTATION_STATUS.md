@@ -44,7 +44,7 @@ replace either trial or change its pins.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38838512301` on `9209c6fe` fails Cloud APPEND during flow acquisition; the earlier Image challenge stall remains distinct. The typed helper diagnostic now passes source run `38850938318` on `878c2aa9`: compilation, 33 Rust and 185 Python tests, strict lint and formatting. Actual `38851643524` uses that exact source and unchanged consumer pins; it has passed the full preflight and entered the disposable topology, but has no completed consumer outcome yet. Do not extend deadlines or treat the diagnostic as causal proof. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 is merged, retaining that immutable core dependency; the native/Storage core candidate is not merged into core `main`. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Public boot trial `38851183384` proves that the selected QEMU executable starts KVM, then fails libguestfs inspection before guest-image construction. Observe the original internal probe's failure without changing its execution profile; then finish sealed boot, runtime/model binding, a separate task grant and guest TLS. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
+| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Public boot trial `38853721676` again passes the strict KVM preflight, but both original libguestfs probes report a permission failure and its cache records KVM disabled. Guest-image construction still fails. Distinguish device access from later initialization and compare the original probe context without changing its execution profile; then finish sealed boot, runtime/model binding, a separate task grant and guest TLS. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 ### Finite resident execution candidate
 
@@ -302,12 +302,50 @@ re-observation clears earlier fields; missing data cannot become a kernel cause
 or replace the original failure. No raw stderr or paths are exported, no extra
 QEMU process is started and no cache result is changed.
 
-All 140 inert cases pass locally: 120 image/runner, including 24 new cases, and
-20 initrd/bootstrap tests. Syntax, ShellCheck, workflow checks and independent
-source review pass. Input pins, the original budget, strict KVM preflight and
-mandatory process-group cleanup are unchanged. Hosted source and actual
-verification of this diagnostic candidate remain pending.
-Immutable guest boot and protected resident-model execution remain open.
+All 140 inert cases pass locally and in original source run
+[`38853517990`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38853517990)
+on exact `e572cf4203c5bd99243ab437845d0947e99dff34`: 120 image/runner cases,
+including 24 new cases, and 20 initrd/bootstrap tests, with no failures or skips.
+Syntax, ShellCheck and source checks pass; the retained manifest matches all ten
+candidate blobs and seven unchanged dependencies. Original contract-artifact
+and log ZIP SHA-256 values are
+`903b1c7c84b188f07191b54596fe8436174c00a4dcef2635fabba42b90d5382e`
+and `656b3869849dae1719ee7b0d22758a653760606310209f8057262dc1b451e1bc`.
+
+Actual run
+[`38853721676`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38853721676)
+uses that exact source and again passes the strict direct QMP preflight, with
+KVM present and enabled. Both retained original libguestfs probes instead report
+`kvm_permission_denied`; its `query-kvm` cache records `present=true` and
+`enabled=false`. The two stderr observations remain uncorrelated with individual
+queries. Their current classification combines permission-denied messages from
+device opening and later initialization; it does not establish a syscall, errno
+or underlying permission cause.
+
+The first inspection still fails with `kvm_unavailable`, before sealed-image
+construction or either public boot. The build step lasts 18 seconds. The original
+1,200-second budget is unchanged; no monotonic start/end pair is exported.
+Child joins, process-group absence, scratch/staging removal, KVM ACL restoration
+and comparison, and unchanged-source checks pass. Original boot-artifact and
+log ZIP SHA-256 values are
+`d251f3025f71a4ca32ae8e4e57190ae74d9a7ab36d9956be44975bc2c49b2356`
+and `1115cafba49f4a76bb46cd31b15c9aa874021af98bda1c0fd7597c5e869baf45`.
+
+The diagnostic candidate now separates exact open and initialization permission
+messages, including `EACCES` versus `EPERM`. Immediately before the same original
+QEMU exec, it observes only device opening and `KVM_GET_API_VERSION`, never VM
+creation. It compares credentials, capabilities, seccomp/NoNewPrivs, the LSM
+label and device metadata/ACL with a private parent baseline taken after the
+strict preflight. Only `equal`, `different` or `unavailable` is exported; values,
+labels and their private digests stay in owned scratch. Missing observations do
+not compare equal. Sampling uses only the same two reserved probe slots.
+
+All 156 inert tests pass locally: 136 image/runner cases, including 16 new cases,
+and 20 initrd/bootstrap cases. Syntax and ShellCheck pass. The original launch
+profile, KVM requirement, budget and cleanup remain unchanged. Hosted verification
+of this refinement is pending. Pre-exec observations cannot prove a later security
+transition or successful VM creation. Immutable guest boot and protected
+resident-model execution remain open.
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
