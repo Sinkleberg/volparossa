@@ -61,6 +61,7 @@ jobs:
           crates/volparossa-helper/src/worker_v3/dead_worker_reaper.rs
           tests/integration/storage-acquire-diagnostic.py
           tests/integration/test-storage-acquire-diagnostic.py
+          tests/integration/test-storage-provider-activity-sampler.py
           tests/integration/private-storage-maintenance-smoke.py
           tests/integration/private-storage-maintenance-smoke.sh
           tests/integration/kvm-alpha-topology.sh
@@ -93,7 +94,7 @@ jobs:
       - name: Exercise closed sidecar and existing maintenance exports
         run: |
           set -euo pipefail
-          for suite in storage-acquire-diagnostic private-storage-maintenance-wiring private-storage-maintenance-smoke alpha-vm-diagnostics; do
+          for suite in storage-acquire-diagnostic private-storage-maintenance-wiring private-storage-maintenance-smoke alpha-vm-diagnostics storage-provider-activity-sampler; do
             timeout --kill-after=5s 180s python3 -B "tests/integration/test-$suite.py" -v \
               2>&1 | tee "storage-acquire-evidence/python-$suite.log"
           done
@@ -115,7 +116,8 @@ jobs:
               assert not re.search(r'\bskipped\b|^FAILED', raw, re.M), path
               counts[path.stem] = len(passed)
               names.extend(path.stem + ':' + scope + ':' + name for name, scope in passed)
-          assert len(counts) == 4 and len(names) == len(set(names))
+          assert len(counts) == 5 and counts['python-storage-provider-activity-sampler'] == 17
+          assert len(names) == len(set(names))
           (root / 'python-tests.json').write_text(json.dumps(dict(version=1, counts=counts,
               unique_tests=len(names), test_names=sorted(names), live_consumer_acceptance=False), sort_keys=True) + '\n')
           PY

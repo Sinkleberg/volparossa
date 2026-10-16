@@ -68,10 +68,31 @@ on `85de72d41a9eb9350179c65aefd00dcf66909a0d`. One test-call layout still fails
 formatting, so this run also remains failed. Its original artifact and log ZIP
 SHA-256 values are `02633bc99253ea96af875a96a51308807e6921a3c973c25366ed8fdd344ad146`
 and `1d2d3c0cfa534ce491f318fc1cda96950ea59742b7f4db8e9513aa2ddb3fb37b`;
-all source and dependency blobs match. The remaining correction applies that
-exact formatter hunk without changing behavior. Image/Cloud pins, consumer
-profile 9 and network profile 2 remain unchanged; the next actual trial waits
-for the passing source gate rather than repeating the same opaque failure.
+all source and dependency blobs match. The exact formatter correction passes
+original hosted source run
+[`38849123582`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38849123582)
+on `04f51e5cd7f17d736979872e4e64968d79d0540f`: compilation, the same 33 Rust
+and 168 Python cases, strict lint and formatting. Its original artifact and log
+ZIP SHA-256 values are
+`6213fe56d8978d5d3cd04990bf45194af7be94c1c1a2fc3828f7d2de0f149e1e`
+and `e9e3385c7e8c38fd6f457422abe3218b026fad9e16f18dacf78289e54b0c6c06`;
+all 16 source and 11 dependency blobs match.
+
+Actual run
+[`38849945061`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38849945061)
+on that exact source fails its inert preflight before VM preparation. Three
+sampler test methods incorrectly expect the optional helper-acquire sidecar in
+fixtures without that receipt. The exporter correctly excludes it. No VM,
+consumer, storage, cleanup or helper diagnostic observation was produced; no
+artifact exists. The original log ZIP SHA-256 is
+`2b79f44ed8b67b6af3393cd44e2367e53ec49f3203c26881f406450bfd5b5b0f`.
+This failed preflight supplies no new evidence about the earlier runtime faults.
+
+The narrow test correction passes all 17 sampler cases locally and adds this
+suite to the hosted source gate: 17 allowed source files and five Python suites
+(185 expected cases). Hosted verification of this correction is pending. No
+production behavior, Image/Cloud pin, consumer profile 9 or network profile 2
+changes. The next actual trial requires that corrected source gate to pass.
 
 ### Storage connection correlation candidate
 
