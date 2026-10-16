@@ -385,9 +385,23 @@ membership, udev-rule change, broad device permission or root guestfish executio
 All 171 inert contracts pass locally: 151 image cases, including 15 new cases,
 and 20 initrd cases. Independent review passes 26 targeted launch, staging and
 failure/cleanup cases; syntax, ShellCheck and diff checks also pass. These tests
-mock device and privilege operations: hosted source checks and a new actual
-trial are still required. Immutable guest boot and protected resident-model
-execution remain open.
+mock device and privilege operations; they are not actual guest-boot evidence.
+
+Original source run
+[`38856930029`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38856930029)
+on `5aed15f252f161252b8707e965d6939b3f8c42bd` fails one of the 151 image tests;
+the initrd suite does not run. The new expiry test incorrectly assumes that a
+one-nanosecond start is expired: on this fresh runner, uptime is below the
+1,200-second build budget. This is a test-clock error, not demonstrated failure
+of the production launch guard. Source binding, syntax, ShellCheck and unchanged
+source checks pass. Original contract-artifact and log ZIP SHA-256 values are
+`a9c463e64ea2a41db965f6c15e8f243ca818cbb21cc28fea55c7016974943840`
+and `e57ae98704d204672ed34bbaf4cee69f5309655ff0d51c9c9d1383595a6eac37`.
+The correction makes the test clock explicit and checks both early-uptime
+admission and expiry of the original budget; it does not change production code
+or deadlines. A passing corrected source gate is still required before the next
+actual trial. Immutable guest boot and protected resident-model execution remain
+open.
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).

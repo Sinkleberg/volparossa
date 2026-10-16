@@ -2224,21 +2224,28 @@ class KvmGroupLaunch(unittest.TestCase):
 
     def test_preselection_keeps_original_prepared_source_and_absolute_deadline(self):
         args = SimpleNamespace(yes=True, expected_source='a' * 40)
-        started = time.monotonic_ns() - 10 ** 9
+        started, now = 1, [35 * 10 ** 9]
         prepared = dict(source=args.expected_source, started_monotonic_ns=started)
         def select():
             self.assertEqual(M.DEADLINE.get(), started / 1e9 + M.BUILD_SECONDS)
             return self.uid, self.gid
         with mock.patch.object(M, 'appliance_stage_path', return_value=Path('/private-stage')), \
                 mock.patch.object(M, 'private_stage_file'), mock.patch.object(M, 'read_stage', return_value=prepared), \
+                mock.patch.object(M.time, 'monotonic_ns', side_effect=lambda: now[0]), \
+                mock.patch.object(M.time, 'monotonic', side_effect=lambda: now[0] / 1e9), \
                 mock.patch.object(M, 'kvm_group_ids', side_effect=select) as selected:
+            # A start near boot is valid on a young runner, not already expired.
             self.assertEqual(M.kvm_launch_ids(args), (self.uid, self.gid))
             self.assertIsNone(M.DEADLINE.get())
             for changed in (dict(source='b' * 40, started_monotonic_ns=started),
-                            dict(source=args.expected_source, started_monotonic_ns=1),
+                            dict(source=args.expected_source, started_monotonic_ns=now[0] + 1),
                             dict(source=args.expected_source, started_monotonic_ns=True)):
                 with mock.patch.object(M, 'read_stage', return_value=changed), self.assertRaises(ValueError):
                     M.kvm_launch_ids(args)
+            # Advance both clock interfaces past the same original deadline.
+            now[0] = started + (M.BUILD_SECONDS + 1) * 10 ** 9
+            with self.assertRaisesRegex(ValueError, '^build_deadline$'):
+                M.kvm_launch_ids(args)
             self.assertEqual(selected.call_count, 1)
             self.assertIsNone(M.DEADLINE.get())
 
