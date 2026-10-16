@@ -94,6 +94,12 @@ release signature. The kernel package is `6.12.105-1`, with release
 `6.12.105+deb13-cloud-amd64`. Image packages retain their own original notices
 and distribution patches; they are not relicensed as VOLPAROSSA code.
 
+The image downloader also permits the exact same-path HTTPS redirect to
+`saimei.ftp.acc.umu.se` observed from the pinned Debian URL. Debian lists
+`ftp.acc.umu.se` among its [registered image mirrors](https://www.debian.org/CD/http-ftp/).
+This transport exception does not change the original image SHA-512, permit
+arbitrary mirrors or replace the required content verification.
+
 The [additional package pins](tests/integration/protected-resident-image-pins-v1.json)
 bind each official Debian download by exact version, size and SHA-256:
 

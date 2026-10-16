@@ -225,17 +225,23 @@ def command(argv, *, timeout=120, maximum=MAX_LOG, stdout_path=None):
     return bytes(output)
 
 
+class PinnedRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, message, headers, newurl):
+        original = urllib.parse.urlsplit(request.full_url)
+        parsed = urllib.parse.urlsplit(newurl)
+        permitted_host = parsed.hostname in ('cloud.debian.org', 'deb.debian.org') or (
+            original.hostname == 'cloud.debian.org' and parsed.hostname == 'saimei.ftp.acc.umu.se')
+        require(parsed.scheme == 'https' and permitted_host and parsed.username is None
+                and parsed.password is None and parsed.port in (None, 443)
+                and parsed.path == original.path and parsed.query == original.query
+                and not parsed.fragment, 'download_redirect')
+        return super().redirect_request(request, fp, code, message, headers, newurl)
+
+
 def fetch(item, target, algorithm, maximum, deadline):
-    class Redirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, request, fp, code, message, headers, newurl):
-            parsed = urllib.parse.urlsplit(newurl)
-            require(parsed.scheme == 'https' and parsed.hostname in
-                    ('cloud.debian.org', 'deb.debian.org') and not parsed.username
-                    and not parsed.password and parsed.port in (None, 443), 'download_redirect')
-            return super().redirect_request(request, fp, code, message, headers, newurl)
     require(item['url'].startswith(('https://cloud.debian.org/', 'https://deb.debian.org/')),
             'download_origin')
-    opener = urllib.request.build_opener(Redirect())
+    opener = urllib.request.build_opener(PinnedRedirect())
     checkpoint()
     require(time.monotonic() < deadline, 'build_deadline')
     with opener.open(item['url'], timeout=min(30, deadline - time.monotonic())) as response, \

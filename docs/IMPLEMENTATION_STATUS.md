@@ -40,7 +40,7 @@ sources; this preparation does not replace either trial or change its pins.
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | The listener correction passes targeted run `38815471227`, including a real Linux MPTCP rejection/reuse test. Actual `38816407455` on `728db40b` instead fails at Image FINALIZE fragment 0/copy 1 while reading the provider challenge; Cloud publication is not reached. Its standalone core lifecycle and two restores pass, but consumer repair, restoration and remote retirement remain unproved. Trace the challenge stall without extending the operation deadline. Earlier `38804192575` retains its separate unresolved flow-acquisition failure. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38838512301` on `9209c6fe` reaches Cloud publication but fails APPEND fragment 0/copy 1 during flow acquisition: first `helper_kernel`, then `helper_cleanup_incomplete`. Base lifecycle/restore/delete still validate, but full consumer maintenance and remote cleanup do not. The new bounded correlation receipt is valid but does not identify the kernel cause or resolve the earlier Image challenge stall. Trace the typed helper failure without extending deadlines; preserve the distinct failures of `38816407455` and `38804192575`. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 is merged, retaining that immutable core dependency; the native/Storage core candidate is not merged into core `main`. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
 | Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258's authenticated refusal path has actual route evidence; PR262 integrates explicit same-connection key confirmation. The resident worker's caller-anchored finite execution budget passes compile, 72 contracts, strict lint and formatting in hosted run `38839509355`. Next, verify the sealed boot prerequisite, then bind immutable runtime/model inputs, a separate task grant and the guest TLS channel to that same worker. Production roots, current vendor appraisal and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
@@ -102,7 +102,7 @@ The separate negative boot changes one data byte after sealing and requires an
 actual failed read with the kernel's corruption status; a timeout is not proof.
 
 The fixture has no guest network, SSH, administrative shell or original cloud
-initialization. All 52 local contracts pass: 32 image/runner cases and 20
+initialization. All 56 local contracts pass: 36 image/runner cases and 20
 initrd/bootstrap cases. They exercise only public archive, parser, process and
 bootstrap contracts; image construction and actual boots require the separate
 explicit hosted workflow. This first gate contains no resident worker, model or
@@ -116,13 +116,59 @@ on `bc1cd6fd7685a57d2cda118eb08ec523e129eaf4` fails before any job starts:
 GitHub rejects `runner.temp` in job-level `env`. No hosted test or boot runs and
 no artifact is produced. The correction derives the same temporary evidence
 path from shell `RUNNER_TEMP` inside each step; all image and bootstrap code,
-tests and input pins remain unchanged. Hosted verification is still pending.
+tests and input pins remain unchanged.
+
+Corrected source run
+[`38842199462`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38842199462)
+on exact `f01891b7ea8927abb03e7bc4c8713df637d6ae04` passes all 52 contracts,
+syntax, ShellCheck and source checks. The ten changed blobs and seven unchanged
+dependencies match its manifest. Original artifact and log ZIP SHA-256 values
+are `ac50a27cad28afe425d38ff63caed80996c6346bf296d095a64b9d5f30e158cd`
+and `58b99b377650c10b4a34a8c44b77fa73006894e395c6e33f45c3a962a64a37ed`.
+
+The first actual hosted trial,
+[`38842577830`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38842577830),
+uses that same source and fails at `input_download` with `download_redirect`.
+It does not reach image extraction or either boot. Completed tool processes are
+joined, their original process groups are absent, scratch removal succeeds,
+the original KVM ACL is restored and compared, and source identity is unchanged.
+Original boot-artifact and log ZIP SHA-256 values are
+`24e6ff988aa67a3d37a47bf6266d579d941e225c9e3ed51a3846e4579add4bf5`
+and `53470c9e06b987467a49ba9dd455bdf11531a27c109eab435c87f65796716a4f`.
+The original receipt does not retain the redirect destination. A separate live
+HEAD request observes Debian redirecting the pinned image to the same path on
+`saimei.ftp.acc.umu.se`. The narrow correction permits that reviewed HTTPS
+mirror with unchanged path, query, input hashes, size bounds and deadlines;
+four additional inert tests cover that exception and rejected variants. Actual
+boot verification remains open.
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
 The latest completed outcomes are summarized below.
 
 ### Latest completed integration evidence — 15–16 October
+
+- **Storage reaches Cloud publication but still fails consumer acceptance.**
+  [Actual `38838512301`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38838512301)
+  fails on exact `9209c6feced0db5da5cae614775769c60b2ff11b`, with unchanged
+  Image `9694a2b9` and Cloud `47b0f03b` pins. Cloud APPEND fragment 0/copy 1
+  reports `CONTENT_UNAVAILABLE` at `stream_open`, before TLS or a provider
+  challenge. Three flow-acquisition rounds retain first `helper_kernel` and
+  last `helper_cleanup_incomplete`; no kernel operation or errno is established.
+
+  Original base Storage components still pass strict lifecycle, restore, delete
+  and private-cleanup validation, with zero usage at all three base providers.
+  The original combined consumer report remains failed. Local fixture cleanup,
+  guest-owned network cleanup and QEMU exit/join are supported; consumer provider
+  usage and remote cleanup are not. Reaching Cloud publication does not itself
+  prove complete Image maintenance.
+
+  The new eight-row correlation receipt validates and confirms collector
+  disarm/join, but remains incomplete and is not bound to the failed
+  fragment/copy. It is diagnostic evidence, not proof of cause or acceptance.
+  Original artifact and log ZIP SHA-256 values are
+  `533cdd4463ae281c4e11ffeb3d32c7dc65ee6432b80629184295e04deb71490c`
+  and `400c49417576e1c455bced674b73b37e7df6b8033f607c18dc00d55636843eef`.
 
 - **Storage retains its base lifecycle proof but stalls during Image publication.**
   [Actual `38816407455`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38816407455)

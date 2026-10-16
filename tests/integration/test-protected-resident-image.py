@@ -36,6 +36,65 @@ def encoded(value):
 
 
 class InputContracts(unittest.TestCase):
+    def test_redirect_allows_only_exact_mirror_resource_and_existing_origins(self):
+        path = '/images/cloud/trixie/20260826-2582/debian-13-genericcloud-amd64-20260826-2582.qcow2'
+        source = M.urllib.request.Request('https://cloud.debian.org' + path)
+        for host in ('saimei.ftp.acc.umu.se', 'saimei.ftp.acc.umu.se:443',
+                     'cloud.debian.org', 'deb.debian.org'):
+            with self.subTest(host=host):
+                target = 'https://' + host + path
+                redirect = M.PinnedRedirect().redirect_request(source, None, 302, '', {}, target)
+                self.assertEqual(redirect.full_url, target)
+
+    def test_redirect_rejects_changed_path_query_and_fragment(self):
+        source = M.urllib.request.Request('https://cloud.debian.org/images/pinned.qcow2')
+        for suffix in ('/images/other.qcow2', '/images/pinned.qcow2?changed=1',
+                       '/images/pinned.qcow2#fragment', '/images/../pinned.qcow2'):
+            with self.subTest(suffix=suffix), self.assertRaisesRegex(ValueError, 'download_redirect'):
+                M.PinnedRedirect().redirect_request(source, None, 302, '', {},
+                                                    'https://saimei.ftp.acc.umu.se' + suffix)
+
+    def test_redirect_rejects_untrusted_host_transport_credentials_and_port(self):
+        source = M.urllib.request.Request('https://cloud.debian.org/images/pinned.qcow2')
+        for prefix in ('http://saimei.ftp.acc.umu.se', 'https://unreviewed.ftp.acc.umu.se',
+                       'https://saimei.ftp.acc.umu.se.attacker.invalid', 'https://attacker.invalid',
+                       'https://user@saimei.ftp.acc.umu.se', 'https://@saimei.ftp.acc.umu.se',
+                       'https://user:password@saimei.ftp.acc.umu.se',
+                       'https://saimei.ftp.acc.umu.se:444'):
+            with self.subTest(prefix=prefix), self.assertRaisesRegex(ValueError, 'download_redirect'):
+                M.PinnedRedirect().redirect_request(source, None, 302, '', {},
+                                                    prefix + '/images/pinned.qcow2')
+        package = M.urllib.request.Request('https://deb.debian.org/images/pinned.qcow2')
+        with self.assertRaisesRegex(ValueError, 'download_redirect'):
+            M.PinnedRedirect().redirect_request(package, None, 302, '', {},
+                'https://saimei.ftp.acc.umu.se/images/pinned.qcow2')
+
+    def test_redirect_does_not_bypass_download_digest_size_or_deadline(self):
+        payload = b'public pinned bytes'
+        item = dict(url='https://cloud.debian.org/images/pinned.qcow2', bytes=len(payload),
+                    sha256=hashlib.sha256(payload).hexdigest())
+        def open_public(handler, *_args, **_kwargs):
+            source = M.urllib.request.Request(item['url'])
+            handler.redirect_request(source, None, 302, '', {},
+                'https://saimei.ftp.acc.umu.se/images/pinned.qcow2')
+            result = io.BytesIO(payload)
+            result.status = 200
+            return result
+        def opener(handler):
+            return SimpleNamespace(open=lambda *args, **kwargs: open_public(handler, *args, **kwargs))
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(M.urllib.request, 'build_opener', side_effect=opener):
+            target = Path(directory) / 'good'
+            M.fetch(item, target, 'sha256', len(payload), time.monotonic() + 5)
+            self.assertEqual(target.read_bytes(), payload)
+            for index, (changed, maximum, deadline, reason) in enumerate((
+                    ({**item, 'sha256': '0' * 64}, len(payload), time.monotonic() + 5, 'download_digest'),
+                    ({**item, 'bytes': len(payload) + 1}, len(payload), time.monotonic() + 5, 'download_digest'),
+                    (item, len(payload) - 1, time.monotonic() + 5, 'download_bound'),
+                    (item, len(payload), time.monotonic() - 1, 'build_deadline'))):
+                with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                    M.fetch(changed, Path(directory) / str(index), 'sha256', maximum, deadline)
+
     def test_existing_debian_manifest_and_three_packages_are_exact(self):
         pins = M.load_pins()
         self.assertEqual(pins['kernel_release'], '6.12.105+deb13-cloud-amd64')
