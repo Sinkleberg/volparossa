@@ -53,6 +53,22 @@ DISK_STAGES = ('inspect_roots', 'inspect_details', 'root_export', 'raw_resize',
                'runtime_uuid', 'build_overlay', 'seed')
 
 
+@contextlib.contextmanager
+def fake_tool(*, join_error=None, returncode=0):
+    """Exercise real run bookkeeping without a process, pipe, wait or signal."""
+    process = types.SimpleNamespace(pid=313, stdout=mock.Mock(), stderr=mock.Mock(), returncode=returncode)
+    events = mock.MagicMock()
+    events.__enter__.return_value = events
+    events.get_map.return_value = {}
+    with contextlib.ExitStack() as patches:
+        patches.enter_context(mock.patch.object(R.subprocess, 'Popen', return_value=process))
+        patches.enter_context(mock.patch.object(R.selectors, 'DefaultSelector', return_value=events))
+        patches.enter_context(mock.patch.object(R.os, 'set_blocking'))
+        patches.enter_context(mock.patch.object(R.os, 'waitid', return_value=object()))
+        join = patches.enter_context(mock.patch.object(R, 'joined', side_effect=join_error))
+        yield process, join
+
+
 class Inert(unittest.TestCase):
     def setUp(self):
         # Any missed mock is an immediate test failure, never a real command.
@@ -343,7 +359,8 @@ class MemoryObservation(Inert):
         self.assertIsNone(rows[0]['admitted'])
         R.subprocess.Popen.assert_not_called()
 
-    def execute_disk_case(self, available, baseline, *, disk_sample=None, failure=None, wrong_uuid=False):
+    def execute_disk_case(self, available, baseline, *, disk_sample=None, failure=None, wrong_uuid=False,
+                          scope_cleanup_error=None):
         pins = R.json.loads((R.HERE / 'protected-resident-image-pins-v1.json').read_bytes())
         if disk_sample is None:
             disk_sample = memory(available=available)
@@ -388,7 +405,7 @@ class MemoryObservation(Inert):
                 return ''
             def command(argv, *_args, **_options):
                 if argv[:2] == ['qemu-img', 'resize']:
-                    self.assertEqual(argv[2:], ['-f', 'raw', work / 'runtime-root.raw', str(32 * R.GIB)])
+                    self.assertEqual(argv[2:], ['-f', 'raw', work / 'payload/runtime-root.raw', str(32 * R.GIB)])
                     operation('raw_resize')
                 elif argv[:2] == ['qemu-img', 'create']:
                     operation('build_overlay')
@@ -431,9 +448,18 @@ class MemoryObservation(Inert):
                 patches.enter_context(mock.patch.object(R, 'scope_path', return_value=group))
                 patches.enter_context(mock.patch.object(R, 'joined'))
                 patches.enter_context(mock.patch.object(R, 'Guest', side_effect=ValueError('after_admission')))
+                if scope_cleanup_error is not None:
+                    def failed_stop(scope):
+                        if scope.log is not None:
+                            scope.log.close()
+                        raise scope_cleanup_error
+                    patches.enter_context(mock.patch.object(R.Scope, 'stop', autospec=True, side_effect=failed_stop))
                 result = R.execute(args)
             self.assertEqual((work / 'evidence/result.json').read_bytes(), R.encoded(result))
             self.assertNotIn(b'private-operation-canary', R.encoded(result))
+            self.assertEqual((work / 'payload').exists(), scope_cleanup_error is not None)
+            self.assertIs(result['scratch_removed'], scope_cleanup_error is None)
+            self.assertTrue(result['tool_cleanup_confirmed'])
             return result, len(memory_reads), launch.call_count, operations
 
     def test_execute_persists_pass_or_failure_snapshot_without_model_claim(self):
@@ -492,6 +518,17 @@ class MemoryObservation(Inert):
         self.assertEqual(launches, 0)
         self.assertEqual(result['memory_admissions'], [])
         self.assertEqual(result['failure'], 'runtime_uuid')
+
+    def test_scope_cleanup_failure_keeps_payload_and_original_failure(self):
+        result, reads, launches, _ = self.execute_disk_case(15 * R.GIB, memory(),
+            scope_cleanup_error=R.CleanupUnconfirmed('private-scope-canary'))
+        self.assertEqual((reads, launches), (9, 1))
+        self.assertEqual(result['state'], 'failed')
+        self.assertEqual(result['failure'], 'controller_stage_failed')
+        self.assertEqual(result['scratch_cleanup_failure'], 'process_cleanup_unconfirmed')
+        self.assertFalse(result['scratch_removed'])
+        self.assertFalse(result['vm_cleanup_confirmed'])
+        self.assertNotIn(b'private-scope-canary', R.encoded(result))
 
 
 class DiskMemoryObservation(Inert):
@@ -802,9 +839,11 @@ class ReceiptAndBindings(Inert):
                 self.assertEqual(result['phase'], 'prepare')
                 self.assertEqual(result['failure'], expected)
                 for field in ('model_execution', 'private_inputs', 'hardware_attestation',
-                              'confidential_execution', 'production_approval', 'vm_cleanup_confirmed',
-                              'scratch_removed'):
+                              'confidential_execution', 'production_approval', 'vm_cleanup_confirmed'):
                     self.assertIs(result[field], False, field)
+                self.assertTrue(result['scratch_removed'])
+                self.assertTrue(result['tool_cleanup_confirmed'])
+                self.assertIsNone(result['scratch_cleanup_failure'])
                 self.assertEqual((args.work / 'evidence/result.json').read_bytes(), R.encoded(result))
                 self.assertNotIn(b'arbitrary_private_value', R.encoded(result))
 
@@ -856,7 +895,419 @@ class ReceiptAndBindings(Inert):
         self.assertNotIn('-netdev', argv)
 
 
+class ExecutionScratchCleanup(Inert):
+    def early_failure(self, *, inject=None, remove_error=None, reason='controller_deadline'):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            args = types.SimpleNamespace(work=work, appliance_kernel=Path('/not-opened'))
+            def failed_prepare(payload, _kernel, deadline):
+                self.assertEqual(payload, work / 'payload')
+                self.assertEqual(deadline, 100 + R.MAX_SECONDS)
+                (payload / 'synthetic-key').write_bytes(b'private-payload-canary')
+                (work / 'evidence/prior.json').write_bytes(b'public prior receipt')
+                if inject is not None:
+                    inject()
+                raise ValueError(reason)
+            with contextlib.ExitStack() as patches:
+                patches.enter_context(mock.patch.object(R.os, 'umask'))
+                patches.enter_context(mock.patch.object(R, 'hosted', return_value=(None,
+                    {'commit': '1' * 40, 'tree': '2' * 40}, {}, {})))
+                patches.enter_context(mock.patch.object(R, 'ImageTools', side_effect=failed_prepare))
+                remove = patches.enter_context(mock.patch.object(R, 'remove_payload',
+                    side_effect=remove_error, wraps=None if remove_error else R.remove_payload))
+                result = R.execute(args)
+            self.assertEqual((work / 'evidence/result.json').read_bytes(), R.encoded(result))
+            self.assertEqual((work / 'evidence/prior.json').read_bytes(), b'public prior receipt')
+            self.assertNotIn(b'private-', R.encoded(result))
+            self.assertEqual(result['state'], 'failed')
+            self.assertFalse(result['model_execution'])
+            return result, (work / 'payload').exists(), remove.call_count
+
+    def test_successful_early_failure_cleanup_preserves_evidence_and_original_reason(self):
+        for reason in ('controller_deadline', 'host_memory_headroom'):
+            with self.subTest(reason=reason):
+                result, present, removals = self.early_failure(reason=reason)
+                self.assertFalse(present)
+                self.assertEqual(removals, 1)
+                self.assertTrue(result['scratch_removed'])
+                self.assertTrue(result['tool_cleanup_confirmed'])
+                self.assertIsNone(result['scratch_cleanup_failure'])
+                self.assertEqual(result['failure'], reason)
+                self.assertFalse(result['vm_cleanup_confirmed'])
+        R.subprocess.Popen.assert_not_called()
+
+    def test_removal_failure_keeps_failed_state_and_original_reason(self):
+        result, present, removals = self.early_failure(remove_error=OSError('private-removal-canary'))
+        self.assertTrue(present)
+        self.assertEqual(removals, 1)
+        self.assertFalse(result['scratch_removed'])
+        self.assertTrue(result['tool_cleanup_confirmed'])
+        self.assertEqual(result['failure'], 'controller_deadline')
+        self.assertEqual(result['scratch_cleanup_failure'], 'scratch_removal_failed')
+
+    def test_even_masked_tool_join_failure_stickily_prevents_payload_removal(self):
+        def failed_tool():
+            with fake_tool(join_error=R.CleanupUnconfirmed('private-join-canary')):
+                try:
+                    R.run(['never-executed'], 200)
+                except R.CleanupUnconfirmed:
+                    raise ValueError('controller_deadline') from None
+        result, present, removals = self.early_failure(inject=failed_tool)
+        self.assertTrue(present)
+        self.assertEqual(removals, 0)
+        self.assertFalse(result['tool_cleanup_confirmed'])
+        self.assertFalse(result['scratch_removed'])
+        self.assertEqual(result['failure'], 'controller_deadline')
+        self.assertEqual(result['scratch_cleanup_failure'], 'process_cleanup_unconfirmed')
+
+    def test_execution_ledger_is_fresh_and_restores_outer_context_after_error(self):
+        sentinel = object()
+        outer = {id(sentinel): sentinel}
+        token = R.TOOL_PROCESSES.set(outer)
+        seen = []
+        def owned(_args, pending):
+            self.assertIs(R.TOOL_PROCESSES.get(), pending)
+            self.assertEqual(pending, {})
+            seen.append(pending)
+            if len(seen) == 1:
+                pending[id(sentinel)] = sentinel
+                raise ValueError('private-execution-canary')
+            return {'closed': True}
+        try:
+            with mock.patch.object(R, 'execute_owned', side_effect=owned):
+                with self.assertRaisesRegex(ValueError, 'private-execution-canary'):
+                    R.execute(object())
+                self.assertIs(R.TOOL_PROCESSES.get(), outer)
+                self.assertEqual(R.execute(object()), {'closed': True})
+                self.assertIs(R.TOOL_PROCESSES.get(), outer)
+            self.assertIsNot(seen[0], seen[1])
+            self.assertEqual(seen[0], outer)
+            self.assertEqual(seen[1], {})
+        finally:
+            R.TOOL_PROCESSES.reset(token)
+
+
+class PayloadRemoval(Inert):
+    def tree(self, root):
+        parent = root / 'work'
+        parent.mkdir(mode=0o700)
+        payload, evidence = parent / 'payload', parent / 'evidence'
+        payload.mkdir(mode=0o700)
+        evidence.mkdir(mode=0o700)
+        (payload / 'key').write_bytes(b'synthetic key canary')
+        (evidence / 'receipt.json').write_bytes(b'public evidence')
+        return parent, payload, evidence, R.directory_identity(parent), R.directory_identity(payload)
+
+    def test_owned_payload_removal_preserves_evidence_and_internal_symlink_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            parent, payload, evidence, parent_id, payload_id = self.tree(root)
+            outside = root / 'outside'
+            outside.mkdir()
+            (outside / 'canary').write_bytes(b'untouched')
+            (payload / 'external').symlink_to(outside, target_is_directory=True)
+            R.remove_payload(payload, parent_id, payload_id)
+            self.assertFalse(payload.exists())
+            self.assertTrue(parent.is_dir())
+            self.assertEqual((evidence / 'receipt.json').read_bytes(), b'public evidence')
+            self.assertEqual((outside / 'canary').read_bytes(), b'untouched')
+
+    def test_replaced_payload_directory_is_not_removed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _, payload, evidence, parent_id, payload_id = self.tree(root)
+            held = root / 'original'
+            payload.rename(held)
+            payload.mkdir(mode=0o700)
+            (payload / 'replacement').write_bytes(b'untouched')
+            with self.assertRaisesRegex(ValueError, 'scratch_directory'):
+                R.remove_payload(payload, parent_id, payload_id)
+            self.assertEqual((payload / 'replacement').read_bytes(), b'untouched')
+            self.assertEqual((held / 'key').read_bytes(), b'synthetic key canary')
+            self.assertTrue(evidence.exists())
+
+    def test_payload_symlink_is_rejected_without_touching_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _, payload, _, parent_id, payload_id = self.tree(root)
+            held = root / 'original'
+            payload.rename(held)
+            payload.symlink_to(held, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'scratch_directory'):
+                R.remove_payload(payload, parent_id, payload_id)
+            self.assertTrue(payload.is_symlink())
+            self.assertEqual((held / 'key').read_bytes(), b'synthetic key canary')
+
+    def test_parent_directory_or_symlink_replacement_is_rejected(self):
+        for symlink in (False, True):
+            with self.subTest(symlink=symlink), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                parent, payload, _, parent_id, payload_id = self.tree(root)
+                held = root / 'original'
+                parent.rename(held)
+                if symlink:
+                    parent.symlink_to(held, target_is_directory=True)
+                else:
+                    parent.mkdir(mode=0o700)
+                    payload.mkdir(mode=0o700)
+                    (payload / 'replacement').write_bytes(b'untouched')
+                with self.assertRaisesRegex(ValueError, 'scratch_directory'):
+                    R.remove_payload(payload, parent_id, payload_id)
+                self.assertEqual((held / 'payload/key').read_bytes(), b'synthetic key canary')
+                self.assertEqual((held / 'evidence/receipt.json').read_bytes(), b'public evidence')
+                if not symlink:
+                    self.assertEqual((payload / 'replacement').read_bytes(), b'untouched')
+
+    def test_parent_replacement_between_path_check_and_open_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            parent, payload, _, parent_id, payload_id = self.tree(root)
+            held = root / 'original'
+            original_open = R.os.open
+            def opened(path, flags, *args, **kwargs):
+                if path == parent:
+                    parent.rename(held)
+                    parent.mkdir(mode=0o700)
+                    payload.mkdir(mode=0o700)
+                    (payload / 'replacement').write_bytes(b'untouched')
+                return original_open(path, flags, *args, **kwargs)
+            with mock.patch.object(R.os, 'open', side_effect=opened), self.assertRaisesRegex(ValueError, 'scratch_directory'):
+                R.remove_payload(payload, parent_id, payload_id)
+            self.assertEqual((payload / 'replacement').read_bytes(), b'untouched')
+            self.assertEqual((held / 'payload/key').read_bytes(), b'synthetic key canary')
+
+    def test_directory_mode_wrong_name_and_unavailable_safe_removal_are_rejected(self):
+        for change in ('mode', 'name', 'unsafe'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temporary:
+                parent, payload, _, parent_id, payload_id = self.tree(Path(temporary))
+                if change == 'mode':
+                    payload.chmod(0o755)
+                elif change == 'name':
+                    replacement = parent / 'not-payload'
+                    payload.rename(replacement)
+                    payload = replacement
+                with mock.patch.object(R.shutil.rmtree, 'avoids_symlink_attacks', change != 'unsafe'):
+                    with self.assertRaisesRegex(ValueError, 'scratch_directory'):
+                        R.remove_payload(payload, parent_id, payload_id)
+                self.assertEqual((payload / 'key').read_bytes(), b'synthetic key canary')
+
+    def test_replacement_during_recursive_removal_is_preserved_and_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _, payload, evidence, parent_id, payload_id = self.tree(root)
+            held = root / 'original'
+            original_rmtree = R.shutil.rmtree
+            def replace_then_remove(path, **options):
+                self.assertEqual(path, '.')
+                opened = os.fstat(options['dir_fd'])
+                self.assertEqual((opened.st_dev, opened.st_ino), payload_id)
+                payload.rename(held)
+                payload.mkdir(mode=0o700)
+                (payload / 'replacement').write_bytes(b'untouched')
+                return original_rmtree(path, **options)
+            with mock.patch.object(R.shutil, 'rmtree', side_effect=replace_then_remove) as remove:
+                remove.avoids_symlink_attacks = True
+                with self.assertRaisesRegex(ValueError, 'scratch_directory'):
+                    R.remove_payload(payload, parent_id, payload_id)
+            self.assertEqual((payload / 'replacement').read_bytes(), b'untouched')
+            self.assertEqual(list(held.iterdir()), [])
+            self.assertEqual((evidence / 'receipt.json').read_bytes(), b'public evidence')
+
+    def test_recursive_unlink_errors_are_not_ignored_as_final_dot_removal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            _, payload, evidence, parent_id, payload_id = self.tree(Path(temporary))
+            original_unlink = R.os.unlink
+            error = PermissionError('private-unlink-canary')
+            def fail_key(path, *args, **options):
+                if path == 'key':
+                    raise error
+                return original_unlink(path, *args, **options)
+            with mock.patch.object(R.os, 'unlink', side_effect=fail_key):
+                with self.assertRaises(PermissionError) as caught:
+                    R.remove_payload(payload, parent_id, payload_id)
+            self.assertIs(caught.exception, error)
+            self.assertEqual((payload / 'key').read_bytes(), b'synthetic key canary')
+            self.assertEqual((evidence / 'receipt.json').read_bytes(), b'public evidence')
+
+
+class ImageToolCleanup(Inert):
+    def kernel_fixture(self, root):
+        work = root / 'run/payload'
+        work.mkdir(parents=True, mode=0o700)
+        kernel = root / 'kernel'
+        release = '6.8.0-public-fixture'
+        data = bytearray(1024)
+        data[514:518] = b'HdrS'
+        data[526:528] = (64).to_bytes(2, 'little')
+        data[576:576 + len(release)] = release.encode()
+        kernel.write_bytes(data)
+        kernel.chmod(0o600)
+        return work, kernel, release, bytes(data)
+
+    def test_constructor_accepts_payload_layout_and_binds_original_kernel_limits(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work, kernel, release, data = self.kernel_fixture(Path(temporary))
+            modules = Path('/lib/modules') / release
+            original_hash = R.file_hash
+            with mock.patch.object(R.os, 'uname', return_value=types.SimpleNamespace(release=release)), \
+                    mock.patch.object(Path, 'is_dir', autospec=True, side_effect=lambda path: path == modules) as directory, \
+                    mock.patch.object(Path, 'is_file', autospec=True,
+                                      side_effect=lambda path: path == modules / 'modules.dep') as index, \
+                    mock.patch.object(R, 'file_hash', wraps=original_hash) as hashed:
+                value = R.ImageTools(work, kernel, 200)
+            hashed.assert_called_once_with(kernel, 200, 64 * 1024 ** 2)
+            directory.assert_called_once_with(modules)
+            index.assert_called_once_with(modules / 'modules.dep')
+            self.assertEqual(value.kernel_record, {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+            self.assertEqual((value.work, value.kernel, value.deadline), (work, kernel, 200))
+            self.assertEqual(value.env, dict(R.ENV, LIBGUESTFS_BACKEND='direct',
+                LIBGUESTFS_BACKEND_SETTINGS='force_kvm', LIBGUESTFS_MEMSIZE='2048',
+                SUPERMIN_KERNEL=str(kernel), SUPERMIN_KERNEL_VERSION=release, SUPERMIN_MODULES=str(modules),
+                LIBGUESTFS_CACHEDIR=str(work), LIBGUESTFS_TMPDIR=str(work)))
+            R.subprocess.Popen.assert_not_called()
+
+    def test_constructor_rejects_wrong_parent_symlink_and_nonpayload_name_before_hash(self):
+        for variant in ('parent', 'symlink', 'name'):
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as temporary:
+                work, kernel, _, _ = self.kernel_fixture(Path(temporary))
+                if variant == 'parent':
+                    replacement = work.parent / 'kernel'
+                    kernel.rename(replacement)
+                    kernel = replacement
+                elif variant == 'symlink':
+                    link = kernel.with_name('kernel-link')
+                    link.symlink_to(kernel)
+                    kernel = link
+                else:
+                    work = work.with_name('not-payload')
+                    work.mkdir(mode=0o700)
+                with mock.patch.object(R, 'file_hash') as hashed, \
+                        self.assertRaisesRegex(ValueError, 'appliance_kernel_path'):
+                    R.ImageTools(work, kernel, 200)
+                hashed.assert_not_called()
+                R.subprocess.Popen.assert_not_called()
+
+    def test_constructor_keeps_header_release_modules_and_file_size_fail_closed(self):
+        for variant, reason in (('header', 'appliance_kernel_header'),
+                                ('release', 'appliance_kernel_release'),
+                                ('modules', 'appliance_modules'), ('size', 'controller_file')):
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as temporary:
+                work, kernel, release, data = self.kernel_fixture(Path(temporary))
+                if variant == 'header':
+                    kernel.write_bytes(data[:514] + b'BAD!' + data[518:])
+                with contextlib.ExitStack() as patches:
+                    patches.enter_context(mock.patch.object(R.os, 'uname', return_value=types.SimpleNamespace(
+                        release='different-public-kernel' if variant == 'release' else release)))
+                    patches.enter_context(mock.patch.object(Path, 'is_dir', return_value=variant != 'modules'))
+                    patches.enter_context(mock.patch.object(Path, 'is_file', return_value=True))
+                    if variant == 'size':
+                        meta = kernel.stat()
+                        patches.enter_context(mock.patch.object(R.os, 'fstat', return_value=types.SimpleNamespace(
+                            st_mode=meta.st_mode, st_uid=meta.st_uid, st_nlink=1, st_size=64 * 1024 ** 2 + 1)))
+                    with self.assertRaisesRegex(ValueError, reason):
+                        R.ImageTools(work, kernel, 200)
+                R.subprocess.Popen.assert_not_called()
+
+    def image(self, work):
+        value = R.ImageTools.__new__(R.ImageTools)
+        value.work, value.deadline, value.env = work, 200, {}
+        value.kernel, value.kernel_record = work / 'not-opened-kernel', {'bytes': 1, 'sha256': 'a' * 64}
+        path = work / 'image.raw'
+        path.write_bytes(b'inert image')
+        return value, path
+
+    def test_unlink_failure_never_replaces_original_tool_or_decode_exception(self):
+        errors = (ValueError('command_failed'), R.CleanupUnconfirmed('private-join'), OSError('private-tool'))
+        for error in errors:
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as temporary:
+                image, path = self.image(Path(temporary))
+                with mock.patch.object(R, 'file_hash', return_value=image.kernel_record), \
+                        mock.patch.object(R, 'run', side_effect=error), \
+                        mock.patch.object(Path, 'unlink', side_effect=PermissionError('private-unlink')):
+                    with self.assertRaises(type(error)) as caught:
+                        image.fish(path, [['inspect-os']])
+                self.assertIs(caught.exception, error)
+        with tempfile.TemporaryDirectory() as temporary:
+            image, path = self.image(Path(temporary))
+            with mock.patch.object(R, 'file_hash', return_value=image.kernel_record), \
+                    mock.patch.object(R, 'run', return_value=(b'\xff', b'', 0)), \
+                    mock.patch.object(Path, 'unlink', side_effect=PermissionError('private-unlink')):
+                with self.assertRaises(UnicodeDecodeError):
+                    image.fish(path, [['inspect-os']])
+
+    def test_successful_tool_with_unlink_failure_still_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            image, path = self.image(Path(temporary))
+            error = PermissionError('private-unlink')
+            with mock.patch.object(R, 'file_hash', return_value=image.kernel_record), \
+                    mock.patch.object(R, 'run', return_value=(b'public output\n', b'', 0)), \
+                    mock.patch.object(Path, 'unlink', side_effect=error):
+                with self.assertRaises(PermissionError) as caught:
+                    image.fish(path, [['inspect-os']])
+            self.assertIs(caught.exception, error)
+
+    def test_successful_tool_removes_only_its_script_and_returns_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            image, path = self.image(work)
+            with mock.patch.object(R, 'file_hash', return_value=image.kernel_record), \
+                    mock.patch.object(R, 'run', return_value=(b'public output\n', b'', 0)) as command:
+                self.assertEqual(image.fish(path, [['inspect-os']]), 'public output\n')
+            argv = command.call_args.args[0]
+            self.assertEqual(argv[:4], ['guestfish', '--ro', '--format=raw', '-a'])
+            self.assertEqual(argv[4], path)
+            self.assertEqual(argv[5], '-f')
+            self.assertFalse(argv[6].exists())
+            self.assertEqual(path.read_bytes(), b'inert image')
+            self.assertEqual(list(work.iterdir()), [path])
+            R.subprocess.Popen.assert_not_called()
+
+
 class CommandLifecycle(Inert):
+    def test_tool_ledger_removes_entry_only_after_confirmed_join(self):
+        pending = {}
+        token = R.TOOL_PROCESSES.set(pending)
+        try:
+            with fake_tool() as (process, join):
+                def verified(child):
+                    self.assertIs(child, process)
+                    self.assertEqual(pending, {id(process): process})
+                join.side_effect = verified
+                self.assertEqual(R.run(['never-executed'], 200), (b'', b'', 0))
+                self.assertEqual(pending, {})
+                process.stdout.close.assert_called_once()
+                process.stderr.close.assert_called_once()
+        finally:
+            R.TOOL_PROCESSES.reset(token)
+
+    def test_tool_ledger_retains_exact_process_when_join_raises(self):
+        for error in (R.CleanupUnconfirmed('private-join'), OSError('private-observation')):
+            pending = {}
+            token = R.TOOL_PROCESSES.set(pending)
+            try:
+                with self.subTest(error=type(error).__name__), fake_tool(join_error=error) as (process, join):
+                    with self.assertRaises(type(error)) as caught:
+                        R.run(['never-executed'], 200)
+                    self.assertIs(caught.exception, error)
+                    self.assertEqual(pending, {id(process): process})
+                    join.assert_called_once_with(process)
+                    process.stdout.close.assert_called_once()
+                    process.stderr.close.assert_called_once()
+            finally:
+                R.TOOL_PROCESSES.reset(token)
+
+    def test_nonzero_status_after_confirmed_join_does_not_poison_tool_ledger(self):
+        pending = {}
+        token = R.TOOL_PROCESSES.set(pending)
+        try:
+            with fake_tool(returncode=1) as (process, join):
+                with self.assertRaisesRegex(ValueError, 'command_failed'):
+                    R.run(['never-executed'], 200)
+                self.assertEqual(pending, {})
+                join.assert_called_once_with(process)
+        finally:
+            R.TOOL_PROCESSES.reset(token)
+
     def test_final_group_signal_precedes_direct_child_reap(self):
         events = []
         process = types.SimpleNamespace(pid=313, wait=lambda **_options: events.append('wait'))

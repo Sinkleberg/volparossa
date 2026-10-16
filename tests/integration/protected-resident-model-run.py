@@ -9,6 +9,8 @@ false. All subprocesses have deadlines; VM export requires stopped processes
 AND empty control groups, not a successful parent process alone.
 """
 import argparse
+import contextvars
+import errno
 import hashlib
 import io
 import json
@@ -17,6 +19,7 @@ from pathlib import Path
 import re
 import selectors
 import shlex
+import shutil
 import signal
 import socket
 import stat
@@ -49,6 +52,7 @@ ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.
        'PYTHONDONTWRITEBYTECODE': '1', 'GIT_CONFIG_NOSYSTEM': '1',
        'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0'}
 CANCELLED = False
+TOOL_PROCESSES = contextvars.ContextVar('resident_model_tool_processes', default=None)
 FAILURE_CODES = frozenset(('controller_deadline', 'controller_cancelled', 'command_timeout',
     'command_output_bound', 'command_failed', 'host_memory_headroom', 'host_memory_snapshot', 'qemu_limits',
     'qemu_exited_before_scope', 'scope_start_timeout', 'guest_unit_failed', 'guest_unit_cgroup',
@@ -140,7 +144,10 @@ def run(argv, deadline, *, cap=300, maximum=16 * 1024 ** 2, env=None, check=True
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env or ENV,
         close_fds=True, start_new_session=True)
     stdout, stderr = bytearray(), bytearray()
+    pending = TOOL_PROCESSES.get()
     try:
+        if pending is not None:
+            pending[id(process)] = process
         with selectors.DefaultSelector() as events:
             for pipe in (process.stdout, process.stderr):
                 os.set_blocking(pipe.fileno(), False)
@@ -162,6 +169,8 @@ def run(argv, deadline, *, cap=300, maximum=16 * 1024 ** 2, env=None, check=True
     finally:
         try:
             joined(process)
+            if pending is not None:
+                pending.pop(id(process), None)
         finally:
             process.stdout.close()
             process.stderr.close()
@@ -384,7 +393,8 @@ def fish_script(operations):
 class ImageTools:
     def __init__(self, work, kernel, deadline):
         self.work, self.deadline = work, deadline
-        require(kernel.resolve(strict=True).parent == work.parent and not kernel.is_symlink(), 'appliance_kernel_path')
+        require(work.name == 'payload' and kernel.resolve(strict=True).parent == work.parent.parent
+                and not kernel.is_symlink(), 'appliance_kernel_path')
         record = file_hash(kernel, deadline, 64 * 1024 ** 2)
         data = kernel.read_bytes()[:66200]
         require(data[514:518] == b'HdrS', 'appliance_kernel_header')
@@ -408,9 +418,18 @@ class ImageTools:
         try:
             output, _, _ = run(['guestfish', '--ro' if readonly else '--rw', '--format=' + image_format,
                 '-a', image, '-f', script], self.deadline, cap=timeout, maximum=maximum, env=self.env)
-            return output.decode('utf-8', errors='strict')
-        finally:
+            value = output.decode('utf-8', errors='strict')
+        except BaseException:
+            # Preserve the original failure, especially an unjoined tool group.
+            # The per-execution child ledger also retains that cleanup failure.
+            try:
+                script.unlink()
+            except OSError:
+                pass
+            raise
+        else:
             script.unlink()
+            return value
 
 
 def reserve_space(work, upcoming, label):
@@ -617,17 +636,73 @@ def requester_record(raw, workload):
     return value
 
 
+def directory_identity(path):
+    meta = path.lstat()
+    require(stat.S_ISDIR(meta.st_mode) and meta.st_uid == os.getuid()
+            and stat.S_IMODE(meta.st_mode) == 0o700, 'scratch_directory')
+    return meta.st_dev, meta.st_ino
+
+
+def remove_payload(work, parent_identity, payload_identity):
+    """Remove only this invocation's payload; never its public evidence sibling."""
+    require(work.name == 'payload' and shutil.rmtree.avoids_symlink_attacks, 'scratch_directory')
+    require(directory_identity(work.parent) == parent_identity
+            and directory_identity(work) == payload_identity, 'scratch_directory')
+    parent_fd = os.open(work.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        parent = os.fstat(parent_fd)
+        require((parent.st_dev, parent.st_ino) == parent_identity, 'scratch_directory')
+        payload_fd = os.open('payload', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+        try:
+            child = os.fstat(payload_fd)
+            require((child.st_dev, child.st_ino) == payload_identity, 'scratch_directory')
+            # Bind recursive removal to the already verified directory, not a
+            # name that can be replaced between validation and rmtree's open.
+            # POSIX refuses removing '.', so remove only that final empty name
+            # through the retained parent descriptor after checking it again.
+            def root_only(function, path, error):
+                if function is not os.rmdir or path != '.' or error[1].errno != errno.EINVAL:
+                    raise error[1]
+            shutil.rmtree('.', dir_fd=payload_fd, onerror=root_only)
+            require(not os.listdir(payload_fd), 'scratch_directory')
+            current = os.stat('payload', dir_fd=parent_fd, follow_symlinks=False)
+            require(stat.S_ISDIR(current.st_mode)
+                    and (current.st_dev, current.st_ino) == payload_identity, 'scratch_directory')
+            os.rmdir('payload', dir_fd=parent_fd)
+        finally:
+            os.close(payload_fd)
+        try:
+            os.stat('payload', dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        raise ValueError('scratch_directory')
+    finally:
+        os.close(parent_fd)
+
+
 def execute(args):
+    pending = {}
+    token = TOOL_PROCESSES.set(pending)
+    try:
+        return execute_owned(args, pending)
+    finally:
+        TOOL_PROCESSES.reset(token)
+
+
+def execute_owned(args, pending):
     os.umask(0o077)
     deadline = time.monotonic() + MAX_SECONDS
     base, source, launch, env = hosted(args, deadline)
-    work = args.work
-    evidence = work / 'evidence'
+    work = args.work / 'payload'
+    evidence = args.work / 'evidence'
     evidence.mkdir(mode=0o700)
+    work.mkdir(mode=0o700)
+    parent_identity, payload_identity = directory_identity(args.work), directory_identity(work)
     report = dict(version=1, kind='protected-resident-public-model-trial', source=source,
                   state='failed', phase='prepare', process_launch=launch, model_execution=False,
                   private_inputs=False, hardware_attestation=False, confidential_execution=False,
                   production_approval=False, vm_cleanup_confirmed=False, scratch_removed=False,
+                  tool_cleanup_confirmed=False, scratch_cleanup_failure=None,
                   memory_admissions=[], disk_memory_observations=[])
     current = None
     try:
@@ -841,12 +916,26 @@ def execute(args):
         code = str(error) if type(error) is ValueError else ''
         report['failure'] = code if code in FAILURE_CODES else 'controller_stage_failed'
     finally:
+        scopes_safe = current is None
         if current is not None:
             try:
                 current.stop()
                 report['vm_cleanup_confirmed'] = True
+                scopes_safe = True
             except (OSError, ValueError, subprocess.SubprocessError, CleanupUnconfirmed):
                 report['vm_cleanup_confirmed'] = False
+        report['tool_cleanup_confirmed'] = not pending
+        if scopes_safe and not pending:
+            try:
+                remove_payload(work, parent_identity, payload_identity)
+                report['scratch_removed'] = True
+            except (OSError, ValueError):
+                report['scratch_cleanup_failure'] = 'scratch_removal_failed'
+        else:
+            report['scratch_cleanup_failure'] = 'process_cleanup_unconfirmed'
+        if not report['scratch_removed']:
+            report['state'] = 'failed'
+            report.setdefault('failure', report['scratch_cleanup_failure'])
         write_new(evidence / 'result.json', encoded(report))
     return report
 

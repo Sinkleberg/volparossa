@@ -279,7 +279,7 @@ All original ZIP CRC checks and both artifact API digests pass. The earlier
 `38878112559` failure retains its own source and absent memory measurements;
 neither failure is replaced by the successful source gate.
 
-The next preparation candidate removes a duplicate host-side `resize2fs`.
+Preparation candidate `0b376457` removes a duplicate host-side `resize2fs`.
 The raw disk still grows to 32 GiB and receives a distinct, checked filesystem
 UUID before both disks are attached. Filesystem growth remains in the existing
 offline runtime installer's `e2fsck`, `resize2fs`, then mount sequence; no package,
@@ -294,11 +294,31 @@ admit a VM or trigger a retry. The original baseline and three ordered admission
 checks remain separate, with unchanged deadlines and resource limits.
 All 54 inert controller and 32 installer cases pass locally without skips,
 including the new phase-order, failure-prefix, UUID and installer-growth checks.
-The hosted gate must still verify the candidate's 100 Rust and 239 Python cases,
-compilation, lint, formatting and exact source. An original hosted model trial
-is also still required.
-Scratch removal remains unimplemented; an unstarted VM's cleanup flag is not
-proof that all preparation tools or scratch files have been cleaned up.
+Original hosted source run
+[`38889754275`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38889754275)
+on exact `0b3764576bc8018241983c896ec003a83659c719`, tree
+`9ce78147019c93e840f7246d244e1bb7dd63562c`, passes compilation, all 100 Rust
+and 239 Python cases, strict lint, an empty formatter patch and the final source
+check. All 35 changed source blobs and 560 dependency identities are verified.
+The original artifact's API digest and both ZIP CRCs pass; artifact and log SHA-256
+are `2fa0a088e0e8e86b2594d78720e3890c65681223e48fb0ae4c484b7ec3ea770b`
+and `d92a827f38e41cd09198f78b76c3f19555ba079fa99fdcb3e7f398982142ba42`.
+This source-only run does not launch a guest or execute a model.
+
+The next candidate separates disposable payloads from public evidence and tracks
+unconfirmed tool-process groups for the entire controller execution. Scratch can
+be removed only after tool groups and any active VM scope are confirmed stopped.
+Removal is bound to the original payload directory; keys, images and downloaded
+inputs are not retained on a safely completed cleanup path. Failure to prove
+process cleanup preserves the payload and remains a failed result. Script-removal
+errors no longer replace an original guestfish failure. All 76 inert controller
+tests pass locally with no skips, including 22 new cleanup and kernel-layout
+cases. These exercise real small temporary-file deletion with mocked processes,
+not a model VM. Independent source review passes; the next hosted gate requires
+100 Rust and 261 Python cases plus compilation, lint, formatting and source
+preservation. An original hosted model trial remains required. The long model trial
+is deferred until this cleanup slice is ready, avoiding a repeat build solely
+to verify scratch disposal; previous actual failures remain unchanged.
 
 ### Latest shared-storage consumer trial
 
