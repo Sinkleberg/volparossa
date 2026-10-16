@@ -49,7 +49,12 @@ async fn fixture_v2_epoch_rejects_cross_version_queries_without_resetting_lifeti
             .unwrap();
         let guard = state.client(UID);
         for action in [Action::Clients, Action::Disarm] {
-            assert!(state.request(UID, &query(action, 3 - version)).await.is_err());
+            assert!(
+                state
+                    .request(UID, &query(action, 3 - version))
+                    .await
+                    .is_err()
+            );
         }
         let row = state
             .request(UID, &query(Action::Clients, version))

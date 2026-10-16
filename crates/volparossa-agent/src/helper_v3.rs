@@ -1753,7 +1753,9 @@ fn acquire_diagnostic(code: &str) -> AcquireDiagnostic {
         "CLEANUP_INCOMPLETE" => AcquireDiagnostic::CleanupIncomplete,
         "TRANSPORT_REPLAY_COMMIT_INCONSISTENT" => AcquireDiagnostic::ReplayCommitInconsistent,
         "EXPIRED_CLEANUP_INCOMPLETE" => AcquireDiagnostic::ExpiredContextCleanupIncomplete,
-        "EXPIRED_EXTENSION_CLEANUP_INCOMPLETE" => AcquireDiagnostic::ExpiredExtensionCleanupIncomplete,
+        "EXPIRED_EXTENSION_CLEANUP_INCOMPLETE" => {
+            AcquireDiagnostic::ExpiredExtensionCleanupIncomplete
+        }
         _ => AcquireDiagnostic::Unknown,
     }
 }
@@ -3874,7 +3876,10 @@ mod tests {
                 "BACKEND_RESULT_AMBIGUOUS",
                 AcquireDiagnostic::BackendResultAmbiguous,
             ),
-            ("STALE_BACKEND_RESULT", AcquireDiagnostic::StaleBackendResult),
+            (
+                "STALE_BACKEND_RESULT",
+                AcquireDiagnostic::StaleBackendResult,
+            ),
             (
                 "MPTCP_FLOW_IDENTITY_UNAVAILABLE",
                 AcquireDiagnostic::FlowIdentityUnavailable,

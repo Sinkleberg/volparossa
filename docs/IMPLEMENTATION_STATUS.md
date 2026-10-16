@@ -78,9 +78,19 @@ and the dependent upload-to-repair-to-restore trial remain incomplete.
 
 The local inert checks pass 296 Python tests and 50 Node tests, including the
 33 sampler cases and existing maintenance exporters. Independent source review
-passes. The hosted gate selects 147 distinct Rust cases: 17 new fixture cases,
-128 existing contracts and the two isolated kernel tests. These Rust cases have
-not yet run on this candidate; no runtime fix is claimed from the inert checks.
+passes. Original hosted source run
+[`38913088623`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38913088623)
+on `4e2e6a760598009dadb3c9ab5d8bc76722888d68` compiles and passes all 147
+distinct Rust cases: 17 new fixture cases, 128 existing contracts and two isolated
+kernel tests. It also passes 296 Python, 50 Node and 48 normalizer checks, all
+source/dependency bindings, and unchanged final source and host-state comparisons.
+It fails only strict lint on one `nonminimal_bool` condition and six formatter
+hunks. The follow-up applies those exact formatting changes and the equivalent
+`is_none_or` predicate; it still needs unchanged-source acceptance before an
+actual consumer trial. Original artifact and log ZIP SHA-256 values are
+`b8459641f3f2167f56694b1b62d34141c9ec18d5555e3c0c2114bfd37491f170`
+and `e862446781fc60475a8c1315ddc3b4ea778bd2f1fa299549116906c94ceff5eb`.
+These contracts do not establish a fix for the consumer runtime failure.
 
 ### Earlier storage TLS close outcome
 

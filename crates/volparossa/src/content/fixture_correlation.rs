@@ -13,9 +13,8 @@ use volparossa_local_control::{
     StorageFixtureAcquireSummary, StorageFixtureCorrelationAction as Action,
     StorageFixtureCorrelationPhase as Phase, StorageFixtureCorrelationRequest,
     StorageFixtureCorrelationResponse, StorageFixtureCorrelationRole as Role,
-    StorageFixtureCorrelationState as State,
-    StorageFixtureCorrelationTerminal as Terminal, StorageFixtureHelperDiagnostic,
-    control_request::Operation, control_response::Payload,
+    StorageFixtureCorrelationState as State, StorageFixtureCorrelationTerminal as Terminal,
+    StorageFixtureHelperDiagnostic, control_request::Operation, control_response::Payload,
 };
 
 const MAX_REQUEST_BYTES: usize = 4096;

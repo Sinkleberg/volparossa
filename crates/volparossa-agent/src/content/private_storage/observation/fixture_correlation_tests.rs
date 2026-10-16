@@ -103,7 +103,9 @@ async fn fixture_v2_same_request_summary_without_tls_or_copy_binding_preserves_l
             legacy = observation.detail();
         }
         assert_eq!(observation.detail(), legacy);
-        observation.fixture().finish(FixtureTerminal::OperationError);
+        observation
+            .fixture()
+            .finish(FixtureTerminal::OperationError);
         let row = version_row(&runtime, version).await;
         assert_eq!(row.fingerprint, None);
         assert_eq!(row.phase, FixturePhase::FlowAcquire as i32);
@@ -132,7 +134,9 @@ async fn fixture_v2_stage_advance_and_cancellation_clear_acquire_detail() {
                 .boundary(Stage::TlsHandshake, async { Ok(()) })
                 .await
                 .unwrap();
-            observation.fixture().finish(FixtureTerminal::OperationError);
+            observation
+                .fixture()
+                .finish(FixtureTerminal::OperationError);
         }
         assert_eq!(version_row(&runtime, 2).await.flow_acquire, None);
     }

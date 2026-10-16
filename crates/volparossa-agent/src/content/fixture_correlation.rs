@@ -466,7 +466,7 @@ impl Guard {
     }
 
     pub(super) fn flow_acquire(&self, summary: Option<StorageFixtureAcquireSummary>) {
-        if !self.0.as_ref().is_some_and(|track| track.version == 2) {
+        if self.0.as_ref().is_none_or(|track| track.version != 2) {
             return;
         }
         self.invalidate_acquire();
