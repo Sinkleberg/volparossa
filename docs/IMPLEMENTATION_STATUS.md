@@ -16,6 +16,39 @@ Last updated: 2026-10-16
 
 ## Current integration and active work
 
+### Storage connection correlation candidate
+
+The next diagnostic candidate targets the unresolved Image publication stall in
+[actual run 38816407455](https://github.com/VOLPAROSSA/volparossa/actions/runs/38816407455).
+It observes the client and provider sides of an inner TLS stream without changing
+storage wire bytes, permissions or operation deadlines. Compilation and the full
+consumer trial remain pending; this is not a storage fix or acceptance result.
+
+An explicit development-only command on the existing local socket arms a
+short-lived, Unix-owner-bound RAM buffer. Client writes and provider reads hash
+the same first 64 transferred TLS bytes with a per-fixture epoch. Private epochs
+and fingerprints travel only through the collector's private pipes and memory.
+The buffer holds at most 64 records; it never evicts active sessions. Missing
+observations, terminal eviction and expiry are reported as incomplete. Disarm
+clears the buffer and joins its cleanup task; periodic expiry runs on the next
+successful cleanup tick, not a guaranteed wall-clock erasure deadline.
+
+The retained sidecar contains at most 32 closed phase/outcome pairs, with no
+fingerprints, node identities, paths or application content. A known match may be
+retained as `matched_incomplete` when other observations are missing; it does not
+establish uniqueness, a fragment/copy binding or the cause of the stall. Normal
+and emergency export validate the same bounded schema. Diagnostic failure does
+not replace the original consumer result, and final diagnostic cleanup follows
+the existing phase-deadline check.
+
+The candidate keeps the original Image/Cloud pins, profile 9 and network profile
+2. The 259 local collector, export and harness tests pass, along with the affected
+shell syntax and lint checks. Fifty new Rust cases are present but not yet run.
+Its next checks are the affected Rust contracts and lint/format checks on a
+disposable hosted runner, followed by the full storage-maintenance trial on the
+exact verified source. Earlier failures and the separate core lifecycle proof
+remain unchanged.
+
 ### Execution priorities and next milestones
 
 The shared cache and actual Weather delivery into Drizz.li and Overmorrow are
