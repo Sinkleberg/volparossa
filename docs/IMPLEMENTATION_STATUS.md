@@ -33,10 +33,10 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair, repeated restoration, deletion and confirmed provider cleanup. | Candidate `2ce38aa9` passes source run `38898873084`, including closed TLS-close diagnostics and both isolated kernel tests. Actual `38900639690` is still running; Image/Cloud maintenance is not accepted. Keep consumer results, base lifecycle, local cleanup and remote provider usage separate. Earlier failed trials and their uncertain causes remain unchanged. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resolve the failed Cloud transport acquisition, then complete consumer publication, repair, repeated restoration, deletion and confirmed provider cleanup. | Candidate `2ce38aa9` passes source run `38898873084`. Actual `38900639690` passes the separate core lifecycle but fails Cloud FINALIZE on fragment 0/copy 0: `helper_kernel` then `helper_cleanup_incomplete`. Consumer remote cleanup and provider usage remain unconfirmed. The helper timeout sidecar is not request-bound; investigate the acquisition/retirement path without treating it as a proven cause. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then repair, restore and delete it after provider loss. | PR279 joins upload profile 6 to shared consumer profile 10 on `dd1fd4df`; source run `38903572207` passes. A real upload trial still requires the shared Storage consumer acceptance above, joined cleanup and zero usage at all three providers. Finite authorization, HTTP PUT, enrollment, repeated restore and all-copy deletion remain required; source checks and synthetic-core SDK results do not replace them. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and the native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 keeps that immutable core pin. Core PR277 integrates the native-only composition after Quality and CodeQL pass; this main composition has not had a new model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Execute two public model turns in the immutable guest before joining approved private workloads. | Public immutable boot passes, but model actual `38902275667` fails build-guest SSH readiness after successful memory admission. The explicit boot-disk correction `707c46ad` passes audited source run `38905737305` (100 Rust and 300 Python tests); actual `38906693746` is pending. PR262 key possession remains distinct from private-task admission; production approval, vendor appraisal and confidential hardware remain open. |
+| Protected remote compute — `volparossa`, then Code/Browser | Retain the failed package unit's bounded status, resolve installation, then execute two public model turns in the immutable guest before joining approved private workloads. | Actual `38906693746` on `707c46ad` reaches build-guest SSH readiness, then fails `guest_packages / guest_unit_failed`; the specific installer cause is not retained. Its source gates pass 100 Rust and 300 Python tests. Public immutable boot and PR262 key possession remain distinct from model execution and private-task admission; production approval, vendor appraisal and confidential hardware remain open. |
 
 ### Current Storage upload and public model evidence
 
@@ -44,7 +44,7 @@ These candidates remain separate from core main's accepted native coding backend
 Source checks do not transfer the accepted Code trial to a new binary or establish
 Image/Cloud maintenance, model execution in the immutable guest, or private admission.
 
-**Storage diagnostics source passes; the consumer trial is still running.**
+**Storage source checks and the core lifecycle pass; Cloud publication fails.**
 [Source run `38898873084`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38898873084)
 passes on `2ce38aa9e336f48f11f21d9ffdd7c95ddc9083fb`: 47 unique Rust tests
 (21 existing contracts, 24 TLS-v9 cases and two explicitly executed kernel cases),
@@ -52,11 +52,33 @@ passes on `2ce38aa9e336f48f11f21d9ffdd7c95ddc9083fb`: 47 unique Rust tests
 strict Clippy, formatting, final source and host-state comparisons pass, without
 test failures or skips. The kernel cases cover normal and abrupt nested-TLS close
 over loopback MPTCP with a real TCP provider, not the full relay/consumer topology.
-[Actual `38900639690`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38900639690)
-uses that exact source and Image `1e812ec6` / Cloud `35598609`; its result is pending.
-Original artifact and log ZIP SHA-256 values are
+Original source artifact and log ZIP SHA-256 values are
 `bf2c850bee6b5cfac785b3407e3081486b6a2cf63c8ffe59959f731c5770f27f`
 and `db24795af5be0c8d27560681ca0b28a8b3f61fa2b71bb469f3c450f1a16004ee`.
+
+[Actual `38900639690`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38900639690)
+uses that exact source and Image `1e812ec6` / Cloud `35598609`. Its combined
+consumer gate fails during Cloud FINALIZE, fragment 0/copy 0. The failed operation
+reports `stream_open / flow_acquire`, with `helper_kernel` followed by
+`helper_cleanup_incomplete` over two acquisition rounds. There is no TLS-close
+outcome for this failure. A separate helper sidecar records one `poll / timed_out`
+event without an errno; it is not bound to this request or fragment copy and does
+not establish the cause.
+
+The separate core lifecycle passes loss/resume, two hash-verified non-consuming
+restores, three verified replacements, deletion of all eleven retained copies
+and the foreground copy, and zero final usage at all three providers. Consumer
+maintenance, restoration and final deletion are not reached. Image publication
+precedes Cloud by the tested source's control flow, but has no separate completed
+receipt. Local consumer cleanup, guest cleanup with no remaining owned objects,
+normalized guest-root network-state equality and normal QEMU stop/join pass;
+consumer remote cleanup and provider usage remain unconfirmed. The conditional
+double Debian-package build is skipped, not passed. The next step is to investigate
+the failed acquisition and retirement without bypassing cleanup requirements;
+the finite-upload trial remains dependent on full consumer acceptance.
+Original actual artifact and log ZIP SHA-256 values are
+`2c07ad288397cbd1e8b275d809cd79ffa4c5b62cb6cf1aaacdba72219c73ab0b`
+and `1b08929555cfb09bdcf08affd0330c81610aa4fc384ef3d675103be36ae9cd0e`.
 
 **The finite-upload composition passes source checks only.**
 [PR279](https://github.com/VOLPAROSSA/volparossa/pull/279), head
@@ -74,7 +96,7 @@ No real upload trial has started. Original artifact and log ZIP SHA-256 values a
 `4a6bc3c87e638165f02acf3dc298e45eddea5c0a697d754aba8f2bc9f4bedb07`
 and `e492b61e812a9f04ec749b3be4d20ac739273bd0ba42ed6811462aa86d07a91f`.
 
-**The public model trial passes memory admission but fails build-guest readiness.**
+**The earlier public model trial fails build-guest readiness.**
 [Source run `38901209892`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38901209892)
 passes on `bedd63a2ccac56b845f1fa7e6e2db7dc81bf383c`: 100 Rust and 298 Python
 tests, strict Clippy, an empty formatter patch and unchanged final source.
@@ -101,8 +123,25 @@ unchanged dependency identities. Original artifact and log ZIP SHA-256 values ar
 `03c46c3fb80674f25f090a6e6ca81918db51209ec86f984ce1385b0f2d7e5a75`
 and `7621a9f08465ccde571fb90ac91080064496a7abbeb5c60a3d3efba3f12d142c`.
 [Actual `38906693746`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38906693746)
-has started on this correction; its result is pending. Neither the source pass nor
-this new trial proves the old failure's cause or a successful fix.
+on this correction passes its source gates, memory admission and build-guest SSH
+readiness, then fails `guest_packages / guest_unit_failed`. The third existing SSH
+attempt succeeds, and cloud-init completion and uploaded bundle hashes are checked
+before installation. Available memory is 15,615,213,568 bytes against the unchanged
+15,032,385,536-byte requirement. Source control flow and the absent build-install
+receipt place the failure in the first build-package unit, before runtime-package
+installation or model construction. The unit exit status and installer phase
+are not retained, so the specific package failure is unknown.
+
+The build VM and tool groups join, the scope is empty, owned payload removal and
+user-manager restoration pass, and tracked source remains unchanged. Final host
+route/DNS comparison is not reached. Guest TLS, two real model turns and the model
+image's corruption checks remain unproven. The next step preserves bounded unit
+status and the existing installer's closed failure receipt before cleanup; it does
+not change package pins, permissions, resource limits or acceptance conditions.
+This run passes the earlier readiness boundary without proving the earlier
+boot-timeout's cause. Original actual trial and log ZIP SHA-256 values are
+`dd1ce6b27dc6cf2af203a4525a3dd9cd653814b5868552950e67d669e04effe2`
+and `bca99131d7eac806e9b4d58842bed7b4c352c7e2b15bb3e5d276f36b1019ac61`.
 The earlier [immutable boot `38860629051`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38860629051)
 still proves only the public boot fixture's read-only, corruption and cleanup
 checks—not model execution, confidential hardware or private-task authority.
