@@ -195,6 +195,17 @@
       "url": "https://deb.debian.org/debian/pool/main/c/cryptsetup/cryptsetup-bin_2.7.5-2_amd64.deb",
       "version": "2:2.7.5-2"
     },
+    "curl": {
+      "architecture": "amd64",
+      "bytes": 270212,
+      "depends": "libc6 (>= 2.34), libcurl4t64 (= 8.14.1-2+deb13u7), zlib1g (>= 1:1.1.4)",
+      "filename": "pool/updates/main/c/curl/curl_8.14.1-2+deb13u7_amd64.deb",
+      "index": "trixie-security",
+      "pre_depends": "",
+      "sha256": "135636bd8b713c582d33e50ec4e36ea55cc3c5da3f12bbeb6b87d2bcbd3a0649",
+      "url": "https://deb.debian.org/debian-security/pool/updates/main/c/curl/curl_8.14.1-2+deb13u7_amd64.deb",
+      "version": "8.14.1-2+deb13u7"
+    },
     "debconf": {
       "architecture": "all",
       "bytes": 121088,
@@ -2208,6 +2219,7 @@
         "cpp-14-x86-64-linux-gnu",
         "cpp-x86-64-linux-gnu",
         "cryptsetup-bin",
+        "curl",
         "debconf",
         "dmsetup",
         "dpkg",
@@ -2399,6 +2411,7 @@
         "cmake",
         "coreutils",
         "cryptsetup-bin",
+        "curl",
         "dmsetup",
         "git",
         "iproute2",
@@ -2502,6 +2515,17 @@
     }
   },
   "resolved_at": "2026-10-16T07:47:59.231973+00:00",
+  "reviewed_additions": [
+    {
+      "apt_resolution_executed": false,
+      "base_lock_sha256": "e905f824096700919f6e9c376c45259aaec0d4ea6f422f258bef99bd7372eaea",
+      "baseline_image_sha512": "184761b0dad0f9ace02f9298050ca96ce3caa39a461a47706d47ff9698b59933918b91b40177fbd4d392f6446af8b4d18ecb94caca988169b19641606bf34003",
+      "package": "curl",
+      "profile": "build",
+      "reason": "preserve_baseline_exact_library_dependency",
+      "source": "retained_authenticated_index"
+    }
+  ],
   "sources": {
     "trixie": {
       "base_url": "https://deb.debian.org/debian",

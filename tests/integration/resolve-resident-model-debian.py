@@ -24,8 +24,10 @@ KEYRING = Path('/usr/share/keyrings/debian-archive-keyring.gpg')
 RUNTIME = ('busybox-static', 'cryptsetup-bin', 'dmsetup', 'kmod', 'bubblewrap',
            'util-linux', 'coreutils', 'python3.13', 'python3.13-venv', 'libstdc++6',
            'libgomp1', 'libssl3t64')
+# The pinned build image already has curl, whose exact libcurl dependency must
+# move with the build closure's libcurl4t64; runtime does not select that library.
 BUILD = tuple(sorted(set(RUNTIME) | {'build-essential', 'ca-certificates', 'cargo',
-    'cmake', 'git', 'iproute2', 'nftables', 'pkg-config', 'python3-venv', 'rustc',
+    'cmake', 'curl', 'git', 'iproute2', 'nftables', 'pkg-config', 'python3-venv', 'rustc',
     'protobuf-compiler', 'libssl-dev'}))
 SOURCES = (
     ('trixie', 'https://deb.debian.org/debian', 'deb.debian.org_debian_dists_trixie'),

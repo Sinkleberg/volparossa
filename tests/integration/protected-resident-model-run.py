@@ -34,7 +34,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 GIB = 1024 ** 3
 MAX_SECONDS = 14400
-LOCK_SHA = 'e905f824096700919f6e9c376c45259aaec0d4ea6f422f258bef99bd7372eaea'
+LOCK_SHA = 'ab3fe950b2e39e7f556843cb76a5421ae039a6b10464a7a5109150dae5dc1af8'
 CODE = 'fd4ff9688c58d6228e07f2116a7e8dcdb12a89ef'
 HELPER_SHA = '32a79a1801de0979fdca0064c5bbd2c09b71069a0141be7d68aaec01006bbcbf'
 RUNTIME_BYTES = 32 * GIB
@@ -707,6 +707,9 @@ def package_installer_projection(raw, mode):
              'runtime_unmounted', 'namespace_joined', 'direct_child_groups_joined')
     forbidden = ('complete_guest_cleanup', 'model_execution', 'worker_execution', 'private_inputs',
                  'hardware_attestation')
+    plan_failures = ('plan_command_exit', 'plan_command_deadline', 'plan_command_output', 'plan_bytes',
+                     'plan_schema', 'plan_outside_lock', 'plan_duplicate', 'plan_missing',
+                     'plan_removal', 'plan_before', 'plan_encoding')
     require(type(value) is dict and value.keys() == {'version', 'kind', 'mode', 'state', 'phase', 'failure',
                 'package_lock_sha256', 'packages_verified', 'archive_bytes', 'descendants_joined',
                 'controller_cgroup_cleanup_required', *flags, *forbidden}, 'package_installer_diagnostic')
@@ -715,12 +718,12 @@ def package_installer_projection(raw, mode):
             and value['package_lock_sha256'] == LOCK_SHA and value['state'] in ('failed', 'configured')
             and value['phase'] in ('guard', 'archives', 'namespace', 'runtime_device', 'status_before',
                 'package_plan', 'package_install', 'package_verify', 'unmount', 'complete')
-            and value['failure'] in (None, 'installation_failed', 'cleanup_unconfirmed')
+            and value['failure'] in (None, 'installation_failed', 'cleanup_unconfirmed', *plan_failures)
             and all(type(value[key]) is bool for key in flags)
             and all(value[key] is False for key in forbidden)
             and value['controller_cgroup_cleanup_required'] is True and value['descendants_joined'] is None,
             'package_installer_diagnostic')
-    count = 198 if mode == 'build' else 65
+    count = 199 if mode == 'build' else 65
     require(type(value['packages_verified']) is int and 0 <= value['packages_verified'] <= count
             and type(value['archive_bytes']) is int and 0 <= value['archive_bytes'] <= 512 * 1024 ** 2,
             'package_installer_diagnostic')
@@ -730,6 +733,9 @@ def package_installer_projection(raw, mode):
                 'package_installer_diagnostic')
     else:
         require(value['failure'] is not None, 'package_installer_diagnostic')
+    if value['failure'] in plan_failures:
+        require(value['state'] == 'failed' and value['phase'] == 'package_plan',
+                'package_installer_diagnostic')
     return {key: value[key] for key in ('state', 'phase', 'failure', 'packages_verified', *flags)}
 
 
@@ -1151,7 +1157,7 @@ def execute_owned(args, pending):
             require(installed.get('kind') == 'protected-resident-offline-package-install'
                     and installed.get('mode') == mode and installed.get('state') == 'configured'
                     and installed.get('package_lock_sha256') == LOCK_SHA
-                    and installed.get('packages_verified') == (198 if mode == 'build' else 65)
+                    and installed.get('packages_verified') == (199 if mode == 'build' else 65)
                     and all(installed.get(key) is True for key in ('archives_verified', 'status_verified',
                         'triggers_clear', 'audit_clear', 'policy_restored', 'runtime_unmounted', 'namespace_joined',
                         'direct_child_groups_joined')), 'installer_receipt')

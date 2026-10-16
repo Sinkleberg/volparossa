@@ -26,8 +26,8 @@ import sys
 import tempfile
 import time
 
-LOCK_SHA256 = 'e905f824096700919f6e9c376c45259aaec0d4ea6f422f258bef99bd7372eaea'
-COUNTS = {'build': 198, 'runtime': 65}
+LOCK_SHA256 = 'ab3fe950b2e39e7f556843cb76a5421ae039a6b10464a7a5109150dae5dc1af8'
+COUNTS = {'build': 199, 'runtime': 65}
 RUNTIME_DISK = Path('/dev/disk/by-id/virtio-vp-resident-runtime')
 RUNTIME_SERIAL = 'vp-resident-runtime'
 DISK_BYTES = 32 * 1024 ** 3
@@ -399,6 +399,20 @@ DPkg::Options {{ "--force-confdef"; "--force-confold"; }};
     write_new(directory / 'apt.conf', raw, 0o400)
 
 
+def plan_failure(error, *, command):
+    """Project only our own exact codes; never export exception text or output."""
+    if not command and type(error) is UnicodeDecodeError:
+        return 'plan_encoding'
+    if type(error) is not ValueError or len(error.args) != 1 or type(error.args[0]) is not str:
+        return 'installation_failed'
+    code = error.args[0]
+    if command:
+        return {'command_failed': 'plan_command_exit', 'command_deadline': 'plan_command_deadline',
+                'command_output': 'plan_command_output'}.get(code, 'installation_failed')
+    return code if code in ('plan_bytes', 'plan_schema', 'plan_outside_lock', 'plan_duplicate',
+                           'plan_missing', 'plan_removal', 'plan_before') else 'installation_failed'
+
+
 def install(root, directory, visible, selected, runner, report):
     prefix = ['/usr/sbin/chroot', root]
     env = {'APT_CONFIG': str(visible / 'apt.conf')}
@@ -415,8 +429,16 @@ def install(root, directory, visible, selected, runner, report):
         apt = ['/usr/bin/apt-get', '--no-download', '--no-remove', '--no-install-recommends',
                '--reinstall', '--yes']
         report['phase'] = 'package_plan'
-        plan = runner.run([*prefix, *apt, '--simulate', 'install', *packages], env=env)
-        validate_plan(plan, selected, before)
+        try:
+            plan = runner.run([*prefix, *apt, '--simulate', 'install', *packages], env=env)
+        except ValueError as error:
+            report['failure'] = plan_failure(error, command=True)
+            raise
+        try:
+            validate_plan(plan, selected, before)
+        except ValueError as error:
+            report['failure'] = plan_failure(error, command=False)
+            raise
         report['phase'] = 'package_install'
         runner.run([*prefix, *apt, 'install', *packages], env=env, cap=1200)
         report['phase'] = 'package_verify'

@@ -159,7 +159,7 @@ jobs:
           python3 -B - <<'PY'
           import json,pathlib,re
           root=pathlib.Path('resident-model-evidence'); counts={}
-          expected={'install':32,'assemble':29,'run':133}
+          expected={'install':40,'assemble':29,'run':136}
           for name,count in expected.items():
             raw=(root/('model-'+name+'.log')).read_text()
             tests=re.findall(r'^Ran ([0-9]+) tests? in ',raw,re.M)
@@ -181,7 +181,7 @@ jobs:
           python3 -B - <<'PY'
           import json,pathlib,re
           root=pathlib.Path('resident-model-evidence')
-          counts={'model-initrd':27,'boot-initrd':21,'workload':28,'model-build':32,'model-debian':16}
+          counts={'model-initrd':27,'boot-initrd':21,'workload':28,'model-build':32,'model-debian':19}
           for name,count in counts.items():
             output=(root/(name+'.log')).read_text()
             assert re.search(r'^Ran '+str(count)+r' tests in ',output,re.M)

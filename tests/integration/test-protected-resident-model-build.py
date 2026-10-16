@@ -130,7 +130,7 @@ class PackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             staged = put(Path(directory) / 'lock', raw)
             value = M.package_lock(staged, digest, deadline())
-        self.assertEqual(len(value['profiles']['build']['packages']), 198)
+        self.assertEqual(len(value['profiles']['build']['packages']), 199)
         self.assertEqual(len(value['profiles']['runtime']['packages']), 65)
 
     def test_lock_digest_and_closed_package_schema(self):
@@ -433,7 +433,7 @@ class OrchestrationTests(unittest.TestCase):
             with mock.patch.object(M, 'guest_guard', side_effect=lambda *_: events.append('guard')), \
                     mock.patch.object(M, 'source_binding', side_effect=lambda *_: events.append('source') or (args.input, args.input, 'b'*40)), \
                     mock.patch.object(M, 'package_lock', return_value={}), \
-                    mock.patch.object(M, 'verify_packages', side_effect=lambda *_: events.append('packages') or 198), \
+                    mock.patch.object(M, 'verify_packages', side_effect=lambda *_: events.append('packages') or 199), \
                     mock.patch.object(M, 'load_module', return_value=helper), \
                     mock.patch.object(M, 'build_assets', side_effect=lambda *_: events.append('build') or (args.output/'binary', args.output/'native')), \
                     mock.patch.object(M, 'provision', side_effect=lambda *_: events.append('provision') or ({}, {})), \

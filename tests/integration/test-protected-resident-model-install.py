@@ -291,6 +291,159 @@ class PlanTests(unittest.TestCase):
             self.assertEqual(report['phase'], 'package_install')
 
 
+class PlanDiagnosticTests(unittest.TestCase):
+    def install_failure(self, *, command_error=None, validation_error=None, raw=None,
+                        outside_phase=None):
+        runner, report = FakeRunner(), M.receipt('build')
+        if raw is not None:
+            runner.plan = raw
+        original_run = runner.run
+        def run(argv, **options):
+            result = original_run(argv, **options)
+            if command_error is not None and ('--simulate' in argv if outside_phase is None else
+                    (outside_phase == 'status_before' and '/usr/bin/dpkg-query' in argv) or
+                    (outside_phase == 'package_install' and '/usr/bin/apt-get' in argv
+                     and '--simulate' not in argv)):
+                raise command_error
+            return result
+        runner.run = run
+        original_validate = M.validate_plan
+        def validate(*args):
+            if validation_error is not None:
+                raise validation_error
+            return original_validate(*args)
+        policy = mock.Mock()
+        policy.restore.return_value = True
+        with tempfile.TemporaryDirectory() as directory, \
+             mock.patch.object(M.subprocess, 'Popen', side_effect=AssertionError('real_process_forbidden')) as spawn, \
+             mock.patch.object(M, 'Policy', return_value=policy), \
+             mock.patch.object(M, 'validate_plan', side_effect=validate):
+            with self.assertRaises(Exception) as caught:
+                M.install(Path('/'), Path(directory), Path('/run/vp-resident-install'),
+                          {'public': item()}, runner, report)
+            spawn.assert_not_called()
+        if outside_phase != 'status_before':
+            policy.restore.assert_called_once()
+        self.assertNotIn('PRIVATE_CANARY', M.encoded(report).decode())
+        if outside_phase is None:
+            self.assertEqual(report['phase'], 'package_plan')
+            self.assertTrue(report['policy_restored'])
+            self.assertFalse(any('/usr/bin/apt-get' in argv and '--simulate' not in argv
+                                 for argv, _ in runner.calls))
+        return caught.exception, report
+
+    def test_plan_command_codes_preserve_original_exception_and_stop_before_install(self):
+        for code, label in (('command_failed', 'plan_command_exit'),
+                            ('command_deadline', 'plan_command_deadline'),
+                            ('command_output', 'plan_command_output')):
+            with self.subTest(code=code):
+                original = ValueError(code)
+                error, report = self.install_failure(command_error=original)
+                self.assertIs(error, original)
+                self.assertEqual(report['failure'], label)
+
+    def test_plan_validator_codes_come_from_real_validation_without_raw_output(self):
+        cases = ((b'Remv public [1.2-3]\n', 'plan_removal'),
+                 (b'Inst public PRIVATE_CANARY\n', 'plan_schema'),
+                 (b'Inst public (9 local [amd64])\n', 'plan_outside_lock'),
+                 (FakeRunner().plan * 2, 'plan_duplicate'),
+                 (b'0 upgraded\n', 'plan_missing'), (b'\xffPRIVATE_CANARY', 'plan_encoding'),
+                 (b'x' * (M.MAX_OUTPUT + 1), 'plan_bytes'))
+        for raw, label in cases:
+            with self.subTest(label=label):
+                _, report = self.install_failure(raw=raw)
+                self.assertEqual(report['failure'], label)
+
+    def test_plan_mapping_rejects_unknown_subclass_multivalue_and_wrong_origin(self):
+        class ForeignError(ValueError):
+            pass
+        class ForeignCode(str):
+            pass
+        for original in (ValueError('PRIVATE_CANARY'), ValueError('command_failed', 'PRIVATE_CANARY'),
+                         ValueError(ForeignCode('command_failed')), ForeignError('command_failed'),
+                         OSError('PRIVATE_CANARY'), InterruptedError('PRIVATE_CANARY'),
+                         M.CleanupUnconfirmed('PRIVATE_CANARY'), ValueError('plan_missing')):
+            with self.subTest(kind=type(original).__name__):
+                error, report = self.install_failure(command_error=original)
+                self.assertIs(error, original)
+                self.assertEqual(report['failure'], 'installation_failed')
+        for original, label in ((ValueError('command_failed'), 'installation_failed'),
+                                (ValueError('PRIVATE_CANARY'), 'installation_failed'),
+                                (ValueError('plan_before'), 'plan_before')):
+            error, report = self.install_failure(validation_error=original)
+            self.assertIs(error, original)
+            self.assertEqual(report['failure'], label)
+
+    def test_same_command_code_outside_plan_keeps_legacy_failure(self):
+        for phase in ('status_before', 'package_install'):
+            original = ValueError('command_failed')
+            error, report = self.install_failure(command_error=original, outside_phase=phase)
+            self.assertIs(error, original)
+            self.assertEqual(report['phase'], phase)
+            self.assertEqual(report['failure'], 'installation_failed')
+
+    def worker_result(self, *, plan_error=None, cleanup_failure=False):
+        runner, cleanup = FakeRunner(), FakeRunner()
+        original_run = runner.run
+        def run(argv, **options):
+            result = original_run(argv, **options)
+            if plan_error is not None and '--simulate' in argv:
+                if cleanup_failure:
+                    runner.joined = False
+                raise plan_error
+            return result
+        runner.run = run
+        if cleanup_failure:
+            cleanup.failure = lambda argv: '/usr/bin/umount' in argv
+        policy = mock.Mock()
+        if cleanup_failure:
+            policy.restore.side_effect = OSError('PRIVATE_CANARY')
+        else:
+            policy.restore.return_value = True
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Path(directory)
+            (stage / 'debs').mkdir()
+            with mock.patch.object(M.subprocess, 'Popen', side_effect=AssertionError('real_process_forbidden')) as spawn, \
+                 mock.patch.object(M, 'namespace_guard'), mock.patch.object(M, 'guest_guard'), \
+                 mock.patch.object(M, 'load_lock', return_value={'public': item()}), \
+                 mock.patch.object(M, 'Runner', side_effect=[runner, cleanup]), \
+                 mock.patch.object(M, 'Policy', return_value=policy), \
+                 mock.patch.object(M.Path, 'exists', return_value=False):
+                report = M.worker({'mode': 'build', 'deadline': deadline()}, stage)
+                spawn.assert_not_called()
+            policy.restore.assert_called_once()
+            self.assertEqual(json.loads((stage / 'worker-result.json').read_bytes()), report)
+            self.assertEqual(cleanup.calls[0][0], ['/usr/bin/umount', str(stage / 'apt/debs')])
+            self.assertNotIn('PRIVATE_CANARY', M.encoded(report).decode())
+            return report
+
+    def test_plan_label_survives_real_worker_receipt_and_original_cleanup(self):
+        report = self.worker_result(plan_error=ValueError('command_failed'))
+        self.assertEqual((report['state'], report['phase'], report['failure']),
+                         ('failed', 'package_plan', 'plan_command_exit'))
+        self.assertTrue(report['policy_restored'] and report['runtime_unmounted']
+                        and report['direct_child_groups_joined'])
+        self.assertFalse(report['complete_guest_cleanup'] or report['model_execution'])
+
+    def test_plan_label_does_not_hide_policy_unmount_or_group_cleanup_failure(self):
+        report = self.worker_result(plan_error=ValueError('command_failed'), cleanup_failure=True)
+        self.assertEqual((report['state'], report['failure']), ('failed', 'plan_command_exit'))
+        for field in ('policy_restored', 'runtime_unmounted', 'direct_child_groups_joined'):
+            self.assertFalse(report[field])
+
+    def test_unknown_worker_error_stays_generic_and_secret_free(self):
+        report = self.worker_result(plan_error=ValueError('PRIVATE_CANARY'))
+        self.assertEqual((report['state'], report['phase'], report['failure']),
+                         ('failed', 'package_plan', 'installation_failed'))
+
+    def test_success_worker_receipt_keeps_original_keys_and_values(self):
+        report = self.worker_result()
+        expected = M.receipt('build')
+        expected.update(state='configured', phase='complete', failure=None, packages_verified=1,
+                        status_verified=True, triggers_clear=True, audit_clear=True)
+        self.assertEqual(M.encoded(report), M.encoded(expected))
+
+
 class PolicyTests(unittest.TestCase):
     def root_stat(self, original):
         def converted(path, *args, **kwargs):
@@ -465,7 +618,7 @@ class LifecycleTests(unittest.TestCase):
             def run(argv, **options):
                 runner.calls.append(([str(value) for value in argv], options))
                 report = M.receipt('build')
-                report.update(state='configured', failure=None, phase='complete', packages_verified=198,
+                report.update(state='configured', failure=None, phase='complete', packages_verified=199,
                               status_verified=True, triggers_clear=True, audit_clear=True)
                 put(stage / 'worker-result.json', M.encoded(report))
                 return b''

@@ -77,7 +77,7 @@ class Fixture:
             assets_exported=True, model_execution=False, worker_execution=False, private_inputs=False,
             hardware_attestation=False, production_approval=False, controller_cgroup_cleanup_required=True,
             direct_child_groups_joined=True, descendants_joined=None, complete_guest_cleanup=False,
-            scratch_removed=False, installed_build_packages=198, provision={},
+            scratch_removed=False, installed_build_packages=199, provision={},
             native_build_manifest_sha256=self.public.value['entries']['native-backend/build.json']['sha256'], export=export)
         self.cleanup = dict(version=1, kind='protected-resident-model-build-cleanup', source_commit=SOURCE,
             source_tree=TREE, guest_uid=1000, guest_gid=1000, qemu_process_joined=True, scope_empty=True,

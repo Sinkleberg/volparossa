@@ -1393,7 +1393,7 @@ class PackageDiagnostic(Inert):
                    R.encoded(self.receipt())[:-2] + b',"foreign":"PRIVATE_CANARY"}\n']
         for changes in ({'version': True}, {'mode': 'foreign'}, {'kind': 'foreign'}, {'phase': 'other'},
                         {'failure': 'PRIVATE_CANARY'}, {'state': 'unknown'}, {'packages_verified': True},
-                        {'packages_verified': 199}, {'archive_bytes': -1}, {'archive_bytes': 512 * 1024 ** 2 + 1},
+                        {'packages_verified': 200}, {'archive_bytes': -1}, {'archive_bytes': 512 * 1024 ** 2 + 1},
                         {'archives_verified': 1}, {'private_inputs': True}, {'descendants_joined': True},
                         {'controller_cgroup_cleanup_required': False}, {'package_lock_sha256': '0' * 64},
                         {'state': 'configured', 'failure': None}, {'failure': None}):
@@ -1406,7 +1406,7 @@ class PackageDiagnostic(Inert):
                 R.package_installer_projection(raw, 'build')
 
     def test_existing_configured_receipt_requires_all_original_proofs(self):
-        value = self.receipt(state='configured', phase='complete', failure=None, packages_verified=198,
+        value = self.receipt(state='configured', phase='complete', failure=None, packages_verified=199,
             status_verified=True, triggers_clear=True, audit_clear=True, policy_restored=True,
             runtime_unmounted=True, namespace_joined=True, direct_child_groups_joined=True)
         self.assertEqual(R.package_installer_projection(R.encoded(value), 'build')['state'], 'configured')
@@ -1414,6 +1414,43 @@ class PackageDiagnostic(Inert):
                      'policy_restored', 'runtime_unmounted', 'namespace_joined', 'direct_child_groups_joined'):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 R.package_installer_projection(R.encoded(dict(value, **{name: False})), 'build')
+
+    def test_plan_failure_projection_accepts_only_closed_labels_in_both_modes(self):
+        labels = ('plan_command_exit', 'plan_command_deadline', 'plan_command_output', 'plan_bytes',
+                  'plan_schema', 'plan_outside_lock', 'plan_duplicate', 'plan_missing',
+                  'plan_removal', 'plan_before', 'plan_encoding')
+        for mode in ('build', 'runtime'):
+            for label in labels:
+                with self.subTest(mode=mode, label=label):
+                    value = self.receipt(mode, failure=label)
+                    result = R.package_installer_projection(R.encoded(value), mode)
+                    self.assertEqual(result['failure'], label)
+                    self.assertEqual(result['phase'], 'package_plan')
+                    self.assertEqual(result['state'], 'failed')
+                    self.assertEqual(set(result), set(R.package_installer_projection(
+                        R.encoded(self.receipt(mode)), mode)))
+
+    def test_plan_failure_projection_rejects_wrong_phase_success_and_raw_details(self):
+        for changes in ({'phase': 'package_install'}, {'phase': 'status_before'},
+                        {'phase': 'complete', 'state': 'configured'},
+                        {'failure': 'command_failed'}, {'failure': 'plan_PRIVATE_CANARY'},
+                        {'failure': {'reason': 'plan_missing', 'raw': 'PRIVATE_CANARY'}}):
+            value = self.receipt(failure='plan_command_exit')
+            value.update(changes)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                R.package_installer_projection(R.encoded(value), 'build')
+
+    def test_plan_failure_observation_keeps_failed_unit_error_and_cleanup_sequence(self):
+        raw = R.encoded(self.receipt(failure='plan_missing', direct_child_groups_joined=False))
+        error, diagnostic, calls = self.failing_unit(observation=(raw, b'', 0))
+        self.assertEqual(str(error), 'guest_unit_failed')
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(calls[2][0][2:4], ['systemctl', 'stop'])
+        self.assertIn('populated 0', calls[3][0][-1])
+        self.assertEqual(calls[4][0][-2:], [R.PACKAGE_RECEIPT_READ, 'build'])
+        self.assertEqual(calls[4][1], dict(cap=5, deadline=140.0, maximum=20480, check=False))
+        self.assertEqual(diagnostic[0]['installer']['failure'], 'plan_missing')
+        self.assertFalse(diagnostic[0]['installer']['direct_child_groups_joined'])
 
     def test_failed_unit_projects_only_after_original_stop_and_empty_proof(self):
         error, diagnostic, calls = self.failing_unit()

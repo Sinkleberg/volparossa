@@ -47,7 +47,7 @@ the merged binary has not been rerun through the model trial.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38860289559` on `08ba6b21` passes the base maintenance lifecycle but fails Cloud RESERVE: first the inner provider TLS handshake expires, then a second flow acquisition reports incomplete helper cleanup. The retained-route cleanup fix has not resolved consumer acceptance. Investigate bounded route lifetime and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven; earlier trials retain their separate outcomes. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 and native-only core PR277 are merged. Code retains its immutable core dependency; source acceptance of the new core composition is not a repeat model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Resolve the first package-unit failure, then join an authorized immutable guest, resident coding worker and guest-terminated TLS 1.3 session. | Original actual `38906693746` on `707c46ad` passes memory admission and build-guest SSH readiness, then fails `guest_packages / guest_unit_failed`. Its source gates pass 100 Rust and 300 Python tests. The new bounded package-unit diagnostic passes 133 inert controller cases; hosted acceptance remains open. Two model turns, protected execution, production approval and suitable confidential-computing hardware remain open. Integrate resident-only work separately from the inherited unfinished Storage branch. |
+| Protected remote compute — `volparossa`, then Code/Browser | Correct the offline package plan, then join an authorized immutable guest, resident coding worker and guest-terminated TLS 1.3 session. | Original actual `38911735085` on `6ba9cb72` reaches build-guest readiness but fails the first package unit at `package_plan`, before installation or model construction. Its source gates pass 100 Rust and 318 Python tests. A static mismatch between the pinned base image's curl and the selected libcurl requires a lock correction; closed plan-failure labels distinguish command failure from validation failure. Corrected source and guest acceptance remain required. Two model turns, protected execution, production approval and suitable confidential-computing hardware remain open. Integrate resident-only work separately from the inherited unfinished Storage branch. |
 
 ### Public resident model integration candidate
 
@@ -488,6 +488,77 @@ An unjoined diagnostic SSH process remains registered for mandatory outer cleanu
 an optional diagnostic failure cannot silently discard that obligation.
 This diagnoses the next original attempt; it does not repair or accept the failed
 installation. The hosted gate now requires 100 Rust and 318 Python cases.
+
+Original source run
+[`38910175198`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38910175198)
+passes on exact `6ba9cb7207e3df1df12203766830bf9dd143a71c`: compilation,
+strict lint, 100 unique Rust and 318 Python cases, an empty formatter patch and
+unchanged final source. All 35 source blobs and 560 dependency identities match.
+Original source artifact and log ZIP SHA-256 values are
+`73f14183c6ddc5d7a84ef06ebc4d3fe0a6361a3e60f76ac2c4b6a12baa458b4a`
+and `5a815378e92a7e93953c5e75fe4affcd8f61cd67327bab5610c924def2aa519c`.
+
+Original actual
+[`38911735085`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38911735085)
+on the same source repeats those source gates and reaches build-guest SSH
+readiness. It fails the first build-package unit with `guest_packages /
+guest_unit_failed`. The last unit observation is `failed / failed`, `exit-code`,
+with main code 1 and status 1; this is not a post-cleanup terminal snapshot.
+The installer receipt narrows the boundary to `package_plan`: archives were
+verified, zero installed packages were verified, and the fixed failure remains
+`installation_failed`. This phase includes both the offline APT simulation and
+validation of its proposed changes; the original receipt does not distinguish
+those failures or identify a package. Runtime installation, model construction,
+guest TLS and both model turns are not reached.
+
+The receipt confirms namespace joining, direct-child-group joining, policy
+restoration and unmounting. VM/tool groups join, owned scratch removal and
+user-manager restoration pass, and tracked source is unchanged. The final host
+route/DNS comparison is not reached. These results do not retroactively identify
+the earlier trial's package failure. Original source-contract, trial and log ZIP
+SHA-256 values are
+`9eaa345c5a084371a1fdb7bbb45873f85bf4d1d78bded23b2e9d0fd950d21d04`,
+`d5ecc81f10398493a0fa99160aaff0ce62842c58daaa7ff9143c97e3a10aff50`
+and `857496fe719f6ce76713726b017150030d4596bf3d20adf96d90d915673089ca`.
+
+The next diagnostic change classifies only failures of the existing plan command
+or its validator. It uses fixed labels in the existing failure field, preserves
+the original exception and cleanup, and exports no package output or exception
+text. The controller accepts these labels only for a failed `package_plan`.
+All 40 installer and 136 controller inert tests pass, including 11 new cases.
+The diagnostic-only change preserves the previous test behavior and successful
+receipt shape; the lock correction updates the bound digest and build count.
+APT arguments, execution limits and the number of probes are unchanged.
+
+#### Base image and package selection compatibility
+
+The pinned [Debian image inventory](https://cloud.debian.org/images/cloud/trixie/20260826-2582/debian-13-genericcloud-amd64-20260826-2582.json)
+contains `curl 8.14.1-2+deb13u4`. Its package metadata requires exactly the same
+version of `libcurl4t64`, whereas the build lock selects `libcurl4t64
+8.14.1-2+deb13u7` and initially left curl outside the selection. An offline plan
+cannot retain both requirements while preserving every unselected package and
+forbidding removals. This is a static incompatibility, not proof of the original
+run's precise APT error. The lock was resolved against an empty package status,
+not the 322-package base image; matching its forward dependencies alone does not
+establish compatibility with packages already installed in that image.
+
+The correction adds only matching `curl 8.14.1-2+deb13u7` to the build selection,
+using the already authenticated security index. It leaves all 198 existing pins
+and the 65-package runtime selection unchanged. A separate reviewed-addition
+record identifies this change without claiming a new APT resolution. The build
+selection becomes 199 packages; exact archive hashes, offline plan validation,
+no-removal policy and preservation of unselected packages remain enforced.
+The metadata comparison establishes this specific conflict, not a complete
+dependency solution: historical metadata for 15 retained build packages and
+19 retained runtime packages was not fully available. The corrected offline plan
+and installation still need to pass in the actual pinned guest before model
+construction can proceed.
+
+Independent review and 256 targeted inert tests pass: 19 lock/resolver, 32 build,
+40 installer, 29 assembly and 136 controller cases, with no failures or skips.
+The next hosted gate requires 100 Rust and 332 Python cases. These checks retain
+the package-installation and guest-execution acceptance gates; they do not run
+APT, construct a model image or execute a model on the development host.
 
 Main integration must isolate the resident-only changes: this candidate's
 parent chain also contains unfinished Storage production code. Preserve main's

@@ -176,7 +176,7 @@ class DebianLock(unittest.TestCase):
         self.assertEqual(lock['profiles']['runtime']['roots'], list(M.RUNTIME))
         self.assertEqual(lock['profiles']['build']['roots'], list(M.BUILD))
         self.assertEqual(len(lock['profiles']['runtime']['packages']), 65)
-        self.assertEqual(len(lock['profiles']['build']['packages']), 198)
+        self.assertEqual(len(lock['profiles']['build']['packages']), 199)
         self.assertEqual(set(lock['profiles']['build']['packages']), set(lock['packages']))
         self.assertLessEqual(set(lock['profiles']['runtime']['packages']), set(lock['packages']))
         for profile in lock['profiles'].values():
@@ -197,6 +197,47 @@ class DebianLock(unittest.TestCase):
             actual = lock['packages'][name]
             for field in ('version', 'url', 'bytes', 'sha256'):
                 self.assertEqual(actual[field], expected[field])
+
+    def test_build_curl_and_library_have_the_same_exact_version(self):
+        lock = json.loads((HERE / 'protected-resident-model-debian-lock-v1.json').read_bytes())
+        curl, library = (lock['packages'][name] for name in ('curl', 'libcurl4t64'))
+        self.assertIn('curl', M.BUILD)
+        self.assertIn('curl', lock['profiles']['build']['packages'])
+        self.assertNotIn('curl', lock['profiles']['runtime']['packages'])
+        self.assertNotIn('libcurl4t64', lock['profiles']['runtime']['packages'])
+        self.assertEqual(curl['version'], library['version'])
+        self.assertIn('libcurl4t64 (= ' + library['version'] + ')', curl['depends'].split(', '))
+        # This checks the selected relationship, not an APT plan or guest state.
+        self.assertNotEqual(curl['version'], '8.14.1-2+deb13u4')
+
+    def test_reviewed_curl_addition_has_exact_retained_index_provenance(self):
+        lock = json.loads((HERE / 'protected-resident-model-debian-lock-v1.json').read_bytes())
+        expected = {'Package': 'curl', 'Version': '8.14.1-2+deb13u7', 'Architecture': 'amd64',
+            'Size': '270212', 'Filename': 'pool/updates/main/c/curl/curl_8.14.1-2+deb13u7_amd64.deb',
+            'SHA256': '135636bd8b713c582d33e50ec4e36ea55cc3c5da3f12bbeb6b87d2bcbd3a0649',
+            'Depends': 'libc6 (>= 2.34), libcurl4t64 (= 8.14.1-2+deb13u7), zlib1g (>= 1:1.1.4)'}
+        self.assertEqual(lock['packages']['curl'], M.package_record(expected, 'trixie-security',
+            'https://deb.debian.org/debian-security'))
+        image = json.loads((HERE.parent / 'helper/debian13-amd64-image-v1.json').read_bytes())
+        self.assertEqual(lock['reviewed_additions'], [{
+            'apt_resolution_executed': False,
+            'base_lock_sha256': 'e905f824096700919f6e9c376c45259aaec0d4ea6f422f258bef99bd7372eaea',
+            'baseline_image_sha512': image['sha512'], 'package': 'curl', 'profile': 'build',
+            'reason': 'preserve_baseline_exact_library_dependency',
+            'source': 'retained_authenticated_index'}])
+        self.assertEqual(lock['resolved_at'], '2026-10-16T07:47:59.231973+00:00')
+
+    def test_reviewed_addition_preserves_all_original_pins_and_runtime_selection(self):
+        lock = json.loads((HERE / 'protected-resident-model-debian-lock-v1.json').read_bytes())
+        def digest(value):
+            return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        original = {name: pin for name, pin in lock['packages'].items() if name != 'curl'}
+        self.assertEqual(len(original), 198)
+        self.assertEqual(digest(original), 'a46cfbb2a9cc8ddfb2f5569413b7825ad87832c70db736e44c24899c828b302c')
+        self.assertEqual(digest(lock['profiles']['runtime']),
+                         'bc1b3cd79d27756a6104633d39246847b339b52ce8baff2be0f28adc62d593fe')
+        self.assertEqual(digest(lock['sources']),
+                         '6174c08600f846eaf8ceb31f0387d22051e4de91fa402c583b75c788aa885ee7')
 
 
 if __name__ == '__main__':

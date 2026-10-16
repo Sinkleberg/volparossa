@@ -183,7 +183,7 @@ def build_result(value, source, tree):
             'build_result_scope')
     lock = hashlib.sha256((HERE / 'protected-resident-model-debian-lock-v1.json').read_bytes()).hexdigest()
     require(value['package_lock_sha256'] == lock and type(value['installed_build_packages']) is int
-            and value['installed_build_packages'] == 198 and type(value['provision']) is dict
+            and value['installed_build_packages'] == 199 and type(value['provision']) is dict
             and type(value['native_build_manifest_sha256']) is str
             and SHA.fullmatch(value['native_build_manifest_sha256']), 'build_result_binding')
     export = value['export']
