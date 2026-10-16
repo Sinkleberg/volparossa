@@ -81,6 +81,27 @@ validation remain unchanged. Next, preserve the actual outer-close failure class
 in the existing caller-bound diagnostic, without exposing payloads or changing
 success criteria, before another full Image/Cloud trial.
 
+The next source candidate implements that opt-in diagnostic end to end. Version
+9 retains every version-8 field and adds one nullable, closed outer-close reason:
+`shutdown_io`, `read_io`, `trailing_data` or `internal_deadline`. It is tied to the
+same caller/request/fragment/copy and existing one-use outcome query, not inferred
+from another flow or raw logs. Older encodings and selectors remain unchanged.
+The production close sequence, ten-second internal budget, three-query/one-second
+observation limit and transfer success criteria are preserved. An I/O timeout
+is not relabeled as expiry of the internal TLS budget. No payload, URL, raw error
+or private operation identifier is exported.
+
+Consumer profile 10 pins Image `1e812ec6424a539a336d230b99ae1c11a494ca29` and
+Cloud `35598609d3fedb5d1241a479c1930c8a6b831661`. Its 23 source files include the
+same byte-identical shared adapter and explicit provenance; historical profiles
+1–9 and the Node runtime stay unchanged. Both applications' actual script/config
+paths are tested with an inert child; 117 targeted application tests pass.
+The core's 290 Python and 50 Node harness tests pass, including strict profile
+binding, failure preservation and the original network/custody/cleanup gates.
+Twenty-four new Rust contracts await hosted compilation and execution alongside
+the existing 21 contracts and two kernel tests. These checks are source evidence,
+not a successful Image/Cloud network trial or a fix for the original failure.
+
 ### Fresh TCP admission after route-slot waits
 
 The preceding actual consumer trial

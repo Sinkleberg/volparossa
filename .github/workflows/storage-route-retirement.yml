@@ -1,4 +1,4 @@
-name: Retained retirement after MPTCP helper loss
+name: Storage retirement and closed TLS diagnostics
 
 on:
   push:
@@ -60,7 +60,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Bind exact retirement source and unchanged consumers
+      - name: Bind exact source and historical consumer pins
         id: source
         run: |
           set -euo pipefail
@@ -77,31 +77,65 @@ jobs:
           import json, os, pathlib, subprocess
           def git(*args):
               return subprocess.check_output(['git', *args], text=True).strip()
-          allowed = {'.github/workflows/storage-route-retirement.yml',
-              'docs/IMPLEMENTATION_STATUS.md',
-              'crates/volparossa-agent/src/route_setup.rs',
-              'crates/volparossa-agent/src/route_setup/tests/lost_helper_retirement_tests.rs',
-              'crates/volparossa-agent/src/route_setup/tests/tcp_flow_admission_tests.rs',
-              'crates/volparossa-agent/src/content/tls.rs',
-              'crates/volparossa-agent/src/content/tls/tests/kernel_close.rs'}
+          allowed = set('''
+          .github/workflows/storage-route-retirement.yml
+          .github/workflows/alpha-topology.yml
+          docs/IMPLEMENTATION_STATUS.md
+          crates/volparossa-agent/src/route_setup.rs
+          crates/volparossa-agent/src/route_setup/tests/lost_helper_retirement_tests.rs
+          crates/volparossa-agent/src/route_setup/tests/tcp_flow_admission_tests.rs
+          crates/volparossa-agent/src/content/tls.rs
+          crates/volparossa-agent/src/content/tls/tests/kernel_close.rs
+          crates/volparossa-agent/src/content/tls/close_diagnostic_tests.rs
+          crates/volparossa-agent/src/content/private_storage.rs
+          crates/volparossa-agent/src/content/private_storage/outcome.rs
+          crates/volparossa-agent/src/content/private_storage/outcome/tests.rs
+          crates/volparossa-agent/src/content/private_storage/tests.rs
+          crates/volparossa-local-control/src/lib.rs
+          crates/volparossa-local-control/src/private_storage_outcome.rs
+          crates/volparossa/src/storage.rs
+          crates/volparossa/src/storage/peer.rs
+          crates/volparossa/src/storage/peer_diagnostics.rs
+          crates/volparossa/src/storage/peer_flow_acquire.rs
+          crates/volparossa/src/storage/peer_flow_acquire_tests.rs
+          crates/volparossa/src/storage/peer_outcome.rs
+          crates/volparossa/src/storage/peer_outcome_tests.rs
+          crates/volparossa/src/storage/peer_outcome_transfer_tests.rs
+          crates/volparossa/src/storage/peer_tls_close.rs
+          crates/volparossa/src/storage/peer_tls_close_tests.rs
+          tests/integration/kvm-alpha-topology.sh
+          tests/integration/run-alpha-topology-vm.sh
+          tests/integration/private-storage-maintenance-smoke.py
+          tests/integration/private-storage-maintenance-smoke.sh
+          tests/integration/storage-consumer-maintenance-evidence.py
+          tests/integration/storage-consumer-maintenance-provision.py
+          tests/integration/storage-consumer-maintenance-smoke.py
+          tests/integration/storage-consumer-maintenance-smoke.sh
+          tests/integration/storage-consumer-maintenance.mjs
+          tests/integration/storage-consumer-maintenance-pins-v10.json
+          tests/integration/test-private-storage-maintenance-smoke.py
+          tests/integration/test-private-storage-maintenance-wiring.py
+          tests/integration/test-storage-consumer-maintenance-evidence.py
+          tests/integration/test-storage-consumer-maintenance-provision.py
+          tests/integration/test-storage-consumer-maintenance-shell.py
+          tests/integration/test-storage-consumer-maintenance-smoke.py
+          tests/integration/test-storage-consumer-maintenance.mjs
+          '''.split())
           changed = git('diff', '--name-only', os.environ['SOURCE_BASE'], 'HEAD').splitlines()
           assert len(changed) == len(set(changed)) and set(changed) == allowed
-          tls_path = 'crates/volparossa-agent/src/content/tls.rs'
-          original_tls = subprocess.check_output(['git', 'show', os.environ['SOURCE_BASE'] + ':' + tls_path])
-          module = b'#[cfg(test)]\nmod tests {\n'
-          assert original_tls.count(module) == 1
-          assert pathlib.Path(tls_path).read_bytes() == original_tls.replace(
-              module, module + b'    mod kernel_close;\n\n', 1)
           dependencies = ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml',
               'crates/volparossa-agent/Cargo.toml',
+              'crates/volparossa-local-control/Cargo.toml', 'crates/volparossa/Cargo.toml',
               'crates/volparossa-agent/src/mptcp_transport/acquire_diagnostic.rs',
               'crates/volparossa-helper/src/worker_transport.rs',
               'crates/volparossa-helper/src/engine_v3.rs',
-              'tests/integration/storage-consumer-maintenance-pins-v9.json',
-              'tests/integration/storage-consumer-maintenance-smoke.py',
-              'tests/integration/storage-consumer-maintenance.mjs',
+              'tests/integration/agent-private-task-code.py',
+              'tests/integration/agent-private-task-code-pins.json',
               'tests/integration/storage-consumer-network.py',
-              'tests/helper/debian13-amd64-image-v1.json')
+              'tests/helper/debian13-amd64-image-v1.json',
+              'tests/integration/storage-consumer-maintenance-pins.json',
+              *(f'tests/integration/storage-consumer-maintenance-pins-v{version}.json'
+                for version in range(2, 10)))
           for name in dependencies:
               assert git('rev-parse', 'HEAD:' + name) == git('rev-parse', os.environ['SOURCE_BASE'] + ':' + name)
           runner = 'scripts/run-isolated-test.sh'
@@ -113,9 +147,9 @@ jobs:
               source_blobs={name:git('rev-parse', 'HEAD:' + name) for name in changed},
               dependency_blobs={name:git('rev-parse', 'HEAD:' + name) for name in dependencies},
               runner_blob=git('rev-parse', 'HEAD:' + runner),
-              scope='retained-route-retirement-and-nested-tls-close-contracts',
+              scope='retained-route-retirement-tls-close-v9-and-consumer-profile-10-contracts',
               kernel_test_scope='signed-reserve-loopback-mptcp-and-tcp-provider-close-order',
-              tls_production_and_previous_tests_unchanged=True,
+              tls_production_diagnostic_changed=True, historical_consumer_pins_unchanged=True,
               live_consumer_acceptance=False, original_timeout_cause_proven=False,
               full_relay_datapath_execution=False, feature_equivalence_to_full_workspace_proven=False)
           pathlib.Path('storage-retirement-evidence/source.json').write_text(json.dumps(record, sort_keys=True) + '\n')
@@ -136,12 +170,83 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends protobuf-compiler=3.21.12-8.2ubuntu0.3
           test "$(protoc --version)" = 'libprotoc 3.21.12'
-      - name: Compile affected agent and its tests
+      - name: Stage only the existing verified Node runtime on the hosted runner
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          timeout --kill-after=5s 240s python3 -B - <<'PY'
+          import json, os, pathlib, runpy, subprocess, tarfile, tempfile
+          helper = runpy.run_path('tests/integration/agent-private-task-code.py')
+          pins = json.loads(pathlib.Path('tests/integration/storage-consumer-maintenance-pins-v9.json').read_text())
+          selected = json.loads(pathlib.Path('tests/integration/storage-consumer-maintenance-pins-v10.json').read_text())
+          runtime = pins['runtime']
+          assert runtime == selected['runtime'] == helper['load_pins']()['runtime']
+          assert runtime['version'] == '24.19.0'
+          root = pathlib.Path(tempfile.mkdtemp(prefix='storage-contract-node.', dir=os.environ['RUNNER_TEMP']))
+          archive = root / 'node.tar.xz'
+          helper['fetch'](runtime['url'], archive, runtime)
+          with tarfile.open(archive, 'r:xz') as bundle:
+              helper['extract_runtime'](bundle, root / 'runtime', runtime['files'])
+          binary = root / 'runtime/bin/node'
+          assert subprocess.check_output([str(binary), '--version'], text=True, timeout=10).strip() == 'v24.19.0'
+          with open(os.environ['GITHUB_PATH'], 'a') as output:
+              output.write(str(binary.parent) + '\n')
+          pathlib.Path('storage-retirement-evidence/node-runtime.json').write_text(json.dumps(dict(
+              version=1, runtime=runtime, archive_verified=True, files_verified=True,
+              package_scripts_executed=False, application_sources_downloaded=False), sort_keys=True) + '\n')
+          PY
+      - name: Exercise inert consumer profile and maintenance export contracts
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = v24.19.0
+          for suite in storage-consumer-maintenance-provision storage-consumer-maintenance-smoke storage-consumer-maintenance-evidence storage-consumer-maintenance-shell private-storage-maintenance-smoke private-storage-maintenance-wiring storage-fixture-correlation-sampler storage-provider-activity-sampler storage-consumer-network; do
+            timeout --kill-after=5s 180s python3 -B "tests/integration/test-$suite.py" -v \
+              2>&1 | tee "storage-retirement-evidence/python-$suite.log"
+          done
+          timeout --kill-after=5s 180s node --test --test-reporter=tap tests/integration/test-storage-consumer-maintenance.mjs \
+            2>&1 | tee storage-retirement-evidence/node-consumer.log
+          for script in private-storage-maintenance-smoke storage-consumer-maintenance-smoke kvm-alpha-topology run-alpha-topology-vm; do
+            sh -n "tests/integration/$script.sh"
+          done
+          python3 -B - <<'PY'
+          import json, pathlib, re
+          root = pathlib.Path('storage-retirement-evidence')
+          suites = ('storage-consumer-maintenance-provision', 'storage-consumer-maintenance-smoke',
+              'storage-consumer-maintenance-evidence', 'storage-consumer-maintenance-shell',
+              'private-storage-maintenance-smoke', 'private-storage-maintenance-wiring',
+              'storage-fixture-correlation-sampler', 'storage-provider-activity-sampler', 'storage-consumer-network')
+          counts, names = {}, []
+          for suite in suites:
+              raw = (root / f'python-{suite}.log').read_text()
+              totals = re.findall(r'^Ran ([0-9]+) tests? in [0-9.]+s$', raw, re.M)
+              passed = re.findall(r'^(test_\S+) \(([^\n]+)\) \.\.\. ok$', raw, re.M)
+              assert len(totals) == 1 and 1 <= int(totals[0]) <= 512, suite
+              assert len(passed) == int(totals[0]), suite
+              assert re.findall(r'^OK(?: .*)?$', raw, re.M) == ['OK'], suite
+              assert not re.search(r'\bskipped\b|^FAILED', raw, re.M), suite
+              counts[suite] = len(passed)
+              names.extend(suite + ':' + scope + ':' + name for name, scope in passed)
+          assert len(names) == len(set(names))
+          node = (root / 'node-consumer.log').read_text()
+          node_names = re.findall(r'^ok [0-9]+ - ([^\n]+)$', node, re.M)
+          node_totals = re.findall(r'^# tests ([0-9]+)$', node, re.M)
+          assert len(node_totals) == 1 and 1 <= int(node_totals[0]) <= 512
+          assert len(node_names) == len(set(node_names)) == int(node_totals[0])
+          assert re.findall(r'^# pass ([0-9]+)$', node, re.M) == node_totals
+          for field in ('fail', 'cancelled', 'skipped', 'todo'):
+              assert re.findall(r'^# ' + field + r' ([0-9]+)$', node, re.M) == ['0']
+          (root / 'harness-tests.json').write_text(json.dumps(dict(version=1, python_counts=counts,
+              python_unique_tests=len(names), python_test_names=sorted(names),
+              node_unique_tests=len(node_names), node_test_names=sorted(node_names),
+              live_consumer_acceptance=False, real_datapath_execution=False), sort_keys=True) + '\n')
+          PY
+      - name: Compile affected agent local control and CLI tests
         id: build
         run: |
           set -euo pipefail
           cargo fetch --locked
-          cargo test --locked --offline -p volparossa-agent --no-run --message-format=json \
+          cargo test --locked --offline -p volparossa-agent -p volparossa-local-control -p volparossa --no-run --message-format=json \
             > storage-retirement-evidence/build.jsonl 2> storage-retirement-evidence/build.log
           python3 -B - <<'PY'
           import json, pathlib, subprocess
@@ -201,6 +306,44 @@ jobs:
           (root / 'rust-tests.json').write_text(json.dumps(dict(version=1, counts=counts,
               unique_tests=len(all_names), test_names=sorted(all_names), live_consumer_acceptance=False,
               real_datapath_execution=False, original_timeout_cause_proven=False), sort_keys=True) + '\n')
+          PY
+      - name: Inventory and execute new closed TLS v9 contracts across all three layers
+        run: |
+          set -euo pipefail
+          export RUST_BACKTRACE=1
+          group() {
+            local label="$1" package="$2"
+            shift 2
+            timeout --kill-after=5s 180s cargo test --locked --offline -p "$package" "$@" tls_close_v9_ -- --list \
+              2>&1 | tee "storage-retirement-evidence/v9-$label-inventory.log"
+            timeout --kill-after=5s 180s cargo test --locked --offline -p "$package" "$@" tls_close_v9_ \
+              2>&1 | tee "storage-retirement-evidence/v9-$label-test.log"
+          }
+          group local-control volparossa-local-control --lib
+          group agent volparossa-agent --lib
+          group cli volparossa --bin volparossa
+          python3 -B - <<'PY'
+          import json, pathlib, re
+          root = pathlib.Path('storage-retirement-evidence')
+          counts, all_names = {}, []
+          for label, expected in (('local-control', 4), ('agent', 10), ('cli', 10)):
+              inventory = (root / f'v9-{label}-inventory.log').read_text()
+              output = (root / f'v9-{label}-test.log').read_text()
+              names = re.findall(r'^([^\n]+): test$', inventory, re.M)
+              assert len(names) == len(set(names)) == expected, label
+              results = re.findall(r'^test result: ok\. (\d+) passed; 0 failed; 0 ignored; 0 measured; \d+ filtered out;', output, re.M)
+              assert results == [str(expected)], label
+              for name in names:
+                  assert len(re.findall(r'^test ' + re.escape(name) + r' \.\.\. ok$', output, re.M)) == 1
+              counts[label] = expected
+              all_names.extend(names)
+          previous = json.loads((root / 'rust-tests.json').read_text())['test_names']
+          assert len(all_names) == len(set(all_names)) == 24
+          assert not set(all_names).intersection(previous)
+          (root / 'tls-v9-tests.json').write_text(json.dumps(dict(version=1, counts=counts,
+              unique_tests=24, test_names=sorted(all_names), previous_contracts=21,
+              total_disjoint_contracts=45, live_consumer_acceptance=False,
+              original_timeout_cause_proven=False), sort_keys=True) + '\n')
           PY
       - name: Check firewall snapshot normalization before the isolated test
         run: |
@@ -293,11 +436,11 @@ jobs:
               live_consumer_acceptance=False, original_timeout_cause_proven=False), sort_keys=True) + '\n')
           PY
           exit "$kernel_status"
-      - name: Lint affected agent
+      - name: Lint affected agent local control and CLI
         if: ${{ always() && steps.build.outcome == 'success' }}
         run: |
           set -euo pipefail
-          cargo clippy --locked --offline -p volparossa-agent --all-targets --all-features -- -D warnings \
+          cargo clippy --locked --offline -p volparossa-agent -p volparossa-local-control -p volparossa --all-targets --all-features -- -D warnings \
             2>&1 | tee storage-retirement-evidence/clippy.log
       - name: Check formatting without changing source
         if: ${{ always() && steps.source.outcome == 'success' && steps.toolchain.outcome == 'success' }}
