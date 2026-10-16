@@ -21,8 +21,10 @@ Last updated: 2026-10-16
 The next diagnostic candidate targets the unresolved Image publication stall in
 [actual run 38816407455](https://github.com/VOLPAROSSA/volparossa/actions/runs/38816407455).
 It observes the client and provider sides of an inner TLS stream without changing
-storage wire bytes, permissions or operation deadlines. Compilation and the full
-consumer trial remain pending; this is not a storage fix or acceptance result.
+storage wire bytes, permissions or operation deadlines. The recorded candidate
+passes compilation and targeted runtime checks; its lint correction and the full
+consumer trial remain unverified. This is not a storage fix or consumer acceptance
+result.
 
 An explicit development-only command on the existing local socket arms a
 short-lived, Unix-owner-bound RAM buffer. Client writes and provider reads hash
@@ -43,11 +45,12 @@ the existing phase-deadline check.
 
 The candidate keeps the original Image/Cloud pins, profile 9 and network profile
 2. The 259 local collector, export and harness tests pass, along with the affected
-shell syntax and lint checks. Fifty new Rust cases are present but not yet run.
-Its next checks are the affected Rust contracts and lint/format checks on a
-disposable hosted runner, followed by the full storage-maintenance trial on the
-exact verified source. Earlier failures and the separate core lifecycle proof
-remain unchanged.
+shell syntax and lint checks. The corrected hosted candidate also passes 267
+Python tests and 112 unique Rust tests: 50 new cases and 62 historical cases,
+with none skipped or ignored. Lint and formatting corrections still need their
+own hosted verification before the full storage-maintenance trial on the exact
+verified source. Earlier failures and the separate core lifecycle proof remain
+unchanged.
 
 The first hosted contract run,
 [38834844170](https://github.com/VOLPAROSSA/volparossa/actions/runs/38834844170)
@@ -57,6 +60,16 @@ a boxed command as an unboxed value. Formatting also fails. Rust execution and
 Clippy are skipped, so this run provides no Rust runtime acceptance. The follow-up
 corrects the test pattern and applies the reported formatting without changing
 production behavior, assertions or test budgets.
+
+The corrected run,
+[38835678035](https://github.com/VOLPAROSSA/volparossa/actions/runs/38835678035)
+on `ce876d1f51f839f7f8e8f6ffdc40e596fbd21ca4`, passes compilation and all
+targeted runtime checks. Its source receipt binds the exact checkout and workflow,
+35 changed source blobs and six unchanged dependency blobs. The run still fails:
+Clippy reports a 102-line serving loop against its 100-line limit, and formatting
+requires one multiline assertion. The next correction extracts the existing owned
+session body without changing its admission, cancellation or protocol behavior;
+it also runs the existing provider-refresh tests alongside the other contracts.
 
 ### Execution priorities and next milestones
 
@@ -84,7 +97,7 @@ sources; this preparation does not replace either trial or change its pins.
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | The listener correction passes targeted run `38815471227`, including a real Linux MPTCP rejection/reuse test. Actual `38816407455` on `728db40b` instead fails at Image FINALIZE fragment 0/copy 1 while reading the provider challenge; Cloud publication is not reached. Its standalone core lifecycle and two restores pass, but consumer repair, restoration and remote retirement remain unproved. Trace the challenge stall without extending the operation deadline. Earlier `38804192575` retains its separate unresolved flow-acquisition failure. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Complete the real read/edit/test task with timely owner pause/resume and post-task checks. | Actual `38806073909` completes the task but fails afterward. The task-holder correction in `38816006720` retains task status and memory, but this task misses a pause acknowledgement after two reads and an edit. Adaptive prefill checkpoints now pass 116 inert cases while retaining the original ten-second guard, complete prompt, model, tools, permissions and budgets. Real responsiveness and throughput need a new model trial; whole-trial and protected-peer acceptance remain open. |
+| Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 is merged, retaining that immutable core dependency; the native/Storage core candidate is not merged into core `main`. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
 | Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258's authenticated refusal path has actual route evidence; PR262 integrates explicit same-connection key confirmation. The next implementation reuses the native worker lifecycle and existing TLS stack, rather than extending the probe into task authority. Boot/runtime/model integrity, production roots and current vendor appraisal must be checked before private input; task authority needs its own finite grant. Those functions and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 Detailed earlier Android and storage checkpoints remain in the

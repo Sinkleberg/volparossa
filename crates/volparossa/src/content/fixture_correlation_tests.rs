@@ -41,7 +41,10 @@ fn fixture_cli_has_no_private_argument_or_implicit_action() {
     let crate::CliCommand::Content { command: content } = cli.command else {
         panic!("expected content command");
     };
-    assert!(matches!(*content, crate::content::Command::FixtureCorrelation));
+    assert!(matches!(
+        *content,
+        crate::content::Command::FixtureCorrelation
+    ));
     for extra in ["--epoch", "--fingerprint", "--action", "arm", "--input"] {
         assert!(crate::Cli::try_parse_from(command.into_iter().chain([extra])).is_err());
     }

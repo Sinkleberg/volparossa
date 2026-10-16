@@ -148,6 +148,7 @@ jobs:
           contract_group cli-activity volparossa content::provider_activity::
           contract_group agent-storage volparossa-agent content::private_storage::
           contract_group agent-tls volparossa-agent content::tls::tests::
+          contract_group agent-refresh volparossa-agent content::refresh_tests::
           python3 -B - <<'PY'
           import json
           import pathlib
@@ -158,6 +159,7 @@ jobs:
               'cli-new': 'volparossa', 'wire-activity': 'volparossa-local-control',
               'agent-activity': 'volparossa-agent', 'cli-activity': 'volparossa',
               'agent-storage': 'volparossa-agent', 'agent-tls': 'volparossa-agent',
+              'agent-refresh': 'volparossa-agent',
           }
           all_names, counts = [], {}
           for group, package in groups.items():

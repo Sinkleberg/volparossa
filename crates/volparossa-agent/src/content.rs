@@ -121,6 +121,59 @@ async fn provider_snapshot(
     timeout(maximum_wait, async { registry.lock().await.clone() }).await
 }
 
+async fn serve_provider_session(
+    stream: tokio::net::TcpStream,
+    tls: tls::ContentTlsServer,
+    registry: Arc<Mutex<PublicationRegistry>>,
+    events: Option<Arc<RwLock<AgentState>>>,
+    activity: provider_activity::Session,
+    fixture: fixture_correlation::Guard,
+) {
+    use volparossa_local_control::StorageFixtureCorrelationTerminal as Terminal;
+    let observer = fixture_correlation::ProviderObserver {
+        activity: &activity,
+        fixture: &fixture,
+    };
+    let stream = fixture_correlation::Observed::provider(stream, &fixture);
+    let Ok(mut stream) = tls.accept_observed(stream, &fixture).await else {
+        return;
+    };
+    observer.enter(Stage::RegistrySnapshot);
+    // Snapshot at most 64 explicit registrations; never hold the metadata
+    // lock while a background receiver waits before requesting a chunk.
+    // Cache handles retain their own exclusive ownership checks.
+    let Ok(registry) = provider_snapshot(&registry, REGISTRY_SNAPSHOT_TIMEOUT).await else {
+        fixture.finish(Terminal::OperationError);
+        observer.enter(Stage::Closing);
+        provider_event(events.as_ref(), "CONTENT_PROVIDER_REGISTRY_TIMEOUT").await;
+        return;
+    };
+    let mut storage_failure = None;
+    let result = serve_publication_with_activity(
+        &mut stream,
+        &registry,
+        TransferLimits::default(),
+        &mut storage_failure,
+        &observer,
+    )
+    .await;
+    if result.is_err() {
+        fixture.finish(Terminal::OperationError);
+    }
+    observer.enter(Stage::Closing);
+    match result {
+        Ok(_) => {
+            let result = tls::finish(&mut stream).await;
+            fixture.finish(if result.is_ok() {
+                Terminal::Complete
+            } else {
+                Terminal::OperationError
+            });
+        }
+        Err(error) => provider_failure_event(events.as_ref(), &error, storage_failure).await,
+    }
+}
+
 /// FIFO admission shares the caller's existing operation deadline. The local control
 /// server bounds live requests; waiting creates no cache, peer stream or background task.
 /// A requester leaving before readiness must also leave the mutex queue immediately.
@@ -553,33 +606,9 @@ impl ContentRuntime {
                     let events = events.clone();
                     let activity = activity.begin();
                     let fixture = fixture.provider();
-                    sessions.spawn(async move {
-                        use volparossa_local_control::StorageFixtureCorrelationTerminal as Terminal;
-                        let observer = fixture_correlation::ProviderObserver { activity: &activity, fixture: &fixture };
-                        let stream = fixture_correlation::Observed::provider(stream, &fixture);
-                        let Ok(mut stream) = tls.accept_observed(stream, &fixture).await else { return; };
-                        observer.enter(Stage::RegistrySnapshot);
-                        // Snapshot at most 64 explicit registrations; never hold the metadata
-                        // lock while a background receiver waits before requesting a chunk.
-                        // Cache handles retain their own exclusive ownership checks.
-                        let Ok(registry) = provider_snapshot(&registry, REGISTRY_SNAPSHOT_TIMEOUT).await else {
-                            fixture.finish(Terminal::OperationError);
-                            observer.enter(Stage::Closing);
-                            provider_event(events.as_ref(), "CONTENT_PROVIDER_REGISTRY_TIMEOUT").await;
-                            return;
-                        };
-                        let mut storage_failure = None;
-                        let result = serve_publication_with_activity(&mut stream, &registry, TransferLimits::default(), &mut storage_failure, &observer).await;
-                        if result.is_err() { fixture.finish(Terminal::OperationError); }
-                        observer.enter(Stage::Closing);
-                        match result {
-                            Ok(_) => {
-                                let result = tls::finish(&mut stream).await;
-                                fixture.finish(if result.is_ok() { Terminal::Complete } else { Terminal::OperationError });
-                            }
-                            Err(error) => provider_failure_event(events.as_ref(), &error, storage_failure).await,
-                        }
-                    });
+                    sessions.spawn(serve_provider_session(
+                        stream, tls, registry, events, activity, fixture,
+                    ));
                 }
                 Some(_) = sessions.join_next(), if !sessions.is_empty() => {}
             }
