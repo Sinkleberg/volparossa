@@ -59,15 +59,25 @@ access and explicitly chosen system-wide operation remain separate permissions.
   export/import, encrypted Image snapshots and OpenCloud file recovery.
 - Actual adapter training and reuse, public tasks on peer workers, and selected
   model-review and signed policy-enforcement flows.
+- An actual OpenCode session using a core-managed CPU model to read and edit a code
+  fixture, run an approved test and pass an independent check.
 - Signed TEST-unit transfers in a separate four-validator transaction trial, including
   conflicting-spend rejection, partitions, rejoining and replay after a committed transfer.
+
+The [OpenCode trial](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38824828727)
+completed its coding task in about **37 minutes**. The integration is on Code's `main`,
+but the trial requires a pinned core development revision that is **not yet in this
+repository's `main`**. It demonstrates a local model-driven workflow, not competitive
+performance, general coding reliability or confidential execution on other people's devices.
 
 **Still in development:** complete application integrations, protected execution of private
 tasks on other people's devices, dependable AI reasoning, automatic reciprocal storage
 maintenance, the complete immune system and authorized automatic software updates.
-Current integration work concentrates on shared storage maintenance with Image/Cloud,
-actual coding-agent execution and the prerequisites for confidential peer computation.
-Android expiry and broader device support remain part of the integration work.
+Current integration work concentrates on shared storage maintenance with Image/Cloud and
+the prerequisites for confidential peer computation, while preserving the demonstrated
+coding workflow. The latest combined storage trial stops during an Image upload; the
+complete Image/Cloud repair-and-restore lifecycle has not passed. Android expiry and
+broader device support also remain open.
 
 These results belong to their recorded revisions and test conditions. The original
 [A01–A15 transport acceptance run](https://github.com/VOLPAROSSA/volparossa/actions/runs/34047766913)
@@ -248,8 +258,11 @@ able to use permitted Internet sources for tasks, research, learning and mainten
 access rights and resource budgets. These are development goals, not completed capabilities.
 
 Real development milestones include local adapter training, signed exchange and reuse,
-public peer tasks and selected model-review/recovery loops. **Successful execution is not
-the same as sound reasoning**; current small models still make factual errors.
+public peer tasks and selected model-review/recovery loops. A bounded OpenCode task now
+also demonstrates real model-driven reading, editing and testing through the core's local
+CPU backend. **Successful execution is not the same as sound reasoning**; current small
+models still make factual errors, and this coding result is not evidence of distributed
+private computation.
 
 Private network tasks also need protection against the executing device's operator—not
 just encrypted transport. That required capability is unfinished. Current public-peer

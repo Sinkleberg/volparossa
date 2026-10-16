@@ -51,14 +51,20 @@ arbitrary storage peers. Missing delivery confirmation is not automatic proof of
 
 ## Code
 
-[volparossa-code](https://github.com/VOLPAROSSA/volparossa-code) is moving to **OpenCode**, replacing
-the earlier Codex foundation. The core should organize model access, agent cooperation and
-resource allocation; OpenCode supplies coding workflows and suitable client surfaces.
+[volparossa-code](https://github.com/VOLPAROSSA/volparossa-code) now uses **OpenCode** on its
+`main` branch, replacing the earlier Codex foundation. OpenCode supplies coding workflows;
+the core handles model access, execution and resource control. Shared agent cooperation
+remains a core responsibility, not a separate network scheduler in the application.
 
-The target is actual code reading, editing and testing through network cooperation, including
-protected private projects. The migration remains on its development branch. Native runtime
-adapter checks are not proof of reliable model-driven coding, and private-peer execution is
-unfinished. A local fallback does not satisfy that network requirement.
+A [real CPU-model trial](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38824828727)
+completes two reads, an explicitly approved edit and test, and an independent check against
+unchanged original tests. The coding task takes about 37 minutes and uses a pinned core
+development revision outside core `main`. This is a bounded local workflow, not evidence
+of competitive performance, general coding reliability or a working native editor UI.
+
+The target remains code reading, editing and testing through network cooperation, including
+protected private projects. Confidential private-peer execution is unfinished; local
+execution does not satisfy that network requirement.
 
 ## Image
 
