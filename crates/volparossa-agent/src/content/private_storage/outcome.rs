@@ -130,7 +130,8 @@ impl Guard {
 
     pub(super) fn tls_close_failure(&self, failure: PrivateStorageTlsCloseFailure) {
         if self.phase.load(Ordering::Relaxed) == Phase::TransportTlsClose as i32 {
-            self.tls_close_failure.store(failure as i32, Ordering::Relaxed);
+            self.tls_close_failure
+                .store(failure as i32, Ordering::Relaxed);
         }
     }
 

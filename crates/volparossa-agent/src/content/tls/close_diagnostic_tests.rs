@@ -38,11 +38,7 @@ impl AsyncRead for CloseIo {
 }
 
 impl AsyncWrite for CloseIo {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        _: &mut Context<'_>,
-        _: &[u8],
-    ) -> Poll<io::Result<usize>> {
+    fn poll_write(self: Pin<&mut Self>, _: &mut Context<'_>, _: &[u8]) -> Poll<io::Result<usize>> {
         panic!("finish must not write application bytes")
     }
 

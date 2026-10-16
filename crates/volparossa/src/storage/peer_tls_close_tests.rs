@@ -38,7 +38,13 @@ fn tls_close_v9_json_accepts_exact_four_reasons_and_nullable_older_agent() {
         value["failures"][0]["agent_outcome"]["tls_close_failure"] = failure;
         assert_eq!(replay(value.clone()), value);
     }
-    for status in ["missing", "pending", "expired", "query_failed", "query_timeout"] {
+    for status in [
+        "missing",
+        "pending",
+        "expired",
+        "query_failed",
+        "query_timeout",
+    ] {
         let mut value = report();
         value["failures"][0]["agent_outcome"] = json!({
             "status": status, "detail": null, "append_timing": null, "tls_close_failure": null
@@ -80,7 +86,13 @@ fn tls_close_v9_json_rejects_unknown_missing_private_and_impossible_fields() {
             .remove(field);
         assert!(serde_json::from_value::<Diagnostics>(value).is_err());
     }
-    for field in ["original_request_id", "errno", "raw_error", "payload", "provider"] {
+    for field in [
+        "original_request_id",
+        "errno",
+        "raw_error",
+        "payload",
+        "provider",
+    ] {
         let mut value = report();
         value["failures"][0]["agent_outcome"][field] = "private-canary".into();
         assert!(serde_json::from_value::<Diagnostics>(value).is_err());
@@ -255,8 +267,13 @@ async fn tls_close_v9_real_ipc_opt_in_pending_and_unsolicited_detail_are_closed(
             ..PrivateStorageOutcome::default()
         };
         let server = tokio::spawn(answer_close(listener, enabled, vec![pending, wire_close()]));
-        let observed =
-            with_all_diagnostics(false, false, enabled, outcome::query(&socket, &[45; 16])).await;
+        let observed = Box::pin(with_all_diagnostics(
+            false,
+            false,
+            enabled,
+            outcome::query(&socket, &[45; 16]),
+        ))
+        .await;
         server.await.unwrap();
         assert!(observed.valid());
         let value = serde_json::to_value(outcome::CloseOutcome::from(observed)).unwrap();
@@ -266,7 +283,11 @@ async fn tls_close_v9_real_ipc_opt_in_pending_and_unsolicited_detail_are_closed(
         );
         assert_eq!(
             value["tls_close_failure"],
-            if enabled { json!("read_io") } else { Value::Null }
+            if enabled {
+                json!("read_io")
+            } else {
+                Value::Null
+            }
         );
     }
 }
@@ -281,8 +302,13 @@ async fn tls_close_v9_real_ipc_pending_stops_after_three_queries() {
         ..PrivateStorageOutcome::default()
     };
     let server = tokio::spawn(answer_close(listener, true, vec![pending; 3]));
-    let observed =
-        with_all_diagnostics(false, false, true, outcome::query(&socket, &[45; 16])).await;
+    let observed = Box::pin(with_all_diagnostics(
+        false,
+        false,
+        true,
+        outcome::query(&socket, &[45; 16]),
+    ))
+    .await;
     server.await.unwrap();
     assert_eq!(
         serde_json::to_value(outcome::CloseOutcome::from(observed)).unwrap()["status"],
@@ -306,10 +332,10 @@ async fn tls_close_v9_real_ipc_stall_keeps_one_second_query_budget() {
         drop(stream);
     });
     let started = tokio::time::Instant::now();
-    let observed = tokio::time::timeout(
+    let observed = Box::pin(tokio::time::timeout(
         std::time::Duration::from_secs(3),
         with_all_diagnostics(false, false, true, outcome::query(&socket, &[45; 16])),
-    )
+    ))
     .await;
     server.abort();
     assert!(server.await.unwrap_err().is_cancelled());

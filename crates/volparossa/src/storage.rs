@@ -69,7 +69,8 @@ impl Command {
                 flow_acquire_diagnostics_v8,
                 tls_close_diagnostics_v9,
                 ..
-            } | Self::Fragments {
+            }
+            | Self::Fragments {
                 append_diagnostics_v7,
                 flow_acquire_diagnostics_v8,
                 tls_close_diagnostics_v9,

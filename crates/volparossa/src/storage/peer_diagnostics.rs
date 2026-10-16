@@ -505,7 +505,10 @@ impl Diagnostics {
         if self.version == 9 {
             CurrentFailure::V9(tls_close::Failure::new(failure, self.flow_acquire[index]))
         } else {
-            CurrentFailure::V8(flow_acquire::Failure::new(failure, self.flow_acquire[index]))
+            CurrentFailure::V8(flow_acquire::Failure::new(
+                failure,
+                self.flow_acquire[index],
+            ))
         }
     }
 }

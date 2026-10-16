@@ -98,9 +98,25 @@ same byte-identical shared adapter and explicit provenance; historical profiles
 paths are tested with an inert child; 117 targeted application tests pass.
 The core's 290 Python and 50 Node harness tests pass, including strict profile
 binding, failure preservation and the original network/custody/cleanup gates.
-Twenty-four new Rust contracts await hosted compilation and execution alongside
-the existing 21 contracts and two kernel tests. These checks are source evidence,
-not a successful Image/Cloud network trial or a fix for the original failure.
+Original hosted run
+[`38896943885`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38896943885)
+on exact `7cf5f3e489e9d82cf32e26341487344501d4baff`, tree
+`4d5538de8c51b21cd72ede189e8021e71fb6ac12`, compiles all three affected packages
+and passes the 21 existing Rust contracts, 24 new diagnostics contracts and both
+explicitly selected kernel cases. The 290 Python and 50 Node harness tests also
+pass, with no failures or skips. The 48 firewall-normalizer cases, unchanged
+host network snapshots and final source-preservation check pass.
+
+The overall run fails strict lint on three large futures in the new CLI tests
+and seven formatter hunks in five files. The follow-up boxes only those test
+futures and applies the reported layout changes, preserving assertions, timers
+and production behavior. No lint is suppressed. The revised source still needs
+hosted acceptance before the full consumer trial. Original artifact and log ZIP
+SHA-256 values are
+`b857c35061f74d077c058bf933955a139f09e26c418590e52fc309d0afe0b9c6`
+and `eb0c4c8ae7a8347aaf187dba2a410ce51b0ec8e1daa206f382a4176e29c5f4d8`.
+These scoped checks neither accept Image/Cloud network maintenance nor explain
+the earlier consumer failure.
 
 ### Fresh TCP admission after route-slot waits
 
