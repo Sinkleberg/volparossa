@@ -102,9 +102,8 @@ The separate negative boot changes one data byte after sealing and requires an
 actual failed read with the kernel's corruption status; a timeout is not proof.
 
 The fixture has no guest network, SSH, administrative shell or original cloud
-initialization. All 56 local contracts pass: 36 image/runner cases and 20
-initrd/bootstrap cases. They exercise only public archive, parser, process and
-bootstrap contracts; image construction and actual boots require the separate
+initialization. Its contract suite covers public archive, parser, process and
+bootstrap behavior; image construction and actual boots require the separate
 explicit hosted workflow. This first gate contains no resident worker, model or
 private input. Its build manifest records evidence, not independent production
 approval or hardware attestation. The subsequent worker/channel integration
@@ -142,6 +141,39 @@ mirror with unchanged path, query, input hashes, size bounds and deadlines;
 four additional inert tests cover that exception and rejected variants. Actual
 boot verification remains open.
 
+The mirror correction passes original source run
+[`38843228942`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38843228942)
+on exact `566c30f30098a5448fe016eab503f6961cfe3351`: 36 image/runner and
+20 initrd/bootstrap tests, without failures or skips. Syntax, ShellCheck and
+source checks pass; all ten changed blobs and seven unchanged dependencies
+match the retained manifest. Original artifact and log ZIP SHA-256 values are
+`a48f6ab780f32bdd291d63ac8d0995a7c0e73bad254c26f25ddf77c83adc5f29`
+and `188d19a16d828347cba27957535ed51c38e8bbc23ebdf637cfe67a0bac5b9ef6`.
+
+The next original actual trial,
+[`38843802439`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38843802439),
+uses that same source and passes all four pinned input downloads and hash checks,
+then fails at `image_extract / command_failed`. Its receipt does not identify the
+failed guestfish call. No sealed image, minimal initrd or public guest boot is
+verified. Owned child joins, process-group absence and scratch removal are
+reported; the KVM ACL restore/comparison and source checks pass. Original boot
+artifact and log ZIP SHA-256 values are
+`a888c18407b94f509a712528ed2a24f75b332d3ea52f9ba9015e31dcd85801a9`
+and `6791904f88c09bd084a787b052fe05199d0efa23ec0386197eb6885e0e7263ad`.
+
+Source review separately identifies an inspection-lifetime defect: the second
+guestfish process requests inspection metadata without inspecting its own
+handle. [libguestfs caches that state per handle](https://libguestfs.org/guestfs.3.html#inspection).
+The correction inspects and verifies the same single root in that second handle,
+retaining the Debian version, filesystem, input-hash and size checks. A closed
+callsite and numeric exit status identify future completed-command failures
+without exporting arguments, paths or raw tool output. Timeout and cancellation
+do not report cleanup's termination signal as an original command result.
+Seven new regressions cover handle-local inspection, changed or ambiguous roots
+and bounded failure records; the local suite passes 43 image/runner and 20 initrd
+cases. This defect is not yet established as the cause of the original trial's
+failure, and corrected hosted verification remains pending.
+
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
 The latest completed outcomes are summarized below.
@@ -169,6 +201,14 @@ The latest completed outcomes are summarized below.
   Original artifact and log ZIP SHA-256 values are
   `533cdd4463ae281c4e11ffeb3d32c7dc65ee6432b80629184295e04deb71490c`
   and `400c49417576e1c455bced674b73b37e7df6b8033f607c18dc00d55636843eef`.
+
+  The next diagnostic slice will preserve a closed socket-operation, failure
+  class and optional errno inside the credential- and request-bound helper
+  response, before the existing generic error conversion. A bounded projection
+  of the fixture's private helper log can retain only those fields after cleanup,
+  without exporting raw logs or changing public RPCs, consumer schemas, app pins,
+  retries or cleanup decisions. This remains planned, and the separate receipt
+  will not claim a binding to a particular Cloud fragment/copy.
 
 - **Storage retains its base lifecycle proof but stalls during Image publication.**
   [Actual `38816407455`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38816407455)

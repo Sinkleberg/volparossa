@@ -50,6 +50,8 @@ ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C', 'LC_ALL': 'C',
 DEADLINE = contextvars.ContextVar('protected_public_boot_deadline', default=None)
 SCRATCH = contextvars.ContextVar('protected_public_boot_scratch', default=None)
 CANCELLED = contextvars.ContextVar('protected_public_boot_cancelled', default=False)
+GUESTFISH_OPERATIONS = frozenset(('inspect_roots', 'inspect_details', 'extract_boot_files',
+    'readlink_bin', 'readlink_sbin', 'readlink_lib', 'readlink_lib64', 'stage_root'))
 
 
 def require(condition, reason):
@@ -140,6 +142,21 @@ class CleanupUnconfirmed(RuntimeError):
     pass
 
 
+class CommandFailed(ValueError):
+    def __init__(self, returncode, operation=None):
+        super().__init__('command_failed')
+        self.returncode = returncode
+        self.operation = operation
+
+
+def command_failure(error):
+    if (isinstance(error, CommandFailed) and type(error.operation) is str
+            and error.operation in GUESTFISH_OPERATIONS and type(error.returncode) is int
+            and -64 <= error.returncode <= 255 and error.returncode != 0):
+        return {'operation': error.operation, 'returncode': error.returncode}
+    return None
+
+
 def group_absent(group, seconds=2):
     deadline = time.monotonic() + seconds
     while True:
@@ -154,9 +171,10 @@ def group_absent(group, seconds=2):
         time.sleep(.02)
 
 
-def command(argv, *, timeout=120, maximum=MAX_LOG, stdout_path=None):
+def command(argv, *, timeout=120, maximum=MAX_LOG, stdout_path=None, operation=None):
     """Bound public tool output; retain the child until the last group signal."""
     require(0 < timeout <= BUILD_SECONDS, 'command_deadline')
+    require(operation is None or operation in GUESTFISH_OPERATIONS, 'command_operation')
     checkpoint()
     if DEADLINE.get() is not None:
         timeout = min(timeout, DEADLINE.get() - time.monotonic())
@@ -221,7 +239,8 @@ def command(argv, *, timeout=120, maximum=MAX_LOG, stdout_path=None):
             process.stderr.close()
             if target is not None:
                 target.close()
-    require(process.returncode == 0, 'command_failed')
+    if process.returncode != 0:
+        raise CommandFailed(process.returncode, operation)
     return bytes(output)
 
 
@@ -259,12 +278,12 @@ def fetch(item, target, algorithm, maximum, deadline):
             and ('bytes' not in item or length == item['bytes']), 'download_digest')
 
 
-def guestfish(image, operations, *, readonly=True, image_format='raw', timeout=300):
+def guestfish(image, operations, *, readonly=True, image_format='raw', timeout=300, operation=None):
     argv = ['guestfish', '--ro' if readonly else '--rw', '--format=' + image_format,
             '-a', image, 'set-pgroup', 'false', ':', 'set-network', 'false', ':', 'run']
-    for operation in operations:
-        argv.extend([':', *operation])
-    return command(argv, timeout=timeout).decode('utf-8', errors='strict')
+    for subcommand in operations:
+        argv.extend([':', *subcommand])
+    return command(argv, timeout=timeout, operation=operation).decode('utf-8', errors='strict')
 
 
 def root_device(output):
@@ -331,13 +350,15 @@ def safe_tree(archive, destination):
 def extract_boot(image, output, pins):
     require(digest(image, 'sha512', MAX_IMAGE)['sha512'] == pins['debian_image_sha512'],
             'image_digest')
-    device = root_device(guestfish(image, [['inspect-os']], image_format='qcow2'))
-    details = guestfish(image, [['inspect-get-distro', device],
+    device = root_device(guestfish(image, [['inspect-os']], image_format='qcow2',
+                                  operation='inspect_roots'))
+    details = guestfish(image, [['inspect-os'], ['inspect-get-distro', device],
                               ['inspect-get-major-version', device],
                               ['vfs-type', device], ['blockdev-getsize64', device]],
-                       image_format='qcow2').splitlines()
-    require(len(details) == 4 and details[:3] == ['debian', '13', 'ext4'], 'image_os')
-    size = int(details[3])
+                       image_format='qcow2', operation='inspect_details').splitlines()
+    require(len(details) == 5 and root_device(details[0]) == device, 'inspection_root_binding')
+    require(details[1:4] == ['debian', '13', 'ext4'], 'image_os')
+    size = int(details[4])
     require(0 < size <= MAX_ROOT and size % BLOCK_SIZE == 0, 'root_size')
     release = pins['kernel_release']
     guestfish(image, [['mount-ro', device, '/'],
@@ -345,13 +366,14 @@ def extract_boot(image, output, pins):
         ['download', '/boot/config-' + release, output / 'kernel.config'],
         ['download', '/boot/initrd.img-' + release, output / 'original-initrd.img'],
         ['download-offset', device, output / 'root.raw', '0', str(size)],
-        ['tar-out', '/usr', output / 'usr.tar']], image_format='qcow2', timeout=600)
+        ['tar-out', '/usr', output / 'usr.tar']], image_format='qcow2', timeout=600,
+        operation='extract_boot_files')
     kernel_config((output / 'kernel.config').read_text())
     tree = output / 'root-tree'
     safe_tree(output / 'usr.tar', tree / 'usr')
     for name in ('bin', 'sbin', 'lib', 'lib64'):
         target = guestfish(image, [['mount-ro', device, '/'], ['readlink', '/' + name]],
-                           image_format='qcow2').strip()
+                           image_format='qcow2', operation='readlink_' + name).strip()
         require(target == 'usr/' + name, 'usr_merge_binding')
         (tree / name).symlink_to(target)
     require((tree / 'usr/lib/modules' / release).is_dir(), 'kernel_modules')
@@ -387,7 +409,7 @@ def stage_root(output, packages, pins):
         ['chmod', '0600', RUNTIME + '/.volparossa-compute.lock'],
         ['chown', str(WORKER_UID), str(WORKER_UID), RUNTIME + '/.volparossa-compute.lock'],
         ['sync'], ['umount-all']])
-    guestfish(output / 'root.raw', operations, readonly=False)
+    guestfish(output / 'root.raw', operations, readonly=False, operation='stage_root')
 
 
 def verity_options(blocks):
@@ -520,7 +542,7 @@ def failure_reason(error):
         'command_failed', 'child_join_unconfirmed', 'process_group_remaining', 'process_group_signal_failed',
         'source_revision', 'source_dirty', 'source_changed', 'host_tool_missing',
         'download_origin', 'download_redirect', 'download_status', 'download_bound',
-        'download_digest', 'image_digest', 'one_inspected_root', 'image_os', 'root_size',
+        'download_digest', 'image_digest', 'one_inspected_root', 'inspection_root_binding', 'image_os', 'root_size',
         'kernel_modules', 'usr_merge_binding', 'archive_path', 'archive_bound',
         'archive_parent_symlink', 'archive_overwrite_symlink', 'archive_duplicate',
         'archive_hardlink', 'archive_special_file', 'package_digest', 'package_metadata',
@@ -602,7 +624,7 @@ def execute(args):
         stage = 'complete'
     except BaseException as error:
         primary = error
-        failure = {'stage': stage, 'reason': failure_reason(error)}
+        failure = {'stage': stage, 'reason': failure_reason(error), 'command': command_failure(error)}
         if isinstance(error, CleanupUnconfirmed):
             cleanup_safe = False
         raise

@@ -183,6 +183,68 @@ class InputContracts(unittest.TestCase):
             guest.assert_not_called()
 
 
+class InspectionContracts(unittest.TestCase):
+    def extract(self, directory, *, roots='/dev/sda1', details=('debian', '13', 'ext4', '4096')):
+        output = Path(directory)
+        pins = M.load_pins()
+        handles = []
+        def fresh_handle(_image, operations, **kwargs):
+            # Inspection cache exists only inside this one invocation.
+            inspected, emitted = False, []
+            handles.append((operations, kwargs['operation']))
+            for operation in operations:
+                name = operation[0]
+                if name == 'inspect-os':
+                    inspected = True
+                    emitted.extend((roots if len(handles) == 2 else '/dev/sda1').splitlines())
+                elif name.startswith('inspect-get-'):
+                    self.assertTrue(inspected, 'fresh handle has no inspection cache')
+                    emitted.append(details[0 if name == 'inspect-get-distro' else 1])
+                elif name == 'vfs-type':
+                    emitted.append(details[2])
+                elif name == 'blockdev-getsize64':
+                    emitted.append(details[3])
+                elif name == 'download' and str(operation[1]).startswith('/boot/config-'):
+                    names = ('BLK_DEV_INITRD', 'DEVTMPFS', 'EXT4_FS', 'BLK_DEV_DM', 'DM_VERITY',
+                             'VIRTIO_PCI', 'VIRTIO_BLK', 'SERIAL_8250', 'SERIAL_8250_CONSOLE')
+                    Path(operation[2]).write_text('\n'.join('CONFIG_' + key + '=y' for key in names))
+                elif name == 'readlink':
+                    emitted.append('usr/' + operation[1].removeprefix('/'))
+            return '\n'.join(emitted) + '\n'
+        def extracted(_archive, tree):
+            (tree / 'lib/modules' / pins['kernel_release']).mkdir(parents=True)
+        with mock.patch.object(M, 'digest', return_value={'sha512': pins['debian_image_sha512']}), \
+                mock.patch.object(M, 'guestfish', side_effect=fresh_handle), \
+                mock.patch.object(M, 'safe_tree', side_effect=extracted):
+            tree, size = M.extract_boot(output / 'public.qcow2', output, pins)
+        return tree, size, handles
+
+    def test_metadata_handle_inspects_before_cached_queries_and_binds_same_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tree, size, handles = self.extract(directory)
+            self.assertEqual(size, 4096)
+            self.assertEqual(tree, Path(directory) / 'root-tree')
+            self.assertEqual(handles[1], ([['inspect-os'], ['inspect-get-distro', '/dev/sda1'],
+                ['inspect-get-major-version', '/dev/sda1'], ['vfs-type', '/dev/sda1'],
+                ['blockdev-getsize64', '/dev/sda1']], 'inspect_details'))
+            self.assertEqual([entry[1] for entry in handles], ['inspect_roots', 'inspect_details',
+                'extract_boot_files', 'readlink_bin', 'readlink_sbin', 'readlink_lib', 'readlink_lib64'])
+
+    def test_metadata_handle_rejects_different_multiple_or_missing_roots(self):
+        for roots in ('/dev/sda2', '/dev/sda1\n/dev/sda2', ''):
+            with self.subTest(roots=roots), tempfile.TemporaryDirectory() as directory, \
+                    self.assertRaisesRegex(ValueError, 'inspection_root_binding'):
+                self.extract(directory, roots=roots)
+
+    def test_metadata_handle_preserves_exact_distribution_filesystem_and_size_guards(self):
+        for details in (('ubuntu', '13', 'ext4', '4096'), ('debian', '12', 'ext4', '4096'),
+                        ('debian', '13', 'xfs', '4096'), ('debian', '13', 'ext4', '4097'),
+                        ('debian', '13', 'ext4', str(M.MAX_ROOT + 4096))):
+            with self.subTest(details=details), tempfile.TemporaryDirectory() as directory, \
+                    self.assertRaises(ValueError):
+                self.extract(directory, details=details)
+
+
 class ArchiveContracts(unittest.TestCase):
     def archive(self, base, entries):
         path = base / 'fixture.tar'
@@ -399,10 +461,11 @@ class OwnedChildContracts(unittest.TestCase):
 
     def test_guestfish_keeps_appliance_in_owned_group_and_disables_network(self):
         with mock.patch.object(M, 'command', return_value=b'') as run:
-            M.guestfish(Path('/public/root.raw'), [['list-filesystems']])
+            M.guestfish(Path('/public/root.raw'), [['inspect-os']], operation='inspect_roots')
         argv = run.call_args.args[0]
         self.assertEqual(argv[argv.index('set-pgroup'):],
-            ['set-pgroup', 'false', ':', 'set-network', 'false', ':', 'run', ':', 'list-filesystems'])
+            ['set-pgroup', 'false', ':', 'set-network', 'false', ':', 'run', ':', 'inspect-os'])
+        self.assertEqual(run.call_args.kwargs, {'timeout': 300, 'operation': 'inspect_roots'})
         self.assertEqual(M.ENV['LIBGUESTFS_BACKEND_SETTINGS'], 'force_kvm')
 
 
@@ -423,7 +486,7 @@ class FailurePreservation(unittest.TestCase):
             raw = (Path(directory) / 'evidence/cleanup.json').read_text()
             self.assertNotIn('PRIVATE_CANARY', raw)
             value = json.loads(raw)
-            self.assertEqual(value['failure'], {'stage': 'host_tools', 'reason': 'unclassified'})
+            self.assertEqual(value['failure'], {'stage': 'host_tools', 'reason': 'unclassified', 'command': None})
             self.assertTrue(value['owned_scratch_removed'])
             self.assertFalse(value['boot_pair_verified'])
 
@@ -443,14 +506,15 @@ class FailurePreservation(unittest.TestCase):
         before = signal.getsignal(signal.SIGTERM)
         def interrupt():
             M.command([sys.executable, '-c',
-                'import os,signal,time; os.kill(os.getppid(),signal.SIGTERM); time.sleep(10)'])
+                'import os,signal,time; os.kill(os.getppid(),signal.SIGTERM); time.sleep(10)'],
+                operation='inspect_roots')
         with tempfile.TemporaryDirectory() as directory:
             start = time.monotonic()
             with self.assertRaisesRegex(ValueError, 'cancelled'):
                 self.exercise(directory, interrupt)
             self.assertLess(time.monotonic() - start, 3)
             value = json.loads((Path(directory) / 'evidence/cleanup.json').read_text())
-            self.assertEqual(value['failure'], {'stage': 'host_tools', 'reason': 'cancelled'})
+            self.assertEqual(value['failure'], {'stage': 'host_tools', 'reason': 'cancelled', 'command': None})
             self.assertTrue(value['original_process_groups_absent'])
             self.assertTrue(value['owned_scratch_removed'])
         self.assertIs(signal.getsignal(signal.SIGTERM), before)
@@ -464,6 +528,52 @@ class FailurePreservation(unittest.TestCase):
             self.assertIs(raised.exception, original)
             value = json.loads((Path(directory) / 'evidence/cleanup.json').read_text())
             self.assertEqual(value['failure']['reason'], 'command_failed')
+            self.assertEqual(value['cleanup_error'], 'scratch_removal_failed')
+            self.assertFalse(value['owned_scratch_removed'])
+
+    def test_command_failure_has_only_closed_operation_and_bounded_returncode(self):
+        for operation in M.GUESTFISH_OPERATIONS:
+            for code in (-64, -9, 1, 255):
+                failure = M.CommandFailed(code, operation)
+                self.assertEqual(M.failure_reason(failure), 'command_failed')
+                self.assertEqual(M.command_failure(failure), {'operation': operation, 'returncode': code})
+        for operation, code in (('PRIVATE_CANARY/path', 1), (None, 1), ('inspect_roots', 0),
+                                ('inspect_roots', True), ('inspect_roots', -65),
+                                ('inspect_roots', 256), ('inspect_roots', 'PRIVATE_CANARY')):
+            self.assertIsNone(M.command_failure(M.CommandFailed(code, operation)))
+        fabricated = ValueError('command_failed')
+        fabricated.operation, fabricated.returncode = 'inspect_roots', 1
+        self.assertIsNone(M.command_failure(fabricated))
+
+    def test_real_public_child_failure_retains_no_output_or_argv(self):
+        with self.assertRaises(M.CommandFailed) as raised:
+            M.command([sys.executable, '-c',
+                'import sys; print("PRIVATE_CANARY"); print("PRIVATE_STDERR", file=sys.stderr); sys.exit(7)'],
+                operation='inspect_roots')
+        self.assertEqual(raised.exception.args, ('command_failed',))
+        value = M.command_failure(raised.exception)
+        self.assertEqual(value, {'operation': 'inspect_roots', 'returncode': 7})
+        self.assertNotIn('PRIVATE', json.dumps(value))
+
+    def test_timeout_never_projects_its_cleanup_signal_as_program_returncode(self):
+        with self.assertRaisesRegex(ValueError, 'command_timeout') as raised:
+            M.command([sys.executable, '-c', 'import time; time.sleep(10)'],
+                      timeout=.05, operation='inspect_roots')
+        self.assertNotIsInstance(raised.exception, M.CommandFailed)
+        self.assertIsNone(M.command_failure(raised.exception))
+
+    def test_typed_failure_context_survives_scratch_cleanup_failure_without_masking_primary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original = M.CommandFailed(1, 'inspect_details')
+            with mock.patch.object(M.shutil, 'rmtree', side_effect=PermissionError('PRIVATE_CANARY')), \
+                    self.assertRaises(M.CommandFailed) as raised:
+                self.exercise(directory, original)
+            self.assertIs(raised.exception, original)
+            raw = (Path(directory) / 'evidence/cleanup.json').read_text()
+            self.assertNotIn('PRIVATE', raw)
+            value = json.loads(raw)
+            self.assertEqual(value['failure'], {'stage': 'host_tools', 'reason': 'command_failed',
+                'command': {'operation': 'inspect_details', 'returncode': 1}})
             self.assertEqual(value['cleanup_error'], 'scratch_removal_failed')
             self.assertFalse(value['owned_scratch_removed'])
 
