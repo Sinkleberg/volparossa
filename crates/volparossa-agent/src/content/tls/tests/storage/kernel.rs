@@ -1,5 +1,5 @@
 //! One signed FINALIZE through the production outer TLS/MPTCP adapter in an isolated netns.
-//! The two signed relay grants are authorization fixtures, not deployed WireGuard paths.
+//! The two signed relay grants are authorization fixtures, not deployed `WireGuard` paths.
 
 use super::*;
 use rcgen::generate_simple_self_signed;
@@ -26,8 +26,8 @@ use volparossa_mptcp::MptcpStream;
 use volparossa_policy::{DestinationRule, ProtocolPort, TransportProtocol, VerifiedManifest};
 use volparossa_protocol::{ReplayCache, TimePolicy, Transport};
 use volparossa_tcp_proxy::{
-    TcpAuthorizationScope, Tls13MptcpClient, Tls13MptcpServer, Tls13MptcpStream, VerifiedMptcpRoute,
-    read_authorized_open_tcp, write_open_tcp,
+    TcpAuthorizationScope, Tls13MptcpClient, Tls13MptcpServer, Tls13MptcpStream,
+    VerifiedMptcpRoute, read_authorized_open_tcp, write_open_tcp,
 };
 use volparossa_test_support::{SignedRouteFixture, verified_development_manifest};
 use wire::begin_observation::{self, Phase};
@@ -63,11 +63,13 @@ impl Outer {
         assert_eq!(route.path_count(), 2);
         let policy = verified_development_manifest(
             now,
-            vec![DestinationRule::exact_domain(
-                HOSTNAME,
-                [ProtocolPort::new(TransportProtocol::Tcp, PROVIDER_PORT).unwrap()],
-            )
-            .unwrap()],
+            vec![
+                DestinationRule::exact_domain(
+                    HOSTNAME,
+                    [ProtocolPort::new(TransportProtocol::Tcp, PROVIDER_PORT).unwrap()],
+                )
+                .unwrap(),
+            ],
         )
         .unwrap();
         let opening = fixture
@@ -210,9 +212,13 @@ async fn client(
         .await
         .unwrap();
     let mut transport = Owned::new(transport, &proof);
-    let mut inner = connect(&mut transport, fixture.provider_peer, &fixture.provider_offer)
-        .await
-        .unwrap();
+    let mut inner = connect(
+        &mut transport,
+        fixture.provider_peer,
+        &fixture.provider_offer,
+    )
+    .await
+    .unwrap();
     let challenge = wire::begin_observed(&mut inner, &fixture.grant, proof.as_ref())
         .await
         .unwrap();
@@ -341,7 +347,10 @@ async fn prepared() -> (Arc<Fixture>, StorageTarget) {
 }
 
 fn descriptor(stream: &MptcpStream) -> (PathBuf, PathBuf) {
-    let path = PathBuf::from(format!("/proc/self/fd/{}", stream.as_tcp_stream().as_raw_fd()));
+    let path = PathBuf::from(format!(
+        "/proc/self/fd/{}",
+        stream.as_tcp_stream().as_raw_fd()
+    ));
     let identity = fs::read_link(&path).unwrap();
     (path, identity)
 }
@@ -363,7 +372,10 @@ fn require_isolation() {
         .and_then(|value| value.strip_suffix(']'))
         .and_then(|value| value.parse::<u64>().ok());
     assert!(parent_number.is_some_and(|value| value > 0));
-    assert_ne!(fs::read_link("/proc/self/ns/net").unwrap().as_os_str(), parent);
+    assert_ne!(
+        fs::read_link("/proc/self/ns/net").unwrap().as_os_str(),
+        parent
+    );
     let enabled = fs::read_to_string("/proc/sys/net/mptcp/enabled").unwrap();
     assert_eq!(enabled.trim(), "1");
 }
