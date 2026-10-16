@@ -75,9 +75,9 @@ tasks on other people's devices, dependable AI reasoning, automatic reciprocal s
 maintenance, the complete immune system and authorized automatic software updates.
 Current integration work concentrates on shared storage maintenance with Image/Cloud and
 the prerequisites for confidential peer computation, while preserving the demonstrated
-coding workflow. The latest combined storage trial stops during an Image upload; the
-complete Image/Cloud repair-and-restore lifecycle has not passed. Android expiry and
-broader device support also remain open.
+coding workflow. The complete Image/Cloud repair-and-restore lifecycle remains
+unverified; failures during publication are still being investigated. Android expiry
+and broader device support also remain open.
 
 These results belong to their recorded revisions and test conditions. The original
 [A01–A15 transport acceptance run](https://github.com/VOLPAROSSA/volparossa/actions/runs/34047766913)
