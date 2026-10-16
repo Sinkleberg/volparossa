@@ -98,17 +98,39 @@ prefill checkpoints with the same model-driven read/edit/test task, owner
 controls, resource limits and post-task checks. The new core pin includes the
 separately verified native/Storage source join; it is not only a prefill change.
 
-[Storage challenge test `38826092150`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38826092150)
-uses test-only candidate `eaf9fa237a83dc3ded35c6afb301cdd35b6b90c9`, with
-production source unchanged from `dcdf7cfb`. Three regressions exercise signed
-receipts over genuine nested TLS, a full reverse transport buffer, and joined
-cancellation. The outer tunnel uses the existing 4,096-byte fixture capacity;
-the provider-side target buffer remains 16 bytes. They use in-memory transports
-and the production proxy, not real MPTCP or the complete Image/Cloud path.
-Their outcome cannot by itself
-establish the cause of the failed distributed trial.
+[Storage kernel test `38827974182`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38827974182)
+uses exact test-only source `f28510356adfe9147fe3dbb1b5521187d86fdd70`
+in PR268. It adds the production outer TLS/MPTCP adapter and signed `OPEN_TCP`
+to the signed FINALIZE/challenge/receipt exchange, with genuinely negotiated
+kernel sockets in a disposable loopback namespace. Reserve and Append
+preparation remain in memory. The existing three regressions and all production
+source are unchanged; the ten-second exchange deadline is retained.
+This targets the kernel and outer-adapter gap left by the in-memory result,
+not deployed relay paths or full Image/Cloud acceptance. Compilation, runtime,
+Clippy, formatting and original cleanup evidence remain pending.
 
 ### Latest completed integration evidence — 15–16 October
+
+- **Signed challenges pass under reverse backpressure and joined cancellation.**
+  [Scoped run `38826092150`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38826092150)
+  passes all three regressions on exact test-only source
+  `eaf9fa237a83dc3ded35c6afb301cdd35b6b90c9`, with no failures or ignored
+  tests. Agent-library test compilation, strict Clippy and formatting also
+  pass. Production source remains unchanged from `dcdf7cfb`.
+
+  The tests use genuine signed Storage exchanges through nested TLS and the
+  production proxy over in-memory transports. Both new cases reach the
+  provider's challenge write/flush boundary and the client's challenge-read
+  phase with a genuinely full 16-byte provider transport. Releasing the read
+  gate produces a verified receipt without an extra application write or EOF;
+  cancellation joins all three tasks and drops all four transport endpoints.
+  The outer tunnel retains the existing 4,096-byte fixture capacity, and the
+  original ten-second deadline is unchanged. This component result does not
+  prove real MPTCP, Image/Cloud consumer acceptance or the cause of the failed
+  distributed trial. The earlier failed fixture remains recorded below.
+  Original artifact and log ZIP SHA-256 values are respectively
+  `0d93ec6afa97aabe75825a5142a82ab6d14979011d7e1b848a174fd029a764d8`
+  and `b4ffd85313f8860d255332d427c5758afd3e7a2688e4b4fe114e694a6b59c569`.
 
 - **Signed nested-TLS receipts pass; the first challenge fixture misses its target.**
   [Scoped run `38824933092`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38824933092)
