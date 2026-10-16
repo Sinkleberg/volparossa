@@ -44,7 +44,7 @@ replace either trial or change its pins.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38851643524` on `878c2aa9` passes the base maintenance lifecycle but fails Cloud FINALIZE during flow acquisition; the prior Cloud APPEND failure and Image challenge stall remain distinct. The new helper diagnostic records one connection poll timeout, without request/fragment binding or a proven network cause. Source run `38850938318` passes compilation, 33 Rust and 185 Python tests, strict lint and formatting. Investigate connection setup and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 is merged, retaining that immutable core dependency; the native/Storage core candidate is not merged into core `main`. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Public boot trial `38855410093` passes the strict KVM preflight, but both original libguestfs probes later fail to open KVM with `EACCES`; access is already denied before QEMU exec. The measured context matches a baseline taken after that first VM, so it does not rule out an earlier permission change. Replace reliance on a temporary named ACL with validated process-scoped KVM-group access for the same unprivileged user; then finish sealed boot, runtime/model binding, a separate task grant and guest TLS. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
+| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Source `38858249218` passes 176 contracts; actual `38858400872` confirms the restricted KVM-group launcher and passes KVM admission, then fails at `image_extract / io_error`. A missing extraction-parent directory is separately reproduced and corrected, with 178 inert contracts and independent review passing; hosted verification remains required. Finish sealed boot, runtime/model binding, a separate task grant and guest TLS. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 ### Finite resident execution candidate
 
@@ -430,8 +430,44 @@ that restricted state before creating work or adopting staging. This follows
 and adds no permanent permission or sudoers change. All 176 inert contracts pass
 locally: 156 image cases, including five new privilege-drop cases, and 20 initrd
 cases. The launch-argument test uses an inert `sudo` stub, not actual privilege
-execution. Hosted source verification and an actual trial are still required.
-Immutable guest boot and protected resident-model execution remain open.
+execution. Hosted source run
+[`38858249218`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38858249218)
+passes on exact `104667a57e12ba0ff8cf0a08dae0ea9834097005`: the same 176
+unique contracts, syntax, ShellCheck and source preservation, with ten source
+blobs and seven unchanged dependencies verified. Original artifact and log ZIP
+SHA-256 values are
+`dfb489b3d2da2f133f85265da32d808f4ac29030fe4f8df3f7216403821c0845`
+and `4349060d83d2d4b5dd81ff43d576cad6879ea0ad522c4e6f5c9de90fcd7b2e0d`.
+
+Actual run
+[`38858400872`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38858400872)
+uses that same source. Its launch receipt confirms the same unprivileged user,
+validated primary KVM group, cleared supplementary groups and capability sets,
+and no-new-privileges. The strict same-binary QMP check passes; both original
+probe wrappers can access the KVM API, and the retained probe cache reports KVM
+present and enabled. The latter is still an uncorrelated diagnostic observation,
+not proof of a particular command's successful appliance boot.
+
+The build step fails after 45 seconds at `image_extract / io_error`, without a
+command-specific failure. No sealed image, initrd or successful boot pair is
+produced. Child joins, process-group absence, owned scratch removal, staging
+cleanup, original ACL restoration/comparison and source preservation pass.
+The contracts job again passes all 176 cases. Original boot-artifact and log ZIP
+SHA-256 values are
+`e72d36dc8ed24b66292078089545f1590053bcf2791c1ba6fbe4d102bfaf56b1`
+and `561f2ff13000f048a56bccc7c464ee2df2730a396b622ab979045402436e9da9`.
+
+Separate source reproduction identifies a missing parent: `extract_boot` calls
+the bounded archive extractor for `root-tree/usr` without first creating
+`root-tree`. A tiny public tar fixture using the real extractor reproduces
+`FileNotFoundError` on the previous source; this does not establish the exact
+exception location in that original actual run. The correction creates only
+the new parent at mode `0700`; it does not enable recursive creation or reuse
+an existing directory, file or symlink. The existing inspection test no longer
+mocks this extraction boundary. All 178 inert contracts pass locally (158 image,
+20 initrd), and the two new filesystem cases pass independent review. Hosted
+source verification and the actual immutable boot pair remain required.
+Protected resident-model execution remains open.
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).

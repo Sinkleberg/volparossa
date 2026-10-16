@@ -1361,6 +1361,7 @@ def extract_boot(image, output, pins):
         operation='extract_boot_files')
     kernel_config((output / 'kernel.config').read_text())
     tree = output / 'root-tree'
+    tree.mkdir(mode=0o700)
     safe_tree(output / 'usr.tar', tree / 'usr')
     for name in ('bin', 'sbin', 'lib', 'lib64'):
         target = guestfish(image, [['mount-ro', device, '/'], ['readlink', '/' + name]],

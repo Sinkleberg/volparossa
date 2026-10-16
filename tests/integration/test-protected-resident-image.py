@@ -218,14 +218,64 @@ class InspectionContracts(unittest.TestCase):
                     Path(operation[2]).write_text('\n'.join('CONFIG_' + key + '=y' for key in names))
                 elif name == 'readlink':
                     emitted.append('usr/' + operation[1].removeprefix('/'))
+                elif name == 'tar-out':
+                    with tarfile.open(operation[2], 'w') as archive:
+                        modules = tarfile.TarInfo('lib/modules/' + pins['kernel_release'])
+                        modules.type = tarfile.DIRTYPE
+                        modules.mode = 0o755
+                        archive.addfile(modules)
+                        public = tarfile.TarInfo('share/public-fixture')
+                        public.mode = 0o640
+                        public.size = len(b'public fixture')
+                        archive.addfile(public, io.BytesIO(b'public fixture'))
             return '\n'.join(emitted) + '\n'
-        def extracted(_archive, tree):
-            (tree / 'lib/modules' / pins['kernel_release']).mkdir(parents=True)
         with mock.patch.object(M, 'digest', return_value={'sha512': pins['debian_image_sha512']}), \
-                mock.patch.object(M, 'guestfish', side_effect=fresh_handle), \
-                mock.patch.object(M, 'safe_tree', side_effect=extracted):
+                mock.patch.object(M, 'guestfish', side_effect=fresh_handle):
             tree, size = M.extract_boot(output / 'public.qcow2', output, pins)
         return tree, size, handles
+
+    def test_fresh_root_tree_is_private_before_real_public_archive_extraction(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertFalse((Path(directory) / 'root-tree').exists())
+            tree, size, _handles = self.extract(directory)
+            self.assertEqual(size, 4096)
+            self.assertEqual(tree.stat().st_mode & 0o777, 0o700)
+            self.assertFalse(tree.is_symlink())
+            self.assertEqual((tree / 'usr/share/public-fixture').read_bytes(), b'public fixture')
+            self.assertEqual((tree / 'usr/share/public-fixture').stat().st_mode & 0o777, 0o640)
+            modules = tree / 'usr/lib/modules' / M.load_pins()['kernel_release']
+            self.assertEqual(modules.stat().st_mode & 0o777, 0o755)
+            for name in ('bin', 'sbin', 'lib', 'lib64'):
+                self.assertEqual(os.readlink(tree / name), 'usr/' + name)
+
+    def test_existing_root_tree_file_directory_or_symlink_is_not_reused(self):
+        for kind in ('directory', 'file', 'symlink', 'dangling_symlink'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                tree, outside = base / 'root-tree', base / 'outside'
+                outside.mkdir()
+                (outside / 'canary').write_bytes(b'unchanged')
+                if kind == 'directory':
+                    tree.mkdir()
+                elif kind == 'file':
+                    tree.write_bytes(b'unchanged')
+                else:
+                    tree.symlink_to(outside if kind == 'symlink' else base / 'missing')
+                original = tree.lstat()
+                with mock.patch.object(M, 'safe_tree', wraps=M.safe_tree) as extractor:
+                    with self.assertRaises(FileExistsError):
+                        self.extract(directory)
+                    extractor.assert_not_called()
+                self.assertEqual(tree.lstat(), original)
+                self.assertEqual(list(outside.iterdir()), [outside / 'canary'])
+                self.assertEqual((outside / 'canary').read_bytes(), b'unchanged')
+                if kind == 'directory':
+                    self.assertEqual(list(tree.iterdir()), [])
+                elif kind == 'file':
+                    self.assertEqual(tree.read_bytes(), b'unchanged')
+                else:
+                    self.assertEqual(os.readlink(tree), str(outside if kind == 'symlink'
+                                                           else base / 'missing'))
 
     def test_metadata_handle_inspects_before_cached_queries_and_binds_same_root(self):
         with tempfile.TemporaryDirectory() as directory:
