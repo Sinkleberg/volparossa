@@ -90,9 +90,50 @@ This failed preflight supplies no new evidence about the earlier runtime faults.
 
 The narrow test correction passes all 17 sampler cases locally and adds this
 suite to the hosted source gate: 17 allowed source files and five Python suites
-(185 expected cases). Hosted verification of this correction is pending. No
-production behavior, Image/Cloud pin, consumer profile 9 or network profile 2
-changes. The next actual trial requires that corrected source gate to pass.
+(185 expected cases). Original hosted source run
+[`38850938318`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38850938318)
+passes on exact `878c2aa9d906fff707a2036873e634800f9253e8`: helper and entrypoint
+compilation, 33 Rust and 185 Python cases, strict lint and formatting, with no
+failures or skips. All 17 source and 11 unchanged dependency blobs match.
+Original artifact and log ZIP SHA-256 values are
+`b697cfdff6c49cb74e2f38d6a1b361879690539f2526e42a86256dbba0396419`
+and `9777f5f3ba2faef946e5c6c4ac9bb1da6f7f43aad6c5460df5e07917cee4b0c3`.
+
+The subsequent actual run
+[`38851643524`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38851643524)
+uses that same source, Image `9694a2b9` and Cloud `47b0f03b`, consumer profile 9
+and network profile 2. It fails after 52 minutes 31 seconds. The original base
+maintenance components validate successfully: restart/resume, foreground
+interruption, two restores, replacement/retirement and deletion, with all three
+provider usage snapshots zero. That evidence precedes the consumer phase and
+does not establish the consumers' remote cleanup.
+
+The first closed consumer failure is Cloud FINALIZE fragment 0/copy 0 at
+`stream_open/flow_acquire`, with `CONTENT_UNAVAILABLE`. Two acquisition rounds
+report first `helper_kernel`, then `helper_cleanup_incomplete`; no TLS, challenge
+or provider outcome is recorded. The combined schema-8 report remains failed,
+with maintenance and consumer results absent, and the consumer-v9 acceptance
+gate is not reached. The earlier APPEND failure and Image challenge stall remain
+separate original outcomes.
+
+The new closed helper sidecar contains exactly one `poll/timed_out` record, with
+no errno. Its complete bounded projection corresponds to the helper's existing
+5,000-ms connection poll returning zero; it is not a kernel errno. It has no
+request/fragment binding and cannot prove which copy or retry produced it, or
+why the network connection did not finish. Inspect connection setup, route
+lifetime and failure cleanup next, without increasing the original deadlines or
+rerunning an unchanged candidate merely to seek a passing result.
+
+The consumer process joins and local fixture cleanup pass. Consumer provider
+usage and remote cleanup remain unproven. Guest network-state comparisons and
+owned-object cleanup pass; these concern the disposable guest, not a measured
+physical-host network snapshot. The runner reaches the final unchanged base-image
+hash check after confirmed QEMU stop/reap. There is no separate VM scratch-removal
+receipt, so the cleanup trap alone is not independent proof of that removal.
+Original artifact and log ZIP SHA-256 values are
+`f4e4e24e2e8066d3e71f4f604ff776446d66849983f0216913141e063668288d`
+and `e6a573302ce6944f46a280c57f6665b14b948d69b1a1b54007d087d86a5d4359`;
+both ZIP CRC checks pass and the artifact matches the API digest.
 
 ### Storage connection correlation candidate
 
