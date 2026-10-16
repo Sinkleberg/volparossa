@@ -33,16 +33,79 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resolve the failed Cloud transport acquisition, then complete consumer publication, repair, repeated restoration, deletion and confirmed provider cleanup. | Candidate `2ce38aa9` passes source run `38898873084`. Actual `38900639690` passes the separate core lifecycle but fails Cloud FINALIZE on fragment 0/copy 0: `helper_kernel` then `helper_cleanup_incomplete`. Consumer remote cleanup and provider usage remain unconfirmed. The helper timeout sidecar is not request-bound; investigate the acquisition/retirement path without treating it as a proven cause. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resolve the failed Cloud transport acquisition, then complete consumer publication, repair, repeated restoration, deletion and confirmed provider cleanup. | Candidate `acba3244` passes source run `38915098088` and adds authenticated request-local helper diagnostics without changing retries or cleanup. Original consumer trial `38917106698` has been dispatched; acceptance remains open. Earlier actual `38900639690` passes the separate core lifecycle but fails Cloud FINALIZE with `helper_kernel` then `helper_cleanup_incomplete`. Consumer remote cleanup and provider usage remain unconfirmed. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then repair, restore and delete it after provider loss. | PR279 joins upload profile 6 to shared consumer profile 10 on `dd1fd4df`; source run `38903572207` passes. A real upload trial still requires the shared Storage consumer acceptance above, joined cleanup and zero usage at all three providers. Finite authorization, HTTP PUT, enrollment, repeated restore and all-copy deletion remain required; source checks and synthetic-core SDK results do not replace them. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and the native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 keeps that immutable core pin. Core PR277 integrates the native-only composition after Quality and CodeQL pass; this main composition has not had a new model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Retain the failed package unit's bounded status, resolve installation, then execute two public model turns in the immutable guest before joining approved private workloads. | Actual `38906693746` on `707c46ad` reaches build-guest SSH readiness, then fails `guest_packages / guest_unit_failed`; the specific installer cause is not retained. Its source gates pass 100 Rust and 300 Python tests. Public immutable boot and PR262 key possession remain distinct from model execution and private-task admission; production approval, vendor appraisal and confidential hardware remain open. |
+| Protected remote compute — `volparossa`, then Code/Browser | Complete offline package installation, then execute two public model turns in the immutable guest before joining approved private workloads. | Actual `38911735085` reaches the build guest but fails at `package_plan`, before model construction. Candidate `315ddb3e` corrects a static curl/libcurl mismatch and passes source run `38916171428`; original actual `38917448052` has been dispatched. Public boot, source checks and PR262 key possession remain distinct from model execution and private-task admission. Production approval, vendor appraisal and confidential hardware remain open. |
 
 ### Current Storage upload and public model evidence
 
 These candidates remain separate from core main's accepted native coding backend.
 Source checks do not transfer the accepted Code trial to a new binary or establish
 Image/Cloud maintenance, model execution in the immutable guest, or private admission.
+
+#### Latest candidate source acceptance
+
+**Storage fixture diagnostics pass; consumer acceptance remains open.**
+[Source run `38915098088`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38915098088)
+passes on `acba3244cf01cd5e3263ea87e960a9b50a9a8604`, tree
+`c804882c1eb4185d6c35492ed5f1b57093284096`: 147 unique Rust tests, including
+two isolated kernel cases, 296 Python tests, 50 Node tests and 48 normalizer
+checks. Compilation, strict Clippy, formatting, all 60 source bindings, the
+unchanged dependencies, final source and normalized host-state comparisons pass.
+The earlier [source run `38913088623`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38913088623)
+passes those tests but fails one lint and six formatter hunks; `acba3244` applies
+only those verified corrections and records that outcome.
+
+Fixture schema 2 retains a helper rejection category only after authenticating
+the helper, request identifier and operation digest. It preserves the original
+first/last failures and round count; cancellation or phase advancement invalidates
+stale detail. It adds no helper operation or probe and changes no retry, deadline,
+route-retirement or cleanup behavior. The detail is request-local, not proof of
+a particular provider, fragment or cause. Version-1 output remains unchanged.
+[Original consumer trial `38917106698`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38917106698)
+was dispatched on this exact source with consumer profile 10, fixture schema 2
+and the unchanged Image `1e812ec6` / Cloud `35598609` pins. Its full publication,
+repair, restoration, deletion and remote-cleanup acceptance remains open.
+Source artifact and log ZIP SHA-256 values are
+`3d75ff58ed8b368837b0463bff496cd2f6353e9bc2669b319d59982a35201b93`
+and `928e2150bf74a3f0e2aec9d5e4e89e83e6fa53ae42563fa035249553afe4975a`.
+
+**The corrected model package selection passes source checks.**
+[Actual `38911735085`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38911735085)
+on `6ba9cb72` passes its 100 Rust/318 Python source gates and build-guest
+readiness, then fails the first package unit at `package_plan`. Archives are
+verified, but zero installed packages are verified. The last observed unit
+result is `exit-code` with code 1/status 1; the installer reports
+`installation_failed`. The original result does not distinguish an unsuccessful
+APT simulation from rejection of the proposed plan. Namespace/direct-child
+joining, policy restoration, unmounting, VM/tool joining, scratch removal and
+user-manager restoration pass; the final host route/DNS comparison is not reached.
+
+Static review finds that the pinned image's curl requires libcurl version u4,
+while the build lock selects u7 and initially leaves curl unselected. Candidate
+`315ddb3e` adds only matching curl u7 from the retained authenticated Debian
+security index: 199 build packages, the same 65 runtime packages and all 198
+earlier pins preserved. This corrects a specific incompatibility, not a proven
+cause of the original run or a complete dependency solution. Exact hash checks,
+offline plan validation, no-removal policy and existing-package preservation
+remain enforced. Closed diagnostic labels now distinguish plan-command and
+validation failures without exporting raw output or exception text.
+
+[Source run `38916171428`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38916171428)
+passes on `315ddb3e9226816ec8a542d4c7ace680a51264c2`, tree
+`2c523fcdef5c71adb51df59e01518cc9364122aa`: 100 unique Rust and 332 Python
+cases, compilation, strict Clippy, an empty formatter patch and unchanged final
+source. All 36 source blobs bind; all 560 Cargo identities and four original
+model/image/helper inputs remain unchanged. The new Debian lock is explicitly
+bound. [Original actual `38917448052`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38917448052)
+was dispatched with this exact expected source. Package installation, sealed
+model construction, two model turns and private-peer execution remain unproven.
+Source artifact and log ZIP SHA-256 values are
+`6929e55f061ab4bde3e5ff65a86ba6d0972c2fecef1bc7bcde99cddae67c1cc7`
+and `632dbda399e7fe72f8c9949c4cbce163ab5c31b9e1264604df9a5501afce8b8c`.
+
+#### Earlier outcomes and dependent upload work
 
 **Storage source checks and the core lifecycle pass; Cloud publication fails.**
 [Source run `38898873084`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38898873084)
@@ -135,8 +198,8 @@ are not retained, so the specific package failure is unknown.
 The build VM and tool groups join, the scope is empty, owned payload removal and
 user-manager restoration pass, and tracked source remains unchanged. Final host
 route/DNS comparison is not reached. Guest TLS, two real model turns and the model
-image's corruption checks remain unproven. The next step preserves bounded unit
-status and the existing installer's closed failure receipt before cleanup; it does
+image's corruption checks remain unproven. The subsequent diagnostic change preserves bounded unit
+status and the existing installer's closed failure receipt after unit stop and an empty cgroup; it does
 not change package pins, permissions, resource limits or acceptance conditions.
 This run passes the earlier readiness boundary without proving the earlier
 boot-timeout's cause. Original actual trial and log ZIP SHA-256 values are
