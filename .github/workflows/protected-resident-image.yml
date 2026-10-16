@@ -144,7 +144,6 @@ jobs:
     timeout-minutes: 45
     env:
       EXPECTED_SOURCE: ${{ inputs.expected_source }}
-      PUBLIC_EVIDENCE_DIR: ${{ runner.temp }}/protected-resident-image-evidence-${{ github.run_id }}
       LIBGUESTFS_BACKEND: direct
       LIBGUESTFS_BACKEND_SETTINGS: force_kvm
       LIBGUESTFS_MEMSIZE: '2048'
@@ -166,7 +165,7 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=all)"
           test "$(dpkg --print-architecture)" = amd64
           umask 077
-          mkdir "$PUBLIC_EVIDENCE_DIR"
+          mkdir "$RUNNER_TEMP/protected-resident-image-evidence-$GITHUB_RUN_ID"
       - name: Install official tools only on this disposable hosted runner
         run: |
           set -euo pipefail
@@ -180,13 +179,13 @@ jobs:
             cpio zstd initramfs-tools-core acl
           dpkg-query -W -f='${binary:Package} ${Version}\n' \
             libguestfs-tools qemu-system-x86 qemu-utils cryptsetup-bin cpio zstd initramfs-tools-core \
-            >"$PUBLIC_EVIDENCE_DIR/host-packages.txt"
+            >"$RUNNER_TEMP/protected-resident-image-evidence-$GITHUB_RUN_ID/host-packages.txt"
       - name: Grant and record only temporary KVM device access
         run: |
           set -euo pipefail
           test -c /dev/kvm
           test "$(stat -c '%u' /dev/kvm)" = 0
-          getfacl -p /dev/kvm >"$PUBLIC_EVIDENCE_DIR/kvm-original.acl"
+          getfacl -p /dev/kvm >"$RUNNER_TEMP/protected-resident-image-evidence-$GITHUB_RUN_ID/kvm-original.acl"
           sudo -n setfacl -m "u:$(id -u):rw" /dev/kvm
       - name: Build and boot the public verity fixture and its corrupt negative
         timeout-minutes: 30
@@ -205,9 +204,9 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          if test -f "$PUBLIC_EVIDENCE_DIR/kvm-original.acl"; then
-            sudo -n setfacl --restore="$PUBLIC_EVIDENCE_DIR/kvm-original.acl"
-            getfacl -p /dev/kvm | cmp "$PUBLIC_EVIDENCE_DIR/kvm-original.acl" -
+          if test -f "$RUNNER_TEMP/protected-resident-image-evidence-$GITHUB_RUN_ID/kvm-original.acl"; then
+            sudo -n setfacl --restore="$RUNNER_TEMP/protected-resident-image-evidence-$GITHUB_RUN_ID/kvm-original.acl"
+            getfacl -p /dev/kvm | cmp "$RUNNER_TEMP/protected-resident-image-evidence-$GITHUB_RUN_ID/kvm-original.acl" -
           fi
       - name: Retain source identity
         if: always()

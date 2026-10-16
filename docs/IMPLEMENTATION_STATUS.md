@@ -110,6 +110,14 @@ private input. Its build manifest records evidence, not independent production
 approval or hardware attestation. The subsequent worker/channel integration
 remains the end-to-end milestone above.
 
+Original push
+[`38842022060`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38842022060)
+on `bc1cd6fd7685a57d2cda118eb08ec523e129eaf4` fails before any job starts:
+GitHub rejects `runner.temp` in job-level `env`. No hosted test or boot runs and
+no artifact is produced. The correction derives the same temporary evidence
+path from shell `RUNNER_TEMP` inside each step; all image and bootstrap code,
+tests and input pins remain unchanged. Hosted verification is still pending.
+
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
 The latest completed outcomes are summarized below.
