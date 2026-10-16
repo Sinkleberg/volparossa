@@ -232,6 +232,41 @@ class BootContracts(unittest.TestCase):
         return subprocess.run(["/bin/sh", "-c", "set -eu\n" + receipt + body],
                               text=True, capture_output=True, timeout=5, check=False)
 
+    def test_verity_open_uses_exact_pinned_cli_arguments_without_fallback(self):
+        # Pinned 2.7.5 has no batch-mode option; unknown options fail before open:
+        # https://github.com/mbroz/cryptsetup/blob/v2.7.5/src/veritysetup_arg_list.h
+        # https://github.com/mbroz/cryptsetup/blob/v2.7.5/src/veritysetup.c#L525-L558
+        block = INIT.split("stage=verity_open\n", 1)[1].split(
+            "/usr/sbin/dmsetup mknodes vp-root\n", 1)[0]
+        self.assertTrue(block.startswith("/usr/sbin/veritysetup open "))
+        self.assertTrue(block.endswith('"$ROOT_HASH" >/dev/null 2>&1\n'))
+        self.assertEqual(block.count("/usr/sbin/veritysetup"), 1)
+        # Only substitute the executable with a shell function: no device opens,
+        # real verity binary, bootstrap mounts or privileged operations execute.
+        captured = block.replace("/usr/sbin/veritysetup", "capture_veritysetup", 1)
+        bindings = "\n".join(line for line in INIT.splitlines()
+                             if line.startswith(("ROOT_HASH=", "DATA_BLOCKS=", "SALT=")))
+        root_hash = "0123456789abcdef" * 4
+        for blocks in (1, 753408, M.MAX_DATA_BLOCKS):
+            for status in (0, 7):
+                with self.subTest(blocks=blocks, status=status):
+                    values = bindings.replace("@ROOT_HASH@", root_hash).replace(
+                        "@DATA_BLOCKS@", str(blocks))
+                    body = ("set -efu\nexec 3>&1\n" + values + "\n"
+                            "capture_veritysetup() { printf '%s\\n' \"$@\" >&3; "
+                            f"return {status}; }}\n" + captured + "printf 'returned\\n'\n")
+                    result = subprocess.run(["/bin/sh", "-c", body], stdin=subprocess.DEVNULL,
+                        text=True, capture_output=True, timeout=5, check=False,
+                        env={"PATH": "/nonexistent", "LC_ALL": "C"})
+                    expected = ["open", "--no-superblock", "--format=1", "--hash=sha256",
+                        "--data-block-size=4096", "--hash-block-size=4096",
+                        "--data-blocks=" + str(blocks), "--salt=" + "0" * 64,
+                        "/dev/vda", "vp-root", "/dev/vdb", root_hash]
+                    self.assertEqual(result.stdout.splitlines(),
+                                     expected + (["returned"] if status == 0 else []))
+                    self.assertEqual(result.returncode, status)
+                    self.assertEqual(result.stderr, "")
+
     def test_success_receipt_is_closed_and_never_private_authority(self):
         result = self.shell("stage=complete\nreceipt boot_verified\n")
         self.assertEqual(result.returncode, 0, result.stderr)

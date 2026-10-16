@@ -44,7 +44,7 @@ replace either trial or change its pins.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38851643524` on `878c2aa9` passes the base maintenance lifecycle but fails Cloud FINALIZE during flow acquisition; the prior Cloud APPEND failure and Image challenge stall remain distinct. The new helper diagnostic records one connection poll timeout, without request/fragment binding or a proven network cause. Source run `38850938318` passes compilation, 33 Rust and 185 Python tests, strict lint and formatting. Investigate connection setup and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 is merged, retaining that immutable core dependency; the native/Storage core candidate is not merged into core `main`. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Source `38858249218` passes 176 contracts; actual `38858400872` confirms the restricted KVM-group launcher and passes KVM admission, then fails at `image_extract / io_error`. A missing extraction-parent directory is separately reproduced and corrected, with 178 inert contracts and independent review passing; hosted verification remains required. Finish sealed boot, runtime/model binding, a separate task grant and guest TLS. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
+| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Source `38859500185` passes 178 contracts; actual `38859687975` now builds the sealed image and minimal initrd and executes the guest bootstrap, but rejects it at `verity_open`. A separately identified unsupported CLI option is being corrected. Finish the successful and corrupted boot pair, runtime/model binding, a separate task grant and guest TLS. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 ### Finite resident execution candidate
 
@@ -466,8 +466,45 @@ the new parent at mode `0700`; it does not enable recursive creation or reuse
 an existing directory, file or symlink. The existing inspection test no longer
 mocks this extraction boundary. All 178 inert contracts pass locally (158 image,
 20 initrd), and the two new filesystem cases pass independent review. Hosted
-source verification and the actual immutable boot pair remain required.
-Protected resident-model execution remains open.
+source run
+[`38859500185`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38859500185)
+passes on exact `5e1f68af894b6b0be41cd8388baabf72a5928108`: all 178 unique
+contracts, syntax, ShellCheck, source preservation and the same ten source/seven
+dependency bindings. Original artifact and log ZIP SHA-256 values are
+`3bf1c99e5ea8cdb0154139dc33a8f07c7aa9bac35520fa148aa13431e5699bb1`
+and `c7c561b88924e7c8d7c742d6191589ca2afb20b5c9c26feb3cbe55c635f333c0`.
+
+Actual run
+[`38859687975`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38859687975)
+uses the same source and now produces the sealed-image and minimal-initrd
+receipts. The guest bootstrap executes on the pinned kernel and emits
+`boot_rejected / verity_open`. That stage includes mapper creation, node setup,
+read-only and size checks; the original receipt does not identify a particular
+failed suboperation. No successful boot or corrupted-image receipt exists, and
+the post-boot input rehash is not reached. All proof flags remain false.
+
+The build receipt binds the fixed image/packages and a 3,085,959,168-byte root;
+the 7,111,234-byte initrd has 38 recorded closure entries. The build step takes
+74 seconds within its original limits. All 178 contracts, launch checks, child
+joins, process-group absence, scratch/staging cleanup, original ACL restoration
+and source checks pass. Original boot-artifact and log ZIP SHA-256 values are
+`e60b5d1d69a4aedc7eb89de0b740803a3e8eca95494bbabefb19af88516cf0ab`
+and `e93dcc141adcf0518c2597dc631614575695b1302fcfb9cc07787fcc89204ab0`.
+
+Source review independently identifies an invalid option in the guest command:
+the pinned veritysetup version does not support `--batch-mode`. Its
+[complete option table](https://github.com/mbroz/cryptsetup/blob/v2.7.5/src/veritysetup_arg_list.h)
+and [parser](https://github.com/mbroz/cryptsetup/blob/v2.7.5/src/veritysetup.c)
+reject unknown options before opening a mapping. Removing that option preserves
+the fixed devices, root hash, salt, block counts and all integrity checks; it
+does not prove the exact historical failure suboperation. The corresponding
+Debian source packaging has no patch changing this parser. The manual's listing
+of the option conflicts with the executable's source and is not relied on here.
+The new inert shell test captures the exact bootstrap command's arguments and
+preserves both successful and failed command status without executing a device
+tool. It fails with the former extra option and passes after its removal; all
+179 contracts pass locally (158 image, 21 initrd). Hosted verification, the
+actual immutable boot pair and protected resident-model execution remain open.
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).

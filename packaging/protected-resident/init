@@ -55,7 +55,7 @@ stage=devices
 [ "$(/usr/sbin/blockdev --getro /dev/vdb)" = 1 ]
 [ "$(/usr/sbin/blockdev --getsize64 /dev/vda)" = "$((DATA_BLOCKS * 4096))" ]
 stage=verity_open
-/usr/sbin/veritysetup open --batch-mode --no-superblock --format=1 --hash=sha256 \
+/usr/sbin/veritysetup open --no-superblock --format=1 --hash=sha256 \
     --data-block-size=4096 --hash-block-size=4096 --data-blocks="$DATA_BLOCKS" \
     --salt="$SALT" /dev/vda vp-root /dev/vdb "$ROOT_HASH" >/dev/null 2>&1
 /usr/sbin/dmsetup mknodes vp-root
