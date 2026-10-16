@@ -113,9 +113,15 @@ jobs:
           set -euo pipefail
           group() {
             local label="$1" package="$2" filter="$3"
-            timeout --kill-after=5s 180s cargo test --locked --offline -p "$package" --lib "$filter" -- --list \
+            local -a target
+            case "$package" in
+              volparossa-agent) target=(--lib) ;;
+              volparossa) target=(--bin volparossa) ;;
+              *) return 1 ;;
+            esac
+            timeout --kill-after=5s 180s cargo test --locked --offline -p "$package" "${target[@]}" "$filter" -- --list \
               2>&1 | tee "cloud-upload-contract-evidence/$label-inventory.log"
-            timeout --kill-after=5s 180s cargo test --locked --offline -p "$package" --lib "$filter" \
+            timeout --kill-after=5s 180s cargo test --locked --offline -p "$package" "${target[@]}" "$filter" \
               2>&1 | tee "cloud-upload-contract-evidence/$label-test.log"
           }
           group retirement volparossa-agent lost_helper_retirement_

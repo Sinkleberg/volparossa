@@ -43,6 +43,25 @@ Parent results do not establish acceptance of the combination. The original
 Storage trial `38884826395` remains bound to `33faa744`, not this candidate.
 The upload continuation must then pass its own real consumer lifecycle.
 
+Original source run
+[`38888241967`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38888241967)
+on exact `da3a38b61c0e7e23fe9e41c08a869f3ec4aff457` compiles the joined
+agent and CLI, passes 21 unique agent cases, strict Clippy, formatting and final
+source preservation. All 77 parent bindings, 71 unchanged inherited paths and
+eight dependency identities match. The overall run fails because its CLI
+inventory incorrectly requests a library target: `volparossa` has only a binary.
+The five authority tests do not start; hosted Python and Node checks are skipped.
+Their local results above do not replace missing hosted results.
+
+The correction selects `--lib` for the agent and `--bin volparossa` for the CLI
+in both inventory and execution. Independent source and inert argument checks
+pass; production code, case counts, filters, pins and budgets are unchanged.
+The corrected hosted gate remains pending. Original artifact and log ZIP
+SHA-256 values are
+`6787253b33b823421ad96ddd37c169550f1724b69030366efe1462ddeb10e7f5`
+and `4ba1abbcdfefa410f103c4092f57d275019698db4f7a71c7bc0858ce12018ebb`;
+the artifact API digest and both archive CRCs pass.
+
 ### Fresh TCP admission after route-slot waits
 
 The latest completed actual consumer trial
