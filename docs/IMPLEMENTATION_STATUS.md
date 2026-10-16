@@ -16,15 +16,57 @@ Last updated: 2026-10-16
 
 ## Current integration and active work
 
+### Closed helper acquisition diagnostic candidate
+
+Actual run
+[`38838512301`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38838512301)
+on `9209c6feced0db5da5cae614775769c60b2ff11b` reaches Cloud publication but fails
+APPEND fragment 0/copy 1 before TLS: the first flow-acquisition error is
+`helper_kernel`, the last `helper_cleanup_incomplete`. Its valid correlation
+sidecar does not identify the kernel operation or bind that event to a fragment.
+The base lifecycle, restore and delete checks pass, but consumer maintenance and
+remote cleanup remain unproven. The earlier Image challenge stall in
+`38816407455` is a separate unresolved failure. Original artifact and log ZIP
+SHA-256 values for `38838512301` are
+`533cdd4463ae281c4e11ffeb3d32c7dc65ee6432b80629184295e04deb71490c`
+and `400c49417576e1c455bced674b73b37e7df6b8033f607c18dc00d55636843eef`.
+
+The next source candidate preserves the socket operation, closed failure class
+and optional original errno inside the helper's credentialed response. This
+optional detail applies only to a failed client MPTCP acquisition; it contains
+no address, path, peer identity or free-form error. It does not change the public
+helper response, original result, deadlines, retries or descriptor cleanup.
+Existing responses without the detail retain their bytes. A later parent-side
+descriptor-adoption failure may still report `Kernel` without this detail.
+
+The fixture projects the private client-helper log after the existing helper
+shutdown into `private-storage-maintenance-helper-acquire.json`. It reads at
+most 4 MiB, retains at most 64 closed records and exports at most 16 KiB. Missing,
+changed, malformed or truncated observations stay explicit. Normal and emergency
+export validate the same schema; raw helper logs remain excluded. This projection
+does not bind a record to an application request or fragment/copy, prove the
+cause, prove absence of other failures, or establish remote cleanup. Diagnostic
+failure cannot replace the original consumer result.
+
+Thirteen new Rust contracts cover the closed response, credentials, descriptor
+rejection, unchanged result mapping and typed tracing. The source workflow
+compiles the helper and its real entrypoint, runs those and selected existing
+boundary contracts, and checks the Python projection and maintenance exporters.
+Rust execution and the next actual trial remain pending. Image/Cloud pins,
+consumer profile 9 and network profile 2 are unchanged; another full trial waits
+for this source gate rather than repeating the same opaque failure.
+
 ### Storage connection correlation candidate
 
 The next diagnostic candidate targets the unresolved Image publication stall in
 [actual run 38816407455](https://github.com/VOLPAROSSA/volparossa/actions/runs/38816407455).
 It observes the client and provider sides of an inner TLS stream without changing
 storage wire bytes, permissions or operation deadlines. The recorded candidate
-passes compilation and targeted runtime checks; its lint correction and the full
-consumer trial remain unverified. This is not a storage fix or consumer acceptance
-result.
+passes corrected hosted source run
+[`38837117036`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38837117036):
+120 Rust and 267 Python tests, compilation, strict lint and formatting. The
+subsequent actual consumer failure is recorded above. This diagnostic is not a
+storage fix or consumer acceptance result.
 
 An explicit development-only command on the existing local socket arms a
 short-lived, Unix-owner-bound RAM buffer. Client writes and provider reads hash
