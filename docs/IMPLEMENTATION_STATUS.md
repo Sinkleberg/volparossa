@@ -226,8 +226,40 @@ Source metadata, copied bytes, embedded release and matching module index are
 checked before adoption into the existing cleanup scope. No host kernel permissions
 change, no substitute kernel is installed, and the original 1,200-second budget
 starts before staging. All 96 inert contracts pass locally (76 runner/image and
-20 initrd/bootstrap), including 20 new staging and closed-error cases. Hosted source and actual
-boot verification remain pending; this is not protected resident-model execution.
+20 initrd/bootstrap), including 20 new staging and closed-error cases. Original
+hosted source run
+[`38848792036`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38848792036)
+on `bd0e929a07c3790c9794aa09ec21b9db735d8f3b` passes those same cases, syntax,
+ShellCheck and unchanged-source checks. All ten source blobs and seven unchanged
+dependencies match. Original artifact and log ZIP SHA-256 values are
+`2fe024b71b4a46b1804e812eff3f64d6186bda3d4f43fac2d1a9abfd152ba35b`
+and `9fa10ab2388a76a3587b004870bc3498d0742294509584f387d84dab202a9311`.
+
+Actual run
+[`38849036346`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38849036346)
+on that same source confirms kernel staging and adoption, then fails at
+`inspect_roots` with exit `1` and the closed class `kvm_unavailable`. The staged
+runner kernel is `6.17.0-1022-azure`, 16,017,480 bytes, SHA-256
+`195c688fb2b9cb0b7e27d66d11bbf618dcdc5db1a380ac14e5a2ffac766e9681`;
+the final Debian kernel pin is unchanged. KVM API 12 is observable, but the
+original receipt contains no VM-creation result or errno. libguestfs's detection
+has not enabled KVM; this does not identify a hardware, permission or QEMU cause.
+No build, initrd or boot-pair receipt exists. Child joins, process-group absence,
+payload/staging cleanup, KVM ACL restoration/comparison and source checks pass.
+Original boot artifact and log ZIP SHA-256 values are
+`de52818d697c217a64365a08f76ca65e93841000d6b5cb161061966e8cc576e2`
+and `1f9ad26f55685afe1ddea640c485283c9c78f74adb2482a2074c866bc1ff75e3`.
+
+The next candidate adds a bounded, paused QEMU check before downloads, using the
+same hash-bound executable as libguestfs and no disk or network. It requires
+strictly parsed QMP KVM `present` and `enabled` results, a natural zero exit and
+the existing process cleanup. Only closed diagnostic fields enter the existing
+build or cleanup receipt. The original 1,200-second budget remains unchanged;
+there is no software-emulation fallback or privileged guestfish execution.
+All 116 inert cases pass locally (96 image/runner and 20 initrd/bootstrap),
+including 20 new QMP cases; shell syntax, ShellCheck and workflow syntax checks
+also pass. Hosted source and actual KVM verification of this candidate remain
+pending. Immutable guest boot and protected resident-model execution remain open.
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).

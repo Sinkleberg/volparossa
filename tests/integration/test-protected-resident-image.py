@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import stat
 import sys
 import tarfile
 import tempfile
@@ -461,11 +462,13 @@ class OwnedChildContracts(unittest.TestCase):
         self.assertTrue(processes[0].stderr.closed)
 
     def test_guestfish_keeps_appliance_in_owned_group_and_disables_network(self):
-        with mock.patch.object(M, 'command', return_value=b'') as run:
+        with mock.patch.object(M, 'command', return_value=b'') as run, \
+                mock.patch.object(M, 'bound_hypervisor', return_value='/public/qemu'):
             M.guestfish(Path('/public/root.raw'), [['inspect-os']], operation='inspect_roots')
         argv = run.call_args.args[0]
         self.assertEqual(argv[argv.index('set-pgroup'):],
-            ['set-pgroup', 'false', ':', 'set-network', 'false', ':', 'run', ':', 'inspect-os'])
+            ['set-pgroup', 'false', ':', 'set-network', 'false', ':', 'set-hv', '/public/qemu',
+             ':', 'run', ':', 'inspect-os'])
         self.assertEqual(run.call_args.kwargs, {'timeout': 300, 'operation': 'inspect_roots'})
         self.assertEqual(M.ENV['LIBGUESTFS_BACKEND_SETTINGS'], 'force_kvm')
 
@@ -649,12 +652,17 @@ class ApplianceDiagnostics(unittest.TestCase):
             order.append('download')
             deadlines.append(M.DEADLINE.get())
             raise original
+        def admit(_tools, value):
+            order.append('qmp')
+            deadlines.append(M.DEADLINE.get())
+            value.update(state='passed', present=True, enabled=True)
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.object(M, 'hosted_output', return_value=Path(directory)), \
                 mock.patch.object(M, 'adopt_appliance', side_effect=lambda *_: dict(
                     deadline=M.DEADLINE.get(), receipt={'version': 1})), \
                 mock.patch.object(M, 'source_binding', return_value={'revision': 'a' * 40}), \
                 mock.patch.object(M, 'tool_inventory', return_value={}), \
+                mock.patch.object(M, 'qmp_preflight', side_effect=admit), \
                 mock.patch.object(M, 'appliance_preflight', side_effect=sample), \
                 mock.patch.object(M, 'fetch', side_effect=download), \
                 self.assertRaises(ValueError) as raised:
@@ -665,12 +673,14 @@ class ApplianceDiagnostics(unittest.TestCase):
                 value = json.loads((evidence / 'cleanup.json').read_text())
                 self.assertEqual(set(path.name for path in evidence.iterdir()), {'cleanup.json'})
                 self.assertEqual(value['appliance_preflight'], observed)
+                self.assertEqual(value['qmp_kvm_preflight']['state'], 'passed')
                 self.assertEqual(value['failure']['reason'], 'download_digest')
                 self.assertTrue(value['owned_scratch_removed'])
         self.assertIs(raised.exception, original)
-        self.assertEqual(order, ['observe', 'download'])
+        self.assertEqual(order, ['observe', 'qmp', 'download'])
         self.assertIsNotNone(deadlines[0])
         self.assertEqual(deadlines[0], deadlines[1])
+        self.assertEqual(deadlines[1], deadlines[2])
 
 
 class FailurePreservation(unittest.TestCase):
@@ -1001,17 +1011,21 @@ class ApplianceStaging(unittest.TestCase):
             seen.append(kwargs['env'])
             return original_popen([sys.executable, '-c', 'pass'], **kwargs)
         with mock.patch.object(M, 'appliance_environment', return_value=expected) as bound, \
+                mock.patch.object(M, 'bound_hypervisor', return_value='/public/qemu'), \
                 mock.patch.object(M.subprocess, 'Popen', side_effect=spawn), \
                 mock.patch.dict(M.os.environ, {'SUPERMIN_KERNEL': 'PRIVATE_CANARY'}):
             M.command(['guestfish', 'public-fixture'])
             M.command([sys.executable, '-c', 'pass'])
         bound.assert_called_once_with()
         self.assertEqual({key: seen[0][key] for key in expected}, expected)
+        self.assertEqual(seen[0]['LIBGUESTFS_HV'], '/public/qemu')
+        self.assertNotIn('LIBGUESTFS_HV', seen[1])
         self.assertTrue(set(expected).isdisjoint(seen[1]))
         self.assertNotIn('PRIVATE_CANARY', json.dumps(seen))
 
     def test_missing_binding_or_changed_staged_bytes_rejects_before_guestfish_spawn(self):
         with mock.patch.object(M.subprocess, 'Popen') as spawned, \
+                mock.patch.object(M, 'bound_hypervisor', return_value='/public/qemu'), \
                 self.assertRaisesRegex(ValueError, 'appliance_stage_binding'):
             M.command(['guestfish'])
         spawned.assert_not_called()
@@ -1048,6 +1062,7 @@ class ApplianceStaging(unittest.TestCase):
             raise original
         with mock.patch.object(M, 'hosted_output', return_value=work), \
                 mock.patch.object(M, 'tool_inventory', return_value={}), \
+                mock.patch.object(M, 'qmp_preflight'), \
                 mock.patch.object(M, 'appliance_preflight', return_value={}), \
                 mock.patch.object(M, 'fetch', side_effect=fail), self.assertRaises(ValueError) as raised:
             M.execute(SimpleNamespace(**vars(self.args), work=str(work)))
@@ -1112,6 +1127,322 @@ class ApplianceStaging(unittest.TestCase):
             with mock.patch.object(M.os, 'geteuid', return_value=0), \
                     self.assertRaisesRegex(ValueError, 'hosted_only'):
                 self.real_stage_path()
+
+
+class QmpAdmission(unittest.TestCase):
+    def frames(self):
+        return [dict(QMP=dict(version=dict(qemu=dict(major=8, minor=2, micro=2),
+                                            package='public fixture'), capabilities=['oob'])),
+                {'return': {}, 'id': 'capabilities'},
+                {'return': {'present': True, 'enabled': True}, 'id': 'kvm'},
+                {'return': {}, 'id': 'quit'}]
+
+    def shutdown(self):
+        return dict(event='SHUTDOWN', data=dict(guest=False, reason='host-qmp-quit'),
+                    timestamp=dict(seconds=123, microseconds=456))
+
+    def raw(self, values=None):
+        return b''.join(json.dumps(value).encode() + b'\r\n'
+                        for value in (self.frames() if values is None else values))
+
+    def call(self, observed=None, *, output=None, error=None, capture=None):
+        observed = M.qmp_observation() if observed is None else observed
+        def run(argv, **kwargs):
+            source = kwargs['qmp_input']
+            info = os.fstat(source.fileno())
+            self.assertTrue(stat.S_ISREG(info.st_mode))
+            self.assertEqual(stat.S_IMODE(info.st_mode), 0o600)
+            self.assertEqual(info.st_nlink, 0)
+            self.assertEqual(source.tell(), 0)
+            self.assertEqual(source.read(), M.QMP_COMMANDS)
+            self.assertEqual(kwargs['timeout'], 15)
+            self.assertEqual(kwargs['maximum'], 32768)
+            self.assertEqual(kwargs['operation'], M.QMP_OPERATION)
+            if capture is not None:
+                capture.append((argv, source))
+            if error is not None:
+                raise error
+            return self.raw() if output is None else output
+        with mock.patch.object(M, 'bind_hypervisor', return_value='a' * 64), \
+                mock.patch.object(M, 'bound_hypervisor', return_value='/usr/bin/qemu-system-x86_64'), \
+                mock.patch.object(M, 'command', side_effect=run):
+            M.qmp_preflight({}, observed)
+        return observed
+
+    def test_exact_greeting_ordered_replies_and_both_documented_quit_endings(self):
+        cases = [self.frames(), self.frames() + [self.shutdown()],
+                 self.frames()[:3] + [self.shutdown()],
+                 self.frames()[:3] + [self.shutdown(), self.frames()[3]]]
+        for frames in cases:
+            with self.subTest(length=len(frames)):
+                self.assertEqual(M.qmp_result(self.raw(frames)), {'present': True, 'enabled': True})
+
+    def test_missing_duplicate_reordered_ids_and_error_response_are_rejected(self):
+        frames = self.frames()
+        cases = [frames[:3], frames + [frames[3]], [frames[0], frames[2], frames[1], frames[3]],
+                 [frames[0], frames[1], {'return': frames[2]['return'], 'id': 'PRIVATE_CANARY'}, frames[3]],
+                 [frames[0], frames[1], {'error': {'class': 'GenericError', 'desc': 'PRIVATE_CANARY'},
+                                       'id': 'kvm'}, frames[3]]]
+        for values in cases:
+            with self.subTest(values=values), self.assertRaisesRegex(ValueError, '^qmp_protocol$'):
+                M.qmp_result(self.raw(values))
+
+    def test_strict_booleans_closed_result_keys_and_greeting_types(self):
+        for result in ({'present': 1, 'enabled': True}, {'present': True, 'enabled': 'true'},
+                       {'present': True}, {'present': True, 'enabled': True, 'secret': 'PRIVATE_CANARY'}):
+            frames = self.frames()
+            frames[2]['return'] = result
+            with self.assertRaisesRegex(ValueError, '^qmp_protocol$'):
+                M.qmp_result(self.raw(frames))
+        for change in ({'version': {}}, {'capabilities': ['PRIVATE_CANARY']},
+                       {'extra': 'PRIVATE_CANARY'}, {'capabilities': {}}):
+            frames = self.frames()
+            frames[0]['QMP'].update(change)
+            with self.assertRaisesRegex(ValueError, '^qmp_protocol$'):
+                M.qmp_result(self.raw(frames))
+
+    def test_bounds_duplicate_keys_nan_deep_json_and_truncated_output_fail_closed(self):
+        raw = self.raw()
+        cases = [b'', raw[:-1], b'x' * (M.MAX_QMP + 1),
+                 raw.replace(b'"enabled": true', b'"enabled": true, "enabled": false'),
+                 raw.replace(b'"enabled": true', b'"enabled": NaN'),
+                 b'[' * 2000 + b'0' + b']' * 2000 + b'\n{}\n{}\n{}\n',
+                 b'\xff\n{}\n{}\n{}\n', raw + b'PRIVATE_CANARY\n']
+        for value in cases:
+            with self.assertRaisesRegex(ValueError, '^qmp_protocol$'):
+                M.qmp_result(value)
+
+    def test_only_one_fixed_shutdown_after_query_is_accepted(self):
+        for change in ({'event': 'STOP'}, {'data': {'guest': True, 'reason': 'host-qmp-quit'}},
+                       {'data': {'guest': False, 'reason': 'guest-shutdown'}},
+                       {'timestamp': {'seconds': True, 'microseconds': 0}},
+                       {'extra': 'PRIVATE_CANARY'}):
+            event = self.shutdown()
+            event.update(change)
+            with self.assertRaisesRegex(ValueError, '^qmp_protocol$'):
+                M.qmp_result(self.raw(self.frames()[:3] + [event]))
+        for values in ([self.frames()[0], self.shutdown(), *self.frames()[1:3]],
+                       [*self.frames()[:3], self.shutdown(), self.shutdown()]):
+            with self.assertRaisesRegex(ValueError, '^qmp_protocol$'):
+                M.qmp_result(self.raw(values))
+
+    def test_exact_paused_no_disk_no_network_command_and_anonymous_fixed_input(self):
+        calls = []
+        observed = self.call(capture=calls)
+        self.assertEqual(calls[0][0], ['/usr/bin/qemu-system-x86_64', '-no-user-config',
+            '-nodefaults', '-S', '-display', 'none', '-nic', 'none', '-serial', 'none',
+            '-monitor', 'none', '-machine', 'q35,accel=kvm', '-cpu', 'host', '-m', '128',
+            '-smp', '1', '-qmp', 'stdio'])
+        self.assertTrue(calls[0][1].closed)
+        self.assertEqual([json.loads(line) for line in M.QMP_COMMANDS.splitlines()], [
+            {'execute': 'qmp_capabilities', 'id': 'capabilities'},
+            {'execute': 'query-kvm', 'id': 'kvm'}, {'execute': 'quit', 'id': 'quit'}])
+        self.assertEqual(observed['state'], 'passed')
+        self.assertFalse(observed['appliance_boot_verified'])
+        self.assertFalse(observed['hardware_attestation'])
+        self.assertNotIn('public fixture', json.dumps(observed))
+
+    def test_false_kvm_observations_are_retained_but_never_admit_downloads(self):
+        for present, enabled in ((False, False), (True, False), (False, True)):
+            frames, observed = self.frames(), M.qmp_observation()
+            frames[2]['return'] = dict(present=present, enabled=enabled)
+            with self.assertRaisesRegex(ValueError, '^qmp_kvm_unavailable$'):
+                self.call(observed, output=self.raw(frames))
+            self.assertEqual((observed['present'], observed['enabled']), (present, enabled))
+            self.assertEqual(observed['state'], 'failed')
+
+    def test_failure_receipt_survives_exception_without_text_or_fake_returncode(self):
+        for error, reason in ((ValueError('command_timeout'), 'command_timeout'),
+                              (ValueError('cancelled'), 'cancelled'),
+                              (ValueError('PRIVATE_CANARY'), 'unclassified'),
+                              (M.CleanupUnconfirmed('process_group_remaining'), 'process_group_remaining')):
+            observed, calls = M.qmp_observation(), []
+            with self.assertRaises(type(error)) as raised:
+                self.call(observed, error=error, capture=calls)
+            self.assertIs(raised.exception, error)
+            self.assertTrue(calls[0][1].closed)
+            self.assertEqual(observed['failure'], reason)
+            self.assertIsNone(observed['command'])
+            self.assertIsNone(observed['present'])
+            self.assertNotIn('PRIVATE_CANARY', json.dumps(observed))
+            self.assertNotIn('joined', json.dumps(observed))
+
+    def test_binding_requires_inventory_hash_and_stable_root_owned_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / 'qemu-system-x86_64'
+            binary.write_bytes(b'public fixture executable bytes, never run')
+            expected = M.digest(binary)['sha256']
+            tools = {'observed_tools': {'qemu-system-x86_64': {'binary_sha256': expected}}}
+            token = M.HYPERVISOR.set(None)
+            try:
+                with mock.patch.object(M.shutil, 'which', return_value=str(binary)), \
+                        mock.patch.object(M, 'host_identity', return_value=[1, 2]) as identity:
+                    self.assertEqual(M.bind_hypervisor(tools), expected)
+                    self.assertEqual(M.bound_hypervisor(), str(binary))
+                    identity.assert_called_with(binary, maximum=128 * 1024 ** 2)
+                    binary.write_bytes(b'changed')
+                    with self.assertRaisesRegex(ValueError, '^hypervisor_binding$'):
+                        M.bound_hypervisor()
+                with mock.patch.object(M.shutil, 'which', return_value=str(binary)), \
+                        mock.patch.object(M, 'host_identity', side_effect=ValueError('appliance_host_metadata')), \
+                        self.assertRaisesRegex(ValueError, '^appliance_host_metadata$'):
+                    M.bind_hypervisor(tools)
+            finally:
+                M.HYPERVISOR.reset(token)
+
+    def test_identity_change_rejects_even_with_identical_hash(self):
+        token = M.HYPERVISOR.set(dict(path=Path('/public/qemu'), identity=[1], sha256='a' * 64))
+        try:
+            with mock.patch.object(M, 'host_identity', return_value=[2]), \
+                    mock.patch.object(M, 'digest') as hashed, \
+                    self.assertRaisesRegex(ValueError, '^hypervisor_binding$'):
+                M.bound_hypervisor()
+            hashed.assert_not_called()
+        finally:
+            M.HYPERVISOR.reset(token)
+
+    def test_preflight_binding_error_is_retained_before_command_and_never_exports_paths(self):
+        observed = M.qmp_observation()
+        original = ValueError('PRIVATE_CANARY')
+        with mock.patch.object(M, 'bind_hypervisor', side_effect=original), \
+                mock.patch.object(M, 'command') as run, self.assertRaises(ValueError) as raised:
+            M.qmp_preflight({}, observed)
+        run.assert_not_called()
+        self.assertIs(raised.exception, original)
+        self.assertEqual(observed['state'], 'failed')
+        self.assertEqual(observed['failure'], 'unclassified')
+        self.assertIsNone(observed['binary_sha256'])
+        self.assertNotIn('PRIVATE_CANARY', json.dumps(observed))
+
+    def test_wrong_executable_and_expired_original_deadline_prevent_spawn(self):
+        for executable, expired, reason in (('/wrong/qemu', False, 'hypervisor_binding'),
+                                             ('/public/qemu', True, 'build_deadline')):
+            token = M.DEADLINE.set(time.monotonic() - 1 if expired else None)
+            try:
+                with tempfile.TemporaryFile(mode='w+b') as source, \
+                        mock.patch.object(M, 'bound_hypervisor', return_value='/public/qemu'), \
+                        mock.patch.object(M.subprocess, 'Popen') as spawn:
+                    source.write(M.QMP_COMMANDS)
+                    source.flush()
+                    source.seek(0)
+                    with self.assertRaisesRegex(ValueError, '^' + reason + '$'):
+                        M.command([executable], operation=M.QMP_OPERATION, qmp_input=source, maximum=M.MAX_QMP)
+                    spawn.assert_not_called()
+            finally:
+                M.DEADLINE.reset(token)
+
+    def public_child(self, program, **kwargs):
+        # Exercise the actual owned-child runner, substituting only public Python.
+        spawn = M.subprocess.Popen
+        def start(_argv, **options):
+            self.assertEqual(options['env'], M.ENV)
+            return spawn([sys.executable, '-c', program], **options)
+        with tempfile.TemporaryFile(mode='w+b') as source, \
+                mock.patch.object(M, 'bound_hypervisor', return_value='/public/qemu'), \
+                mock.patch.object(M.subprocess, 'Popen', side_effect=start):
+            source.write(M.QMP_COMMANDS)
+            source.flush()
+            source.seek(0)
+            return M.command(['/public/qemu'], maximum=M.MAX_QMP, operation=M.QMP_OPERATION,
+                             qmp_input=source, **kwargs)
+
+    def test_owned_runner_reads_fixed_regular_input_and_keeps_stderr_out_of_json(self):
+        program = ('import os,sys; data=sys.stdin.buffer.read(); '
+                   f'assert data=={M.QMP_COMMANDS!r}; '
+                   f'os.write(1,{self.raw()!r}); os.write(2,b"PRIVATE_CANARY\\n")')
+        self.assertEqual(M.qmp_result(self.public_child(program)), {'present': True, 'enabled': True})
+        with self.assertRaisesRegex(ValueError, '^command_output_bound$'):
+            self.public_child('import os; os.write(2,b"x"*32769)')
+
+    def test_owned_runner_timeout_does_not_report_its_cleanup_sigkill_as_qemu_exit(self):
+        with self.assertRaisesRegex(ValueError, '^command_timeout$') as raised:
+            self.public_child('import time; time.sleep(10)', timeout=.1)
+        self.assertIsNone(M.command_failure(raised.exception))
+
+    def test_owned_runner_natural_failure_has_only_bounded_code_and_closed_context(self):
+        with self.assertRaises(M.CommandFailed) as raised:
+            self.public_child('import os; os.write(2,b"PRIVATE_CANARY\\n"); raise SystemExit(7)')
+        self.assertEqual(M.command_failure(raised.exception),
+                         dict(operation='qmp_kvm_preflight', returncode=7, stderr_class='unclassified'))
+
+    def test_qemu_stderr_exact_fixed_patterns_chunking_and_closed_errno_classes(self):
+        for line, label in M.QEMU_STDERR_PATTERNS.items():
+            parser = M.QemuStderr()
+            parser.feed(line[:11])
+            parser.feed(line[11:] + b'\r\n')
+            self.assertEqual(parser.finish(), label)
+            self.assertEqual(M.command_failure(M.CommandFailed(1, M.QMP_OPERATION, label))['stderr_class'], label)
+            self.assertIsNone(M.command_failure(M.CommandFailed(1, 'inspect_roots', label))['stderr_class'])
+        parser = M.QemuStderr()
+        parser.feed(b'Could not access KVM kernel module: Permission denied\n'
+                    b'qemu-system-x86_64: failed to initialize kvm: Permission denied\n')
+        self.assertEqual(parser.finish(), 'kvm_permission_denied')
+
+    def test_qemu_stderr_unknown_prefix_suffix_overlong_and_ambiguity_do_not_leak(self):
+        line = b'qemu-system-x86_64: failed to initialize kvm: Permission denied'
+        for raw in (b'PRIVATE_CANARY: ' + line, line + b' PRIVATE_CANARY',
+                    b'qemu-system-x86_64: -machine q35,accel=kvm: failed to initialize kvm: Permission denied',
+                    b'qemu-system-x86_64: failed to initialize kvm: PRIVATE_CANARY',
+                    b'x' * 4097 + line + b'\n',
+                    b'libguestfs: error: force_kvm supplied but kvm not available.\n'):
+            parser = M.QemuStderr()
+            parser.feed(raw)
+            self.assertEqual(parser.finish(), 'unclassified')
+        parser = M.QemuStderr()
+        parser.feed(line + b'\nqemu-system-x86_64: failed to initialize kvm: No such device\n')
+        self.assertEqual(parser.finish(), 'ambiguous')
+
+    def test_qemu_failure_class_comes_only_from_stderr_not_stdout(self):
+        line = b'qemu-system-x86_64: failed to initialize kvm: Permission denied\n'
+        for descriptor, label in ((1, 'unclassified'), (2, 'kvm_permission_denied')):
+            with self.assertRaises(M.CommandFailed) as raised:
+                self.public_child(f'import os; os.write({descriptor},{line!r}); raise SystemExit(1)')
+            self.assertEqual(M.command_failure(raised.exception)['stderr_class'], label)
+
+    def test_fixed_input_rejects_named_file_wrong_bytes_and_incorrect_operation(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(M.subprocess, 'Popen') as spawn:
+            path = Path(directory) / 'input'
+            path.write_bytes(M.QMP_COMMANDS)
+            path.chmod(0o600)
+            with path.open('rb') as source, self.assertRaisesRegex(ValueError, '^qmp_input$'):
+                M.command(['/public/qemu'], operation=M.QMP_OPERATION, qmp_input=source, maximum=M.MAX_QMP)
+            with tempfile.TemporaryFile(mode='w+b') as source:
+                source.write(b'PRIVATE_CANARY')
+                source.seek(0)
+                with self.assertRaisesRegex(ValueError, '^qmp_input$'):
+                    M.command(['/public/qemu'], operation=M.QMP_OPERATION, qmp_input=source, maximum=M.MAX_QMP)
+                with self.assertRaisesRegex(ValueError, '^qmp_input$'):
+                    M.command(['/public/qemu'], qmp_input=source)
+            spawn.assert_not_called()
+
+    def test_execute_retains_qmp_failure_before_download_and_quarantines_uncertain_cleanup(self):
+        for error in (ValueError('command_timeout'), M.CleanupUnconfirmed('process_group_remaining')):
+            with tempfile.TemporaryDirectory() as directory:
+                original_deadline = time.monotonic() + 900
+                def reject(_tools, observed):
+                    self.assertEqual(M.DEADLINE.get(), original_deadline)
+                    observed.update(state='failed', failure=M.failure_reason(error))
+                    raise error
+                with mock.patch.object(M, 'hosted_output', return_value=Path(directory)), \
+                        mock.patch.object(M, 'adopt_appliance', return_value=dict(
+                            deadline=original_deadline, receipt={'version': 1})), \
+                        mock.patch.object(M, 'source_binding', return_value={'revision': 'a' * 40}), \
+                        mock.patch.object(M, 'tool_inventory', return_value={}), \
+                        mock.patch.object(M, 'appliance_preflight', return_value={}), \
+                        mock.patch.object(M, 'qmp_preflight', side_effect=reject), \
+                        mock.patch.object(M, 'fetch') as download, self.assertRaises(type(error)) as raised:
+                    M.execute(SimpleNamespace(yes=True, work=directory, expected_source='a' * 40))
+                self.assertIs(raised.exception, error)
+                download.assert_not_called()
+                value = json.loads((Path(directory) / 'evidence/cleanup.json').read_text())
+                safe = not isinstance(error, M.CleanupUnconfirmed)
+                self.assertEqual(value['qmp_kvm_preflight']['state'], 'failed')
+                self.assertEqual(value['failure']['stage'], 'qmp_kvm_preflight')
+                self.assertEqual(value['child_leaders_reaped'], safe)
+                self.assertEqual(value['owned_scratch_removed'], safe)
+                self.assertFalse(value['boot_pair_verified'])
+                self.assertIsNone(M.HYPERVISOR.get())
+                self.assertIsNone(M.DEADLINE.get())
 
 
 if __name__ == '__main__':

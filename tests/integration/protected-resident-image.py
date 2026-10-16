@@ -22,6 +22,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 import urllib.parse
 import urllib.request
@@ -52,6 +53,7 @@ ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C', 'LC_ALL': 'C',
 DEADLINE = contextvars.ContextVar('protected_public_boot_deadline', default=None)
 SCRATCH = contextvars.ContextVar('protected_public_boot_scratch', default=None)
 APPLIANCE = contextvars.ContextVar('protected_public_boot_appliance', default=None)
+HYPERVISOR = contextvars.ContextVar('protected_public_boot_hypervisor', default=None)
 CANCELLED = contextvars.ContextVar('protected_public_boot_cancelled', default=False)
 GUESTFISH_OPERATIONS = frozenset(('inspect_roots', 'inspect_details', 'extract_boot_files',
     'readlink_bin', 'readlink_sbin', 'readlink_lib', 'readlink_lib64', 'stage_root'))
@@ -75,6 +77,34 @@ STDERR_PATTERNS = {
 # https://github.com/libguestfs/libguestfs/blob/v1.52.0/fish/fish.c#L1225-L1235
 STDERR_PATTERNS.update({b'*stdin*:0: ' + line: label for line, label in list(STDERR_PATTERNS.items())
                         if line.startswith(b'libguestfs: error: ')})
+QMP_OPERATION = 'qmp_kvm_preflight'
+QMP_COMMANDS = (b'{"execute":"qmp_capabilities","id":"capabilities"}\n'
+                b'{"execute":"query-kvm","id":"kvm"}\n'
+                b'{"execute":"quit","id":"quit"}\n')
+MAX_QMP = 32768
+# QEMU 8.2.2 accel/kvm/kvm-all.c (open failure), system/vl.c
+# (accelerator initialization), util/error-report.c (fixed program/location).
+# Only enumerated C-locale errno strings; neither syscall nor causal attribution.
+QEMU_ERRNO_LABELS = {
+    b'Permission denied': 'kvm_permission_denied',
+    b'Operation not permitted': 'kvm_permission_denied',
+    b'No such file or directory': 'kvm_device_missing',
+    b'No such device': 'kvm_device_unavailable',
+    b'Device or resource busy': 'kvm_resource_busy',
+    b'Operation not supported': 'kvm_unsupported',
+    b'Function not implemented': 'kvm_unsupported',
+    b'Invalid argument': 'kvm_invalid_argument',
+    b'Cannot allocate memory': 'kvm_memory_unavailable',
+}
+QEMU_STDERR_PATTERNS = {
+    b'Could not access KVM kernel module: ' + text: label
+    for text, label in QEMU_ERRNO_LABELS.items()
+}
+QEMU_STDERR_PATTERNS.update({
+    b'qemu-system-x86_64: failed to initialize kvm: ' + text: label
+    for text, label in QEMU_ERRNO_LABELS.items()
+})
+QEMU_STDERR_CLASSES = frozenset(QEMU_ERRNO_LABELS.values()) | {'unclassified', 'ambiguous'}
 
 
 def require(condition, reason):
@@ -175,16 +205,19 @@ class CommandFailed(ValueError):
 
 def command_failure(error):
     if (isinstance(error, CommandFailed) and type(error.operation) is str
-            and error.operation in GUESTFISH_OPERATIONS and type(error.returncode) is int
+            and error.operation in GUESTFISH_OPERATIONS | {QMP_OPERATION}
+            and type(error.returncode) is int
             and -64 <= error.returncode <= 255 and error.returncode != 0):
         label = error.stderr_class
+        classes = QEMU_STDERR_CLASSES if error.operation == QMP_OPERATION else STDERR_CLASSES
         return {'operation': error.operation, 'returncode': error.returncode,
-                'stderr_class': label if type(label) is str and label in STDERR_CLASSES else None}
+                'stderr_class': label if type(label) is str and label in classes else None}
     return None
 
 
 class GuestfishStderr:
     """Match bounded stderr lines, retaining neither raw output nor dynamic fields."""
+    patterns = STDERR_PATTERNS
     def __init__(self):
         self.pending = bytearray()
         self.dropping = False
@@ -203,7 +236,7 @@ class GuestfishStderr:
 
     def line(self):
         if not self.dropping:
-            label = STDERR_PATTERNS.get(bytes(self.pending).removesuffix(b'\r'))
+            label = self.patterns.get(bytes(self.pending).removesuffix(b'\r'))
             if label is not None:
                 self.matches.add(label)
         self.pending.clear()
@@ -214,6 +247,120 @@ class GuestfishStderr:
         if len(self.matches) > 1:
             return 'ambiguous'
         return next(iter(self.matches), 'unclassified')
+
+
+class QemuStderr(GuestfishStderr):
+    # Unknown QEMU text is discarded, never used as parser input or exported.
+    patterns = QEMU_STDERR_PATTERNS
+
+
+def bind_hypervisor(tools):
+    binary = shutil.which('qemu-system-x86_64', path=ENV['PATH'])
+    require(binary is not None, 'host_tool_missing')
+    path = Path(binary).resolve(strict=True)
+    identity = host_identity(path, maximum=128 * 1024 ** 2)
+    expected = tools['observed_tools']['qemu-system-x86_64']['binary_sha256']
+    require(digest(path, maximum=128 * 1024 ** 2)['sha256'] == expected
+            and host_identity(path, maximum=128 * 1024 ** 2) == identity, 'hypervisor_binding')
+    HYPERVISOR.set({'path': path, 'identity': identity, 'sha256': expected})
+    return expected
+
+
+def bound_hypervisor():
+    value = HYPERVISOR.get()
+    require(value is not None, 'hypervisor_binding')
+    path = value['path']
+    require(host_identity(path, maximum=128 * 1024 ** 2) == value['identity']
+            and digest(path, maximum=128 * 1024 ** 2)['sha256'] == value['sha256']
+            and host_identity(path, maximum=128 * 1024 ** 2) == value['identity'],
+            'hypervisor_binding')
+    return str(path)
+
+
+def qmp_result(raw):
+    """Consume one fixed QMP exchange; no greeting strings or timestamps escape.
+
+    QEMU v8.2.2 qapi/{control,machine,run-state}.json: no OOB negotiation;
+    ordered replies, plus at most the shutdown event caused by our own quit.
+    """
+    require(type(raw) is bytes and 0 < len(raw) <= MAX_QMP and raw.endswith(b'\n'), 'qmp_protocol')
+    lines = raw.splitlines()
+    require(len(lines) in (4, 5), 'qmp_protocol')
+    try:
+        values = [exact_json(line) for line in lines]
+    except (ValueError, UnicodeError, RecursionError):
+        raise ValueError('qmp_protocol') from None
+    greeting = values[0]
+    require(type(greeting) is dict and set(greeting) == {'QMP'}, 'qmp_protocol')
+    greeting = greeting['QMP']
+    require(type(greeting) is dict and set(greeting) == {'version', 'capabilities'}
+            and greeting['capabilities'] in ([], ['oob']), 'qmp_protocol')
+    version = greeting['version']
+    require(type(version) is dict and set(version) == {'qemu', 'package'}
+            and type(version['package']) is str and len(version['package']) <= 256
+            and all(32 <= ord(char) <= 126 for char in version['package']), 'qmp_protocol')
+    require(type(version['qemu']) is dict and set(version['qemu']) == {'major', 'minor', 'micro'}
+            and all(type(number) is int and 0 <= number <= 65535
+                    for number in version['qemu'].values()), 'qmp_protocol')
+    replies, shutdown = [], False
+    for value in values[1:]:
+        require(type(value) is dict, 'qmp_protocol')
+        if 'event' in value:
+            require(not shutdown and len(replies) >= 2
+                    and set(value) == {'event', 'data', 'timestamp'}
+                    and value['event'] == 'SHUTDOWN'
+                    and type(value['data']) is dict
+                    and set(value['data']) == {'guest', 'reason'}
+                    and value['data']['guest'] is False
+                    and value['data']['reason'] == 'host-qmp-quit', 'qmp_protocol')
+            stamp = value['timestamp']
+            require(type(stamp) is dict and set(stamp) == {'seconds', 'microseconds'}
+                    and type(stamp['seconds']) is int and 0 <= stamp['seconds'] < 2 ** 53
+                    and type(stamp['microseconds']) is int and 0 <= stamp['microseconds'] < 1000000,
+                    'qmp_protocol')
+            shutdown = True
+        else:
+            require(set(value) == {'return', 'id'}, 'qmp_protocol')
+            replies.append(value)
+    # QAPI explicitly permits EOF before the quit reply. Require the exact
+    # shutdown event instead in that case; command() also requires exit zero.
+    require(len(replies) in (2, 3)
+            and [value['id'] for value in replies] == ['capabilities', 'kvm', 'quit'][:len(replies)]
+            and replies[0]['return'] == {}
+            and (replies[2]['return'] == {} if len(replies) == 3 else shutdown), 'qmp_protocol')
+    result = replies[1]['return']
+    require(type(result) is dict and set(result) == {'present', 'enabled'}
+            and all(type(value) is bool for value in result.values()), 'qmp_protocol')
+    return dict(result)
+
+
+def qmp_observation():
+    return dict(version=1, profile='paused_kvm_no_disks_network_v1', state='pending',
+                binary_sha256=None, present=None, enabled=None, failure=None, command=None,
+                diagnostic_only=True, appliance_boot_verified=False, hardware_attestation=False)
+
+
+def qmp_preflight(tools, observed):
+    """Hosted execute owns this receipt before any fallible step; never a boot proof."""
+    try:
+        checkpoint()
+        observed['binary_sha256'] = bind_hypervisor(tools)
+        argv = [bound_hypervisor(), '-no-user-config', '-nodefaults', '-S',
+                '-display', 'none', '-nic', 'none', '-serial', 'none', '-monitor', 'none',
+                '-machine', 'q35,accel=kvm', '-cpu', 'host', '-m', '128', '-smp', '1', '-qmp', 'stdio']
+        # A tiny anonymous regular file avoids a new pipe-writer thread/child,
+        # blocking writes, persistent QMP inputs, or a command supplied by a peer.
+        with tempfile.TemporaryFile(mode='w+b', dir=SCRATCH.get()) as source:
+            source.write(QMP_COMMANDS)
+            source.flush()
+            source.seek(0)
+            raw = command(argv, timeout=15, maximum=MAX_QMP, operation=QMP_OPERATION, qmp_input=source)
+        observed.update(qmp_result(raw))
+        require(observed['present'] and observed['enabled'], 'qmp_kvm_unavailable')
+        observed['state'] = 'passed'
+    except BaseException as error:
+        observed.update(state='failed', failure=failure_reason(error), command=command_failure(error))
+        raise
 
 
 def readable_regular(path):
@@ -500,25 +647,42 @@ def group_absent(group, seconds=2):
         time.sleep(.02)
 
 
-def command(argv, *, timeout=120, maximum=MAX_LOG, stdout_path=None, operation=None):
+def command(argv, *, timeout=120, maximum=MAX_LOG, stdout_path=None, operation=None,
+            qmp_input=None):
     """Bound public tool output; retain the child until the last group signal."""
     require(0 < timeout <= BUILD_SECONDS, 'command_deadline')
-    require(operation is None or operation in GUESTFISH_OPERATIONS, 'command_operation')
+    require(operation is None or operation in GUESTFISH_OPERATIONS | {QMP_OPERATION},
+            'command_operation')
+    qmp = operation == QMP_OPERATION
+    require((qmp_input is not None) == qmp, 'qmp_input')
+    if qmp:
+        info = os.fstat(qmp_input.fileno())
+        require(stat.S_ISREG(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o600
+                and info.st_uid == os.geteuid() and info.st_nlink == 0
+                and info.st_size == len(QMP_COMMANDS) and qmp_input.tell() == 0
+                and qmp_input.read(len(QMP_COMMANDS) + 1) == QMP_COMMANDS
+                and stdout_path is None and maximum == MAX_QMP, 'qmp_input')
+        qmp_input.seek(0)
+        require(str(argv[0]) == bound_hypervisor(), 'hypervisor_binding')
     checkpoint()
     if DEADLINE.get() is not None:
         timeout = min(timeout, DEADLINE.get() - time.monotonic())
         require(timeout > 0, 'build_deadline')
     output = bytearray()
-    stderr = GuestfishStderr() if operation is not None else None
+    stderr = QemuStderr() if qmp else GuestfishStderr() if operation is not None else None
     deadline = time.monotonic() + timeout
     target = None
     environment = dict(ENV)
     if str(argv[0]) == 'guestfish':
+        # Bind at handle creation too: -a processing precedes explicit set-hv.
+        # https://libguestfs.org/guestfish.1.html#set-hv
+        environment['LIBGUESTFS_HV'] = bound_hypervisor()
         environment.update(appliance_environment())
     if SCRATCH.get() is not None:
         environment.update(LIBGUESTFS_CACHEDIR=str(SCRATCH.get()),
                            LIBGUESTFS_TMPDIR=str(SCRATCH.get()), TMPDIR=str(SCRATCH.get()))
-    process = subprocess.Popen([str(item) for item in argv], stdin=subprocess.DEVNULL,
+    process = subprocess.Popen([str(item) for item in argv],
+        stdin=qmp_input if qmp else subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment, close_fds=True,
         start_new_session=True)
     try:
@@ -543,7 +707,7 @@ def command(argv, *, timeout=120, maximum=MAX_LOG, stdout_path=None, operation=N
                         stderr.feed(block)
                     if target is not None and key.fileobj is process.stdout:
                         target.write(block)
-                    else:
+                    elif not qmp or key.fileobj is process.stdout:
                         output.extend(block)
             while os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
                 checkpoint()
@@ -575,6 +739,8 @@ def command(argv, *, timeout=120, maximum=MAX_LOG, stdout_path=None, operation=N
                 target.close()
     if process.returncode != 0:
         raise CommandFailed(process.returncode, operation, stderr.finish() if stderr is not None else None)
+    if qmp or str(argv[0]) == 'guestfish':
+        bound_hypervisor()
     return bytes(output)
 
 
@@ -614,7 +780,8 @@ def fetch(item, target, algorithm, maximum, deadline):
 
 def guestfish(image, operations, *, readonly=True, image_format='raw', timeout=300, operation=None):
     argv = ['guestfish', '--ro' if readonly else '--rw', '--format=' + image_format,
-            '-a', image, 'set-pgroup', 'false', ':', 'set-network', 'false', ':', 'run']
+            '-a', image, 'set-pgroup', 'false', ':', 'set-network', 'false',
+            ':', 'set-hv', bound_hypervisor(), ':', 'run']
     for subcommand in operations:
         argv.extend([':', *subcommand])
     return command(argv, timeout=timeout, operation=operation).decode('utf-8', errors='strict')
@@ -887,7 +1054,8 @@ def failure_reason(error):
         'initrd_receipt_file', 'initrd_receipt_bound', 'appliance_host_path', 'appliance_host_parent',
         'appliance_host_metadata', 'appliance_kernel_bound', 'appliance_kernel_release',
         'appliance_stage_path', 'appliance_stage_metadata', 'appliance_stage_bound',
-        'appliance_stage_binding', 'appliance_source_changed'}
+        'appliance_stage_binding', 'appliance_source_changed', 'hypervisor_binding',
+        'qmp_input', 'qmp_protocol', 'qmp_kvm_unavailable'}
     if isinstance(error, (ValueError, CleanupUnconfirmed)) and error.args:
         reason = error.args[0]
         if type(reason) is str and reason in allowed:
@@ -906,9 +1074,10 @@ def execute(args):
     output.mkdir(mode=0o700)
     deadline, cleanup_safe, completed = time.monotonic() + BUILD_SECONDS, True, False
     stage, failure, cleanup_error, primary = 'source', None, None, None
-    preflight, appliance = None, None
+    preflight, appliance, qmp = None, None, None
     budget_token = DEADLINE.set(deadline)
     appliance_token = APPLIANCE.set(None)
+    hypervisor_token = HYPERVISOR.set(None)
     scratch = output / 'temporary'
     scratch.mkdir(mode=0o700)
     scratch_token = SCRATCH.set(scratch)
@@ -931,6 +1100,9 @@ def execute(args):
         tools = tool_inventory()
         stage = 'appliance_preflight'
         preflight = appliance_preflight()
+        stage = 'qmp_kvm_preflight'
+        qmp = qmp_observation()
+        qmp_preflight(tools, qmp)
         stage = 'input_download'
         image_pin = exact_json((ROOT / pins['debian_image_manifest']).read_bytes())
         image = output / 'debian.qcow2'
@@ -953,7 +1125,7 @@ def execute(args):
         descriptor = dict(version=1, kind='protected-resident-public-boot-build',
             source=source, kernel_release=pins['kernel_release'], verity=pins['verity'],
             root_hash=root_hash, data_blocks=blocks, cmdline=CMDLINE, host_tools=tools,
-            appliance_kernel=appliance['receipt'],
+            appliance_kernel=appliance['receipt'], qmp_kvm_preflight=qmp,
             inputs={'image_sha512': pins['debian_image_sha512'], 'packages': pins['packages'],
                     'pins': digest(PINS), 'bootstrap': digest(BOOTSTRAP), 'entrypoint': digest(ENTRYPOINT)},
             files={name: digest(output / name) for name in ('vmlinuz', 'initrd.img', 'root.raw', 'verity.raw')},
@@ -980,6 +1152,7 @@ def execute(args):
     finally:
         DEADLINE.reset(budget_token)
         APPLIANCE.reset(appliance_token)
+        HYPERVISOR.reset(hypervisor_token)
         SCRATCH.reset(scratch_token)
         try:
             if cleanup_safe:
@@ -993,6 +1166,7 @@ def execute(args):
                     owned_scratch_removed=cleanup_safe and not output.exists(),
                     boot_pair_verified=completed, failure=failure, cleanup_error=cleanup_error,
                     appliance_preflight=preflight,
+                    qmp_kvm_preflight=qmp,
                     appliance_kernel=appliance['receipt'] if appliance is not None else None,
                     hardware_attestation=False, private_inputs=False))
             except (OSError, ValueError):
