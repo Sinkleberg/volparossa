@@ -1204,7 +1204,9 @@ MAINTENANCE_NAMES = (FRAGMENTS_NAMES - {"private-storage-fragments-smoke.json", 
     "private-storage-maintenance-lifecycle-failure.json",
     "private-storage-maintenance-route-diagnostic.json",
     "private-storage-maintenance-provider-events.json",
+    "private-storage-maintenance-helper-acquire.json",
     "private-storage-provider-activity.json",
+    "private-storage-fixture-correlation.json",
     "private-storage-maintenance-inventory.json",
     "private-storage-maintenance-supervisor.json",
     "private-storage-maintenance-control-transition.json",
@@ -1244,7 +1246,7 @@ MAINTENANCE_PRIORITY_NAMES = {
     name.startswith("storage-consumer-") or name.startswith("private-storage-maintenance-")
     or name.endswith("_usage.json") or name.endswith("private_cleanup.json"))
 } | {"host-state-before.json", "host-state-after.json", "guest-exit-status", "current-phase",
-     "private-storage-provider-activity.json"}
+     "private-storage-provider-activity.json", "private-storage-fixture-correlation.json"}
 
 # Exact additional continuation outputs. No private owner/config/log glob.
 CLOUD_UPLOAD_NAMES = MAINTENANCE_NAMES | {
@@ -1277,10 +1279,10 @@ CLOUD_UPLOAD_OUTCOME_NAMES = {
     "private-storage-fragments-cloud_upload_deleted_usage.json",
     "host-state-before.json", "host-state-after.json", "guest-exit-status", "current-phase",
 }
-# 168 exact old/new receipt names + five recovery names = 173 slots.
-# The extra receipt is the existing closed private-storage-provider-activity.json.
+# 170 exact old/new receipt names + five recovery names = 175 slots.
+# The joined correlation/helper-acquire sidecars add two strictly validated slots.
 # The old scenario stays at 128; byte-identical copies share only one slot.
-CLOUD_UPLOAD_FILE_COUNT_LIMIT = 173
+CLOUD_UPLOAD_FILE_COUNT_LIMIT = 175
 
 SIGNAL_FRAGMENT_NAMES = {"a01-expected-peers.json", "signal-backup-provision.json",
     "signal-backup-private_cleanup.json", "host-state-before.json", "host-state-after.json",
@@ -1883,6 +1885,24 @@ def collect(home, opt, revision, scenario, guest_status,
         if observed is None:
             continue
         data, original_size = observed
+        if path.name == "private-storage-fixture-correlation.json":
+            if original_size > 16384 or original_size != len(data):
+                continue
+            try:
+                subprocess.run(["/usr/bin/python3", "-I", "-B", str(home / "source/tests/integration/storage-fixture-correlation-sampler.py"),
+                    "validate-stdin"], input=data, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=2, check=True, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+            except (OSError, subprocess.SubprocessError):
+                continue  # Missing/invalid closed projection is never raw export authority.
+        if path.name == "private-storage-maintenance-helper-acquire.json":
+            if original_size > 16384 or original_size != len(data):
+                continue
+            try:
+                subprocess.run(["/usr/bin/python3", "-I", "-B", str(home / "source/tests/integration/storage-acquire-diagnostic.py"),
+                    "validate-stdin"], input=data, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=2, check=True, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+            except (OSError, subprocess.SubprocessError):
+                continue  # A filename alone never authorizes arbitrary log fields.
         if scenario in ("private-storage-maintenance", "cloud-upload-maintenance"):
             if original_size > len(data):
                 continue  # A truncated JSON tail is not structured evidence.
@@ -2507,6 +2527,14 @@ elif [ "$scenario" = cloud-upload-maintenance ]; then
         case $retained in */*|'') exit 1 ;; esac
         retained_path=/home/vpci/alpha-output/$retained
         if [ -f "$retained_path" ] && [ ! -L "$retained_path" ]; then
+            if [ "$retained" = private-storage-fixture-correlation.json ]; then
+                python3 -I -B tests/integration/storage-fixture-correlation-sampler.py validate-stdin \
+                    <"$retained_path" >/dev/null 2>&1 || continue
+            fi
+            if [ "$retained" = private-storage-maintenance-helper-acquire.json ]; then
+                python3 -I -B tests/integration/storage-acquire-diagnostic.py validate-stdin \
+                    <"$retained_path" >/dev/null 2>&1 || continue
+            fi
             retained_limit=1048576
             retained_size=$(wc -c <"$retained_path") || exit 1
             if [ "$retained" = cloud-upload-evidence.json ] \
@@ -2527,6 +2555,14 @@ elif [ "$scenario" = private-storage-fragments ] || [ "$scenario" = private-stor
         case $retained in */*|'') exit 1 ;; esac
         retained_path=/home/vpci/alpha-output/$retained
         if [ -f "$retained_path" ] && [ ! -L "$retained_path" ]; then
+            if [ "$retained" = private-storage-fixture-correlation.json ]; then
+                python3 -I -B tests/integration/storage-fixture-correlation-sampler.py validate-stdin \
+                    <"$retained_path" >/dev/null 2>&1 || continue
+            fi
+            if [ "$retained" = private-storage-maintenance-helper-acquire.json ]; then
+                python3 -I -B tests/integration/storage-acquire-diagnostic.py validate-stdin \
+                    <"$retained_path" >/dev/null 2>&1 || continue
+            fi
             [ "$(wc -c <"$retained_path")" -le 1048576 ] || exit 1
             printf '%s\n' "$retained"
         fi

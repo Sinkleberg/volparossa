@@ -18,6 +18,22 @@ WORKFLOW = (HERE.parents[1] / '.github/workflows/alpha-topology.yml').read_text(
 SCENARIO = 'cloud-upload-maintenance'
 OLD_SCENARIO = 'private-storage-maintenance'
 GUEST = TEXT.split("<<'GUEST_DRIVER_SCRIPT'\n", 1)[1].split('\nGUEST_DRIVER_SCRIPT', 1)[0]
+SIDECAR_HELPERS = {
+    'private-storage-fixture-correlation.json': 'storage-fixture-correlation-sampler.py',
+    'private-storage-maintenance-helper-acquire.json': 'storage-acquire-diagnostic.py',
+}
+
+
+def sidecar_fixtures(home):
+    result = {}
+    for name, helper_name in SIDECAR_HELPERS.items():
+        helper = home / 'source/tests/integration' / helper_name
+        helper.parent.mkdir(parents=True, exist_ok=True)
+        helper.write_bytes((HERE / helper_name).read_bytes())
+        module = runpy.run_path(str(helper))
+        value = module['Samples']('publish').report() if 'Samples' in module else module['empty']('absent')
+        result[name] = module['encoded'](value)
+    return result
 
 
 def diagnostics():
@@ -41,6 +57,22 @@ class Wiring(unittest.TestCase):
             self.assertIn(last, result.stdout.lower())
             self.assertNotIn(first, result.stdout.lower())
         self.assertIn('two cold decrypted reads', result.stdout)
+
+    def test_topology_selection_resets_both_scenarios_without_diagnostic_optin_leak(self):
+        # Stop before preview/execute dispatch: only original argument parsing runs.
+        prefix = (HERE / 'kvm-alpha-topology.sh').read_text().split('if [ "$mode" = preview ]; then', 1)[0]
+        for choices, expected in (
+                ((SCENARIO,), 'yes no yes 9'),
+                ((OLD_SCENARIO,), 'no yes yes 9'),
+                ((SCENARIO, OLD_SCENARIO), 'no yes yes 9'),
+                ((OLD_SCENARIO, SCENARIO), 'yes no yes 9'),
+                ((SCENARIO, OLD_SCENARIO, 'private-storage-peer'), 'no no no 9')):
+            arguments = [argument for choice in choices for argument in ('--scenario', choice)]
+            result = subprocess.run(['sh', '-eu', '-c', prefix
+                + '\nprintf "%s %s %s %s\\n" "$cloud_upload_maintenance" "$storage_fixture_correlation"'
+                + ' "$private_storage_maintenance" "$storage_consumer_profile_version"', 'inert', *arguments],
+                capture_output=True, text=True, check=True, timeout=5)
+            self.assertEqual(result.stdout, expected + '\n')
 
     def test_generated_guest_parses_and_forwards_exact_scenario(self):
         subprocess.run(['sh', '-n', str(RUNNER)], check=True, capture_output=True, timeout=5)
@@ -113,9 +145,10 @@ class Wiring(unittest.TestCase):
         self.assertEqual(set(old['EXPORT_NAMES']), module['MAINTENANCE_NAMES'])
         self.assertEqual(set(old['EXPORT_NAMES']) | set(new['EXPORT_NAMES'])
             | set(new['CURRENT_EXPORT_NAMES']), module['CLOUD_UPLOAD_NAMES'])
-        self.assertEqual(len(module['MAINTENANCE_NAMES']), 113)
-        self.assertEqual(len(module['CLOUD_UPLOAD_NAMES']), 168)
+        self.assertEqual(len(module['MAINTENANCE_NAMES']), 115)
+        self.assertEqual(len(module['CLOUD_UPLOAD_NAMES']), 170)
         self.assertIn('private-storage-provider-activity.json', module['CLOUD_UPLOAD_NAMES'])
+        self.assertTrue(set(SIDECAR_HELPERS) <= module['CLOUD_UPLOAD_NAMES'])
         recovery = {'guest-phase.txt', 'current-phase', 'guest-exit-status', 'host-state-before.json', 'host-state-after.json'}
         self.assertFalse(module['CLOUD_UPLOAD_NAMES'] & recovery)
         self.assertEqual(module['CLOUD_UPLOAD_FILE_COUNT_LIMIT'], len(module['CLOUD_UPLOAD_NAMES'] | recovery))
@@ -141,18 +174,21 @@ class Wiring(unittest.TestCase):
             roots = [home / 'alpha-output', opt / ('va.' + 'a' * 32 + '.Abc123')]
             (home / 'alpha-output').mkdir(parents=True)
             (home / 'guest-phase.txt').write_text('topology\n')
+            sidecars = sidecar_fixtures(home)
             for root in roots:
                 root.mkdir(parents=True, exist_ok=True)
                 for name in module['CLOUD_UPLOAD_NAMES'] | {'host-state-before.json', 'host-state-after.json'}:
                     (root / name).write_text('{}\n')
                 (root / 'guest-exit-status').write_text('1\n')
                 (root / 'current-phase').write_text('cloud-upload-exercise\n')
+                for name, raw in sidecars.items():
+                    (root / name).write_bytes(raw)
                 for private in ('identity.key', 'service.json', 'cloud-upload-private.log', 'cloud-upload-new.json'):
                     (root / private).write_text('NEVER_EXPORT_PRIVATE')
             archive = collect(module, home, opt, SCENARIO)
             with tarfile.open(archive, 'r:gz') as bundle:
                 summary = json.load(bundle.extractfile('vm-incomplete.json'))
-                self.assertEqual(len(summary['diagnostics']['files']), 173)
+                self.assertEqual(len(summary['diagnostics']['files']), 175)
                 self.assertFalse(summary['success'])
                 self.assertFalse(summary['cleanup']['verified'])
                 self.assertTrue(all(not item['truncated'] for item in summary['diagnostics']['files']))
@@ -160,10 +196,100 @@ class Wiring(unittest.TestCase):
                     module['CLOUD_UPLOAD_NAMES'] | {'guest-phase.txt', 'current-phase', 'guest-exit-status',
                         'host-state-before.json', 'host-state-after.json'})
                 self.assertFalse(any(b'NEVER_EXPORT_PRIVATE' in bundle.extractfile(m).read() for m in bundle.getmembers()))
+                for name, raw in sidecars.items():
+                    retained = next(item for item in bundle.getmembers() if Path(item.name).name == name)
+                    self.assertEqual(bundle.extractfile(retained).read(), raw)
             old = collect(module, home, opt, OLD_SCENARIO)
             with tarfile.open(old, 'r:gz') as bundle:
                 self.assertFalse(any(Path(name).name.startswith('cloud-upload-') for name in bundle.getnames()))
                 self.assertLessEqual(len(json.load(bundle.extractfile('vm-incomplete.json'))['diagnostics']['files']), 128)
+
+    def test_joined_emergency_sidecars_require_original_closed_validators(self):
+        module = diagnostics()
+        for scenario in (OLD_SCENARIO, SCENARIO):
+            for name, helper in SIDECAR_HELPERS.items():
+                for variant in ('valid', 'malformed', 'private-field', 'oversize', 'missing-validator', 'symlink', 'fifo'):
+                    with self.subTest(scenario=scenario, name=name, variant=variant), tempfile.TemporaryDirectory() as temporary:
+                        home, opt = Path(temporary) / 'home', Path(temporary) / 'opt'
+                        root = home / 'alpha-output'; root.mkdir(parents=True)
+                        raw = sidecar_fixtures(home)[name]
+                        if variant == 'malformed':
+                            raw = b'{"unfinished":'
+                        elif variant == 'private-field':
+                            value = json.loads(raw); value['private_identifier'] = 'NEVER_EXPORT_PRIVATE'
+                            raw = json.dumps(value).encode()
+                        elif variant == 'oversize':
+                            raw += b' ' * 16385
+                        if variant == 'missing-validator':
+                            (home / 'source/tests/integration' / helper).unlink()
+                        path = root / name
+                        if variant == 'symlink':
+                            target = home / 'private-target'; target.write_bytes(raw); path.symlink_to(target)
+                        elif variant == 'fifo':
+                            os.mkfifo(path)
+                        else:
+                            path.write_bytes(raw)
+                        (root / 'private-storage-maintenance-smoke.json').write_text('{}\n')
+                        archive = collect(module, home, opt, scenario)
+                        with tarfile.open(archive, 'r:gz') as bundle:
+                            self.assertEqual('published/' + name in bundle.getnames(), variant == 'valid')
+                            if variant == 'valid':
+                                self.assertEqual(bundle.extractfile('published/' + name).read(), raw)
+                            self.assertEqual(bundle.extractfile('published/private-storage-maintenance-smoke.json').read(), b'{}\n')
+                            summary = json.load(bundle.extractfile('vm-incomplete.json'))
+                            self.assertFalse(summary['success'])
+                            self.assertFalse(summary['cleanup']['verified'])
+                            self.assertFalse(any(b'NEVER_EXPORT_PRIVATE' in bundle.extractfile(item).read()
+                                for item in bundle.getmembers()))
+
+    def test_normal_cloud_sidecars_are_optional_closed_projections_not_raw_exports(self):
+        start = GUEST.index('elif [ "$scenario" = cloud-upload-maintenance ]; then\n    {')
+        block = GUEST[start:GUEST.index('\nelif ', start + 1)].split('\n', 1)[1]
+        for name, helper in SIDECAR_HELPERS.items():
+            for variant in ('valid', 'malformed', 'private-field', 'oversize', 'missing-validator', 'symlink', 'fifo'):
+                with self.subTest(name=name, variant=variant), tempfile.TemporaryDirectory() as temporary:
+                    home = Path(temporary); output = home / 'alpha-output'; output.mkdir()
+                    raw = sidecar_fixtures(home)[name]
+                    if variant == 'malformed':
+                        raw = b'{"unfinished":'
+                    elif variant == 'private-field':
+                        value = json.loads(raw); value['private_identifier'] = 'NEVER_EXPORT_PRIVATE'
+                        raw = json.dumps(value).encode()
+                    elif variant == 'oversize':
+                        raw += b' ' * 16385
+                    if variant == 'missing-validator':
+                        (home / 'source/tests/integration' / helper).unlink()
+                    path = output / name
+                    if variant == 'symlink':
+                        target = home / 'private-target'; target.write_bytes(raw); path.symlink_to(target)
+                    elif variant == 'fifo':
+                        os.mkfifo(path)
+                    else:
+                        path.write_bytes(raw)
+                    (output / 'private-storage-maintenance-smoke.json').write_text('{}\n')
+                    # Original shell export with fixed names and real validators;
+                    # no guest, privilege, network or collector process is started.
+                    script = '''python3() {
+  case "$*" in
+    '-B tests/integration/private-storage-maintenance-smoke.py export-names') printf '%s\\n' "$export_name" private-storage-maintenance-smoke.json ;;
+    '-B tests/integration/cloud-upload-maintenance-evidence.py export-names-v7') : ;;
+    '-I -B tests/integration/storage-fixture-correlation-sampler.py validate-stdin'|'-I -B tests/integration/storage-acquire-diagnostic.py validate-stdin') command python3 "$@" ;;
+    *) return 99 ;;
+  esac
+}
+export_name=$1
+primary_status=73
+''' + block.replace('/home/vpci', shlex.quote(str(home))) + '\nprintf "%s\\n" "$primary_status"\n'
+                    result = subprocess.run(['sh', '-eu', '-c', script, 'inert', name],
+                        cwd=home / 'source', capture_output=True, text=True, check=True, timeout=5)
+                    self.assertEqual(result.stdout, '73\n')
+                    with tarfile.open(home / 'alpha-output.tar.gz', 'r:gz') as bundle:
+                        self.assertEqual(name in bundle.getnames(), variant == 'valid')
+                        if variant == 'valid':
+                            self.assertEqual(bundle.extractfile(name).read(), raw)
+                        self.assertEqual(bundle.extractfile('private-storage-maintenance-smoke.json').read(), b'{}\n')
+                        self.assertFalse(any(b'NEVER_EXPORT_PRIVATE' in bundle.extractfile(item).read()
+                            for item in bundle.getmembers()))
 
     def test_only_named_current_evidence_gets_two_mib_without_partial_export(self):
         module = diagnostics()
@@ -260,7 +386,7 @@ export_name=$1
             with tarfile.open(archive, 'r:gz') as bundle:
                 names = bundle.getnames()
                 summary = json.load(bundle.extractfile('vm-incomplete.json'))
-                self.assertLessEqual(len(summary['diagnostics']['files']), 173)
+                self.assertLessEqual(len(summary['diagnostics']['files']), 175)
                 self.assertLessEqual(summary['diagnostics']['captured_bytes'], 8388608)
                 for label in ('published', *(f'work-{i}' for i in range(1, 5))):
                     for name in ('cloud-upload-maintenance-smoke.json', 'cloud-upload-finish.json',
