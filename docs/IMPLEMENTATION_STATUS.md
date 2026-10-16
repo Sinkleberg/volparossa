@@ -57,8 +57,22 @@ The adapter calls the existing resident worker with the original grant deadline;
 disconnect, invalid requests and expiry cancel the same worker and await cleanup.
 The local Unix-socket service and accepted boot fixture remain unchanged.
 
-Source validation is pending. The new tests exercise real TLS and signatures with
-an explicitly inert worker; they are not evidence of inference or guest execution.
+Initial source run
+[`38863535350`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38863535350)
+on `a68cc4e7` compiles both affected crates and passes 92 unique tests: 22 grant,
+10 guest-channel, 30 resident-worker and 30 local-service cases, with none failed
+or ignored. The run fails strict lint on two private parameters passed by value.
+It tested an explicitly recorded formatter copy, not unchanged committed bytes.
+The candidate applies that exact formatter patch, fixes the two borrows and
+adds explicit expired-frame checks; a corrected hosted run is still required.
+The guest tests use real TLS and signatures with an inert worker; they are not
+evidence of inference or guest execution.
+The workload stager passes 28 inert tests. It verifies the caller-bound asset
+inventory, original model pins, native manifests and fixed guest launch paths;
+it neither downloads assets nor runs the model. Partial-output cleanup preserves
+an output that another owner has replaced.
+The initial hosted workload step was a no-op because these files were absent;
+the updated workflow requires their tests and a final unchanged-source check.
 The next acceptance gate must execute two real model turns inside the sealed
 guest, preserve one model lifetime, reject excess/replayed requests and confirm
 cleanup. The model image also needs the complete Python/native/OS closure and a

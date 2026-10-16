@@ -248,11 +248,11 @@ impl GrantVerifier {
     /// Rejects canonicality, signature, replay/new-channel binding, limits and expiry.
     pub fn verify(self, bytes: &[u8]) -> Result<GrantAllowance, GrantError> {
         let grant = wire::decode(bytes)?;
-        self.finish(grant, Stamp::now()?)
+        self.finish(&grant, &Stamp::now()?)
     }
 
-    fn finish(self, grant: GrantSpec, now: Stamp) -> Result<GrantAllowance, GrantError> {
-        if grant.nonce != self.nonce || !self.expected.matches(&grant) {
+    fn finish(self, grant: &GrantSpec, now: &Stamp) -> Result<GrantAllowance, GrantError> {
+        if grant.nonce != self.nonce || !self.expected.matches(grant) {
             return Err(GrantError::Authentication);
         }
         if now.monotonic >= self.deadline

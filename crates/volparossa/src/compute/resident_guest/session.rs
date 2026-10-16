@@ -1,24 +1,47 @@
 //! One accepted channel owns one retained worker and awaits its real cleanup.
 
-use std::sync::Arc;
+use super::wire;
+use crate::compute::{
+    private_conversation, private_task,
+    supervise::native_session::{self, Command, Event, SessionBudget},
+};
 use anyhow::{Result, ensure};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
-use tokio::{io::{AsyncRead, AsyncWrite}, sync::{mpsc, watch}, time::{Instant, sleep_until}};
+use std::sync::Arc;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    sync::{mpsc, watch},
+    time::sleep_until,
+};
 use volparossa_content::provider::compute::resident_task::GrantAllowance;
-use crate::compute::{private_task, private_conversation, supervise::native_session::{self, Command, Event, SessionBudget}};
-use super::wire;
 
 struct CancelOnDrop(watch::Sender<bool>);
-impl Drop for CancelOnDrop { fn drop(&mut self) { let _ = self.0.send(false); } }
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.send(false);
+    }
+}
 
 // The CLI awaits this top-level owner to completion. Do not wrap it in a timeout
 // or abort it: cancellation is an input to the loop, not cancellation of the
 // cleanup future. The reader owns no worker and is explicitly aborted and joined.
-pub(super) async fn execute<S, F, Fut>(stream: S, config: Arc<private_task::ExecutionConfig>, mut allowance: GrantAllowance, budget: SessionBudget, run: F) -> Result<()>
+pub(super) async fn execute<S, F, Fut>(
+    stream: S,
+    config: Arc<private_task::ExecutionConfig>,
+    mut allowance: GrantAllowance,
+    budget: SessionBudget,
+    run: F,
+) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-    F: FnOnce(Arc<private_task::ExecutionConfig>, mpsc::Receiver<Command>, mpsc::Sender<Event>, watch::Receiver<bool>, SessionBudget) -> Fut,
+    F: FnOnce(
+        Arc<private_task::ExecutionConfig>,
+        mpsc::Receiver<Command>,
+        mpsc::Sender<Event>,
+        watch::Receiver<bool>,
+        SessionBudget,
+    ) -> Fut,
     Fut: Future<Output = Result<Value>> + Send + 'static,
 {
     use tokio::signal::unix::{SignalKind, signal};
@@ -31,7 +54,9 @@ where
         loop {
             let frame = wire::read(&mut reader, deadline).await;
             let failed = frame.is_err();
-            if incoming.send(frame).await.is_err() || failed { break; }
+            if incoming.send(frame).await.is_err() || failed {
+                break;
+            }
         }
     });
     let (commands, receive) = mpsc::channel(1);
@@ -58,6 +83,7 @@ where
                             allowance.consume_input(&Sha256::digest(&frame.body).into())?;
                             let input = private_conversation::Input::decode_profile(&frame.body, config.model_profile)?;
                             ensure!(input.requires_generation_policy_handshake(), "resident_generation_policy");
+                            allowance.check()?;
                             let id = format!("{sequence:032x}");
                             commands.try_send(Command::Submit { id: id.clone(), input: frame.body }).map_err(|_| anyhow::anyhow!("resident_worker_channel"))?;
                             pending = Some(id);
@@ -91,13 +117,23 @@ where
     drop(activity);
     drop(commands);
     drop(events);
-    let execution = execution.await.map_err(|_| anyhow::anyhow!("resident_cleanup_unconfirmed"))?;
+    let execution = execution
+        .await
+        .map_err(|_| anyhow::anyhow!("resident_cleanup_unconfirmed"))?;
     let cleanup = match &execution {
         Ok(value) => Some(value.clone()),
         Err(error) => native_session::cleanup(error),
     };
-    ensure!(cleanup == Some(json!({"version":1,"child_reaped":true,"private_state_removed":true})), "resident_cleanup_unconfirmed");
+    ensure!(
+        cleanup == Some(json!({"version":1,"child_reaped":true,"private_state_removed":true})),
+        "resident_cleanup_unconfirmed"
+    );
     execution?;
     result?;
-    wire::write(&mut writer, wire::frame(wire::CLOSED, sequence, serde_json::to_vec(&cleanup)?), deadline).await
+    wire::write(
+        &mut writer,
+        wire::frame(wire::CLOSED, sequence, serde_json::to_vec(&cleanup)?),
+        deadline,
+    )
+    .await
 }

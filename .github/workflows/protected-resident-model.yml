@@ -107,7 +107,7 @@ jobs:
             for name in names: assert len(re.findall(r'^test '+re.escape(name)+r' \.\.\. ok$',output,re.M))==1
             assert f'{len(names)} passed; 0 failed; 0 ignored;' in output
             groups[label]=len(names); all_names.extend(names)
-          assert groups['guest']>=10 and groups['resident']==30
+          assert groups==dict(grant=22,guest=11,resident=30,local=30)
           assert len(all_names)==len(set(all_names))
           (root/'tests.json').write_text(json.dumps(dict(version=1,counts=groups,test_names=sorted(all_names),model_execution=False,guest_boot=False,private_peer_admission=False),sort_keys=True)+'\n')
           PY
@@ -122,9 +122,31 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          if test -f tests/integration/test-protected-resident-model-workload.py; then
-            python3 -B tests/integration/test-protected-resident-model-workload.py 2>&1 | tee resident-model-evidence/workload.log
-          fi
+          python3 -B tests/integration/test-protected-resident-model-workload.py 2>&1 | tee resident-model-evidence/workload.log
+          python3 -B - <<'PY'
+          import pathlib,re
+          output=pathlib.Path('resident-model-evidence/workload.log').read_text()
+          assert re.search(r'^Ran 28 tests in ',output,re.M)
+          assert re.search(r'^OK$',output,re.M) and 'skipped=' not in output
+          PY
+
+      - name: Verify tested source stayed equal to the committed candidate
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          import json,os,pathlib,subprocess
+          root=pathlib.Path('resident-model-evidence')
+          source=json.loads((root/'source.json').read_text())
+          fmt=json.loads((root/'format.json').read_text())
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          assert git('rev-parse','HEAD')==source['source_commit']==os.environ['GITHUB_SHA']==os.environ['GITHUB_WORKFLOW_SHA']
+          assert git('rev-parse','HEAD^{tree}')==source['source_tree']
+          assert not git('diff','--name-only','HEAD')
+          assert fmt['tested_source_is_committed'] and not fmt['formatter_changed_files']
+          assert (root/'format.patch').stat().st_size==0
+          (root/'source-final.json').write_text(json.dumps(dict(version=1,source_commit=source['source_commit'],source_tree=source['source_tree'],tracked_source_unchanged=True),sort_keys=True)+'\n')
+          PY
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
         if: always()

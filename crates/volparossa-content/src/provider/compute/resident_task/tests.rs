@@ -93,7 +93,10 @@ fn public_grant_canonical_signed_roundtrip_and_two_ordered_inputs() {
     assert_eq!(allowance.check(), Ok(()));
     assert_eq!(allowance.consume_input(&INPUTS[0]), Ok(()));
     assert_eq!(allowance.consume_input(&INPUTS[1]), Ok(()));
-    assert_eq!(allowance.consume_input(&INPUTS[0]), Err(GrantError::Exhausted));
+    assert_eq!(
+        allowance.consume_input(&INPUTS[0]),
+        Err(GrantError::Exhausted)
+    );
 }
 
 #[test]
@@ -125,7 +128,10 @@ fn public_grant_domain_and_payload_hash_are_authenticated() {
         Some(GrantError::Authentication)
     );
     envelope.body.as_mut().expect("body").payload_sha256[0] ^= 1;
-    assert_eq!(wire::decode(&resign(envelope)).err(), Some(GrantError::Invalid));
+    assert_eq!(
+        wire::decode(&resign(envelope)).err(),
+        Some(GrantError::Invalid)
+    );
 }
 
 #[test]
@@ -142,7 +148,10 @@ fn public_grant_wrong_nonce_channel_spki_workload_and_inputs_are_rejected() {
             _ => unreachable!(),
         }
         let bytes = sign(&key(), &grant).expect("valid differently bound grant");
-        assert_eq!(verifier.verify(&bytes).err(), Some(GrantError::Authentication));
+        assert_eq!(
+            verifier.verify(&bytes).err(),
+            Some(GrantError::Authentication)
+        );
     }
 }
 
@@ -153,7 +162,10 @@ fn public_grant_different_requester_requires_independent_authorization() {
     let other = SigningKey::from_bytes(&[12; 32]);
     grant.requester_key = other.verifying_key().to_bytes();
     let bytes = sign(&other, &grant).expect("other actual signature");
-    assert_eq!(verifier.verify(&bytes).err(), Some(GrantError::Authentication));
+    assert_eq!(
+        verifier.verify(&bytes).err(),
+        Some(GrantError::Authentication)
+    );
 }
 
 #[test]
@@ -163,7 +175,10 @@ fn public_grant_replay_into_new_verifier_is_rejected() {
     assert_ne!(first.nonce(), second.nonce());
     let bytes = sign(&key(), &spec(&first)).expect("sign");
     let _allowance = first.verify(&bytes).expect("first use");
-    assert_eq!(second.verify(&bytes).err(), Some(GrantError::Authentication));
+    assert_eq!(
+        second.verify(&bytes).err(),
+        Some(GrantError::Authentication)
+    );
 }
 
 #[test]
@@ -174,7 +189,10 @@ fn public_grant_even_matching_nonce_cannot_cross_tls_exporters() {
     second.nonce = *first.nonce();
     second.expected.tls_exporter[0] ^= 1;
     let bytes = sign(&key(), &spec(&first)).expect("sign");
-    assert_eq!(second.verify(&bytes).err(), Some(GrantError::Authentication));
+    assert_eq!(
+        second.verify(&bytes).err(),
+        Some(GrantError::Authentication)
+    );
 }
 
 #[test]
@@ -201,7 +219,10 @@ fn public_grant_signed_nested_unknown_duplicate_and_overlong_fields_are_rejected
         let body = envelope.body.as_mut().expect("body");
         body.payload.extend_from_slice(&extra);
         body.payload_sha256 = Sha256::digest(&body.payload).to_vec();
-        assert_eq!(wire::decode(&resign(envelope)).err(), Some(GrantError::Invalid));
+        assert_eq!(
+            wire::decode(&resign(envelope)).err(),
+            Some(GrantError::Invalid)
+        );
     }
 }
 
@@ -244,7 +265,10 @@ fn public_grant_version_kind_profile_and_fixed_width_fields_are_closed() {
             5 => body.nonce.fill(0),
             _ => unreachable!(),
         }
-        assert_eq!(wire::decode(&resign(envelope)).err(), Some(GrantError::Invalid));
+        assert_eq!(
+            wire::decode(&resign(envelope)).err(),
+            Some(GrantError::Invalid)
+        );
     }
     for index in 0..6 {
         let bytes = rewrite_payload(|payload| match index {
@@ -306,11 +330,17 @@ fn public_grant_independent_resource_ceilings_cannot_be_enlarged() {
         }
         let verifier = GrantVerifier::new(expected).expect("valid lower ceiling");
         let bytes = sign(&key(), &spec(&verifier)).expect("valid global ceilings");
-        assert_eq!(verifier.verify(&bytes).err(), Some(GrantError::Authentication));
+        assert_eq!(
+            verifier.verify(&bytes).err(),
+            Some(GrantError::Authentication)
+        );
     }
     let mut expected = expectations();
     expected.limits.maximum_requests = 0;
-    assert_eq!(GrantVerifier::new(expected).err(), Some(GrantError::Invalid));
+    assert_eq!(
+        GrantVerifier::new(expected).err(),
+        Some(GrantError::Invalid)
+    );
 }
 
 #[test]
@@ -356,7 +386,10 @@ fn public_grant_original_challenge_wall_bounds_reject_stale_future_and_rollback(
             monotonic: verifier.started.monotonic + Duration::from_millis(10),
             wall_ms,
         };
-        assert_eq!(verifier.finish(decoded, now).err(), Some(GrantError::Expired));
+        assert_eq!(
+            verifier.finish(&decoded, &now).err(),
+            Some(GrantError::Expired)
+        );
     }
 }
 
@@ -371,7 +404,10 @@ async fn public_grant_delayed_verification_does_not_rebase_original_deadline() {
     assert_eq!(allowance.consume_input(&INPUTS[0]), Ok(()));
     tokio::time::advance(Duration::from_secs(1700)).await;
     assert_eq!(allowance.check(), Err(GrantError::Expired));
-    assert_eq!(allowance.consume_input(&INPUTS[1]), Err(GrantError::Expired));
+    assert_eq!(
+        allowance.consume_input(&INPUTS[1]),
+        Err(GrantError::Expired)
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -414,13 +450,19 @@ fn public_grant_one_request_limit_and_wrong_input_poison_are_enforced() {
     let bytes = sign(&key(), &grant).expect("sign");
     let mut allowance = one_request.verify(&bytes).expect("verify");
     assert_eq!(allowance.consume_input(&INPUTS[0]), Ok(()));
-    assert_eq!(allowance.consume_input(&INPUTS[1]), Err(GrantError::Exhausted));
+    assert_eq!(
+        allowance.consume_input(&INPUTS[1]),
+        Err(GrantError::Exhausted)
+    );
     for wrong in [INPUTS[1], [0; 32]] {
         let verifier = verifier();
         let bytes = sign(&key(), &spec(&verifier)).expect("sign");
         let mut allowance = verifier.verify(&bytes).expect("verify");
         assert_eq!(allowance.consume_input(&wrong), Err(GrantError::Input));
-        assert_eq!(allowance.consume_input(&INPUTS[0]), Err(GrantError::Exhausted));
+        assert_eq!(
+            allowance.consume_input(&INPUTS[0]),
+            Err(GrantError::Exhausted)
+        );
     }
 }
 

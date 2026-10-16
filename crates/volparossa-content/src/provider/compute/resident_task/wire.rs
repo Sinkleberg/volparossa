@@ -157,7 +157,10 @@ pub(super) fn decode(bytes: &[u8]) -> Result<GrantSpec, GrantError> {
                 .maximum_turn_seconds
                 .try_into()
                 .map_err(|_| GrantError::Invalid)?,
-            threads: payload.threads.try_into().map_err(|_| GrantError::Invalid)?,
+            threads: payload
+                .threads
+                .try_into()
+                .map_err(|_| GrantError::Invalid)?,
         },
         public_input_sha256: [
             array(&payload.public_input_sha256[0])?,
