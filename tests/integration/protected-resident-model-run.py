@@ -48,7 +48,7 @@ ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.
        'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0'}
 CANCELLED = False
 FAILURE_CODES = frozenset(('controller_deadline', 'controller_cancelled', 'command_timeout',
-    'command_output_bound', 'command_failed', 'host_memory_headroom', 'qemu_limits',
+    'command_output_bound', 'command_failed', 'host_memory_headroom', 'host_memory_snapshot', 'qemu_limits',
     'qemu_exited_before_scope', 'scope_start_timeout', 'guest_unit_failed', 'guest_unit_cgroup',
     'base_os', 'base_root_size', 'runtime_uuid', 'build_vm_died', 'build_boot_timeout',
     'guest_source_bundle', 'guest_package_bundle', 'installer_receipt', 'runtime_still_mounted',
@@ -205,9 +205,67 @@ def scope_path(raw, unit):
     return Path('/sys/fs/cgroup' + raw)
 
 
+def memory_values(raw):
+    """Only four bounded /proc counters, never the raw input, enter evidence."""
+    require(type(raw) is bytes and len(raw) <= 65536 and raw.isascii(), 'host_memory_snapshot')
+    fields = (b'MemTotal', b'MemAvailable', b'Dirty', b'Writeback')
+    values = {}
+    for line in raw.splitlines():
+        if line.startswith(b'WritebackTmp:'):
+            continue  # A separate standard counter, not Writeback.
+        if not line.startswith(fields):
+            continue
+        match = re.fullmatch(rb'(MemTotal|MemAvailable|Dirty|Writeback):[ \t]+([0-9]{1,16})[ \t]+kB', line)
+        require(match is not None and match[1] not in values, 'host_memory_snapshot')
+        values[match[1]] = int(match[2]) * 1024
+    require(values.keys() == set(fields), 'host_memory_snapshot')
+    total = values[b'MemTotal']
+    require(0 < total < 2 ** 63 and all(0 <= values[key] <= total for key in fields[1:]),
+            'host_memory_snapshot')
+    return tuple(values[key] for key in fields)
+
+
+def memory_snapshot(snapshot, deadline):
+    """One observation; unavailable is not itself an admission decision."""
+    require(snapshot in [dict(label=label, phase='before_scope_start')
+                         for label in ('build', 'model', 'corrupt')]
+            or snapshot == dict(label='baseline', phase='before_disks'), 'host_memory_snapshot')
+    snapshot.update(version=1, state='unavailable', mem_total_bytes=None, mem_available_bytes=None,
+                    dirty_bytes=None, writeback_bytes=None, required_available_bytes=14 * GIB,
+                    guest_memory_bytes=12 * GIB, qemu_memory_max_bytes=QEMU_BYTES,
+                    qemu_swap_max_bytes=0, admitted=None)
+    remaining(deadline)
+    try:
+        with Path('/proc/meminfo').open('rb') as source:
+            total, available, dirty, writeback = memory_values(source.read(65537))
+    except (OSError, ValueError):
+        remaining(deadline)
+        return
+    remaining(deadline)
+    snapshot.update(state='observed', mem_total_bytes=total, mem_available_bytes=available,
+                    dirty_bytes=dirty, writeback_bytes=writeback)
+
+
+def memory_admission(observations, label, deadline):
+    labels = ('build', 'model', 'corrupt')
+    require(type(observations) is list and len(observations) < len(labels)
+            and label == labels[len(observations)], 'host_memory_snapshot')
+    snapshot = dict(phase='before_scope_start', label=label)
+    observations.append(snapshot)
+    memory_snapshot(snapshot, deadline)
+    require(snapshot['state'] == 'observed', 'host_memory_snapshot')
+    available = snapshot['mem_available_bytes']
+    admitted = available >= 14 * GIB
+    # Publish before the original admission require, including its false case.
+    snapshot['admitted'] = admitted
+    require(admitted, 'host_memory_headroom')
+    return available
+
+
 class Scope:
     """An inherited-credential scope, never a detached user-manager service."""
     def __init__(self, argv, work, deadline, env, seconds, label):
+        self.label = label
         self.unit = 'vp-resident-' + label + '-' + uuid.uuid4().hex + '.scope'
         self.env, self.deadline, self.group = env, deadline, None
         self.process, self.log = None, None
@@ -224,11 +282,8 @@ class Scope:
                   cap=15, env=self.env, check=False)[0].decode()
         return dict(line.split('=', 1) for line in raw.splitlines() if '=' in line)
 
-    def start(self):
-        available = next(int(row.split()[1]) * 1024 for row in Path('/proc/meminfo').read_text().splitlines()
-                         if row.startswith('MemAvailable:'))
-        require(available >= 14 * GIB, 'host_memory_headroom')
-        self.available = available
+    def start(self, memory_observations):
+        self.available = memory_admission(memory_observations, self.label, self.deadline)
         self.log = self.logpath.open('xb')
         self.process = subprocess.Popen(self.argv, stdin=subprocess.DEVNULL, stdout=self.log,
             stderr=subprocess.STDOUT, env=self.env, close_fds=True, start_new_session=True)
@@ -559,7 +614,8 @@ def execute(args):
     report = dict(version=1, kind='protected-resident-public-model-trial', source=source,
                   state='failed', phase='prepare', process_launch=launch, model_execution=False,
                   private_inputs=False, hardware_attestation=False, confidential_execution=False,
-                  production_approval=False, vm_cleanup_confirmed=False, scratch_removed=False)
+                  production_approval=False, vm_cleanup_confirmed=False, scratch_removed=False,
+                  memory_admissions=[])
     current = None
     try:
         images = ImageTools(work, args.appliance_kernel, deadline)
@@ -585,6 +641,8 @@ def execute(args):
         with tarfile.open(work / 'packages.tar', 'x') as archive:
             for path in sorted(packages.iterdir()):
                 archive.add(path, arcname=path.name, recursive=False)
+        report['memory_before_disks'] = dict(label='baseline', phase='before_disks')
+        memory_snapshot(report['memory_before_disks'], deadline)
         report['phase'] = 'prepare_disks'
         device = base.root_device(images.fish(work / 'base.qcow2', [['inspect-os']], image_format='qcow2'))
         details = images.fish(work / 'base.qcow2', [['inspect-os'], ['inspect-get-distro', device],
@@ -610,7 +668,7 @@ def execute(args):
         with socket.socket() as test:
             test.bind(('127.0.0.1', 22223))
         current = Scope(qemu_build(work), work, deadline, env, min(7500, int(remaining(deadline))), 'build')
-        current.start()
+        current.start(report['memory_admissions'])
         guest = Guest(work, deadline)
         report['phase'] = 'guest_boot'
         end = time.monotonic() + remaining(deadline, 300)
@@ -703,7 +761,7 @@ def execute(args):
         require(len(os.fsencode(channel)) < 104, 'channel_path_length')
         report['phase'] = 'model_boot'
         current = Scope(qemu_model(work, closure, channel), work, deadline, env, 2700, 'model')
-        current.start()
+        current.start(report['memory_admissions'])
         end = time.monotonic() + remaining(deadline, 300)
         console = work / 'model-console.log'
         while time.monotonic() < end:
@@ -743,7 +801,7 @@ def execute(args):
         console.unlink()
         channel.unlink()
         current = Scope(qemu_model(work, closure, channel), work, deadline, env, 360, 'corrupt')
-        current.start()
+        current.start(report['memory_admissions'])
         end = time.monotonic() + remaining(deadline, 300)
         while current.alive() and time.monotonic() < end:
             time.sleep(.1)

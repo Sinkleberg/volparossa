@@ -98,7 +98,8 @@ does not prove model execution or worker cleanup. The 27 new initrd, 21 preserve
 boot and 28 workload contracts pass locally and in the hosted run below with inert
 inputs and no skipped tests. The old boot profile is unchanged. The model controller must enforce its
 explicit 12 GiB guest, 13 GiB host-side QEMU cap and 14 GiB available-host-memory
-requirement; this initrd does not claim the earlier Code fixture's 11 GiB guest cap.
+requirement. The accepted Code trial `38824828727` used the same 12/13/14 GiB
+profile; its original host-memory admission margin was only 467.4 MiB.
 The next acceptance gate must execute two real model turns inside the sealed
 guest, preserve one model lifetime, reject excess/replayed requests and confirm
 cleanup. The model image also needs the complete Python/native/OS closure and a
@@ -157,7 +158,7 @@ ZIP SHA-256 values are
 and `eb38015f3f4ef7d60d3965a175ff1ed84fc9144f204595b0761169158a46c0cc`.
 This validates the builder and staging source, not a built model image or VM run.
 
-The next candidate connects the offline installer, immutable-image assembly and
+Revision `d6169a82` connects the offline installer, immutable-image assembly and
 hosted controller. It adds 31 installer, 29 assembly and 35 controller tests;
 all 95 pass locally with inert fixtures and no skips. Independent source reviews
 cover the installer, assembly, controller and workflow. These checks do not
@@ -177,9 +178,50 @@ read-only boot and deliberate corruption rejection under one finite controller
 deadline. Process and cgroup cleanup are distinct from scratch-file deletion:
 the controller currently reports `scratch_removed: false`. Only an explicit list
 of public JSON receipts may be uploaded; keys, filesystems and model payloads are
-excluded. Hosted acceptance of this new composition, a complete built model image
-and the actual two-turn model trial remain open. Neither source checks nor a
-public VM trial establish confidential execution or guest-key origin.
+excluded. A complete built model image and the actual two-turn model trial remain
+open. Neither source checks nor a public VM trial establish confidential
+execution or guest-key origin.
+
+Original source run
+[`38877212272`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38877212272)
+passes on exact `d6169a82931b58bc133148e313de3fce4343a27f`: compilation, strict
+lint, 100 unique Rust tests and 219 Python contracts, with no failures or skips.
+The formatter patch is empty, final source checks pass and all 560 dependency
+identities, versions, origins and checksums remain unchanged. The public-model
+job is intentionally skipped on this push. Original artifact and log ZIP
+SHA-256 values are
+`4453e203587cff1aa2e1f4dc68e57fe4ac35e01411251e64a47b0659777be80f`
+and `2acf7b0e41311cba1127bd742ccc3860bd202dff23931f60622e700c1d99340d`.
+
+The first actual
+[`38878112559`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38878112559)
+on that same commit passes source contracts but fails `host_memory_headroom`
+during disk preparation, before the build or model QEMU process starts. The
+required 14 GiB of available host memory was not present at admission; the
+original report does not preserve the measured amount or establish its cause.
+This is not a model failure or evidence of an OOM kill. Earlier libguestfs
+appliance activity is not model execution.
+
+The original report keeps model execution, private inputs, attestation and
+confidential execution false. Its VM-cleanup flag applies to the absence of a
+started build/model child; scratch deletion and the final host route/DNS
+comparison are not proved. User-manager restoration and final source checks
+pass. Original trial artifact and log ZIP SHA-256 values are
+`d589e7e68c1f5f581bdec6d679825664a0599db5cd65cede0fe3cc76ee503ee8`
+and `73451c98e16d5c51ef1d1ef66b5519df5d12a3e11444d149a0b1675e51c455bd`.
+The model, memory limits and original task deadlines are not reduced to make
+this trial pass.
+
+The follow-up preserves four bounded kernel counters (`MemTotal`,
+`MemAvailable`, `Dirty`, `Writeback`) before disk preparation and before each
+of the three existing VM admissions. The baseline is observation only; an
+unavailable or low baseline does not replace the original admission check.
+Each actual admission records its outcome before refusal or process launch.
+Unreadable admission data fails closed. No raw process data, new retries,
+waiting, cache reclamation or weaker memory guard is introduced. All 46
+controller contracts pass locally with inert fixtures, including execution
+through the final result writer; hosted verification of this follow-up is
+pending. This adds evidence for the next trial, not a demonstrated memory fix.
 
 ### Latest shared-storage consumer trial
 

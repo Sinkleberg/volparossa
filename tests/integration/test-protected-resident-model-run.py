@@ -5,6 +5,7 @@ import ast
 import copy
 import hashlib
 import importlib.util
+import io
 import os
 from pathlib import Path
 import signal
@@ -42,6 +43,11 @@ def requester():
                 guest_key_origin_proven=False, production_approval=False)
 
 
+def memory(total=16 * R.GIB, available=15 * R.GIB, dirty=1024, writeback=2048):
+    return (f'MemTotal: {total // 1024} kB\nMemAvailable: {available // 1024} kB\n'
+            f'Dirty: {dirty // 1024} kB\nWriteback: {writeback // 1024} kB\n').encode()
+
+
 class Inert(unittest.TestCase):
     def setUp(self):
         # Any missed mock is an immediate test failure, never a real command.
@@ -68,19 +74,23 @@ class ScopeCleanup(Inert):
             (group / 'memory.max').write_text(str(R.QEMU_BYTES))
             (group / 'memory.swap.max').write_text('0\n')
             (group / 'cgroup.procs').write_text('313\n')
-            scope = R.Scope(['synthetic-qemu'], work, 200, {}, 50, 'test')
+            scope = R.Scope(['synthetic-qemu'], work, 200, {}, 50, 'build')
             process = types.SimpleNamespace(pid=313)
-            read_text = Path.read_text
-            def read(path, *args, **kwargs):
+            original_open = Path.open
+            observations = []
+            def opened(path, *args, **kwargs):
                 if path == Path('/proc/meminfo'):
-                    return 'MemAvailable: 16777216 kB\n'
-                return read_text(path, *args, **kwargs)
-            with mock.patch.object(Path, 'read_text', read), \
-                    mock.patch.object(R.subprocess, 'Popen', return_value=process) as launch, \
+                    return io.BytesIO(memory())
+                return original_open(path, *args, **kwargs)
+            def spawned(*_args, **_kwargs):
+                self.assertTrue(observations[0]['admitted'], 'snapshot_not_stored_before_launch')
+                return process
+            with mock.patch.object(Path, 'open', opened), \
+                    mock.patch.object(R.subprocess, 'Popen', side_effect=spawned) as launch, \
                     mock.patch.object(scope, 'state', return_value={'ControlGroup': '/user.slice/' + scope.unit}), \
                     mock.patch.object(R, 'scope_path', return_value=group):
                 try:
-                    scope.start()
+                    scope.start(observations)
                 finally:
                     if scope.log is not None:
                         scope.log.close()
@@ -90,6 +100,10 @@ class ScopeCleanup(Inert):
             self.assertIn('--property=MemoryMax=' + str(13 * R.GIB), launch.call_args.args[0])
             self.assertIn('--property=MemorySwapMax=0', launch.call_args.args[0])
             self.assertTrue(launch.call_args.kwargs['start_new_session'])
+            self.assertEqual(observations[0]['mem_total_bytes'], 16 * R.GIB)
+            self.assertEqual(observations[0]['mem_available_bytes'], 15 * R.GIB)
+            self.assertEqual(observations[0]['dirty_bytes'], 1024)
+            self.assertEqual(observations[0]['writeback_bytes'], 2048)
 
     def test_manager_query_failure_still_joins_and_closes(self):
         scope = self.scope()
@@ -180,6 +194,229 @@ class ScopeCleanup(Inert):
             self.assertTrue(scope.stop()['scope_empty'])
         self.assertEqual(observed, [False])
         self.assertTrue(R.CANCELLED)
+
+
+class MemoryObservation(Inert):
+    def test_baseline_observes_high_or_low_values_without_admission_or_process(self):
+        for available in (0, 15 * R.GIB):
+            with self.subTest(available=available):
+                snapshot = dict(label='baseline', phase='before_disks')
+                with mock.patch.object(Path, 'open', return_value=io.BytesIO(memory(available=available))) as opened:
+                    R.memory_snapshot(snapshot, 200)
+                opened.assert_called_once_with('rb')
+                self.assertEqual(snapshot['state'], 'observed')
+                self.assertEqual(snapshot['mem_available_bytes'], available)
+                self.assertEqual(snapshot['dirty_bytes'], 1024)
+                self.assertEqual(snapshot['writeback_bytes'], 2048)
+                self.assertIsNone(snapshot['admitted'])
+                R.subprocess.Popen.assert_not_called()
+
+    def test_baseline_read_or_parse_failure_is_explicit_unavailable_not_rejection(self):
+        for raw in (OSError('private-canary'), b'not a memory snapshot', b'x' * 65537):
+            with self.subTest(kind=type(raw).__name__):
+                snapshot = dict(label='baseline', phase='before_disks')
+                with mock.patch.object(Path, 'open', side_effect=raw if isinstance(raw, OSError) else None,
+                                       return_value=io.BytesIO(raw if isinstance(raw, bytes) else b'')):
+                    R.memory_snapshot(snapshot, 200)
+                self.assertEqual(snapshot['state'], 'unavailable')
+                for key in ('mem_total_bytes', 'mem_available_bytes', 'dirty_bytes', 'writeback_bytes', 'admitted'):
+                    self.assertIsNone(snapshot[key])
+                self.assertNotIn(b'private-canary', R.encoded(snapshot))
+                R.subprocess.Popen.assert_not_called()
+
+    def test_four_exact_counters_convert_kibibytes_without_exporting_other_rows(self):
+        raw = memory() + b'WritebackTmp: 0 kB\nPrivateCanary: 12345 kB\n'
+        self.assertEqual(R.memory_values(raw), (16 * R.GIB, 15 * R.GIB, 1024, 2048))
+        with mock.patch.object(Path, 'open', return_value=io.BytesIO(raw)):
+            rows = []
+            self.assertEqual(R.memory_admission(rows, 'build', 200), 15 * R.GIB)
+        self.assertEqual(rows[0].keys(), {'version', 'phase', 'label', 'state', 'mem_total_bytes',
+            'mem_available_bytes', 'dirty_bytes', 'writeback_bytes', 'required_available_bytes',
+            'guest_memory_bytes', 'qemu_memory_max_bytes', 'qemu_swap_max_bytes', 'admitted'})
+        self.assertEqual((rows[0]['required_available_bytes'], rows[0]['guest_memory_bytes'],
+                          rows[0]['qemu_memory_max_bytes'], rows[0]['qemu_swap_max_bytes']),
+                         (14 * R.GIB, 12 * R.GIB, 13 * R.GIB, 0))
+        self.assertNotIn(b'PrivateCanary', R.encoded(rows))
+        self.assertNotIn(b'/proc/', R.encoded(rows))
+
+    def test_each_required_counter_is_unique_and_present(self):
+        lines = memory().splitlines(keepends=True)
+        for index in range(4):
+            for raw in (b''.join(lines[:index] + lines[index + 1:]), b''.join(lines + [lines[index]])):
+                with self.subTest(index=index, raw=raw), self.assertRaisesRegex(ValueError, 'host_memory_snapshot'):
+                    R.memory_values(raw)
+
+    def test_bounded_ascii_exact_units_and_decimal_fields_fail_closed(self):
+        original = memory()
+        variants = [None, original.decode(), b'x' * 65537, original + b'\xff',
+                    original.replace(b'kB', b'KB'), original.replace(b'kB', b'bytes'),
+                    original.replace(b'Dirty: 1', b'Dirty: -1'), original.replace(b'Dirty: 1', b'Dirty: +1'),
+                    original.replace(b'Dirty: 1', b'Dirty: 1.0'), original.replace(b'Dirty: 1', b'Dirty: True'),
+                    original.replace(b'Dirty: 1', b'Dirty: ' + b'1' * 17),
+                    original.replace(b'Dirty: 1 kB', b'Dirty: 1 kB trailing'),
+                    original.replace(b'MemTotal:', b'MemTotalExtra:')]
+        for index, raw in enumerate(variants):
+            with self.subTest(index=index), self.assertRaisesRegex(ValueError, 'host_memory_snapshot'):
+                R.memory_values(raw)
+
+    def test_impossible_values_rejected_but_zero_available_is_an_observation(self):
+        for values in ({'total': 0}, {'total': 2 ** 63}, {'available': 17 * R.GIB},
+                       {'dirty': 17 * R.GIB}, {'writeback': 17 * R.GIB}):
+            with self.subTest(values=values), self.assertRaisesRegex(ValueError, 'host_memory_snapshot'):
+                R.memory_values(memory(**values))
+        self.assertEqual(R.memory_values(memory(available=0))[1], 0)
+
+    def test_low_available_keeps_snapshot_and_never_creates_scope_or_process(self):
+        for available in (0, 14 * R.GIB - 1024):
+            with self.subTest(available=available), tempfile.TemporaryDirectory() as temporary:
+                scope = R.Scope(['not-executed'], Path(temporary), 200, {}, 50, 'build')
+                rows = []
+                with mock.patch.object(Path, 'open', return_value=io.BytesIO(memory(available=available))), \
+                        mock.patch.object(scope, 'state') as state:
+                    with self.assertRaisesRegex(ValueError, 'host_memory_headroom'):
+                        scope.start(rows)
+                R.subprocess.Popen.assert_not_called()
+                state.assert_not_called()
+                self.assertEqual(rows[0]['mem_available_bytes'], available)
+                self.assertFalse(rows[0]['admitted'])
+                self.assertEqual(rows[0]['state'], 'observed')
+                self.assertFalse(scope.started)
+                self.assertIsNone(scope.process)
+                self.assertIsNone(scope.log)
+                self.assertIsNone(scope.group)
+                self.assertFalse(scope.logpath.exists())
+
+    def test_read_failure_and_overlarge_input_remain_unavailable_before_spawn(self):
+        for raw in (OSError('private-canary-path'), b'x' * 65537, b'Dirty: 1 kB\n'):
+            with self.subTest(kind=type(raw).__name__):
+                rows = []
+                stream = mock.MagicMock()
+                stream.__enter__.return_value.read.return_value = raw
+                with mock.patch.object(Path, 'open', side_effect=raw if isinstance(raw, OSError) else None,
+                                       return_value=stream):
+                    with self.assertRaisesRegex(ValueError, 'host_memory_snapshot'):
+                        R.Scope(['not-executed'], Path('/synthetic'), 200, {}, 50, 'build').start(rows)
+                if not isinstance(raw, OSError):
+                    stream.__enter__.return_value.read.assert_called_once_with(65537)
+                self.assertEqual(rows[0]['state'], 'unavailable')
+                for key in ('mem_total_bytes', 'mem_available_bytes', 'dirty_bytes', 'writeback_bytes', 'admitted'):
+                    self.assertIsNone(rows[0][key])
+                self.assertNotIn(b'private-canary', R.encoded(rows))
+                R.subprocess.Popen.assert_not_called()
+
+    def test_exact_three_ordered_checks_do_not_repoll_or_accept_free_labels(self):
+        rows = []
+        with mock.patch.object(Path, 'open', side_effect=lambda *_a, **_k: io.BytesIO(memory(available=14 * R.GIB))) as opened:
+            for label in ('build', 'model', 'corrupt'):
+                self.assertEqual(R.memory_admission(rows, label, 200), 14 * R.GIB)
+            for label in ('build', 'model', 'corrupt', 'private-canary'):
+                with self.assertRaisesRegex(ValueError, 'host_memory_snapshot'):
+                    R.memory_admission(rows, label, 200)
+            self.assertEqual(opened.call_count, 3)
+        self.assertEqual([row['label'] for row in rows], ['build', 'model', 'corrupt'])
+        self.assertTrue(all(row['phase'] == 'before_scope_start' and row['admitted'] is True for row in rows))
+        with mock.patch.object(Path, 'open') as opened:
+            for label in ('model', 'corrupt', 'arbitrary'):
+                with self.assertRaises(ValueError):
+                    R.memory_admission([], label, 200)
+            opened.assert_not_called()
+
+    def test_snapshot_does_not_reset_original_deadline_or_ignore_cancellation(self):
+        with mock.patch.object(Path, 'open') as opened:
+            with self.assertRaisesRegex(ValueError, 'controller_deadline'):
+                R.memory_admission([], 'build', 99)
+            R.CANCELLED = True
+            with self.assertRaisesRegex(ValueError, 'controller_cancelled'):
+                R.memory_admission([], 'build', 200)
+            opened.assert_not_called()
+        R.CANCELLED = False
+        rows = []
+        with mock.patch.object(Path, 'open', return_value=io.BytesIO(memory())), \
+                mock.patch.object(R.time, 'monotonic', side_effect=[100, 201]):
+            with self.assertRaisesRegex(ValueError, 'controller_deadline'):
+                R.memory_admission(rows, 'build', 200)
+        self.assertIsNone(rows[0]['admitted'])
+        R.subprocess.Popen.assert_not_called()
+
+    def test_execute_persists_pass_or_failure_snapshot_without_model_claim(self):
+        pins = R.json.loads((R.HERE / 'protected-resident-image-pins-v1.json').read_bytes())
+        for available, baseline in ((14 * R.GIB - 1024, memory()),
+                                    (14 * R.GIB, OSError('private-baseline-canary')),
+                                    (14 * R.GIB, memory(available=0))):
+            with self.subTest(available=available), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary)
+                requester_path = work / 'target/requester'
+                requester_path.parent.mkdir()
+                requester_path.write_bytes(b'public inert executable placeholder, never run')
+                manifest = work / pins['debian_image_manifest']
+                manifest.parent.mkdir(parents=True, exist_ok=True)
+                manifest.write_bytes(b'{}')
+                group = work / 'cgroup'
+                group.mkdir()
+                for name, raw in {'memory.max': str(R.QEMU_BYTES), 'memory.swap.max': '0',
+                                  'cgroup.procs': '313', 'cgroup.events': 'populated 0\n'}.items():
+                    (group / name).write_text(raw)
+                args = types.SimpleNamespace(work=work, appliance_kernel=Path('/not-opened'),
+                    expected_source='1' * 40, requester=requester_path)
+                base = types.SimpleNamespace(fetch=mock.Mock(), root_device=lambda _raw: '/dev/sda1')
+                memory_reads = []
+                def fish(_image, ops, **_options):
+                    self.assertEqual(len(memory_reads), 1, 'baseline_not_observed_before_disk_work')
+                    if len(ops) == 1 and ops[0][0] == 'inspect-os':
+                        return '/dev/sda1\n'
+                    if ops[0][0] == 'inspect-os':
+                        return '/dev/sda1\ndebian\n13\next4\n4096\n'
+                    if ops[0][0] == 'set-uuid':
+                        return ops[0][2]
+                    return ''
+                original_open, original_read = Path.open, Path.read_bytes
+                def opened(path, *args, **kwargs):
+                    if path == Path('/proc/meminfo'):
+                        raw = baseline if not memory_reads else memory(available=available)
+                        memory_reads.append(True)
+                        if isinstance(raw, OSError):
+                            raise raw
+                        return io.BytesIO(raw)
+                    return original_open(path, *args, **kwargs)
+                def read(path):
+                    if str(path) in ('/proc/net/route', '/proc/net/ipv6_route', '/etc/resolv.conf'):
+                        return b'public test network observation'
+                    return original_read(path)
+                process = types.SimpleNamespace(pid=313)
+                with mock.patch.object(R, 'ROOT', work), mock.patch.object(R.os, 'umask'), \
+                        mock.patch.object(R, 'hosted', return_value=(base,
+                            {'commit': '1' * 40, 'tree': '2' * 40}, {}, {})), \
+                        mock.patch.object(R, 'ImageTools', return_value=types.SimpleNamespace(fish=fish)), \
+                        mock.patch.object(R, 'file_hash', return_value={'bytes': 1, 'sha256': 'a' * 64}), \
+                        mock.patch.object(R, 'public_keys'), mock.patch.object(R, 'seed'), \
+                        mock.patch.object(R, 'source_bundle', return_value={'sha256': 'a' * 64}), \
+                        mock.patch.object(R, 'reserve_space', return_value={}), \
+                        mock.patch.object(R.socket, 'socket'), mock.patch.object(R, 'run', return_value=(b'', b'', 0)), \
+                        mock.patch.object(Path, 'open', opened), mock.patch.object(Path, 'read_bytes', read), \
+                        mock.patch.object(R.subprocess, 'Popen', return_value=process) as launch, \
+                        mock.patch.object(R.Scope, 'state', return_value={'ControlGroup': '/user.slice/test.scope',
+                                                                       'ActiveState': 'inactive'}), \
+                        mock.patch.object(R, 'scope_path', return_value=group), mock.patch.object(R, 'joined'), \
+                        mock.patch.object(R, 'Guest', side_effect=ValueError('after_admission')):
+                    result = R.execute(args)
+                self.assertEqual((work / 'evidence/result.json').read_bytes(), R.encoded(result))
+                self.assertEqual(len(memory_reads), 2, 'baseline_or_admission_was_retried')
+                before_disks = result['memory_before_disks']
+                self.assertEqual((before_disks['label'], before_disks['phase']), ('baseline', 'before_disks'))
+                self.assertEqual(before_disks['state'], 'unavailable' if isinstance(baseline, OSError) else 'observed')
+                self.assertIsNone(before_disks['admitted'])
+                self.assertNotIn(b'private-baseline-canary', R.encoded(result))
+                self.assertEqual(len(result['memory_admissions']), 1)
+                snapshot = result['memory_admissions'][0]
+                admitted = available >= 14 * R.GIB
+                self.assertEqual(snapshot['admitted'], admitted)
+                self.assertEqual(snapshot['mem_available_bytes'], available)
+                self.assertEqual(launch.call_count, int(admitted))
+                self.assertEqual(result['failure'], 'controller_stage_failed' if admitted else 'host_memory_headroom')
+                self.assertEqual(result['state'], 'failed')
+                self.assertFalse(result['model_execution'])
+                self.assertFalse(result['private_inputs'])
+                self.assertFalse(result['hardware_attestation'])
 
 
 class GuestUnit(Inert):
