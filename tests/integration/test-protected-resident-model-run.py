@@ -10,6 +10,8 @@ import io
 import os
 from pathlib import Path
 import signal
+import stat
+import sys
 import tempfile
 import types
 import unittest
@@ -1306,6 +1308,297 @@ class GuestUnit(Inert):
         self.assertEqual(len([argv for argv, _ in calls if argv[2:4] == ['systemctl', 'show']]), 1)
         self.assertEqual(calls[-2][0][2:4], ['systemctl', 'stop'])
         self.assertEqual(calls[-1][0][2:4], ['python3', '-c'])
+
+
+class PackageDiagnostic(Inert):
+    UNIT = 'vp-resident-install-build.service'
+
+    def status(self, **changes):
+        values = dict(Result='exit-code', ExecMainCode='1', ExecMainStatus='17',
+                      ActiveState='failed', SubState='failed', ControlGroup='/system.slice/' + self.UNIT)
+        values.update(changes)
+        return ''.join(key + '=' + value + '\n' for key, value in values.items()).encode()
+
+    def receipt(self, mode='build', **changes):
+        value = R.module('protected-resident-model-install').receipt(mode)
+        value.update(phase='package_plan', archives_verified=True, archive_bytes=123,
+                     namespace_joined=True)
+        value.update(changes)
+        return value
+
+    def failing_unit(self, *, raw=None, query_error=None, stop_error=None, stop_status=0,
+                     empty_error=None, observation=None, observation_error=None, cancelled=False):
+        guest, calls, diagnostics = R.Guest(Path('/synthetic'), 200), [], []
+        primary = query_error
+        def ssh(argv, **options):
+            nonlocal primary
+            calls.append((argv, options))
+            if argv[2:4] == ['systemctl', 'show']:
+                if query_error is not None:
+                    raise query_error
+                return self.status() if raw is None else raw, b'', 0
+            if argv[2:4] == ['systemctl', 'stop']:
+                if stop_error is not None:
+                    raise stop_error
+                return b'', b'', stop_status
+            if argv[2:4] == ['python3', '-c']:
+                if argv[4] == R.PACKAGE_RECEIPT_READ:
+                    if observation_error is not None:
+                        raise observation_error
+                    return observation if observation is not None else (R.encoded(self.receipt()), b'', 0)
+                if empty_error is not None:
+                    raise empty_error
+                if cancelled:
+                    R.CANCELLED = True
+            return b'', b'', 0
+        guest.ssh = mock.Mock(side_effect=ssh)
+        try:
+            guest.unit(self.UNIT[:-8], ['python3', '/fixed.py'], 123456, diagnostics=diagnostics)
+        except Exception as error:
+            primary = error
+        else:
+            self.fail('failed unit became successful')
+        return primary, diagnostics, calls
+
+    def test_exact_unit_projection_is_closed_and_omits_path(self):
+        result = R.package_unit_projection(self.status(), self.UNIT)
+        self.assertEqual(result, dict(result='exit-code', exec_main_code=1, exec_main_status=17,
+                                     active_state='failed', sub_state='failed'))
+        self.assertNotIn(b'/system.slice', R.encoded(result))
+
+    def test_unit_projection_rejects_missing_extra_duplicate_unknown_or_oversized_fields(self):
+        invalid = [self.status() + b'Foreign=PRIVATE_CANARY\n', self.status() + b'Result=success\n',
+                   self.status().replace(b'Result=exit-code\n', b''), b'\xff', b'x' * 2049,
+                   self.status(Result='PRIVATE_CANARY'), self.status(ActiveState='unknown'),
+                   self.status(SubState='unknown'), self.status(ExecMainCode='4'),
+                   self.status(ExecMainStatus='256'), self.status(ExecMainStatus='01'),
+                   self.status(ControlGroup='/system.slice/foreign.service')]
+        for raw in invalid:
+            with self.subTest(raw=raw[:40]), self.assertRaises((ValueError, UnicodeError)):
+                R.package_unit_projection(raw, self.UNIT)
+
+    def test_installer_projection_binds_both_modes_without_promoting_success(self):
+        for mode in ('build', 'runtime'):
+            value = self.receipt(mode)
+            result = R.package_installer_projection(R.encoded(value), mode)
+            self.assertEqual(result['phase'], 'package_plan')
+            self.assertEqual(result['state'], 'failed')
+            self.assertNotIn('package_lock_sha256', result)
+            self.assertNotIn('mode', result)
+            with self.assertRaises(ValueError):
+                R.package_installer_projection(R.encoded(value), 'runtime' if mode == 'build' else 'build')
+
+    def test_installer_projection_rejects_malformed_shape_types_scope_and_counts(self):
+        invalid = [b'', b'x' * 16385, b'[]', b'{"version":1,"version":1}',
+                   R.encoded(self.receipt())[:-2] + b',"foreign":"PRIVATE_CANARY"}\n']
+        for changes in ({'version': True}, {'mode': 'foreign'}, {'kind': 'foreign'}, {'phase': 'other'},
+                        {'failure': 'PRIVATE_CANARY'}, {'state': 'unknown'}, {'packages_verified': True},
+                        {'packages_verified': 199}, {'archive_bytes': -1}, {'archive_bytes': 512 * 1024 ** 2 + 1},
+                        {'archives_verified': 1}, {'private_inputs': True}, {'descendants_joined': True},
+                        {'controller_cgroup_cleanup_required': False}, {'package_lock_sha256': '0' * 64},
+                        {'state': 'configured', 'failure': None}, {'failure': None}):
+            invalid.append(R.encoded(self.receipt(**changes)))
+        missing = self.receipt()
+        del missing['namespace_joined']
+        invalid.append(R.encoded(missing))
+        for raw in invalid:
+            with self.subTest(raw=raw[:40]), self.assertRaises((ValueError, TypeError)):
+                R.package_installer_projection(raw, 'build')
+
+    def test_existing_configured_receipt_requires_all_original_proofs(self):
+        value = self.receipt(state='configured', phase='complete', failure=None, packages_verified=198,
+            status_verified=True, triggers_clear=True, audit_clear=True, policy_restored=True,
+            runtime_unmounted=True, namespace_joined=True, direct_child_groups_joined=True)
+        self.assertEqual(R.package_installer_projection(R.encoded(value), 'build')['state'], 'configured')
+        for name in ('archives_verified', 'status_verified', 'triggers_clear', 'audit_clear',
+                     'policy_restored', 'runtime_unmounted', 'namespace_joined', 'direct_child_groups_joined'):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                R.package_installer_projection(R.encoded(dict(value, **{name: False})), 'build')
+
+    def test_failed_unit_projects_only_after_original_stop_and_empty_proof(self):
+        error, diagnostic, calls = self.failing_unit()
+        self.assertEqual(str(error), 'guest_unit_failed')
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(calls[2][0][2:4], ['systemctl', 'stop'])
+        self.assertIn('populated 0', calls[3][0][-1])
+        self.assertEqual(calls[4][0][-2:], [R.PACKAGE_RECEIPT_READ, 'build'])
+        self.assertEqual(calls[4][1], dict(cap=5, deadline=140.0, maximum=20480, check=False))
+        self.assertEqual(calls[2][1]['deadline'], calls[4][1]['deadline'])
+        self.assertEqual(diagnostic[0]['unit_last_observed']['exec_main_status'], 17)
+        self.assertEqual(diagnostic[0]['installer']['phase'], 'package_plan')
+        self.assertIs(diagnostic[0]['diagnostic_only'], True)
+        self.assertIs(diagnostic[0]['acceptance_evidence'], False)
+
+    def test_success_has_exact_original_command_sequence_and_no_diagnostic_read(self):
+        helper = GuestUnit()
+        guest, calls = helper.run_unit()
+        diagnostics = []
+        self.assertTrue(guest.unit(helper.NAME, ['python3'], 123456, diagnostics=diagnostics))
+        self.assertEqual(len(calls), 5)
+        self.assertEqual([argv[2:4] for argv, _ in calls], [['systemd-run', '--unit=' + helper.NAME + '.service'],
+            ['systemctl', 'show'], ['systemctl', 'show'], ['systemctl', 'stop'], ['python3', '-c']])
+        self.assertFalse(any(R.PACKAGE_RECEIPT_READ in argv for argv, _ in calls))
+        self.assertEqual(diagnostics, [])
+
+    def test_failed_observation_never_masks_nonzero_or_command_deadline(self):
+        for primary in (None, ValueError('command_failed'), ValueError('command_timeout')):
+            for diagnostic_error in (ValueError('command_timeout'), OSError('PRIVATE_CANARY')):
+                with self.subTest(primary=primary, diagnostic_error=diagnostic_error):
+                    error, diagnostic, calls = self.failing_unit(query_error=primary,
+                                                               observation_error=diagnostic_error)
+                    if primary is not None:
+                        self.assertIs(error, primary)
+                    else:
+                        self.assertEqual(str(error), 'guest_unit_failed')
+                    self.assertIsNone(diagnostic[0]['installer'])
+                    self.assertEqual(len(calls), 5)
+                    self.assertNotIn(b'PRIVATE_CANARY', R.encoded(diagnostic))
+
+    def test_failed_cleanup_prevents_diagnostic_read_and_keeps_cleanup_failure(self):
+        for kwargs in ({'stop_error': OSError('stop_failed')}, {'empty_error': ValueError('empty_failed')},
+                       {'stop_status': 1}):
+            with self.subTest(kwargs=kwargs):
+                error, diagnostic, calls = self.failing_unit(**kwargs)
+                self.assertEqual(diagnostic, [])
+                self.assertFalse(any(R.PACKAGE_RECEIPT_READ in argv for argv, _ in calls))
+                self.assertEqual(str(error), 'stop_failed' if 'stop_error' in kwargs else
+                                 'empty_failed' if 'empty_error' in kwargs else 'guest_unit_failed')
+
+    def test_diagnostic_join_failure_keeps_real_tool_pending(self):
+        pending, diagnostics = {}, []
+        token = R.TOOL_PROCESSES.set(pending)
+        try:
+            with fake_tool(join_error=R.CleanupUnconfirmed('PRIVATE_CANARY')) as (process, join):
+                R.observe_package_failure(R.Guest(Path('/synthetic'), 200), self.UNIT,
+                                          self.status(), 140, diagnostics)
+                self.assertEqual(pending, {id(process): process})
+                join.assert_called_once_with(process)
+                self.assertIsNone(diagnostics[0]['installer'])
+                self.assertNotIn(b'PRIVATE_CANARY', R.encoded(diagnostics))
+                process.stdout.close.assert_called_once()
+                process.stderr.close.assert_called_once()
+        finally:
+            R.TOOL_PROCESSES.reset(token)
+
+    def test_missing_malformed_or_wrong_mode_receipt_remains_unknown(self):
+        for reply in ((b'', b'PRIVATE_CANARY', 1), (b'{', b'', 0),
+                      (R.encoded(self.receipt(mode='runtime')), b'', 0), (b'x' * 16385, b'', 0)):
+            with self.subTest(reply=reply[0][:30]):
+                error, diagnostic, _ = self.failing_unit(observation=reply)
+                self.assertEqual(str(error), 'guest_unit_failed')
+                self.assertIsNone(diagnostic[0]['installer'])
+                self.assertNotIn(b'PRIVATE_CANARY', R.encoded(diagnostic))
+
+    def test_cancelled_or_expired_grace_does_not_start_diagnostic_command(self):
+        error, diagnostic, calls = self.failing_unit(cancelled=True)
+        self.assertEqual(str(error), 'guest_unit_failed')
+        self.assertIsNone(diagnostic[0]['installer'])
+        self.assertEqual(len(calls), 4)
+        R.CANCELLED = False
+        guest, diagnostics = mock.Mock(), []
+        R.observe_package_failure(guest, self.UNIT, self.status(), 100, diagnostics)
+        guest.ssh.assert_not_called()
+        self.assertIsNone(diagnostics[0]['installer'])
+
+    def test_one_record_only_and_foreign_units_cannot_select_receipt(self):
+        guest = mock.Mock()
+        guest.ssh.return_value = (R.encoded(self.receipt()), b'', 0)
+        diagnostics = []
+        R.observe_package_failure(guest, 'vp-resident-builder.service', self.status(), 140, diagnostics)
+        self.assertEqual(diagnostics, [])
+        R.observe_package_failure(guest, self.UNIT, self.status(), 140, diagnostics)
+        R.observe_package_failure(guest, self.UNIT, self.status(), 140, diagnostics)
+        self.assertEqual(len(diagnostics), 1)
+        guest.ssh.assert_called_once()
+
+    def test_projection_error_cannot_replace_primary_exception(self):
+        with mock.patch.object(R, 'observe_package_failure', side_effect=ValueError('PRIVATE_CANARY')):
+            error, diagnostics, calls = self.failing_unit()
+        self.assertEqual(str(error), 'guest_unit_failed')
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(len(calls), 4)
+
+    def reader(self, *, mode='build', change=None, data=b'{}', open_error=False, replace=False,
+               unsafe_parent=False, replaced_parent=False):
+        def meta(number, kind=stat.S_IFDIR, size=0):
+            return types.SimpleNamespace(st_dev=1, st_ino=number, st_mode=kind | (0o600 if kind == stat.S_IFREG else 0o700),
+                st_uid=0, st_gid=0, st_nlink=1, st_size=size, st_mtime_ns=1, st_ctime_ns=1)
+        values = {fd: meta(fd) for fd in range(10, 15)}
+        values[14] = meta(14, stat.S_IFREG, len(data))
+        if unsafe_parent:
+            values[13].st_uid = 1000
+        if change:
+            for key, value in change.items():
+                setattr(values[14], key, value)
+        opens, closes = [], []
+        def opened(name, flags, **kwargs):
+            opens.append((name, flags, kwargs))
+            if open_error and len(opens) == 5:
+                raise FileNotFoundError()
+            return 9 + len(opens)
+        def status(name, **kwargs):
+            fd = {'var': 11, 'lib': 12, 'volparossa-resident': 13,
+                  'install-build.json': 14, 'install-runtime.json': 14}[name]
+            if replaced_parent and fd == 13:
+                return meta(100)
+            return meta(100, stat.S_IFREG, len(data)) if replace and fd == 14 else values[fd]
+        output = io.BytesIO()
+        with mock.patch.object(os, 'open', side_effect=opened), mock.patch.object(os, 'fstat', side_effect=values.__getitem__), \
+             mock.patch.object(os, 'stat', side_effect=status), mock.patch.object(os, 'read', return_value=data), \
+             mock.patch.object(os, 'close', side_effect=closes.append), \
+             mock.patch.object(sys, 'argv', ['reader', mode]), \
+             mock.patch.object(sys, 'stdout', types.SimpleNamespace(buffer=output)):
+            try:
+                exec(compile(R.PACKAGE_RECEIPT_READ, '<fixed-guest-reader>', 'exec'), {})
+            except SystemExit as error:
+                self.assertEqual(error.code, 1)
+        return output.getvalue(), opens, closes
+
+    def test_fixed_guest_reader_is_bounded_fd_relative_and_closes_every_descriptor(self):
+        for mode in ('build', 'runtime'):
+            with self.subTest(mode=mode):
+                raw, opens, closes = self.reader(mode=mode)
+                self.assertEqual(raw, b'{}')
+                self.assertEqual([name for name, _, _ in opens], ['/', 'var', 'lib', 'volparossa-resident',
+                                                                'install-' + mode + '.json'])
+                self.assertTrue(all(flags & os.O_NOFOLLOW for _, flags, _ in opens))
+                self.assertTrue(opens[-1][1] & os.O_NONBLOCK)
+                self.assertEqual(closes, [14, 13, 12, 11, 10])
+
+    def test_fixed_reader_rejects_missing_unsafe_changed_and_oversized_files_without_output(self):
+        for kwargs in ({'open_error': True}, {'replace': True}, {'data': b'x' * 16385},
+                       {'change': {'st_mode': stat.S_IFLNK | 0o777}}, {'change': {'st_uid': 1000}},
+                       {'change': {'st_nlink': 2}}, {'change': {'st_mode': stat.S_IFREG | 0o644}},
+                       {'change': {'st_size': 3}}):
+            with self.subTest(kwargs=kwargs):
+                raw, opens, closes = self.reader(**kwargs)
+                self.assertEqual(raw, b'')
+                self.assertEqual(closes, [13, 12, 11, 10] if kwargs.get('open_error') else [14, 13, 12, 11, 10])
+
+    def test_fixed_reader_rejects_foreign_mode_unsafe_parent_and_parent_replacement(self):
+        for kwargs in ({'mode': '../foreign'}, {'unsafe_parent': True}, {'replaced_parent': True}):
+            with self.subTest(kwargs=kwargs):
+                raw, opens, closes = self.reader(**kwargs)
+                self.assertEqual(raw, b'')
+                self.assertEqual(closes, [] if 'mode' in kwargs else
+                                 [13, 12, 11, 10] if 'unsafe_parent' in kwargs else [14, 13, 12, 11, 10])
+                if 'mode' in kwargs:
+                    self.assertEqual(opens, [])
+
+    def test_runtime_diagnostic_and_ssh_bound_keep_original_authentication(self):
+        guest = R.Guest(Path('/synthetic'), 200)
+        with mock.patch.object(R, 'run', return_value=(b'', b'', 1)) as command:
+            diagnostics = []
+            unit = 'vp-resident-install-runtime.service'
+            R.observe_package_failure(guest, unit,
+                self.status(ControlGroup='/system.slice/' + unit), 140, diagnostics)
+        argv, deadline = command.call_args.args
+        self.assertEqual(argv[:1 + len(guest.options)], ['ssh', *guest.options])
+        self.assertEqual(argv[-1], R.shlex.join(['sudo', '-n', 'python3', '-c', R.PACKAGE_RECEIPT_READ, 'runtime']))
+        self.assertEqual(deadline, 140)
+        self.assertEqual(command.call_args.kwargs, dict(cap=5, check=False, maximum=20480))
+        self.assertEqual(diagnostics[0]['mode'], 'runtime')
+        self.assertIsNone(diagnostics[0]['installer'])
 
 
 class ReceiptAndBindings(Inert):

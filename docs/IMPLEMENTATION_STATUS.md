@@ -47,7 +47,7 @@ the merged binary has not been rerun through the model trial.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38860289559` on `08ba6b21` passes the base maintenance lifecycle but fails Cloud RESERVE: first the inner provider TLS handshake expires, then a second flow acquisition reports incomplete helper cleanup. The retained-route cleanup fix has not resolved consumer acceptance. Investigate bounded route lifetime and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven; earlier trials retain their separate outcomes. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 and native-only core PR277 are merged. Code retains its immutable core dependency; source acceptance of the new core composition is not a repeat model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | Public immutable boot `38860629051` passes its read-only boot, write-denial, corruption and cleanup gates. Model source `38901209892` passes 100 Rust and 298 Python cases on `bedd63a2`. Actual `38902275667` completes disk export and memory admission, then fails the unchanged build-VM SSH-readiness gate; processes and scratch are cleaned up. The next correction selects the build disk explicitly instead of relying on implicit firmware ordering; 115 inert controller tests pass, but actual boot remains unproved. Two model turns and protected execution, production approval and suitable confidential-computing hardware remain open. Integrate resident-only work separately from the inherited unfinished Storage branch. |
+| Protected remote compute — `volparossa`, then Code/Browser | Resolve the first package-unit failure, then join an authorized immutable guest, resident coding worker and guest-terminated TLS 1.3 session. | Original actual `38906693746` on `707c46ad` passes memory admission and build-guest SSH readiness, then fails `guest_packages / guest_unit_failed`. Its source gates pass 100 Rust and 300 Python tests. The new bounded package-unit diagnostic passes 133 inert controller cases; hosted acceptance remains open. Two model turns, protected execution, production approval and suitable confidential-computing hardware remain open. Integrate resident-only work separately from the inherited unfinished Storage branch. |
 
 ### Public resident model integration candidate
 
@@ -440,8 +440,54 @@ read-only and the runtime serial stays unchanged; the installer selects it by
 that serial, not by a fixed device letter. The separate direct-kernel model VM,
 SSH policy, model pins, resource limits and original deadlines are unchanged.
 All 115 inert controller tests pass, including two new boot-selection and
-runtime-preservation cases. Hosted source acceptance and actual boot of this
-correction remain open; the hosted gate requires 100 Rust and 300 Python cases.
+runtime-preservation cases. Original source run
+[`38905737305`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38905737305)
+on exact `707c46ad5f528ff5d6488129331585c6cd1a4429` passes 100 Rust and
+300 Python tests, compilation, strict lint, an empty formatter patch and unchanged
+final source. All 35 source blobs and 560 dependency identities match. Original
+source artifact and log ZIP SHA-256 values are
+`03c46c3fb80674f25f090a6e6ca81918db51209ec86f984ce1385b0f2d7e5a75`
+and `7621a9f08465ccde571fb90ac91080064496a7abbeb5c60a3d3efba3f12d142c`.
+
+Original actual
+[`38906693746`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38906693746)
+on the same source repeats those source gates and passes build-memory admission:
+15,615,213,568 bytes available against 15,032,385,536 required. The third existing
+SSH readiness attempt succeeds; cloud-init completion and source/package bundle
+hash checks also pass. It then fails `guest_packages / guest_unit_failed` in the
+first build-package unit, before runtime-package installation or model construction.
+The unit exit status and installer phase are not retained, so no particular
+package, systemd or installation cause is established.
+
+The build VM and tool groups join, the scope is empty, owned payload removal and
+user-manager restoration pass, and tracked source remains unchanged. Final host
+route/DNS comparison, guest TLS, the two model turns and model-image corruption
+checks are not reached. This passes the previous readiness boundary without
+identifying the earlier boot-timeout's cause. Original source-contract, trial and
+log ZIP SHA-256 values are
+`f2bbf1ce362caed4a603af2f7e41b3258b9ebe32fd93d9d43865e8204e0123eb`,
+`dd1ce6b27dc6cf2af203a4525a3dd9cd653814b5868552950e67d669e04effe2`
+and `bca99131d7eac806e9b4d58842bed7b4c352c7e2b15bb3e5d276f36b1019ac61`.
+
+#### Bounded package failure observations
+
+The next controller change retains at most one diagnostic for a failed build or
+runtime package unit. It projects only the existing unit-status response and the
+existing fixed installer receipt after unit stop and proof of an empty cgroup.
+The status is the last observed snapshot, not automatically a terminal result.
+The optional receipt read has a five-second cap within the existing cleanup
+grace and strict ownership, no-follow, size, schema and enum checks. Missing,
+malformed, cancelled or stalled observations remain unknown. No raw journal,
+package output, command arguments or paths enter the diagnostic.
+
+The successful command sequence, original failure, cleanup obligations, package
+pins, memory caps and work deadlines stay unchanged. All 133 inert controller
+tests pass: the original 115 test bodies are unchanged and 18 new cases cover
+the closed projection, failure preservation, unsafe files and cleanup ordering.
+An unjoined diagnostic SSH process remains registered for mandatory outer cleanup;
+an optional diagnostic failure cannot silently discard that obligation.
+This diagnoses the next original attempt; it does not repair or accept the failed
+installation. The hosted gate now requires 100 Rust and 318 Python cases.
 
 Main integration must isolate the resident-only changes: this candidate's
 parent chain also contains unfinished Storage production code. Preserve main's

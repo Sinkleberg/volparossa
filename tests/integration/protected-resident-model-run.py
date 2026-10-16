@@ -676,6 +676,126 @@ def qemu_model(work, closure, channel):
         '-no-reboot', '-sandbox', 'on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny']
 
 
+def package_unit_projection(raw, unit):
+    require(type(raw) is bytes and len(raw) <= 2048, 'package_unit_diagnostic')
+    fields = {}
+    for row in raw.decode('ascii').splitlines():
+        key, separator, value = row.partition('=')
+        require(separator and key not in fields, 'package_unit_diagnostic')
+        fields[key] = value
+    require(fields.keys() == {'Result', 'ExecMainCode', 'ExecMainStatus', 'ActiveState', 'SubState', 'ControlGroup'}
+            and fields['ControlGroup'] in ('', '/system.slice/' + unit), 'package_unit_diagnostic')
+    require(fields['Result'] in ('success', 'exit-code', 'signal', 'core-dump', 'watchdog', 'timeout',
+                'oom-kill', 'resources', 'protocol', 'start-limit-hit', 'exec-condition')
+            and fields['ActiveState'] in ('activating', 'active', 'inactive', 'deactivating', 'failed', 'reloading')
+            and fields['SubState'] in ('dead', 'condition', 'start-pre', 'start', 'start-post', 'running',
+                'exited', 'reload', 'stop', 'stop-sigterm', 'stop-sigkill', 'stop-post', 'final-sigterm',
+                'final-sigkill', 'failed', 'auto-restart', 'auto-restart-queued'), 'package_unit_diagnostic')
+    require(re.fullmatch('[0-3]', fields['ExecMainCode'])
+            and re.fullmatch('0|[1-9][0-9]{0,2}', fields['ExecMainStatus'])
+            and int(fields['ExecMainStatus']) <= 255, 'package_unit_diagnostic')
+    return dict(result=fields['Result'], exec_main_code=int(fields['ExecMainCode']),
+                exec_main_status=int(fields['ExecMainStatus']), active_state=fields['ActiveState'],
+                sub_state=fields['SubState'])
+
+
+def package_installer_projection(raw, mode):
+    require(mode in ('build', 'runtime') and type(raw) is bytes and len(raw) <= 16384,
+            'package_installer_diagnostic')
+    value = module('protected-resident-model-workload').parse(raw)
+    flags = ('archives_verified', 'status_verified', 'triggers_clear', 'audit_clear', 'policy_restored',
+             'runtime_unmounted', 'namespace_joined', 'direct_child_groups_joined')
+    forbidden = ('complete_guest_cleanup', 'model_execution', 'worker_execution', 'private_inputs',
+                 'hardware_attestation')
+    require(type(value) is dict and value.keys() == {'version', 'kind', 'mode', 'state', 'phase', 'failure',
+                'package_lock_sha256', 'packages_verified', 'archive_bytes', 'descendants_joined',
+                'controller_cgroup_cleanup_required', *flags, *forbidden}, 'package_installer_diagnostic')
+    require(type(value['version']) is int and value['version'] == 1
+            and value['kind'] == 'protected-resident-offline-package-install' and value['mode'] == mode
+            and value['package_lock_sha256'] == LOCK_SHA and value['state'] in ('failed', 'configured')
+            and value['phase'] in ('guard', 'archives', 'namespace', 'runtime_device', 'status_before',
+                'package_plan', 'package_install', 'package_verify', 'unmount', 'complete')
+            and value['failure'] in (None, 'installation_failed', 'cleanup_unconfirmed')
+            and all(type(value[key]) is bool for key in flags)
+            and all(value[key] is False for key in forbidden)
+            and value['controller_cgroup_cleanup_required'] is True and value['descendants_joined'] is None,
+            'package_installer_diagnostic')
+    count = 198 if mode == 'build' else 65
+    require(type(value['packages_verified']) is int and 0 <= value['packages_verified'] <= count
+            and type(value['archive_bytes']) is int and 0 <= value['archive_bytes'] <= 512 * 1024 ** 2,
+            'package_installer_diagnostic')
+    if value['state'] == 'configured':
+        require(value['phase'] == 'complete' and value['failure'] is None
+                and value['packages_verified'] == count and all(value[key] for key in flags),
+                'package_installer_diagnostic')
+    else:
+        require(value['failure'] is not None, 'package_installer_diagnostic')
+    return {key: value[key] for key in ('state', 'phase', 'failure', 'packages_verified', *flags)}
+
+
+# Executed only in the existing guest, after its failed unit has stopped and its
+# cgroup is empty. No journal or arbitrary path is read; errors emit no details.
+PACKAGE_RECEIPT_READ = '''import os, stat, sys
+fds = []
+def identity(meta):
+    return (meta.st_dev, meta.st_ino, meta.st_mode, meta.st_uid, meta.st_gid,
+            meta.st_nlink, meta.st_size, meta.st_mtime_ns, meta.st_ctime_ns)
+try:
+    mode = sys.argv[1]
+    assert mode in ('build', 'runtime')
+    directory = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    fds.append(directory)
+    chain = []
+    for name in ('var', 'lib', 'volparossa-resident'):
+        child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+        fds.append(child)
+        meta = os.fstat(child)
+        assert stat.S_ISDIR(meta.st_mode) and meta.st_uid == 0 and not meta.st_mode & 0o022
+        chain.append((directory, name, child, identity(meta)))
+        directory = child
+    name = 'install-' + mode + '.json'
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    fds.append(fd)
+    before = os.fstat(fd)
+    assert stat.S_ISREG(before.st_mode) and before.st_uid == 0 and before.st_nlink == 1
+    assert stat.S_IMODE(before.st_mode) == 0o600 and 0 < before.st_size <= 16384
+    raw = os.read(fd, 16385)
+    assert len(raw) == before.st_size and identity(os.fstat(fd)) == identity(before)
+    assert identity(os.stat(name, dir_fd=directory, follow_symlinks=False)) == identity(before)
+    for parent, name, child, before in chain:
+        assert identity(os.fstat(child)) == before
+        assert identity(os.stat(name, dir_fd=parent, follow_symlinks=False)) == before
+    sys.stdout.buffer.write(raw)
+except Exception:
+    raise SystemExit(1)
+finally:
+    for fd in reversed(fds):
+        os.close(fd)
+'''
+
+
+def observe_package_failure(guest, unit, raw, grace, diagnostics):
+    mode = {'vp-resident-install-build.service': 'build',
+            'vp-resident-install-runtime.service': 'runtime'}.get(unit)
+    if mode is None or diagnostics:
+        return
+    record = dict(version=1, mode=mode, unit_last_observed=None, installer=None,
+                  diagnostic_only=True, acceptance_evidence=False)
+    diagnostics.append(record)
+    try:
+        record['unit_last_observed'] = package_unit_projection(raw, unit)
+    except Exception:
+        pass
+    try:
+        remaining(grace, 5)
+        reply = guest.ssh(['sudo', '-n', 'python3', '-c', PACKAGE_RECEIPT_READ, mode],
+                          cap=5, deadline=grace, maximum=20480, check=False)
+        if reply[2] == 0:
+            record['installer'] = package_installer_projection(reply[0], mode)
+    except Exception:
+        pass  # Missing, malformed, cancelled or stalled evidence is unknown.
+
+
 class Guest:
     def __init__(self, work, deadline):
         self.work, self.deadline = work, deadline
@@ -687,20 +807,21 @@ class Guest:
             '-o', 'RequestTTY=no', '-o', 'StrictHostKeyChecking=yes', '-o', 'Tunnel=no',
             '-o', 'UserKnownHostsFile=' + str(work / 'known-hosts')]
 
-    def ssh(self, argv, *, cap=120, check=True, deadline=None):
+    def ssh(self, argv, *, cap=120, check=True, deadline=None, maximum=16 * 1024 ** 2):
         return run(['ssh', *self.options, '-p', '22223', 'vpci@127.0.0.1', shlex.join(map(str, argv))],
-                   deadline or self.deadline, cap=cap, check=check)
+                   deadline or self.deadline, cap=cap, check=check, maximum=maximum)
 
     def upload(self, source, target):
         run(['scp', *self.options, '-P', '22223', source, 'vpci@127.0.0.1:' + target],
             self.deadline, cap=600)
 
-    def unit(self, name, argv, guest_deadline, *, user='root'):
+    def unit(self, name, argv, guest_deadline, *, user='root', diagnostics=None):
         require(name in ('vp-resident-install-build', 'vp-resident-install-runtime', 'vp-resident-builder'),
                 'guest_unit_name')
         unit = name + '.service'
         cap = int(remaining(self.deadline, 7200))
         unit_end = time.monotonic() + remaining(self.deadline, cap)
+        failed, raw = False, None
         try:
             # RemainAfterExit preserves the original status. Do not combine it
             # with --wait: active(exited) is intentionally not an inactive unit.
@@ -712,8 +833,9 @@ class Guest:
                 '--property=User=' + user, *argv, '--deadline-monotonic-ns', str(guest_deadline)], cap=30)
             while True:
                 remaining(unit_end, cap)
-                state = self.ssh(['sudo', '-n', 'systemctl', 'show', unit,
-                    '--property=Result,ExecMainStatus,ExecMainCode,ActiveState,SubState,ControlGroup'])[0].decode()
+                raw = self.ssh(['sudo', '-n', 'systemctl', 'show', unit,
+                    '--property=Result,ExecMainStatus,ExecMainCode,ActiveState,SubState,ControlGroup'])[0]
+                state = raw.decode()
                 fields = dict(row.split('=', 1) for row in state.splitlines() if '=' in row)
                 require(fields.get('ControlGroup') in ('', '/system.slice/' + unit), 'guest_unit_cgroup')
                 require(fields.get('Result') == 'success' and fields.get('ActiveState') in ('activating', 'active'),
@@ -723,13 +845,21 @@ class Guest:
                             'guest_unit_failed')
                     break
                 time.sleep(1)
+        except BaseException:
+            failed = True
+            raise
         finally:
             grace = time.monotonic() + 40
-            self.ssh(['sudo', '-n', 'systemctl', 'stop', unit], cap=25, deadline=grace, check=False)
+            stopped = self.ssh(['sudo', '-n', 'systemctl', 'stop', unit], cap=25, deadline=grace, check=False)
             # A stopped unit's exact cgroup either disappeared or is unpopulated.
             proof = ('import pathlib; p=pathlib.Path("/sys/fs/cgroup/system.slice/' + unit + '"); '
                      'assert not p.exists() or "populated 0" in (p/"cgroup.events").read_text().splitlines()')
             self.ssh(['sudo', '-n', 'python3', '-c', proof], cap=10, deadline=grace)
+            if failed and diagnostics is not None and stopped[2] == 0:
+                try:
+                    observe_package_failure(self, unit, raw, grace, diagnostics)
+                except Exception:
+                    pass  # Optional projection never replaces failure or cleanup.
         return True
 
 
@@ -915,7 +1045,7 @@ def execute_owned(args, pending):
                   production_approval=False, vm_cleanup_confirmed=False, scratch_removed=False,
                   tool_cleanup_confirmed=False, scratch_cleanup_failure=None,
                   memory_admissions=[], disk_memory_observations=[],
-                  build_boot_diagnostic=build_boot_diagnostic())
+                  build_boot_diagnostic=build_boot_diagnostic(), guest_package_diagnostics=[])
     current = build_scope = None
     try:
         images = ImageTools(work, args.appliance_kernel, deadline)
@@ -1015,7 +1145,7 @@ def execute_owned(args, pending):
             guest.unit('vp-resident-install-' + mode, ['python3', '-B', INSTALL, '--execute', '--yes',
                 '--disposable-guest', '--mode', mode, '--package-lock', LOCK, '--package-lock-sha256', LOCK_SHA,
                 '--packages', '/home/vpci/resident-packages', '--result', '/var/lib/volparossa-resident/install-' + mode + '.json'],
-                guest_deadline)
+                guest_deadline, diagnostics=report['guest_package_diagnostics'])
             raw = guest.ssh(['sudo', '-n', 'cat', '/var/lib/volparossa-resident/install-' + mode + '.json'])[0]
             installed = json.loads(raw)
             require(installed.get('kind') == 'protected-resident-offline-package-install'
