@@ -58,9 +58,11 @@ remains a core responsibility, not a separate network scheduler in the applicati
 
 A [real CPU-model trial](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38824828727)
 completes two reads, an explicitly approved edit and test, and an independent check against
-unchanged original tests. The coding task takes about 37 minutes and uses a pinned core
-development revision outside core `main`. This is a bounded local workflow, not evidence
-of competitive performance, general coding reliability or a working native editor UI.
+unchanged original tests. The coding task takes about 37 minutes. The native backend is
+now also integrated into core `main`, with passing source checks. The trial remains bound
+to its original core pin; it has not been repeated on the newly integrated core.
+This is a bounded local workflow, not evidence of competitive performance, general coding
+reliability or a working native editor UI.
 
 The target remains code reading, editing and testing through network cooperation, including
 protected private projects. Confidential private-peer execution is unfinished; local
