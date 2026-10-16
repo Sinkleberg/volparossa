@@ -90,7 +90,9 @@ async fn delayed_start_consumes_the_original_parent_lifetime() {
     let (_commands, commands) = mpsc::channel(1);
     let (events, mut received) = mpsc::channel(1);
     let (_owner, activity) = watch::channel(true);
-    let mut task = Box::pin(run_owned(&config, root, commands, events, activity, &budget));
+    let mut task = Box::pin(run_owned(
+        &config, root, commands, events, activity, &budget,
+    ));
     opened(&mut task, &mut received).await;
     assert!(root_path.exists());
     assert_eq!(budget.deadline(), deadline);
@@ -394,7 +396,9 @@ async fn idle_close_keeps_the_existing_three_hundred_second_ceiling() {
     let (_commands, commands) = mpsc::channel(1);
     let (events, mut received) = mpsc::channel(1);
     let (_owner, activity) = watch::channel(true);
-    let mut task = Box::pin(run_owned(&config, root, commands, events, activity, &budget));
+    let mut task = Box::pin(run_owned(
+        &config, root, commands, events, activity, &budget,
+    ));
     opened(&mut task, &mut received).await;
     advance(Duration::from_secs(MAX_IDLE_SECONDS)).await;
     assert_eq!(task.await.unwrap(), cleanup_record());
@@ -460,7 +464,9 @@ async fn dropped_owner_future_does_not_fabricate_private_root_removal() {
     let (events, _received) = mpsc::channel(1);
     assert!(events.try_send(Event::Opened).is_ok());
     let (_owner, activity) = watch::channel(true);
-    let mut task = Box::pin(run_owned(&config, root, commands, events, activity, &budget));
+    let mut task = Box::pin(run_owned(
+        &config, root, commands, events, activity, &budget,
+    ));
     tokio::select! {
         biased;
         _ = &mut task => panic!("full event channel unexpectedly completed"),
