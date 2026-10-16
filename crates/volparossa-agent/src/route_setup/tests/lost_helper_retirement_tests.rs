@@ -313,7 +313,7 @@ fn lost_helper_retirement_production_call_uses_retained_owner_and_original_retry
         .split_once("    async fn finish_flow_acquire_failure(")
         .expect("shared post-acquire failure boundary")
         .0;
-    assert!(acquisition.contains("for _ in 0..8 {"));
+    assert!(acquisition.contains("for attempt in 0..8 {"));
     assert!(acquisition.contains("mptcp_acquire_failure_lost_helper_route(&error)"));
     assert!(acquisition.contains("finish_flow_acquire_failure(state, helper_route_was_lost"));
     assert!(acquisition.contains("ClientRouteControlState::Established(established) = prior"));

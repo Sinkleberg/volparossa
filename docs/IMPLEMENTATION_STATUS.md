@@ -16,6 +16,38 @@ Last updated: 2026-10-16
 
 ## Current integration and active work
 
+### Fresh TCP admission after route-slot waits
+
+The latest actual consumer trial
+[`38860289559`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38860289559)
+on `08ba6b21b79bef8fb0f124f114fb5ba3df7d93b7` still fails Cloud publication.
+The first copy fails during the provider TLS handshake; the next fails flow
+acquisition with `helper_cleanup_incomplete`. Base restart, repair, two restores
+and deletion pass, with all three base providers returning to zero usage.
+Complete Image/Cloud consumer maintenance and remote consumer cleanup remain
+unproved. Guest/local cleanup, QEMU shutdown and host-state checks pass.
+The bounded observations do not bind the timeout to an exact Cloud operation or
+prove a shared cause for both failures. `helper_cleanup_incomplete` can also
+represent a stale operation whose rollback succeeded; it does not by itself
+prove that resources remain allocated.
+
+Source inspection identified a separate admission gap: TCP flow acquisition
+sampled expiry before awaiting the route-state lock. Lock waiting or an existing
+acquisition attempt could cross the original deadline before the next helper
+call. The candidate now samples wall and monotonic clocks after taking that
+lock and before each subsequent attempt. Expired routes enter retained
+retirement under the same lock; cancellation cannot discard their cleanup
+owner. Material validation uses the freshly sampled time.
+
+Eight new contracts cover live admission, expiry during lock waiting, monotonic
+expiry despite wall-clock rollback, expiry between attempts, cancellation,
+failed cleanup, an existing retirement and production callsite binding. They use
+inert affine-owner fixtures, not a substitute MPTCP datapath. Hosted compilation,
+execution and lint are pending; no local Rust execution is claimed. The original
+eight-attempt limit, helper budgets, route lifetimes and storage-consumer pins
+are unchanged. This correction is not yet proof that the original TLS timeout
+or complete consumer lifecycle is fixed.
+
 ### Retained route retirement after helper loss
 
 Source inspection following actual `38851643524` found a separate cleanup race.
@@ -49,8 +81,15 @@ all 13 unique Rust cases, strict Clippy and source preservation, with no failed
 or ignored tests. Four source blobs and twelve unchanged dependencies match.
 The run remains failed solely because seven layouts in the new test file do not
 match the formatter. The correction applies those exact layouts only; production
-bytes and test behavior are unchanged. Its hosted verification remains pending.
-Original artifact and log ZIP SHA-256 values are
+bytes and test behavior are unchanged. The corrected original hosted run
+[`38859556567`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38859556567)
+passes on exact `08ba6b21b79bef8fb0f124f114fb5ba3df7d93b7`: compilation, all
+13 unique Rust cases, strict lint, formatting and source preservation. Four
+source blobs and twelve unchanged dependencies match. Its original artifact
+and log ZIP SHA-256 values are
+`4d3fa36c1ce643aa8eec8c89525e440fb6ca5282239cdd7d776f1d450073bfe0`
+and `2a07541089aa680bf1b1822a9a22585872c7cf8d53950f19ea40642171784521`.
+For the earlier failed `38858477859`, original artifact and log ZIP SHA-256 values are
 `b927a7621d4dbba497d1dbed28780f73b651b780ee73b908f8b7c04d2a22921a`
 and `078d19281d6002efeb515a7f6de36c9f6a9a025b7cbb29b30060a05c7c4e3517`.
 These are targeted controller contracts, not a full distributed datapath trial.

@@ -54,7 +54,8 @@ jobs:
           allowed = {'.github/workflows/storage-route-retirement.yml',
               'docs/IMPLEMENTATION_STATUS.md',
               'crates/volparossa-agent/src/route_setup.rs',
-              'crates/volparossa-agent/src/route_setup/tests/lost_helper_retirement_tests.rs'}
+              'crates/volparossa-agent/src/route_setup/tests/lost_helper_retirement_tests.rs',
+              'crates/volparossa-agent/src/route_setup/tests/tcp_flow_admission_tests.rs'}
           changed = git('diff', '--name-only', os.environ['SOURCE_BASE'], 'HEAD').splitlines()
           assert len(changed) == len(set(changed)) and set(changed) == allowed
           dependencies = ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml',
@@ -114,6 +115,7 @@ jobs:
               2>&1 | tee "storage-retirement-evidence/$label-test.log"
           }
           group new lost_helper_retirement_
+          group admission tcp_flow_admission_
           group disconnect route_setup::tests::client_disconnect_
           group expiry route_setup::tests::client_route_expiry_
           group classification route_setup::tests::mptcp_acquire_
@@ -121,7 +123,7 @@ jobs:
           import json, pathlib, re
           root = pathlib.Path('storage-retirement-evidence')
           counts, all_names = {}, []
-          for label in ('new', 'disconnect', 'expiry', 'classification'):
+          for label in ('new', 'admission', 'disconnect', 'expiry', 'classification'):
               inventory = (root / (label + '-inventory.log')).read_text()
               output = (root / (label + '-test.log')).read_text()
               names = re.findall(r'^([^\n]+): test$', inventory, re.M)
@@ -132,7 +134,8 @@ jobs:
                   assert len(re.findall(r'^test ' + re.escape(name) + r' \.\.\. ok$', output, re.M)) == 1
               counts[label] = len(names)
               all_names.extend(names)
-          assert counts['new'] == 7 and len(all_names) == len(set(all_names))
+          assert counts['new'] == 7 and counts['admission'] == 8
+          assert len(all_names) == len(set(all_names))
           (root / 'rust-tests.json').write_text(json.dumps(dict(version=1, counts=counts,
               unique_tests=len(all_names), test_names=sorted(all_names), live_consumer_acceptance=False,
               real_datapath_execution=False, original_timeout_cause_proven=False), sort_keys=True) + '\n')
