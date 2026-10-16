@@ -42,11 +42,22 @@ owner. Material validation uses the freshly sampled time.
 Eight new contracts cover live admission, expiry during lock waiting, monotonic
 expiry despite wall-clock rollback, expiry between attempts, cancellation,
 failed cleanup, an existing retirement and production callsite binding. They use
-inert affine-owner fixtures, not a substitute MPTCP datapath. Hosted compilation,
-execution and lint are pending; no local Rust execution is claimed. The original
+inert affine-owner fixtures, not a substitute MPTCP datapath. The original
 eight-attempt limit, helper budgets, route lifetimes and storage-consumer pins
 are unchanged. This correction is not yet proof that the original TLS timeout
 or complete consumer lifecycle is fixed.
+
+Original source run
+[`38882687116`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38882687116)
+on exact `6c817ccc6dcc2130fc3df823fea23948dba032c7` passes compilation,
+21 unique Rust cases (eight admission, seven retirement and six historical),
+strict lint and source preservation, with none failed or ignored. Five source
+blobs and twelve unchanged dependencies match. The overall run fails only six
+formatter hunks in two files. The follow-up applies those exact hunks, with no
+behavioral change; its hosted verification is pending. No local Rust execution
+is claimed. Original artifact and log ZIP SHA-256 values are
+`b36a814b451cc69b8dc83c4653cad4ba25db6ca240e610a752964500e75b5cee`
+and `5c10d94b54b0991883e588ece4960a00d2213992227e3b766ce88c3dc2e688e7`.
 
 ### Retained route retirement after helper loss
 

@@ -1832,8 +1832,8 @@ impl ClientRouteControl {
         let route = established.route.as_ref().ok_or(busy)?;
         let material = client_open_tcp_material(route, policy, destination, port, admitted_at_ms)
             .map_err(|error| {
-                ContentStreamOpenFailure::new(ContentStreamOpenCause::RouteMaterial, error)
-            })?;
+            ContentStreamOpenFailure::new(ContentStreamOpenCause::RouteMaterial, error)
+        })?;
         let mut helper_route_was_lost = false;
         let mut history = History::default();
         for attempt in 0..8 {
@@ -1896,10 +1896,8 @@ impl ClientRouteControl {
         previous: Option<tokio::sync::MutexGuard<'a, ClientRouteControlState>>,
         requested_at_ms: u64,
         failure: ContentStreamOpenFailure,
-    ) -> Result<
-        (tokio::sync::MutexGuard<'a, ClientRouteControlState>, u64),
-        ContentStreamOpenFailure,
-    > {
+    ) -> Result<(tokio::sync::MutexGuard<'a, ClientRouteControlState>, u64), ContentStreamOpenFailure>
+    {
         self.admit_tcp_flow_attempt(
             previous,
             || (crate::unix_millis().max(requested_at_ms), Instant::now()),
@@ -1930,10 +1928,8 @@ impl ClientRouteControl {
         expired: impl FnOnce(&ClientRouteControlState, u64, Instant) -> Option<bool>,
         start_retirement: impl FnOnce(ClientRouteControlState) -> ClientRouteControlState,
         failure: ContentStreamOpenFailure,
-    ) -> Result<
-        (tokio::sync::MutexGuard<'a, ClientRouteControlState>, u64),
-        ContentStreamOpenFailure,
-    > {
+    ) -> Result<(tokio::sync::MutexGuard<'a, ClientRouteControlState>, u64), ContentStreamOpenFailure>
+    {
         let state = match previous {
             Some(state) => state,
             None => self.state.lock().await,

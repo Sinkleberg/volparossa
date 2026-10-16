@@ -253,7 +253,9 @@ async fn tcp_flow_admission_cancel_preserves_expired_cleanup_owner() {
         };
         assert!(Arc::ptr_eq(&retirement.owner, &retained.owner));
     }
-    complete.send(()).expect("cleanup outlives admission caller");
+    complete
+        .send(())
+        .expect("cleanup outlives admission caller");
     control
         .confirm_retirement(&retained, TEST_TIMEOUT)
         .await
@@ -304,9 +306,10 @@ async fn tcp_flow_admission_cleanup_failure_remains_pending() {
 #[tokio::test]
 async fn tcp_flow_admission_existing_retirement_joins_without_new_acquire() {
     let control = ClientRouteControl::default();
-    *control.state.lock().await = ClientRouteControlState::CleanupPending(
-        ClientRouteRetirement::new(tokio::spawn(async { Ok(()) })),
-    );
+    *control.state.lock().await =
+        ClientRouteControlState::CleanupPending(ClientRouteRetirement::new(tokio::spawn(async {
+            Ok(())
+        })));
     let result = control
         .admit_production_tcp_flow_attempt(None, NOW_MS, busy())
         .await;
@@ -337,11 +340,17 @@ fn tcp_flow_admission_production_call_checks_initial_and_existing_retry_boundary
     let admission = loop_body
         .find("admit_production_tcp_flow_attempt(Some(state), now_ms, failure)")
         .expect("fresh admission before each attempt");
-    assert!(admission < loop_body.find("random_mptcp_source_port(").expect("source port"));
+    assert!(
+        admission
+            < loop_body
+                .find("random_mptcp_source_port(")
+                .expect("source port")
+    );
     assert!(admission < loop_body.find(".acquire_flow(").expect("helper acquire"));
-    assert!(acquisition.contains(
-        "client_open_tcp_material(route, policy, destination, port, admitted_at_ms)"
-    ));
+    assert!(
+        acquisition
+            .contains("client_open_tcp_material(route, policy, destination, port, admitted_at_ms)")
+    );
     assert!(!acquisition.contains("retire_expired_route(now_ms"));
     let admission = source
         .split_once("    async fn admit_production_tcp_flow_attempt")
