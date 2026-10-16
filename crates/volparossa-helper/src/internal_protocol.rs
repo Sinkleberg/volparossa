@@ -1407,18 +1407,7 @@ fn validate_response(value: &InternalWorkerResponse) -> Result<(), InternalProto
     if value.request_digest.len() != 32 {
         return Err(InternalProtocolError::Invalid);
     }
-    if let Some(diagnostic) = &value.activation_failure {
-        validate_activation_failure(result, diagnostic)?;
-    }
-    if let Some(diagnostic) = value.acquire_failure {
-        diagnostic.validate()?;
-        if result != InternalWorkerResult::Kernel
-            || value.activation_failure.is_some()
-            || value.outcome.is_some()
-        {
-            return Err(InternalProtocolError::Invalid);
-        }
-    }
+    validate_response_diagnostics(result, value)?;
     match (result, value.outcome.as_ref()) {
         (InternalWorkerResult::Ok, Some(outcome)) => match outcome {
             Outcome::Initialised(outcome) => route_id(&outcome.route_context_id),
@@ -1513,6 +1502,25 @@ fn validate_applied_downlink(
 ) -> Result<(), InternalProtocolError> {
     if value.sequence == 0 || !(1..=262_144).contains(&value.maximum_queued_bytes) {
         return Err(InternalProtocolError::Invalid);
+    }
+    Ok(())
+}
+
+fn validate_response_diagnostics(
+    result: InternalWorkerResult,
+    value: &InternalWorkerResponse,
+) -> Result<(), InternalProtocolError> {
+    if let Some(diagnostic) = &value.activation_failure {
+        validate_activation_failure(result, diagnostic)?;
+    }
+    if let Some(diagnostic) = value.acquire_failure {
+        diagnostic.validate()?;
+        if result != InternalWorkerResult::Kernel
+            || value.activation_failure.is_some()
+            || value.outcome.is_some()
+        {
+            return Err(InternalProtocolError::Invalid);
+        }
     }
     Ok(())
 }

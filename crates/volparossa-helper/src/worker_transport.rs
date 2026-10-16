@@ -247,7 +247,9 @@ fn acquire_io<T>(
         } else {
             AcquireFailureClass::Io
         };
-        let errno = error.raw_os_error().filter(|errno| (1..=4095).contains(errno));
+        let errno = error
+            .raw_os_error()
+            .filter(|errno| (1..=4095).contains(errno));
         AcquireTransportFailure {
             error: WorkerTransportError::Io(error),
             diagnostic: Some(AcquireFailureDiagnostic {
@@ -1754,7 +1756,8 @@ fn validate_common_diagnosed(
     if acquire_io(Operation::SocketDomain, socket.domain())? != Domain::for_address(expected_local)
         || acquire_io(Operation::SocketType, socket.r#type())? != expected_type
         || acquire_io(Operation::SocketProtocol, socket.protocol())? != Some(expected_protocol)
-        || acquire_io(Operation::LocalAddress, socket.local_addr())?.as_socket() != Some(expected_local)
+        || acquire_io(Operation::LocalAddress, socket.local_addr())?.as_socket()
+            != Some(expected_local)
         || acquire_io(Operation::ListenerState, socket.is_listener())? != expected_listener
         || acquire_io(Operation::SocketError, socket.take_error())?.is_some()
         || (expected_local.is_ipv6() && !acquire_io(Operation::Ipv6OnlyGet, socket.only_v6())?)
@@ -2349,7 +2352,10 @@ mod tests {
             AcquireFailureOperation::Connect,
             Err(io::Error::other("private route/peer/address canary")),
         ));
-        assert_eq!(unknown.diagnostic.expect("closed unknown errno").errno, None);
+        assert_eq!(
+            unknown.diagnostic.expect("closed unknown errno").errno,
+            None
+        );
         let timed_out = acquire_failure(acquire_io::<()>(
             AcquireFailureOperation::ConnectSocketError,
             Err(io::Error::from_raw_os_error(libc::ETIMEDOUT)),
@@ -2394,14 +2400,14 @@ mod tests {
     #[test]
     fn acquire_diagnostic_error_drops_owned_descriptor_and_invalid_has_no_detail() {
         let (owned, mut peer) = UnixStream::pair().expect("owned descriptor fixture");
-        let result: Result<(), AcquireTransportFailure> = (|| {
-            let _owned = owned;
+        let fail_with_owned = |_owned: UnixStream| -> Result<(), AcquireTransportFailure> {
             acquire_io::<()>(
                 AcquireFailureOperation::Bind,
                 Err(io::Error::from_raw_os_error(libc::EADDRINUSE)),
             )?;
             Ok(())
-        })();
+        };
+        let result = fail_with_owned(owned);
         assert_eq!(
             acquire_failure(result).diagnostic,
             Some(acquire_diagnostic())
@@ -2409,7 +2415,10 @@ mod tests {
         peer.set_read_timeout(Some(Duration::from_secs(1)))
             .expect("bounded EOF");
         assert_eq!(peer.read(&mut [0]).expect("closed descriptor"), 0);
-        for error in [WorkerTransportError::Invalid, WorkerTransportError::Protocol] {
+        for error in [
+            WorkerTransportError::Invalid,
+            WorkerTransportError::Protocol,
+        ] {
             let failure = AcquireTransportFailure::from(error);
             assert!(failure.diagnostic.is_none());
         }

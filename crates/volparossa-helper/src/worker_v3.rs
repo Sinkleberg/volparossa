@@ -3835,7 +3835,7 @@ type ChildAcquireOutcome = (
     Option<AcquireFailureDiagnostic>,
 );
 
-fn child_acquire_failure(failure: AcquireTransportFailure) -> ChildAcquireOutcome {
+fn child_acquire_failure(failure: &AcquireTransportFailure) -> ChildAcquireOutcome {
     match failure.error {
         WorkerTransportError::Invalid | WorkerTransportError::Protocol => {
             (InternalWorkerResult::Invalid, None, None, None)
@@ -3867,7 +3867,7 @@ fn acquire_transport_child_context(
     };
     let descriptor = match create_transport_socket_diagnosed(lease, acquire) {
         Ok(descriptor) => descriptor,
-        Err(failure) => return Ok(child_acquire_failure(failure)),
+        Err(failure) => return Ok(child_acquire_failure(&failure)),
     };
     if ensure_worker_deadline(deadline).is_err() {
         drop(descriptor);
@@ -12759,7 +12759,7 @@ mod tests {
             ),
         ] {
             let (result, outcome, descriptor, observed) =
-                child_acquire_failure(AcquireTransportFailure {
+                child_acquire_failure(&AcquireTransportFailure {
                     error,
                     diagnostic: Some(diagnostic),
                 });
@@ -12768,9 +12768,8 @@ mod tests {
             assert!(descriptor.is_none());
             assert_eq!(observed, detail);
         }
-        let (result, _, _, detail) = child_acquire_failure(AcquireTransportFailure::from(
-            WorkerTransportError::Timeout,
-        ));
+        let (result, _, _, detail) =
+            child_acquire_failure(&AcquireTransportFailure::from(WorkerTransportError::Timeout));
         assert_eq!(result, InternalWorkerResult::Kernel);
         assert!(detail.is_none());
     }

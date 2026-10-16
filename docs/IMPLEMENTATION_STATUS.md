@@ -52,9 +52,18 @@ Thirteen new Rust contracts cover the closed response, credentials, descriptor
 rejection, unchanged result mapping and typed tracing. The source workflow
 compiles the helper and its real entrypoint, runs those and selected existing
 boundary contracts, and checks the Python projection and maintenance exporters.
-Rust execution and the next actual trial remain pending. Image/Cloud pins,
-consumer profile 9 and network profile 2 are unchanged; another full trial waits
-for this source gate rather than repeating the same opaque failure.
+Original hosted source run
+[`38846990417`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38846990417)
+on `d252cd25cb3abfe9dbdd91f551240e0ffd0b51f5` compiles both packages and passes
+33 unique Rust cases (13 new, 20 historical) and 168 Python cases, without failed
+or skipped tests. The overall run fails three strict-lint findings and formatting;
+it is not a passing source gate. Original artifact and log ZIP SHA-256 values are
+`2fd3f05b512fb5a893708f62683a7b13edfbc43a3958a528b18a0769bbf3ae42`
+and `77004ac080d65b3c45d865ac95291f15a522619ccfd14a905d027df6ed3d25e1`.
+All 16 source blobs and 11 unchanged dependencies match the original manifest.
+The narrow lint/format correction needs its own hosted check. Image/Cloud pins,
+consumer profile 9 and network profile 2 remain unchanged; the next actual trial
+waits for that gate rather than repeating the same opaque failure.
 
 ### Storage connection correlation candidate
 
