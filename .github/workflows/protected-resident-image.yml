@@ -110,7 +110,7 @@ jobs:
           import json, pathlib, re
           root = pathlib.Path('protected-image-contracts')
           counts = {}
-          expected = {'image': 136, 'initrd': 20}
+          expected = {'image': 151, 'initrd': 20}
           for group in ('image', 'initrd'):
               raw = (root / (group + '-tests.log')).read_text()
               totals = re.findall(r'^Ran ([0-9]+) tests? in [0-9.]+s$', raw, re.M)
@@ -193,10 +193,17 @@ jobs:
           set -euo pipefail
           umask 077
           image_tool() {
-            env -i PATH=/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 \
+            local launch=()
+            if test "$1" = execute; then
+              # Process-scoped primary group only; the UID stays unprivileged.
+              # uaccess change events may remove the earlier named-user ACL.
+              launch=(sudo -n -u "#$launch_uid" -g "#$launch_gid" --)
+            fi
+            "${launch[@]}" env -i PATH=/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 \
               GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted RUNNER_OS=Linux \
               GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_RUN_ID="$GITHUB_RUN_ID" \
               GITHUB_SHA="$GITHUB_SHA" GITHUB_REF="$GITHUB_REF" RUNNER_TEMP="$RUNNER_TEMP" \
+              VP_PUBLIC_BOOT_UID="${launch_uid:-}" VP_PUBLIC_BOOT_KVM_GID="${launch_gid:-}" \
               python3 -B tests/integration/protected-resident-image.py "$@" \
                 --expected-source "$EXPECTED_SOURCE" --yes
           }
@@ -215,6 +222,11 @@ jobs:
             exit 1
           fi
           image_tool finish-appliance
+          launch_ids="$(image_tool kvm-launch-ids)"
+          [[ "$launch_ids" =~ ^([1-9][0-9]{0,9})\ ([1-9][0-9]{0,9})$ ]]
+          launch_uid="${BASH_REMATCH[1]}"
+          launch_gid="${BASH_REMATCH[2]}"
+          test "$launch_uid" = "$(id -u)"
           image_tool execute --work "$RUNNER_TEMP/protected-resident-image-$GITHUB_RUN_ID"
       - name: Remove only an unadopted appliance staging directory
         if: always()

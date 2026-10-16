@@ -11,6 +11,7 @@ import argparse
 import contextvars
 import errno
 import fcntl
+import grp
 import hashlib
 import json
 import os
@@ -20,6 +21,7 @@ import selectors
 import shutil
 import signal
 import stat
+import struct
 import subprocess
 import sys
 import tarfile
@@ -869,6 +871,82 @@ def appliance_stage_path():
     return parent / ('protected-resident-appliance-' + run)
 
 
+def kvm_group_ids():
+    """Validate ordinary group DAC, not a uaccess-managed named-user grant."""
+    checkpoint()
+    uid, effective, saved = os.getresuid()
+    require(0 < uid < 2 ** 32 - 1 and uid == effective == saved, 'kvm_launch_identity')
+    try:
+        group = grp.getgrnam('kvm')
+    except (KeyError, OSError):
+        raise ValueError('kvm_launch_group') from None
+    gid = group.gr_gid
+    require(group.gr_name == 'kvm' and type(gid) is int and 0 < gid < 2 ** 32 - 1,
+            'kvm_launch_group')
+    before = os.lstat('/dev/kvm')
+    require(stat.S_ISCHR(before.st_mode) and before.st_uid == 0 and before.st_gid == gid
+            and before.st_nlink == 1 and stat.S_IMODE(before.st_mode) == 0o660,
+            'kvm_launch_device')
+    identity = lambda value: (value.st_dev, value.st_ino, value.st_rdev, value.st_mode,
+                              value.st_uid, value.st_gid, value.st_nlink, value.st_ctime_ns)
+    try:
+        raw = os.getxattr('/dev/kvm', 'system.posix_acl_access', follow_symlinks=False)
+    except OSError as error:
+        # Only ENODATA means a basic ACL: group-object bits then are the mode
+        # group bits, with no extended mask. Unsupported/unreadable is not proof.
+        if error.errno != errno.ENODATA:
+            raise ValueError('kvm_launch_acl') from None
+    else:
+        require(28 <= len(raw) <= 4096 and (len(raw) - 4) % 8 == 0
+                and struct.unpack_from('<I', raw)[0] == 2, 'kvm_launch_acl')
+        entries = {}
+        for tag, permission, identifier in struct.iter_unpack('<HHI', raw[4:]):
+            require(tag in (1, 2, 4, 8, 16, 32) and permission <= 7
+                    and ((identifier == 0xffffffff) if tag in (1, 4, 16, 32)
+                         else identifier < 0xffffffff)
+                    and (tag, identifier) not in entries, 'kvm_launch_acl')
+            entries[tag, identifier] = permission
+        base = {tag: entries.get((tag, 0xffffffff)) for tag in (1, 4, 16, 32)}
+        require(base == {1: 6, 4: 6, 16: 6, 32: 0}, 'kvm_launch_acl')
+        # A named entry for this UID takes precedence over group matching.
+        require(entries.get((2, uid), 6) & base[16] == 6, 'kvm_launch_acl')
+    require(identity(before) == identity(os.lstat('/dev/kvm')), 'kvm_launch_device')
+    checkpoint()
+    return uid, gid
+
+
+def kvm_launch_ids(args):
+    """Private shell capture only; same prepared source and absolute budget."""
+    require(args.yes, 'explicit_hosted_execution')
+    stage = appliance_stage_path()
+    private_stage_file(stage, directory=True)
+    prepared = read_stage(stage / 'prepared.json')
+    require(type(prepared) is dict and prepared.get('source') == args.expected_source,
+            'appliance_stage_binding')
+    started = prepared.get('started_monotonic_ns')
+    require(type(started) is int and 0 < started <= time.monotonic_ns(), 'build_deadline')
+    token = DEADLINE.set(started / 1e9 + BUILD_SECONDS)
+    try:
+        checkpoint()
+        return kvm_group_ids()
+    finally:
+        DEADLINE.reset(token)
+
+
+def verify_kvm_launch():
+    expected = []
+    for name in ('VP_PUBLIC_BOOT_UID', 'VP_PUBLIC_BOOT_KVM_GID'):
+        value = os.environ.get(name, '')
+        require(re.fullmatch('[1-9][0-9]{0,9}', value) is not None
+                and int(value) < 2 ** 32 - 1, 'kvm_launch_identity')
+        expected.append(int(value))
+    require(os.getresuid() == (expected[0],) * 3
+            and os.getresgid() == (expected[1],) * 3, 'kvm_launch_identity')
+    require(kvm_group_ids() == tuple(expected), 'kvm_launch_identity')
+    return dict(version=1, scope='execute_process', same_unprivileged_uid=True,
+                primary_kvm_group_verified=True, device_group_access_verified=True)
+
+
 def private_stage_file(path, *, directory=False):
     info = path.lstat()
     require((stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))
@@ -1453,7 +1531,8 @@ def failure_reason(error):
         'appliance_host_metadata', 'appliance_kernel_bound', 'appliance_kernel_release',
         'appliance_stage_path', 'appliance_stage_metadata', 'appliance_stage_bound',
         'appliance_stage_binding', 'appliance_source_changed', 'hypervisor_binding',
-        'qmp_input', 'qmp_protocol', 'qmp_kvm_unavailable'}
+        'qmp_input', 'qmp_protocol', 'qmp_kvm_unavailable', 'kvm_launch_identity',
+        'kvm_launch_group', 'kvm_launch_device', 'kvm_launch_acl'}
     if isinstance(error, (ValueError, CleanupUnconfirmed)) and error.args:
         reason = error.args[0]
         if type(reason) is str and reason in allowed:
@@ -1465,6 +1544,7 @@ def failure_reason(error):
 
 def execute(args):
     require(args.yes, 'explicit_hosted_execution')
+    launch = verify_kvm_launch()
     pins = load_pins()
     work = hosted_output(args.work)
     evidence, output = work / 'evidence', work / 'payload'
@@ -1527,7 +1607,7 @@ def execute(args):
         descriptor = dict(version=1, kind='protected-resident-public-boot-build',
             source=source, kernel_release=pins['kernel_release'], verity=pins['verity'],
             root_hash=root_hash, data_blocks=blocks, cmdline=CMDLINE, host_tools=tools,
-            appliance_kernel=appliance['receipt'], qmp_kvm_preflight=qmp,
+            appliance_kernel=appliance['receipt'], qmp_kvm_preflight=qmp, process_launch=launch,
             original_qmp_observation=capture['receipt'],
             inputs={'image_sha512': pins['debian_image_sha512'], 'packages': pins['packages'],
                     'pins': digest(PINS), 'bootstrap': digest(BOOTSTRAP), 'entrypoint': digest(ENTRYPOINT)},
@@ -1571,6 +1651,7 @@ def execute(args):
                     owned_scratch_removed=cleanup_safe and not output.exists(),
                     boot_pair_verified=completed, failure=failure, cleanup_error=cleanup_error,
                     appliance_preflight=preflight,
+                    process_launch=launch,
                     qmp_kvm_preflight=qmp,
                     original_qmp_observation=capture['receipt'] if capture is not None else None,
                     appliance_kernel=appliance['receipt'] if appliance is not None else None,
@@ -1589,7 +1670,8 @@ def execute(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('execute', 'prepare-appliance', 'finish-appliance', 'cleanup-appliance'))
+    parser.add_argument('action', choices=('execute', 'prepare-appliance', 'finish-appliance',
+                                         'cleanup-appliance', 'kvm-launch-ids'))
     parser.add_argument('--work')
     parser.add_argument('--expected-source', required=True)
     parser.add_argument('--yes', action='store_true')
@@ -1602,6 +1684,8 @@ def main():
             print(prepare_appliance(args))
         elif args.action == 'finish-appliance':
             finish_appliance(args)
+        elif args.action == 'kvm-launch-ids':
+            print(*kvm_launch_ids(args))
         else:
             cleanup_appliance(args)
     except (OSError, ValueError, subprocess.SubprocessError, CleanupUnconfirmed) as error:

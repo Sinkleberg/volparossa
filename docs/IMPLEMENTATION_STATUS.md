@@ -41,10 +41,10 @@ replace either trial or change its pins.
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38838512301` on `9209c6fe` fails Cloud APPEND during flow acquisition; the earlier Image challenge stall remains distinct. The typed helper diagnostic now passes source run `38850938318` on `878c2aa9`: compilation, 33 Rust and 185 Python tests, strict lint and formatting. Actual `38851643524` uses that exact source and unchanged consumer pins; it has passed the full preflight and entered the disposable topology, but has no completed consumer outcome yet. Do not extend deadlines or treat the diagnostic as causal proof. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38851643524` on `878c2aa9` passes the base maintenance lifecycle but fails Cloud FINALIZE during flow acquisition; the prior Cloud APPEND failure and Image challenge stall remain distinct. The new helper diagnostic records one connection poll timeout, without request/fragment binding or a proven network cause. Source run `38850938318` passes compilation, 33 Rust and 185 Python tests, strict lint and formatting. Investigate connection setup and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 is merged, retaining that immutable core dependency; the native/Storage core candidate is not merged into core `main`. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Public boot trial `38853721676` again passes the strict KVM preflight, but both original libguestfs probes report a permission failure and its cache records KVM disabled. Guest-image construction still fails. Distinguish device access from later initialization and compare the original probe context without changing its execution profile; then finish sealed boot, runtime/model binding, a separate task grant and guest TLS. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
+| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Public boot trial `38855410093` passes the strict KVM preflight, but both original libguestfs probes later fail to open KVM with `EACCES`; access is already denied before QEMU exec. The measured context matches a baseline taken after that first VM, so it does not rule out an earlier permission change. Replace reliance on a temporary named ACL with validated process-scoped KVM-group access for the same unprivileged user; then finish sealed boot, runtime/model binding, a separate task grant and guest TLS. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 ### Finite resident execution candidate
 
@@ -340,12 +340,54 @@ strict preflight. Only `equal`, `different` or `unavailable` is exported; values
 labels and their private digests stay in owned scratch. Missing observations do
 not compare equal. Sampling uses only the same two reserved probe slots.
 
-All 156 inert tests pass locally: 136 image/runner cases, including 16 new cases,
-and 20 initrd/bootstrap cases. Syntax and ShellCheck pass. The original launch
-profile, KVM requirement, budget and cleanup remain unchanged. Hosted verification
-of this refinement is pending. Pre-exec observations cannot prove a later security
-transition or successful VM creation. Immutable guest boot and protected
-resident-model execution remain open.
+All 156 inert tests pass locally and in original source run
+[`38855265469`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38855265469)
+on exact `123b61a07ae474a3b477f75095abd738cc52a3f0`: 136 image/runner cases,
+including 16 new cases, and 20 initrd/bootstrap cases, with no failures or skips.
+Syntax, ShellCheck and source checks pass; all ten source blobs and seven
+unchanged dependencies match. Original contract-artifact and log ZIP SHA-256
+values are `89a60286f711788af00ca88c972d72caa0606cad854b1271e760452ee008dd85`
+and `cad388276e54699fc5249623662aa9eb292af7f2bb031269b9abc11f8fca33c1`.
+
+Actual run
+[`38855410093`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38855410093)
+uses that same source and fails the first inspection in a 19-second build step.
+The strict QMP check again passes with KVM present and enabled. Both original
+probe slots subsequently record `EACCES` for device opening and initialization,
+with KVM access already denied in their wrappers before QEMU exec. All six
+measured context components match the private parent baseline. That baseline was
+taken **after** the successful direct VM had exited: equality cannot rule out a
+permission change during that VM's lifetime, and does not cover every security
+mechanism. The original cache records KVM present but disabled. Query correlation
+remains false.
+
+Only the cleanup receipt is produced. Child joins, process-group absence,
+scratch/staging removal, original KVM ACL restoration/comparison and source
+checks pass; the original 1,200-second budget remains unchanged. Original
+boot-artifact and log ZIP SHA-256 values are
+`a72ca1a01b25e9a1de9298a7a673c3f9496e128e25e6af3c62b3bb9392743241`
+and `d1db17da0f2f46d32429fc486a16b4bb50d8d16eca17882c72a0f4783ea8d937`.
+
+There is a concrete permission-lifecycle risk in the one-time named-user ACL:
+[KVM emits device change events on VM creation and destruction](https://github.com/torvalds/linux/blob/v6.17/virt/kvm/kvm_main.c#L5880),
+and [systemd's device ACL processing can remove named-user entries](https://github.com/systemd/systemd/blob/v255/src/shared/devnode-acl.c#L17).
+This explains a possible mechanism, not a proven cause of the original trial.
+The candidate correction now uses the existing device group's permissions for
+only the builder process tree, retaining the same non-root user. A read-only
+preselection validates the named `kvm` group and root-owned character device;
+execution checks real, effective and saved user/group IDs, the ACL group-object
+and effective mask, and any named-caller entry that would take precedence. Only
+the execute launch uses the temporary primary group. The original prepared
+source and absolute deadline remain bound across that launch, and the original
+ACL restoration/comparison remains required. There is no persistent group
+membership, udev-rule change, broad device permission or root guestfish execution.
+
+All 171 inert contracts pass locally: 151 image cases, including 15 new cases,
+and 20 initrd cases. Independent review passes 26 targeted launch, staging and
+failure/cleanup cases; syntax, ShellCheck and diff checks also pass. These tests
+mock device and privilege operations: hosted source checks and a new actual
+trial are still required. Immutable guest boot and protected resident-model
+execution remain open.
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).

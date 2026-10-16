@@ -37,6 +37,11 @@ def encoded(value):
     return M.PREFIX + json.dumps(value, sort_keys=True).encode() + b'\n'
 
 
+def launch_receipt():
+    return dict(version=1, scope='execute_process', same_unprivileged_uid=True,
+                primary_kvm_group_verified=True, device_group_access_verified=True)
+
+
 class InputContracts(unittest.TestCase):
     def test_redirect_allows_only_exact_mirror_resource_and_existing_origins(self):
         path = '/images/cloud/trixie/20260826-2582/debian-13-genericcloud-amd64-20260826-2582.qcow2'
@@ -658,6 +663,7 @@ class ApplianceDiagnostics(unittest.TestCase):
             value.update(state='passed', present=True, enabled=True)
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.object(M, 'hosted_output', return_value=Path(directory)), \
+                mock.patch.object(M, 'verify_kvm_launch', return_value=launch_receipt()), \
                 mock.patch.object(M, 'adopt_appliance', side_effect=lambda *_: dict(
                     deadline=M.DEADLINE.get(), receipt={'version': 1})), \
                 mock.patch.object(M, 'source_binding', return_value={'revision': 'a' * 40}), \
@@ -687,6 +693,7 @@ class FailurePreservation(unittest.TestCase):
     def exercise(self, directory, cause):
         args = SimpleNamespace(yes=True, work=directory, expected_source='a' * 40)
         with mock.patch.object(M, 'hosted_output', return_value=Path(directory)), \
+                mock.patch.object(M, 'verify_kvm_launch', return_value=launch_receipt()), \
                 mock.patch.object(M, 'adopt_appliance', side_effect=lambda *_: dict(
                     deadline=M.DEADLINE.get(), receipt={'version': 1})), \
                 mock.patch.object(M, 'source_binding', return_value={'revision': 'a' * 40}), \
@@ -1061,6 +1068,7 @@ class ApplianceStaging(unittest.TestCase):
             self.assertIsNotNone(M.APPLIANCE.get())
             raise original
         with mock.patch.object(M, 'hosted_output', return_value=work), \
+                mock.patch.object(M, 'verify_kvm_launch', return_value=launch_receipt()), \
                 mock.patch.object(M, 'tool_inventory', return_value={}), \
                 mock.patch.object(M, 'qmp_preflight'), \
                 mock.patch.object(M, 'appliance_preflight', return_value={}), \
@@ -1424,6 +1432,7 @@ class QmpAdmission(unittest.TestCase):
                     observed.update(state='failed', failure=M.failure_reason(error))
                     raise error
                 with mock.patch.object(M, 'hosted_output', return_value=Path(directory)), \
+                        mock.patch.object(M, 'verify_kvm_launch', return_value=launch_receipt()), \
                         mock.patch.object(M, 'adopt_appliance', return_value=dict(
                             deadline=original_deadline, receipt={'version': 1})), \
                         mock.patch.object(M, 'source_binding', return_value={'revision': 'a' * 40}), \
@@ -1835,6 +1844,7 @@ class OriginalQmpObservation(unittest.TestCase):
                     (value['directory'] / 'probe-1').symlink_to('/PRIVATE_CANARY')
                     raise original
                 with mock.patch.object(M, 'hosted_output', return_value=Path(directory)), \
+                        mock.patch.object(M, 'verify_kvm_launch', return_value=launch_receipt()), \
                         mock.patch.object(M, 'adopt_appliance', return_value=dict(
                             deadline=original_deadline, receipt={'version': 1})), \
                         mock.patch.object(M, 'source_binding', return_value={'revision': 'a' * 40}), \
@@ -2087,6 +2097,193 @@ class OriginalProbeContext(unittest.TestCase):
         self.fixture.observed_pair()
         M.project_qmp_capture(self.fixture.value, joined=False)
         self.assertEqual(self.fixture.value['receipt']['probe_stderr'], [])
+
+
+class KvmGroupLaunch(unittest.TestCase):
+    def setUp(self):
+        self.uid, self.gid = 1234, 108
+        self.device = SimpleNamespace(st_dev=1, st_ino=2, st_rdev=3, st_mode=stat.S_IFCHR | 0o660,
+                                      st_uid=0, st_gid=self.gid, st_nlink=1, st_ctime_ns=4)
+        for patcher in (mock.patch.object(M.os, 'getresuid', return_value=(self.uid,) * 3),
+                        mock.patch.object(M.os, 'getresgid', return_value=(self.gid,) * 3),
+                        mock.patch.object(M.grp, 'getgrnam', return_value=SimpleNamespace(
+                            gr_name='kvm', gr_gid=self.gid)),
+                        mock.patch.object(M.os, 'lstat', return_value=self.device),
+                        mock.patch.object(M.os, 'getxattr', side_effect=OSError(M.errno.ENODATA, 'none')),
+                        mock.patch.dict(M.os.environ, {'VP_PUBLIC_BOOT_UID': str(self.uid),
+                            'VP_PUBLIC_BOOT_KVM_GID': str(self.gid)}, clear=True)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def acl(self, entries=None):
+        undefined = 0xffffffff
+        entries = entries if entries is not None else [
+            (1, 6, undefined), (2, 6, self.uid), (4, 6, undefined),
+            (16, 6, undefined), (32, 0, undefined)]
+        return M.struct.pack('<I', 2) + b''.join(M.struct.pack('<HHI', *item) for item in entries)
+
+    def test_basic_acl_and_named_kvm_group_are_validated_without_process_or_device_open(self):
+        with mock.patch.object(M, 'command') as command, mock.patch.object(M.os, 'open') as opened:
+            self.assertEqual(M.kvm_group_ids(), (self.uid, self.gid))
+        command.assert_not_called()
+        opened.assert_not_called()
+        M.grp.getgrnam.assert_called_once_with('kvm')
+        M.os.getxattr.assert_called_once_with('/dev/kvm', 'system.posix_acl_access', follow_symlinks=False)
+
+    def test_extended_acl_requires_group_object_and_mask_not_just_mode_bits(self):
+        with mock.patch.object(M.os, 'getxattr', return_value=self.acl()):
+            self.assertEqual(M.kvm_group_ids(), (self.uid, self.gid))
+        for index in (2, 3):
+            raw = bytearray(self.acl())
+            raw[4 + index * 8 + 2] = 4
+            with self.subTest(index=index), mock.patch.object(M.os, 'getxattr', return_value=bytes(raw)), \
+                    self.assertRaisesRegex(ValueError, '^kvm_launch_acl$'):
+                M.kvm_group_ids()
+
+    def test_denying_named_caller_entry_cannot_be_bypassed_by_group(self):
+        raw = bytearray(self.acl())
+        raw[14] = 0
+        with mock.patch.object(M.os, 'getxattr', return_value=bytes(raw)), \
+                self.assertRaisesRegex(ValueError, '^kvm_launch_acl$'):
+            M.kvm_group_ids()
+
+    def test_malformed_duplicate_unknown_oversized_and_missing_acl_fields_are_denied(self):
+        undefined = 0xffffffff
+        cases = [b'', b'PRIVATE_CANARY', b'x' * 4097, self.acl() + b'x',
+                 b'\x03' + self.acl()[1:], self.acl() + self.acl()[4:12],
+                 self.acl([(1, 6, undefined), (4, 6, undefined), (32, 0, undefined)]),
+                 self.acl([(64, 6, undefined)] * 3),
+                 self.acl([(1, 6, 1), (4, 6, undefined), (32, 0, undefined)]),
+                 self.acl([(1, 8, undefined), (4, 6, undefined), (32, 0, undefined)])]
+        for raw in cases:
+            with self.subTest(size=len(raw)), mock.patch.object(M.os, 'getxattr', return_value=raw), \
+                    self.assertRaisesRegex(ValueError, '^kvm_launch_acl$'):
+                M.kvm_group_ids()
+
+    def test_acl_read_errors_are_not_basic_acl_absence(self):
+        for code in (M.errno.EACCES, M.errno.EPERM, M.errno.ENOTSUP, M.errno.EIO):
+            with mock.patch.object(M.os, 'getxattr', side_effect=OSError(code, 'PRIVATE_CANARY')), \
+                    self.assertRaisesRegex(ValueError, '^kvm_launch_acl$'):
+                M.kvm_group_ids()
+
+    def test_root_changed_or_saved_privileged_uid_is_rejected(self):
+        for value in ((0, 0, 0), (1234, 0, 1234), (1234, 1234, 0), (1234, 1235, 1234)):
+            with mock.patch.object(M.os, 'getresuid', return_value=value), \
+                    self.assertRaisesRegex(ValueError, '^kvm_launch_identity$'):
+                M.kvm_group_ids()
+
+    def test_unknown_wrong_or_root_named_group_is_rejected(self):
+        for gid in (0, -1, 2 ** 32 - 1, True, '108'):
+            with mock.patch.object(M.grp, 'getgrnam', return_value=SimpleNamespace(gr_name='kvm', gr_gid=gid)), \
+                    self.assertRaisesRegex(ValueError, '^kvm_launch_group$'):
+                M.kvm_group_ids()
+        for group in (SimpleNamespace(gr_name='other', gr_gid=108), KeyError('PRIVATE_CANARY')):
+            with mock.patch.object(M.grp, 'getgrnam', side_effect=group if isinstance(group, Exception) else None,
+                                   return_value=group), self.assertRaisesRegex(ValueError, '^kvm_launch_group$'):
+                M.kvm_group_ids()
+
+    def test_symlink_wrong_owner_gid_mode_and_linkcount_are_rejected(self):
+        changes = [dict(st_mode=stat.S_IFLNK | 0o660), dict(st_mode=stat.S_IFREG | 0o660),
+                   dict(st_uid=1234), dict(st_gid=109), dict(st_nlink=2),
+                   dict(st_mode=stat.S_IFCHR | 0o666), dict(st_mode=stat.S_IFCHR | 0o640)]
+        for change in changes:
+            with mock.patch.object(M.os, 'lstat', return_value=SimpleNamespace(**(vars(self.device) | change))), \
+                    self.assertRaisesRegex(ValueError, '^kvm_launch_device$'):
+                M.kvm_group_ids()
+
+    def test_replaced_or_changed_device_during_acl_read_is_rejected(self):
+        for change in (dict(st_ino=9), dict(st_ctime_ns=5), dict(st_gid=109), dict(st_rdev=4)):
+            with mock.patch.object(M.os, 'lstat', side_effect=[self.device,
+                    SimpleNamespace(**(vars(self.device) | change))]), \
+                    self.assertRaisesRegex(ValueError, '^kvm_launch_device$'):
+                M.kvm_group_ids()
+
+    def test_execute_expected_ids_are_strict_and_actual_all_three_ids_must_match(self):
+        for name in ('VP_PUBLIC_BOOT_UID', 'VP_PUBLIC_BOOT_KVM_GID'):
+            for value in ('', '0', '01', '-1', '4294967295', '1\n', 'PRIVATE_CANARY'):
+                with mock.patch.dict(M.os.environ, {name: value}), \
+                        self.assertRaisesRegex(ValueError, '^kvm_launch_identity$'):
+                    M.verify_kvm_launch()
+        for method in ('getresuid', 'getresgid'):
+            for value in ((0, 0, 0), (1234, 1234, 1234), (108, 0, 108), (108, 108, 0)):
+                if method == 'getresuid' and value == (1234,) * 3:
+                    continue
+                with mock.patch.object(M.os, method, return_value=value), \
+                        self.assertRaisesRegex(ValueError, '^kvm_launch_identity$'):
+                    M.verify_kvm_launch()
+        with mock.patch.dict(M.os.environ, {'VP_PUBLIC_BOOT_KVM_GID': '109'}), \
+                mock.patch.object(M.os, 'getresgid', return_value=(109,) * 3), \
+                self.assertRaisesRegex(ValueError, '^kvm_launch_identity$'):
+            M.verify_kvm_launch()
+
+    def test_closed_launch_receipt_has_no_ids_labels_or_claimed_vm_access(self):
+        value = M.verify_kvm_launch()
+        self.assertEqual(value, launch_receipt())
+        for text in ('1234', '108', '/dev/', 'api_12', 'boot_verified'):
+            self.assertNotIn(text, json.dumps(value))
+
+    def test_preselection_keeps_original_prepared_source_and_absolute_deadline(self):
+        args = SimpleNamespace(yes=True, expected_source='a' * 40)
+        started = time.monotonic_ns() - 10 ** 9
+        prepared = dict(source=args.expected_source, started_monotonic_ns=started)
+        def select():
+            self.assertEqual(M.DEADLINE.get(), started / 1e9 + M.BUILD_SECONDS)
+            return self.uid, self.gid
+        with mock.patch.object(M, 'appliance_stage_path', return_value=Path('/private-stage')), \
+                mock.patch.object(M, 'private_stage_file'), mock.patch.object(M, 'read_stage', return_value=prepared), \
+                mock.patch.object(M, 'kvm_group_ids', side_effect=select) as selected:
+            self.assertEqual(M.kvm_launch_ids(args), (self.uid, self.gid))
+            self.assertIsNone(M.DEADLINE.get())
+            for changed in (dict(source='b' * 40, started_monotonic_ns=started),
+                            dict(source=args.expected_source, started_monotonic_ns=1),
+                            dict(source=args.expected_source, started_monotonic_ns=True)):
+                with mock.patch.object(M, 'read_stage', return_value=changed), self.assertRaises(ValueError):
+                    M.kvm_launch_ids(args)
+            self.assertEqual(selected.call_count, 1)
+            self.assertIsNone(M.DEADLINE.get())
+
+    def test_execute_rejects_invalid_launch_before_work_adoption_or_child_spawn(self):
+        args = SimpleNamespace(yes=True, expected_source='a' * 40, work='/PRIVATE_CANARY')
+        with mock.patch.dict(M.os.environ, {'VP_PUBLIC_BOOT_UID': '0'}), \
+                mock.patch.object(M, 'hosted_output') as work, mock.patch.object(M, 'adopt_appliance') as adopt, \
+                mock.patch.object(M, 'command') as child, self.assertRaisesRegex(ValueError, '^kvm_launch_identity$'):
+            M.execute(args)
+        work.assert_not_called()
+        adopt.assert_not_called()
+        child.assert_not_called()
+
+    def test_cli_selection_is_private_numeric_pair_or_closed_failure_only(self):
+        for result in ((self.uid, self.gid), ValueError('kvm_launch_acl'), ValueError('PRIVATE_CANARY')):
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with mock.patch.object(sys, 'argv', ['image', 'kvm-launch-ids', '--expected-source', 'a' * 40, '--yes']), \
+                    mock.patch.object(sys, 'stdout', stdout), mock.patch.object(sys, 'stderr', stderr), \
+                    mock.patch.object(M, 'kvm_launch_ids', return_value=result,
+                                      side_effect=result if isinstance(result, Exception) else None):
+                code = M.main()
+            if isinstance(result, Exception):
+                self.assertEqual(code, 1)
+                self.assertEqual(stdout.getvalue(), '')
+                self.assertEqual(stderr.getvalue(), 'protected_resident_image_failed action=kvm-launch-ids reason='
+                                 + ('kvm_launch_acl' if result.args[0] == 'kvm_launch_acl' else 'unclassified') + '\n')
+            else:
+                self.assertEqual(code, 0)
+                self.assertEqual(stdout.getvalue(), '1234 108\n')
+                self.assertEqual(stderr.getvalue(), '')
+
+    def test_workflow_group_launch_is_execute_only_and_does_not_persist_membership(self):
+        raw = (M.ROOT / '.github/workflows/protected-resident-image.yml').read_text()
+        function = raw.split('          image_tool() {\n', 1)[1].split('          }\n', 1)[0]
+        self.assertIn('if test "$1" = execute; then', function)
+        self.assertIn('launch=(sudo -n -u "#$launch_uid" -g "#$launch_gid" --)', function)
+        self.assertIn('"${launch[@]}" env -i', function)
+        self.assertIn('VP_PUBLIC_BOOT_UID="${launch_uid:-}" VP_PUBLIC_BOOT_KVM_GID="${launch_gid:-}"', function)
+        self.assertLess(raw.index('image_tool finish-appliance'), raw.index('launch_ids="$(image_tool kvm-launch-ids)"'))
+        self.assertIn('test "$launch_uid" = "$(id -u)"', raw)
+        self.assertIn('sudo -n setfacl --restore=', raw)
+        self.assertIn('getfacl -p /dev/kvm | cmp', raw)
+        for forbidden in ('usermod', 'gpasswd', 'sudo -n guestfish', 'chmod /dev/kvm', 'udevadm trigger'):
+            self.assertNotIn(forbidden, raw)
+        self.assertEqual(M.BUILD_SECONDS, 1200)
 
 
 if __name__ == '__main__':
