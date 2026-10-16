@@ -98,18 +98,41 @@ prefill checkpoints with the same model-driven read/edit/test task, owner
 controls, resource limits and post-task checks. The new core pin includes the
 separately verified native/Storage source join; it is not only a prefill change.
 
-[Storage kernel test `38827974182`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38827974182)
-uses exact test-only source `f28510356adfe9147fe3dbb1b5521187d86fdd70`
-in PR268. It adds the production outer TLS/MPTCP adapter and signed `OPEN_TCP`
-to the signed FINALIZE/challenge/receipt exchange, with genuinely negotiated
-kernel sockets in a disposable loopback namespace. Reserve and Append
-preparation remain in memory. The existing three regressions and all production
-source are unchanged; the ten-second exchange deadline is retained.
-This targets the kernel and outer-adapter gap left by the in-memory result,
-not deployed relay paths or full Image/Cloud acceptance. Compilation, runtime,
-Clippy, formatting and original cleanup evidence remain pending.
+[Storage kernel follow-up `38829082612`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38829082612)
+uses exact test-only source `d5f13087a4c8e03d0cca209edc274ae9bd6b9c9a`
+in PR268. It applies only the five formatter hunks and one documentation-lint
+correction reported by the first run below. The exchange, assertions, isolation,
+ten-second deadline and all production source are unchanged. This single
+automatic follow-up still awaits its original result; the first run's passing
+runtime does not make its failed code checks pass retroactively.
 
 ### Latest completed integration evidence — 15–16 October
+
+- **The signed FINALIZE receipt passes over kernel MPTCP; code checks fail.**
+  [Original run `38827974182`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38827974182)
+  compiles exact test-only source `f28510356adfe9147fe3dbb1b5521187d86fdd70`
+  and passes its one exact runtime case in 1.87 seconds, with no failures or
+  ignored tests. Genuine kernel MPTCP remains negotiated through the production
+  outer TLS adapter; signed `OPEN_TCP`, inner provider TLS and the proxy deliver
+  the verified FINALIZE receipt before an extra application write or close.
+  All three tasks join, four transport endpoints drop, and the original socket
+  identities are absent afterward.
+
+  The disposable PID/network-namespace runner uses its explicit hosted sudo
+  fallback after the unprivileged namespace probe is denied. The test runs with
+  dropped privileges. Original host IPv4/IPv6 routes, resolver bytes and
+  normalized firewall hashes match before and after. Source, workflow, tree
+  and recorded blob bindings also match. Strict Clippy nevertheless fails on
+  one `doc_markdown` error and formatting reports five layout hunks, so the
+  original overall result remains **failed**.
+
+  Reserve and Append preparation still use the in-memory fixture. The signed
+  relay grants authorize the loopback exchange; they do not establish deployed
+  WireGuard paths, multiple active subflows, full consumer acceptance or the
+  cause of the Image stall. Original artifact and log ZIP SHA-256 values are
+  respectively
+  `4057b526832f1e97ccb39b2ae81fb0ced2066e77d6706472fe7f8ff249dd9ccd`
+  and `5472a8ba9a26db64b8caa4fd3bfb6051ffcf71dc9540b06091cd372ebbbb8493`.
 
 - **Signed challenges pass under reverse backpressure and joined cancellation.**
   [Scoped run `38826092150`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38826092150)
