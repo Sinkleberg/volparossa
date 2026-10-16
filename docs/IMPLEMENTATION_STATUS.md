@@ -220,8 +220,23 @@ Each actual admission records its outcome before refusal or process launch.
 Unreadable admission data fails closed. No raw process data, new retries,
 waiting, cache reclamation or weaker memory guard is introduced. All 46
 controller contracts pass locally with inert fixtures, including execution
-through the final result writer; hosted verification of this follow-up is
-pending. This adds evidence for the next trial, not a demonstrated memory fix.
+through the final result writer. This adds evidence for the next trial, not a
+demonstrated memory fix.
+
+Original source run
+[`38882738504`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38882738504)
+on `0f8b555fe16c8afda2fe353be0f15d1c9f640457` passes compilation, strict lint,
+100 unique Rust tests and 184 Python tests. It fails before running the 46
+controller cases: their new fixture exceeds the hosted Python interpreter's
+static nesting limit. This is a test-module syntax failure, not 46 failed
+assertions or a model result. The formatter patch is empty; all 35 source blobs,
+560 dependency identities and final source checks match. Original artifact
+and log ZIP SHA-256 values are
+`614085c21750bd30dda20a6030ddc02f8dadd30b5d886da8583a1aef133127a2`
+and `70ecd9df670df28786367f7f11ebed8fa6f7817a27b10f1b8156c72b2bb8004a`.
+The narrow correction uses an exit stack for the same fixture patches without
+changing production code, test assertions or the required case count. Its
+hosted verification remains pending.
 
 ### Latest shared-storage consumer trial
 

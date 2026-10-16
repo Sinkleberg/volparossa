@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Inert controller checks: no subprocess, systemd unit, VM, or model is run."""
 import ast
+import contextlib
 import copy
 import hashlib
 import importlib.util
@@ -383,21 +384,27 @@ class MemoryObservation(Inert):
                         return b'public test network observation'
                     return original_read(path)
                 process = types.SimpleNamespace(pid=313)
-                with mock.patch.object(R, 'ROOT', work), mock.patch.object(R.os, 'umask'), \
-                        mock.patch.object(R, 'hosted', return_value=(base,
-                            {'commit': '1' * 40, 'tree': '2' * 40}, {}, {})), \
-                        mock.patch.object(R, 'ImageTools', return_value=types.SimpleNamespace(fish=fish)), \
-                        mock.patch.object(R, 'file_hash', return_value={'bytes': 1, 'sha256': 'a' * 64}), \
-                        mock.patch.object(R, 'public_keys'), mock.patch.object(R, 'seed'), \
-                        mock.patch.object(R, 'source_bundle', return_value={'sha256': 'a' * 64}), \
-                        mock.patch.object(R, 'reserve_space', return_value={}), \
-                        mock.patch.object(R.socket, 'socket'), mock.patch.object(R, 'run', return_value=(b'', b'', 0)), \
-                        mock.patch.object(Path, 'open', opened), mock.patch.object(Path, 'read_bytes', read), \
-                        mock.patch.object(R.subprocess, 'Popen', return_value=process) as launch, \
-                        mock.patch.object(R.Scope, 'state', return_value={'ControlGroup': '/user.slice/test.scope',
-                                                                       'ActiveState': 'inactive'}), \
-                        mock.patch.object(R, 'scope_path', return_value=group), mock.patch.object(R, 'joined'), \
-                        mock.patch.object(R, 'Guest', side_effect=ValueError('after_admission')):
+                with contextlib.ExitStack() as patches:
+                    patches.enter_context(mock.patch.object(R, 'ROOT', work))
+                    patches.enter_context(mock.patch.object(R.os, 'umask'))
+                    patches.enter_context(mock.patch.object(R, 'hosted', return_value=(base,
+                        {'commit': '1' * 40, 'tree': '2' * 40}, {}, {})))
+                    patches.enter_context(mock.patch.object(R, 'ImageTools', return_value=types.SimpleNamespace(fish=fish)))
+                    patches.enter_context(mock.patch.object(R, 'file_hash', return_value={'bytes': 1, 'sha256': 'a' * 64}))
+                    patches.enter_context(mock.patch.object(R, 'public_keys'))
+                    patches.enter_context(mock.patch.object(R, 'seed'))
+                    patches.enter_context(mock.patch.object(R, 'source_bundle', return_value={'sha256': 'a' * 64}))
+                    patches.enter_context(mock.patch.object(R, 'reserve_space', return_value={}))
+                    patches.enter_context(mock.patch.object(R.socket, 'socket'))
+                    patches.enter_context(mock.patch.object(R, 'run', return_value=(b'', b'', 0)))
+                    patches.enter_context(mock.patch.object(Path, 'open', opened))
+                    patches.enter_context(mock.patch.object(Path, 'read_bytes', read))
+                    launch = patches.enter_context(mock.patch.object(R.subprocess, 'Popen', return_value=process))
+                    patches.enter_context(mock.patch.object(R.Scope, 'state', return_value={
+                        'ControlGroup': '/user.slice/test.scope', 'ActiveState': 'inactive'}))
+                    patches.enter_context(mock.patch.object(R, 'scope_path', return_value=group))
+                    patches.enter_context(mock.patch.object(R, 'joined'))
+                    patches.enter_context(mock.patch.object(R, 'Guest', side_effect=ValueError('after_admission')))
                     result = R.execute(args)
                 self.assertEqual((work / 'evidence/result.json').read_bytes(), R.encoded(result))
                 self.assertEqual(len(memory_reads), 2, 'baseline_or_admission_was_retried')
