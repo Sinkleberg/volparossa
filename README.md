@@ -65,9 +65,10 @@ access and explicitly chosen system-wide operation remain separate permissions.
   conflicting-spend rejection, partitions, rejoining and replay after a committed transfer.
 
 The [OpenCode trial](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38824828727)
-completed its coding task in about **37 minutes**. The integration is on Code's `main`,
-but the trial requires a pinned core development revision that is **not yet in this
-repository's `main`**. It demonstrates a local model-driven workflow, not competitive
+completed its coding task in about **37 minutes**. The Code integration and native core
+backend are now on their respective `main` branches. The trial remains bound to its
+original pinned core revision; the newly integrated core has passed source checks,
+not a repeat model trial. It demonstrates a local model-driven workflow, not competitive
 performance, general coding reliability or confidential execution on other people's devices.
 
 **Still in development:** complete application integrations, protected execution of private

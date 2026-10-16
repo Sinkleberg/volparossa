@@ -35,14 +35,19 @@ The immediate milestones build on the retained candidates and evidence below:
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Latest actual `38860289559` on candidate `08ba6b21` fails during Cloud RESERVE at the provider TLS handshake deadline; the next copy reports `helper_cleanup_incomplete`. The separate core lifecycle and two restores pass, but consumer restoration and remote retirement remain unproved. Passive correlation has run, without binding a diagnosis to the failed Cloud copy or establishing its cause. Storage maintenance remains a separate candidate; earlier failures retain their own outcomes. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
-| Native coding execution — `volparossa`, `volparossa-code` | Integrate the native runtime independently of unfinished Storage maintenance, then build on the accepted coding lifecycle. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 is merged and keeps that immutable core pin. The native-only composition below awaits its own source checks; it is not the exact binary used by that actual. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
+| Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and the native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 keeps that immutable core pin. Core PR277 integrates the native-only composition after Quality and CodeQL pass; this main composition has not had a new model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
 | Protected remote compute — `volparossa`, then Code/Browser | Bind an approved private workload to verified protection and the confirmed key. | PR258's authenticated refusal path has actual route evidence. PR262 integrates explicit same-connection key confirmation after targeted source, full Quality and CodeQL acceptance. Possession confirmation is not private-task admission. Production authority, current vendor appraisal, approved workloads and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
-### Native-only core integration candidate
+<a id="native-only-core-integration-candidate"></a>
 
-This candidate joins native `a410b015` to main `ef827cfb` and takes only the
-adaptive-prefill change from `7d0f9f0b`, without the Storage-maintenance parent
-`dcdf7cfb`. Native execution sources match the accepted Code trial's core,
+### Native CPU backend integrated into main
+
+[PR277](https://github.com/VOLPAROSSA/volparossa/pull/277) is merged as
+`28b598402c0255e07b751fd3e52e7a7b4bb428a0`, with the exact tested tree
+`b4b1077befb8b73ae3cf83b243c31d03fa5ae64c`. It joins native `a410b015` to
+main `ef827cfb` and takes only the adaptive-prefill change from `7d0f9f0b`,
+without the Storage-maintenance parent `dcdf7cfb`. Native execution sources
+match the accepted Code trial's core,
 including complete prompt processing, synchronized owner checkpoints and the
 unchanged model, tool, memory and deadline limits. Cargo manifests, the lockfile
 and non-native production code remain at main or the reviewed native parent.
@@ -50,10 +55,27 @@ Code's published `7d0f9f0b` pin is unchanged. All 116 inert native Python
 contracts, 32 closed collector cases and three source-cache contracts pass on
 this composition; these checks load no model and compile no native code.
 
-The new composition needs its own hosted Quality and CodeQL checks. Earlier
-[native Quality `38815483235`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38815483235)
-passes 3,830 unique Rust cases with seven ignored. The unchanged C++ source,
-builder and converter retain [run `38811039580`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38811039580):
+[Quality `38869904099`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38869904099)
+passes on head `f5e127c5`; its merge checkout `72bc00e5` has the same tree as
+the integrated main commit. It passes 3,830 unique workspace Rust tests, with
+seven ignored; six repeated child-process passes are not counted twice.
+The separate RustSec backport suite passes 15 cases. The native Python gate
+passes 109 cases, including all 18 adaptive-prefill cases; the early native
+and streaming Rust checks are subsets of the workspace total. Formatting,
+strict Clippy, dependency/license checks and the non-mutating harness pass.
+The harness has 203 passing Python executions and one optional local-CLI skip.
+Three namespace proof reruns explicitly skip because user namespaces are
+denied; successful wrappers do not establish live network proof. All four
+[CodeQL analyses `38869900439`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38869900439)
+pass on the exact head. Original Quality and CodeQL log ZIPs have valid CRCs
+and SHA-256 values respectively
+`b0a63abeadae3264ba4164277dbe9a37a6ea0a20fe9e4609bfa7903d262f4b04`
+and `804ddc6a60700f30c788a18c83f8a34ec7e3935aff688c89192cd67e9b676b47`.
+
+Earlier [native Quality `38815483235`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38815483235)
+also passes 3,830 unique Rust cases with seven ignored. The unchanged C++
+source, builder and converter retain
+[run `38811039580`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38811039580):
 all six targets pass in normal and ASan/UBSan modes, including the complete
 upstream tensor suite. These are source-bound component results, not an actual
 run of this new core binary. The accepted Code actual below remains bound to
@@ -86,8 +108,10 @@ The latest completed outcomes are summarized below.
 
   [Code PR11](https://github.com/VOLPAROSSA/volparossa-code/pull/11) is merged as
   `12197b040e215a9de334c6d68ad347304c1acda6`; only documentation differs
-  from the actual's Code source. Its exact public core pin remains a candidate
-  containing the native/Storage join and adaptive prefill, not core `main`.
+  from the actual's Code source. Its exact public core pin remains unchanged:
+  the original native/Storage join with adaptive prefill. Core PR277 now
+  integrates the native backend separately into `main`, without that Storage
+  candidate; the actual's evidence does not move to the new main binary.
   This publishes the bounded Code use case, not full Storage acceptance,
   native editor UI, general coding quality or protected private-peer execution.
   [The audited candidate ledger](https://github.com/VOLPAROSSA/volparossa/blob/cc465235b5728313bc1338e979990ea33c4726f7/docs/IMPLEMENTATION_STATUS.md#latest-completed-integration-evidence--1516-october)
