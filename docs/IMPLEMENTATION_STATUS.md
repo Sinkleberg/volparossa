@@ -44,7 +44,7 @@ replace either trial or change its pins.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38851643524` on `878c2aa9` passes the base maintenance lifecycle but fails Cloud FINALIZE during flow acquisition; the prior Cloud APPEND failure and Image challenge stall remain distinct. The new helper diagnostic records one connection poll timeout, without request/fragment binding or a proven network cause. Source run `38850938318` passes compilation, 33 Rust and 185 Python tests, strict lint and formatting. Investigate connection setup and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 is merged, retaining that immutable core dependency; the native/Storage core candidate is not merged into core `main`. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Source `38859500185` passes 178 contracts; actual `38859687975` now builds the sealed image and minimal initrd and executes the guest bootstrap, but rejects it at `verity_open`. A separately identified unsupported CLI option is being corrected. Finish the successful and corrupted boot pair, runtime/model binding, a separate task grant and guest TLS. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
+| Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Public immutable boot `38860629051` now passes on exact `888d79fc`: verified read-only boot, write denial, fixed entrypoint, corrupted-disk rejection and cleanup, alongside 179 contracts. This does not execute a model or establish private/TEE protection. Next join two public model turns to one guest TLS session under a separate finite task grant and an explicitly sized model profile. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
 
 ### Finite resident execution candidate
 
@@ -503,8 +503,41 @@ of the option conflicts with the executable's source and is not relied on here.
 The new inert shell test captures the exact bootstrap command's arguments and
 preserves both successful and failed command status without executing a device
 tool. It fails with the former extra option and passes after its removal; all
-179 contracts pass locally (158 image, 21 initrd). Hosted verification, the
-actual immutable boot pair and protected resident-model execution remain open.
+179 contracts pass locally (158 image, 21 initrd). Hosted source run
+[`38860475110`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38860475110)
+passes on exact `888d79fcbc055a3481e8fa244077b880196bd1e7`: all 179 unique
+contracts, syntax, ShellCheck, source preservation and the ten source/seven
+dependency bindings. Original artifact and log ZIP SHA-256 values are
+`dfec7d5dddda62cdcda823f991b21a448c3d59df9debeac4a2c14b97453b9eb1`
+and `c69a7e8ae96503a514d08f3f8f01a2cacfc187d82c1979df8f7b29da6f5d0faf`.
+
+**The public immutable boot prerequisite passes** in original actual run
+[`38860629051`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38860629051)
+on that same source. The intact guest reports `boot_verified / complete`, with
+verified data reads, a read-only root, a real denied write and invocation of the
+fixed entrypoint. The separately corrupted disk reports
+`integrity_failure / verity_read`: the bootstrap requires both a failed mapped
+read and the kernel's `C` status before filesystem mounting or entrypoint use.
+
+All five original JSON receipts are present. The build and 38-entry initrd
+closure bind the pinned inputs and rendered bootstrap. Completion occurs only
+after all four boot-input files are rehashed and source/appliance bindings are
+rechecked; there is no separate exported post-boot hash measurement. Child joins,
+process-group absence, owned scratch/staging cleanup, ACL restoration/comparison
+and source preservation pass. The actual build/boot step takes 94 seconds within
+the unchanged limits; all 179 contracts also pass. Independent readback of the
+original receipts, source blobs, template hash and archives agrees. Original
+boot-artifact and log ZIP SHA-256 values are
+`e3872be8670163ba0e976aea0a153e6dd963f1ba04308c1075942748f2aaf5c8`
+and `c5f20723205b46f2a0b985a4a124fde5788833aefb3a08876df9016ce781ac14`.
+
+This accepts the public boot fixture, not model/worker execution, private-input
+release, hardware attestation or independent production approval. Earlier
+failures keep their original outcomes. The next slice needs two real public
+model turns in one resident session, guest-terminated TLS and a distinct finite
+task grant; quote confirmation is not task authority. Give that model workload
+its own explicit image, memory and execution profile instead of silently
+reusing this small boot-only fixture's limits. Protected execution remains open.
 
 Detailed earlier Android and storage checkpoints remain in the
 [pre-merge evidence ledger](https://github.com/VOLPAROSSA/volparossa/blob/2f3fa1179373b4e71ed42715bebff9bdc9c4a3ff/docs/IMPLEMENTATION_STATUS.md#android-to-core-integration-boundary).
