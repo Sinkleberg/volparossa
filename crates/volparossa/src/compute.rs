@@ -54,6 +54,8 @@ pub(crate) enum Command {
     PrivateServe(Box<private_serve::Options>),
     /// Explicit public-input resident guest fixture; not confidential peer admission.
     ResidentGuest(Box<resident_guest::Options>),
+    /// Exercise one selected public guest with two fixed public prompts, never private files.
+    ResidentPublicTrial(Box<resident_guest::public_trial::Options>),
     /// Serve explicitly public questions using selected real peers and checked synthesis.
     PublicServe(Box<public_serve::Options>),
     /// Fetch one explicitly selected signed public training source, train, and pack an adapter.
@@ -179,6 +181,9 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
         Command::PrivateTask(options) => return private_task::run(&options).await,
         Command::PrivateServe(options) => return private_serve::run(*options).await,
         Command::ResidentGuest(options) => return resident_guest::run(*options).await,
+        Command::ResidentPublicTrial(options) => {
+            return resident_guest::public_trial::run(*options).await;
+        }
         Command::PublicServe(options) => return public_serve::run(*options, socket).await,
         Command::TrainCycle(options) => return train_cycle::run(&options, socket).await,
         Command::TrainLoop(options) => return train_loop::run(&options, socket).await,

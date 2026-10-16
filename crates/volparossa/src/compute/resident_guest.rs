@@ -2,6 +2,7 @@
 //! This does not appraise a TEE, attest key origin, or admit private peer inputs.
 
 mod port;
+pub(super) mod public_trial;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -16,7 +17,7 @@ use rustls::{
 };
 use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{os::unix::fs::PermissionsExt as _, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     time::{Instant, timeout_at},
@@ -153,7 +154,6 @@ async fn run_inner(options: Options) -> Result<()> {
         return Ok(());
     }
     // Owner-readable secret only. read_file also rejects links/nonregular files.
-    use std::os::unix::fs::PermissionsExt as _;
     ensure!(
         std::fs::symlink_metadata(&options.private_key)?
             .permissions()

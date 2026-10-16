@@ -107,7 +107,7 @@ jobs:
             for name in names: assert len(re.findall(r'^test '+re.escape(name)+r' \.\.\. ok$',output,re.M))==1
             assert f'{len(names)} passed; 0 failed; 0 ignored;' in output
             groups[label]=len(names); all_names.extend(names)
-          assert groups==dict(grant=22,guest=11,resident=30,local=30)
+          assert groups==dict(grant=22,guest=18,resident=30,local=30)
           assert len(all_names)==len(set(all_names))
           (root/'tests.json').write_text(json.dumps(dict(version=1,counts=groups,test_names=sorted(all_names),model_execution=False,guest_boot=False,private_peer_admission=False),sort_keys=True)+'\n')
           PY
@@ -128,6 +128,25 @@ jobs:
           output=pathlib.Path('resident-model-evidence/workload.log').read_text()
           assert re.search(r'^Ran 28 tests in ',output,re.M)
           assert re.search(r'^OK$',output,re.M) and 'skipped=' not in output
+          PY
+
+      - name: Model initrd and preserved boot contracts
+        if: always()
+        run: |
+          set -euo pipefail
+          sh -n packaging/protected-resident-model/init
+          python3 -B tests/integration/test-protected-resident-model-initrd.py 2>&1 | tee resident-model-evidence/model-initrd.log
+          python3 -B tests/integration/test-protected-resident-initrd.py 2>&1 | tee resident-model-evidence/boot-initrd.log
+          python3 -B - <<'PY'
+          import json,pathlib,re
+          root=pathlib.Path('resident-model-evidence')
+          counts={'model-initrd':27,'boot-initrd':21,'workload':28}
+          for name,count in counts.items():
+            output=(root/(name+'.log')).read_text()
+            assert re.search(r'^Ran '+str(count)+r' tests in ',output,re.M)
+            assert re.search(r'^OK$',output,re.M) and 'skipped=' not in output
+          (root/'staging-tests.json').write_text(json.dumps(dict(version=1,counts=counts,
+            guest_boot=False,model_execution=False,private_peer_admission=False),sort_keys=True)+'\n')
           PY
 
       - name: Verify tested source stayed equal to the committed candidate

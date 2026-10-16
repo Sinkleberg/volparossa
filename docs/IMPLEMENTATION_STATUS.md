@@ -41,7 +41,7 @@ replace either trial or change its pins.
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38851643524` on `878c2aa9` passes the base maintenance lifecycle but fails Cloud FINALIZE during flow acquisition; the prior Cloud APPEND failure and Image challenge stall remain distinct. The new helper diagnostic records one connection poll timeout, without request/fragment binding or a proven network cause. Source run `38850938318` passes compilation, 33 Rust and 185 Python tests, strict lint and formatting. Investigate connection setup and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38860289559` on `08ba6b21` passes the base maintenance lifecycle but fails Cloud RESERVE: first the inner provider TLS handshake expires, then a second flow acquisition reports incomplete helper cleanup. The retained-route cleanup fix has not resolved consumer acceptance. Investigate bounded route lifetime and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven; earlier trials retain their separate outcomes. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 is merged, retaining that immutable core dependency; the native/Storage core candidate is not merged into core `main`. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
 | Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258 has refusal-path evidence and PR262 adds same-connection key confirmation. The resident worker budget passes compile, 72 contracts, lint and formatting in `38839509355`. Public immutable boot `38860629051` now passes on exact `888d79fc`: verified read-only boot, write denial, fixed entrypoint, corrupted-disk rejection and cleanup, alongside 179 contracts. This does not execute a model or establish private/TEE protection. Next join two public model turns to one guest TLS session under a separate finite task grant and an explicitly sized model profile. Production roots, vendor appraisal and protected execution remain open; suitable confidential-computing hardware is unavailable. |
@@ -63,8 +63,14 @@ on `a68cc4e7` compiles both affected crates and passes 92 unique tests: 22 grant
 10 guest-channel, 30 resident-worker and 30 local-service cases, with none failed
 or ignored. The run fails strict lint on two private parameters passed by value.
 It tested an explicitly recorded formatter copy, not unchanged committed bytes.
-The candidate applies that exact formatter patch, fixes the two borrows and
-adds explicit expired-frame checks; a corrected hosted run is still required.
+Revision `423173f3` applies that exact formatter patch, fixes the two borrows and
+adds explicit expired-frame checks. Its original source run
+[`38865229585`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38865229585)
+passes compilation, all 93 unique Rust tests and 28 workload-staging tests, with
+no failures or skips. The formatter patch is empty, the final source check passes,
+and the 560 package identities and versions are unchanged. The run still fails
+strict lint on one import placed after statements; the current candidate moves
+that import to module scope. This is not a fully passing source gate yet.
 The guest tests use real TLS and signatures with an inert worker; they are not
 evidence of inference or guest execution.
 The workload stager passes 28 inert tests. It verifies the caller-bound asset
@@ -72,13 +78,50 @@ inventory, original model pins, native manifests and fixed guest launch paths;
 it neither downloads assets nor runs the model. Partial-output cleanup preserves
 an output that another owner has replaced.
 The initial hosted workload step was a no-op because these files were absent;
-the updated workflow requires their tests and a final unchanged-source check.
+the corrected run above actually executes their mandatory tests.
+
+The current candidate adds a matching `compute resident-public-trial` requester.
+It can submit only two fixed public prompts, checks the selected certificate key
+after normal TLS verification, and signs a grant bounded by its original parent
+deadline. Success requires both expected answers, token counters, retained-session
+receipts and the final joined-cleanup receipt. Seven new requester tests include
+a real TLS exchange with an inert worker; their hosted compile and execution are
+pending.
+
+A separate model initrd stages fixed launch code for a complete caller-supplied
+OS image. It verifies the read-only root, drops privileges to UID 985, exposes only
+the fixed virtio channel, and supplies real read-only cgroup observations to the
+unchanged resource guards. Its readiness marker precedes TLS; process exit alone
+does not prove model execution or worker cleanup. The 27 new initrd, 21 preserved
+boot and 28 workload contracts pass locally with inert inputs and no skipped
+tests. The old boot profile is unchanged. The model controller must enforce its
+explicit 12 GiB guest, 13 GiB host-side QEMU cap and 14 GiB available-host-memory
+requirement; this initrd does not claim the earlier Code fixture's 11 GiB guest cap.
 The next acceptance gate must execute two real model turns inside the sealed
 guest, preserve one model lifetime, reject excess/replayed requests and confirm
 cleanup. The model image also needs the complete Python/native/OS closure and a
 separately sized disk budget: the accepted small boot image cannot contain both
 the original Qwen weights and BF16 execution weights. Workload descriptor binding
 in a fixture is not independent production approval or proof of guest key origin.
+
+### Latest shared-storage consumer trial
+
+Original actual run
+[`38860289559`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38860289559)
+on exact `08ba6b21b79bef8fb0f124f114fb5ba3df7d93b7` fails consumer publication.
+The base lifecycle passes restart, repair and deletion, with all three base
+providers returning to zero usage. Cloud's first RESERVE fails inside the
+provider TLS handshake; the next copy fails during flow acquisition with
+`helper_cleanup_incomplete`. The complete Image/Cloud maintenance and restore
+reports are absent, not successful.
+
+Guest/local cleanup, stopping and reaping the original QEMU process, source
+integrity and host-state checks pass. Remote consumer cleanup is not established.
+The bounded diagnostics include a client/provider TLS timeout pair, but do not
+bind it to an exact Cloud fragment or prove its cause. Empty helper diagnostic
+records do not establish that no helper failure occurred. The package-build step
+was skipped. No longer timeout or repeated actual run is used as a substitute
+for understanding this failure.
 
 ### Finite resident execution candidate
 
