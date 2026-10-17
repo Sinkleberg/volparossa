@@ -295,6 +295,31 @@ class DepositSequence(unittest.TestCase):
                 self.assertIn(last, result.stdout.lower())
                 self.assertNotIn(first, result.stdout.lower())
 
+    def test_optional_dispatch_defaults_off_and_preserves_existing_lifecycles(self):
+        guest = (HERE / "kvm-alpha-topology.sh").read_text()
+        start = guest.index('if [ "$private_storage_maintenance" = yes ]; then\n    private_storage_maintenance_run')
+        dispatch = guest[start:guest.index('\nif [ "$private_storage_handoff"', start)]
+        script = r'''
+set -eu
+private_storage_maintenance_run() { printf '%s\n' maintenance; }
+private_storage_sequence_run() { printf '%s\n' sequence; }
+private_storage_fragments_run() { printf '%s\n' fragments; }
+''' + dispatch + "\nprintf '%s\\n' fallthrough\n"
+        for sequence in (None, "no", "yes"):
+            for maintenance in ("no", "yes"):
+                for fragments in ("no", "yes"):
+                    with self.subTest(sequence=sequence, maintenance=maintenance, fragments=fragments):
+                        environment = dict(PATH=os.defpath, private_storage_maintenance=maintenance,
+                            private_storage_fragments=fragments)
+                        if sequence is not None:
+                            environment["private_storage_deposit_sequence"] = sequence
+                        result = subprocess.run(["sh", "-c", script], env=environment,
+                            capture_output=True, text=True, check=True, timeout=5)
+                        expected = ("maintenance" if maintenance == "yes" else "sequence" if sequence == "yes"
+                            else "fragments" if fragments == "yes" else "fallthrough")
+                        self.assertEqual(result.stdout, expected + "\n")
+                        self.assertEqual(result.stderr, "")
+
     def test_closed_export_and_explicit_scenario_source_gate(self):
         names = set(CHECK["EXPORT_NAMES"])
         diagnostics = WIRING["diagnostics"]()

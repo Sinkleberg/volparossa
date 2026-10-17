@@ -7241,7 +7241,9 @@ if [ "$private_storage_maintenance" = yes ]; then
     private_storage_maintenance_run
     exit 0
 fi
-if [ "$private_storage_deposit_sequence" = yes ]; then
+# Extracted dispatch contracts may omit this new optional scenario flag. The
+# default matches top-level initialization: only explicit selection enables it.
+if [ "${private_storage_deposit_sequence:-no}" = yes ]; then
     private_storage_sequence_run
     exit 0
 fi
