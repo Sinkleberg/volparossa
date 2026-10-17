@@ -12,7 +12,7 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-16
+Last updated: 2026-10-17
 
 ## Current integration and active work
 
@@ -33,10 +33,10 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resolve the failed Cloud transport acquisition, then complete consumer publication, repair, repeated restoration, deletion and confirmed provider cleanup. | Candidate `acba3244` passes source run `38915098088` and adds authenticated request-local helper diagnostics without changing retries or cleanup. Original consumer trial `38917106698` has been dispatched; acceptance remains open. Earlier actual `38900639690` passes the separate core lifecycle but fails Cloud FINALIZE with `helper_kernel` then `helper_cleanup_incomplete`. Consumer remote cleanup and provider usage remain unconfirmed. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resolve Cloud publication failures, then complete consumer repair, repeated restoration, deletion and confirmed provider cleanup. | Candidate `acba3244` passes source run `38915098088`; original consumer trial `38917106698` fails Cloud RESERVE at `tls_handshake / handshake_deadline`. This is distinct from earlier actual `38900639690`, which fails Cloud FINALIZE with `helper_kernel` then `helper_cleanup_incomplete`. Consumer remote cleanup and provider usage remain unconfirmed; full acceptance remains open. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then repair, restore and delete it after provider loss. | PR279 joins upload profile 6 to shared consumer profile 10 on `dd1fd4df`; source run `38903572207` passes. A real upload trial still requires the shared Storage consumer acceptance above, joined cleanup and zero usage at all three providers. Finite authorization, HTTP PUT, enrollment, repeated restore and all-copy deletion remain required; source checks and synthetic-core SDK results do not replace them. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and the native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 keeps that immutable core pin. Core PR277 integrates the native-only composition after Quality and CodeQL pass; this main composition has not had a new model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Complete offline package installation, then execute two public model turns in the immutable guest before joining approved private workloads. | Actual `38911735085` reaches the build guest but fails at `package_plan`, before model construction. Candidate `315ddb3e` corrects a static curl/libcurl mismatch and passes source run `38916171428`; original actual `38917448052` has been dispatched. Public boot, source checks and PR262 key possession remain distinct from model execution and private-task admission. Production approval, vendor appraisal and confidential hardware remain open. |
+| Protected remote compute — `volparossa`, then Code/Browser | Complete offline package installation, then execute two public model turns in the immutable guest before joining approved private workloads. | Candidate `315ddb3e` passes source run `38916171428`; original actual `38917448052` passes package planning but fails at `package_install`, before model execution. The exact installation cause is not retained. Earlier actual `38911735085` fails at `package_plan`. Public boot, source checks and PR262 key possession remain distinct from model execution and private-task admission. Production approval, vendor appraisal and confidential hardware remain open. |
 
 ### Current Storage upload and public model evidence
 
@@ -64,9 +64,15 @@ stale detail. It adds no helper operation or probe and changes no retry, deadlin
 route-retirement or cleanup behavior. The detail is request-local, not proof of
 a particular provider, fragment or cause. Version-1 output remains unchanged.
 [Original consumer trial `38917106698`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38917106698)
-was dispatched on this exact source with consumer profile 10, fixture schema 2
-and the unchanged Image `1e812ec6` / Cloud `35598609` pins. Its full publication,
-repair, restoration, deletion and remote-cleanup acceptance remains open.
+fails on this exact source with consumer profile 10, fixture schema 2 and the
+unchanged Image `1e812ec6` / Cloud `35598609` pins. The smoke report stops at
+`storage-consumer-publish` with `CONSUMER_APPLICATION_FAILED`. Cloud RESERVE for
+fragment 0/copy 1 reports `CONTENT_UNAVAILABLE`, stage `tls_handshake`, and
+`handshake_deadline`. This is not the earlier run's helper-acquisition failure.
+The combined publication, repair, restoration and deletion acceptance remains open;
+consumer remote cleanup and provider usage remain unconfirmed. The original actual
+artifact passes its GitHub digest and ZIP CRC checks, with SHA-256
+`90711701e55a011b362058ee1577ccd8b276131cae15aa977d4b5c7842a72340`.
 Source artifact and log ZIP SHA-256 values are
 `3d75ff58ed8b368837b0463bff496cd2f6353e9bc2669b319d59982a35201b93`
 and `928e2150bf74a3f0e2aec9d5e4e89e83e6fa53ae42563fa035249553afe4975a`.
@@ -99,8 +105,15 @@ cases, compilation, strict Clippy, an empty formatter patch and unchanged final
 source. All 36 source blobs bind; all 560 Cargo identities and four original
 model/image/helper inputs remain unchanged. The new Debian lock is explicitly
 bound. [Original actual `38917448052`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38917448052)
-was dispatched with this exact expected source. Package installation, sealed
-model construction, two model turns and private-peer execution remain unproven.
+fails with this exact expected source. The result stops at `guest_packages`;
+the installer has passed package planning and reached `package_install`, then
+reports `installation_failed`. Archives are verified, zero installed packages are
+verified and `model_execution` is false. The exact installation cause is not
+retained; this result must not be attributed to the earlier plan failure.
+Package installation, sealed model construction, two model turns and private-peer
+execution remain unproven. The original trial artifact passes its GitHub digest
+and ZIP CRC checks, with SHA-256
+`145e4162e5fd366a49d89c550e8dd89b714ca8550b6ca18b8a0498c8f9c21f83`.
 Source artifact and log ZIP SHA-256 values are
 `6929e55f061ab4bde3e5ff65a86ba6d0972c2fecef1bc7bcde99cddae67c1cc7`
 and `632dbda399e7fe72f8c9949c4cbce163ab5c31b9e1264604df9a5501afce8b8c`.

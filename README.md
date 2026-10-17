@@ -17,6 +17,7 @@ comes first.
 [7 Virtues](#governed-by-7-virtues) ·
 [Development status](#development-status) ·
 [Documentation](docs/README.md) ·
+[FAQ](docs/FAQ.md) ·
 [Contribute](CONTRIBUTING.md)
 
 > **Development preview · Initial core target: Debian 13 amd64 · GPL-3.0-only**
@@ -43,26 +44,22 @@ access and explicitly chosen system-wide operation remain separate permissions.
 
 ## Development status
 
-**Demonstrated in scoped development trials:**
+**Development snapshot: 17 October 2026.** Working milestones exist across all five
+layers, but they do not yet form a complete, supported service. The distinction matters
+especially for private data and applications that depend on several layers at once.
 
-- Protected WireGuard routes carrying real MPTCP, UDP/MASQUE and Multipath QUIC traffic;
-  later trials also carry data on three parallel paths.
-- Verified peer-content retrieval, selected HTTPS sharing, DNS-cache sharing and public
-  publication, including retrieval while an original publisher is offline.
-- Real weather, precipitation and particulate forecasts delivered through protected peers
-  into the Drizz.li and Overmorrow web clients, with initial display and refresh checks.
-  These web trials retrieve the first products before opening the UI.
-- The installed Overmorrow Android app fetching real forecasts on demand through the core
-  in an emulator, with initial data, tap-refresh and background/resume checks. Expiry with
-  real products, physical phones and iOS remain open.
-- Private fragment storage and provider-loss recovery, including native Signal backup
-  export/import, encrypted Image snapshots and OpenCloud file recovery.
-- Actual adapter training and reuse, public tasks on peer workers, and selected
-  model-review and signed policy-enforcement flows.
-- An actual OpenCode session using a core-managed CPU model to read and edit a code
-  fixture, run an approved test and pass an independent check.
-- Signed TEST-unit transfers in a separate four-validator transaction trial, including
-  conflicting-spend rejection, partitions, rejoining and replay after a committed transfer.
+| Area | Demonstrated in scoped trials | Important remaining boundary |
+| --- | --- | --- |
+| Network and cache | Protected WireGuard routes carrying genuine MPTCP, UDP/MASQUE and Multipath QUIC traffic, including three-path trials; verified peer retrieval, selected HTTPS/DNS sharing and publication while the original publisher is offline. | This is not automatic caching of arbitrary HTTPS traffic or proof on every device and network. |
+| Weather applications | Real weather, precipitation and particulate forecasts displayed and refreshed in Drizz.li and Overmorrow web clients; on-demand retrieval, refresh and background/resume in installed Overmorrow Android in an emulator. | Web trials obtain the first products before opening the UI. Expiry with real products, physical phones and iOS remain open. |
+| Private storage | Fragment storage and provider-loss recovery; separate application trials include native Signal backup export/import, encrypted Image snapshots and OpenCloud file recovery. | The joined Image/Cloud publication, maintenance, repeated restore and deletion lifecycle is not yet accepted. Automatic reciprocal accounting and safe capacity reduction remain unfinished. |
+| Compute and Code | Actual adapter training and reuse, public tasks on peer workers, selected model-review flows and an OpenCode model-driven read/edit/test task. | A successful bounded task is not general coding reliability. Confidential execution of private tasks on other people's devices remains unfinished. |
+| Transactions | Signed TEST-unit transfers across four validators, conflicting-spend rejection, partitions, rejoining and replay without a second debit. | Fixed membership and fictitious assets; not live payments, external settlement or a Bank-to-distributed-ledger integration. |
+
+[Citizen](https://github.com/VOLPAROSSA/volparossa-citizen) separately provides an executable
+referendum-procedure simulation with fictional identities, not verified real-person voting
+or recognized public authority. The [application guide](docs/applications/APPLICATIONS.md)
+explains the scope of all ten integrations.
 
 The [OpenCode trial](https://github.com/VOLPAROSSA/volparossa-code/actions/runs/38824828727)
 completed its coding task in about **37 minutes**. The Code integration and native core
@@ -71,14 +68,22 @@ original pinned core revision; the newly integrated core has passed source check
 not a repeat model trial. It demonstrates a local model-driven workflow, not competitive
 performance, general coding reliability or confidential execution on other people's devices.
 
-**Still in development:** complete application integrations, protected execution of private
-tasks on other people's devices, dependable AI reasoning, automatic reciprocal storage
-maintenance, the complete immune system and authorized automatic software updates.
-Current integration work concentrates on shared storage maintenance with Image/Cloud and
-the prerequisites for confidential peer computation, while preserving the demonstrated
-coding workflow. The complete Image/Cloud repair-and-restore lifecycle remains
-unverified; failures during publication are still being investigated. Android expiry
-and broader device support also remain open.
+### Current integration work
+
+The next shared dependencies are **private-storage maintenance with Image/Cloud** and
+**protected peer computation**, while preserving the demonstrated coding workflow.
+The [latest Cloud trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38917106698)
+fails during a TLS handshake while publishing data. Its joined repair, repeated restore,
+deletion and provider-cleanup milestone remains open. The
+[public-model guest trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38917448052)
+reaches package installation but fails before model execution. A public guest trial is
+a prerequisite, not proof of confidential hardware or permission to process private tasks.
+
+Complete applications, dependable shared reasoning, the full immune system and authorized
+automatic software updates also remain in development. The
+[execution plan](docs/IMPLEMENTATION_STATUS.md#execution-priorities-and-next-milestones)
+tracks the current blockers and next usable milestones without treating feature branches
+as released functionality.
 
 These results belong to their recorded revisions and test conditions. The original
 [A01–A15 transport acceptance run](https://github.com/VOLPAROSSA/volparossa/actions/runs/34047766913)
@@ -397,6 +402,14 @@ neither absolute safety nor immunity from legal risk.
 
 Start with the [documentation guide](docs/README.md). The initial core target is
 **Debian 13 Trixie, amd64**, with systemd, kernel WireGuard, kernel MPTCP and nftables.
+
+- **Explore first:** the [FAQ](docs/FAQ.md) answers questions about participation,
+  privacy, shared AI and storage.
+- **Integrate an application:** read the [shared-service lifecycle](docs/architecture/APPLICATION_LIFECYCLE.md)
+  and [application boundaries](docs/applications/APPLICATIONS.md).
+- **Build or verify a milestone:** follow [Contributing](CONTRIBUTING.md), the
+  [operations guide](docs/development/OPERATIONS.md) and the
+  [source-bound evidence ledger](docs/IMPLEMENTATION_STATUS.md).
 
 Read-only prerequisite and dependency-plan checks:
 
