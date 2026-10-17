@@ -117,6 +117,7 @@ PY
     private_storage_sequence_cleanup || fail SEQUENCE_OWNER_CLEANUP_FAILED
     python3 -B "$source_directory/tests/integration/private-storage-deposit-sequence-smoke.py" evidence "$WORK" \
         "$WORK/private-storage-deposit-sequence-evidence.json" >/dev/null || fail SEQUENCE_EVIDENCE_INVALID
+    OBSERVED_BLOCKER=NONE
     PHASE=private-storage-deposit-sequence-complete
 }
 

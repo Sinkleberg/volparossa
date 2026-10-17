@@ -358,6 +358,66 @@ class DepositSequence(unittest.TestCase):
                 CHECK["evidence"](work)
             self.assertEqual(target.read_text(encoding="ascii"), text)
 
+    def test_successful_finalization_clears_initial_marker_but_preserves_failures(self):
+        shell = (HERE / "private-storage-deposit-sequence-smoke.sh").read_text()
+        start = shell.index('    python3 -B "$source_directory/tests/integration/private-storage-deposit-sequence-smoke.py" evidence')
+        completion = shell[start:shell.index("\n}", start)]
+        prefix = r'''
+set -eu
+WORK=$1; output_directory=$2; source_directory=$3; CASE=$4
+expected_commit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+RUN_ID=inert-finalizer-regression
+OUTPUT_UID=$(id -u); OUTPUT_GID=$(id -g)
+CLEANUP_COMPLETE=true; REMAINING_OWNED_OBJECTS=0
+PHASE=private-storage-deposit-sequence-run
+OBSERVED_BLOCKER=NOT_REACHED
+. "$source_directory/tests/integration/private-storage-deposit-sequence-smoke.sh"
+optional_json_evidence() {
+    if [ -f "$1" ]; then cat "$1"; else printf 'null\n'; fi
+}
+fail() { OBSERVED_BLOCKER=$1; exit 1; }
+trap 'status=$?; trap - EXIT; private_storage_sequence_finalize_report "$status"' EXIT
+'''
+        suffix = r'''
+if [ "$CASE" = cleanup-failed ]; then
+    OBSERVED_BLOCKER=A15_HOST_STATE_CHANGED
+    CLEANUP_COMPLETE=false
+    REMAINING_OWNED_OBJECTS=1
+    exit 1
+fi
+'''
+        for case in ("success", "evidence-failed", "cleanup-failed", "old-marker-negative-control"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory(prefix="vp-sequence-finalizer-") as temporary:
+                work, output = Path(temporary) / "work", Path(temporary) / "output"
+                work.mkdir(); output.mkdir()
+                expected = write_evidence_fixture(work)
+                (work / "a15-evidence.json").write_text(json.dumps(dict(unchanged=True)), encoding="ascii")
+                if case == "evidence-failed":
+                    usage = work / f"{CHECK['PREFIX']}-deleted_usage.json"
+                    usage.write_text(json.dumps([dict(reserved_bytes=0, committed_bytes=0, leases=1)] * 3), encoding="ascii")
+                tail = completion if case != "old-marker-negative-control" else completion.replace("    OBSERVED_BLOCKER=NONE\n", "")
+                result = subprocess.run(["sh", "-c", prefix + tail + suffix, "inert-finalizer",
+                    str(work), str(output), str(HERE.parents[1]), case], capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0 if case == "success" else 1, result.stderr)
+                report = json.loads((output / f"{CHECK['PREFIX']}-smoke.json").read_text())
+                if case == "success":
+                    CHECK["validate_report"](report, "a" * 40)
+                    self.assertIsNone(report["observed_blocker"])
+                    self.assertEqual(report["storage"], expected)
+                else:
+                    with self.assertRaises(ValueError):
+                        CHECK["validate_report"](report, "a" * 40)
+                    blocker = {"evidence-failed": "SEQUENCE_EVIDENCE_INVALID",
+                        "cleanup-failed": "A15_HOST_STATE_CHANGED",
+                        "old-marker-negative-control": "NOT_REACHED"}[case]
+                    self.assertEqual(report["observed_blocker"], blocker)
+                    self.assertEqual(report["runner_exit_status"], 0 if case == "old-marker-negative-control" else 1)
+                    if case == "evidence-failed":
+                        self.assertIsNone(report["storage"])
+                        self.assertEqual(report["phase"], "private-storage-deposit-sequence-run")
+                    elif case == "cleanup-failed":
+                        self.assertEqual(report["cleanup"], dict(complete=False, remaining_owned_objects=1))
+
     def test_preview_selection_does_not_run_other_storage_lifecycles(self):
         scenario = "private-storage-deposit-sequence"
         for script in ("kvm-alpha-topology.sh", "run-alpha-topology-vm.sh"):
