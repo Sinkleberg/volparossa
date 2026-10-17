@@ -33,10 +33,10 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Accept the corrected fresh-route deposit probe, then close the route-lifecycle coverage gap before completing consumer repair, restoration and deletion. | Source `39074693102` passes on `3ab2f6cb`. Probe `39077261472` completes ten verified deposits/deletions and zero provider usage, but fails report assembly. Test-only correction `d19f0246` has 68 passing focused checks; original run `39079108548` is in progress. The earlier full consumer failure `38917106698` remains unresolved; fresh-route cleanup does not establish cleanup for that failed consumer run. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Accept the corrected fresh-route deposit probe, then close the route-lifecycle coverage gap before completing consumer repair, restoration and deletion. | Source `39074693102` passes on `3ab2f6cb`. Probes `39077261472` and `39079108548` each complete ten verified deposits/deletions and zero provider usage, but fail separate reporting steps. Candidate `82a23bdd` corrects the remaining success marker with 15 passing sequence tests; original run `39080705711` awaits acceptance. The earlier full consumer failure `38917106698` remains unresolved; fresh-route cleanup does not establish cleanup for that failed consumer run. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then repair, restore and delete it after provider loss. | PR279 joins upload profile 6 to shared consumer profile 10 on `dd1fd4df`; source run `38903572207` passes. A real upload trial still requires the shared Storage consumer acceptance above, joined cleanup and zero usage at all three providers. Finite authorization, HTTP PUT, enrollment, repeated restore and all-copy deletion remain required; source checks and synthetic-core SDK results do not replace them. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and the native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 keeps that immutable core pin. Core PR277 integrates the native-only composition after Quality and CodeQL pass; this main composition has not had a new model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Resolve the guest builder failure, construct the sealed runtime and execute two public model turns before joining approved private workloads. | Actual `39075796147` on `6d0feec7` verifies all 199 build and 65 runtime packages, then fails at `guest_model_build / guest_unit_failed`. Bounded diagnostic candidate `fabfa849` passes source `39078193265` with 100 Rust and 370 Python cases; original public trial `39078833292` is in progress. Model execution, production approval, vendor appraisal and confidential hardware remain open. |
+| Protected remote compute — `volparossa`, then Code/Browser | Resolve the guest export failure, construct the sealed runtime and execute two public model turns before joining approved private workloads. | Actual `39078833292` on `fabfa849` repeats 100 Rust / 370 Python source checks and verifies all 199 build and 65 runtime packages. Its bounded receipt identifies the export phase, after native build and model provisioning, but not the exact failed export or final-check operation. Model execution, production approval, vendor appraisal and confidential hardware remain open. |
 
 ### Current Storage upload and public model evidence
 
@@ -70,7 +70,19 @@ existing bounded array reader without changing production code, deadlines or
 substantive validators. Fourteen sequence and 54 surrounding tests pass; the
 new file-backed regression reproduces the exact original error before the fix.
 Original [run `39079108548`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39079108548)
-is in progress on that frozen commit. No original report is rewritten.
+on that commit repeats all ten deposits/deletions, 40 completed flows with zero
+failures, zero provider usage and complete private/topology cleanup. Combined
+evidence now passes, but the final report validator rejects the unchanged
+initial `NOT_REACHED` blocker. The original run remains failed. Its exact
+artifact digest and ZIP integrity pass; artifact SHA-256 is
+`e89290428060aa0553a8749cbbe5bc6fde07f46d7629bf5812d8a117eb0f19b5`.
+
+Candidate `82a23bdd51bd39a4086bf4f8c6ddc2b925533815` clears that marker
+only after evidence validation succeeds. Fifteen sequence tests pass, including
+real-shell finalization, preserved evidence/cleanup failures and a negative
+control reproducing the old marker error. Original
+[run `39080705711`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39080705711)
+awaits acceptance on that frozen source. No original report is rewritten.
 
 This fresh-route probe does not resolve the full Image/Cloud failure below. The
 older fixture completed 106 post-reconnect flows across at least 531 seconds
@@ -101,9 +113,18 @@ formatter patch and exact final-source checks. All 356 earlier Python cases
 remain, with 14 diagnostic tests added. Source bindings and original archive
 integrity pass; source artifact SHA-256 is
 `9e54357f98d3da99957ddd3533949daf632af8c1fb38d56bbecc8fe8209051d3`.
-One original [public trial `39078833292`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39078833292)
-is in progress on the same frozen commit. This diagnostic change is not yet a
-proven builder fix; public execution would not prove confidential private-peer
+Original [public trial `39078833292`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39078833292)
+on the same commit repeats the passing source gate and both package
+installations, then fails in the builder's **export** phase. The bound builder
+sets that phase after native building, model provisioning and their validation;
+it includes asset export and final source/deadline checks. The exact failing
+operation remains unknown. VM/tool joining, scratch removal, user-manager
+restoration and final source checks pass, but no sealed runtime, model turns or
+final host comparison are accepted. Artifact API digests and all three ZIP
+integrity checks pass; trial artifact SHA-256 is
+`3369301879d00e7f4c10cc93dc07dc28b68b75a658a6a2068e078d51c2772425`.
+The diagnostic change improves failure identification rather than proving a
+builder fix; public execution would not prove confidential private-peer
 execution or hardware attestation.
 
 #### Earlier candidate evidence
