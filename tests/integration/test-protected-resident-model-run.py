@@ -1724,6 +1724,311 @@ class PackageDiagnostic(Inert):
         self.assertIsNone(diagnostics[0]['installer'])
 
 
+class BuilderDiagnostic(Inert):
+    UNIT = 'vp-resident-builder.service'
+    SOURCE = {'commit': 'a' * 40, 'tree': 'b' * 40}
+    BINDING = {'source': SOURCE, 'uid': 1000, 'gid': 1000}
+    status = PackageDiagnostic.status
+
+    def receipt(self, phase='build', **changes):
+        value = dict(version=1, kind='protected-resident-public-model-build', state='failed', phase=phase,
+            source_commit=self.SOURCE['commit'], code_helper_commit=R.CODE, code_helper_sha256=R.HELPER_SHA,
+            package_lock_sha256=R.LOCK_SHA, assets_exported=False, model_execution=False, worker_execution=False,
+            private_inputs=False, hardware_attestation=False, production_approval=False,
+            controller_cgroup_cleanup_required=True, direct_child_groups_joined=True, descendants_joined=None,
+            complete_guest_cleanup=False, scratch_removed=False)
+        if phase != 'source':
+            value['source_tree'] = self.SOURCE['tree']
+        if phase in ('build', 'provision', 'export'):
+            value['installed_build_packages'] = 199
+        if phase == 'export':
+            value.update(provision=self.provision(), native_build_manifest_sha256='c' * 64)
+        value.update(changes)
+        return value
+
+    def provision(self):
+        return dict(model_id='Public/Model', revision='d' * 40, model_profile='public-fixture-v1',
+            download_bytes=1024, budget_bytes=20 * R.GIB, installed_wheels=1,
+            model_pins_sha256='e' * 64, requirements_sha256='f' * 64)
+
+    def export(self):
+        return dict(inventory_sha256='1' * 64, workload_sha256='2' * 64, native_backend_sha256='3' * 64,
+                    asset_files=1, asset_bytes=1024)
+
+    def observe(self, *, reply=None, query_error=None, stop_error=None, stop_status=0, empty_error=None,
+                observation_error=None, cancelled=False, success=False, status=None):
+        guest, calls, diagnostics = R.Guest(Path('/synthetic'), 200), [], []
+        def ssh(argv, **options):
+            calls.append((argv, options))
+            if argv[2:4] == ['systemctl', 'show']:
+                if query_error is not None:
+                    raise query_error
+                state = self.status(Result='success', ActiveState='active', SubState='exited',
+                                    ExecMainStatus='0') if success else self.status()
+                return status if status is not None else state, b'', 0
+            if argv[2:4] == ['systemctl', 'stop']:
+                if stop_error is not None:
+                    raise stop_error
+                return b'', b'', stop_status
+            if argv[2:4] == ['python3', '-c']:
+                if argv[4] == R.BUILDER_RECEIPT_READ:
+                    if observation_error is not None:
+                        raise observation_error
+                    return reply if reply is not None else (R.encoded(self.receipt()), b'', 0)
+                if empty_error is not None:
+                    raise empty_error
+                if cancelled:
+                    R.CANCELLED = True
+            return b'', b'', 0
+        guest.ssh = mock.Mock(side_effect=ssh)
+        error = None
+        try:
+            result = guest.unit('vp-resident-builder', ['python3', '/fixed.py'], 123456, user='vpci',
+                                diagnostics=diagnostics, builder_binding=self.BINDING)
+            self.assertTrue(success and result)
+        except Exception as caught:
+            error = caught
+        return error, diagnostics, calls
+
+    def test_closed_failed_projection_binds_all_phases_and_does_not_export_nested_metadata(self):
+        fixtures = [self.receipt(phase) for phase in ('source', 'packages', 'build', 'provision', 'export')]
+        fixtures += [self.receipt('source', source_tree=self.SOURCE['tree']),
+                     self.receipt('packages', installed_build_packages=199),
+                     self.receipt('provision', provision=self.provision()),
+                     self.receipt('provision', provision=self.provision(), native_build_manifest_sha256='a' * 64),
+                     self.receipt('export', export=self.export(), direct_child_groups_joined=False)]
+        for value in fixtures:
+            with self.subTest(phase=value['phase']):
+                result = R.builder_failure_projection(R.encoded(value), self.SOURCE)
+                self.assertEqual(result['phase'], value['phase'])
+                self.assertEqual(result['state'], 'failed')
+                self.assertEqual(result['source_tree_bound'], 'source_tree' in value)
+                self.assertEqual(result['direct_child_groups_joined'], value['direct_child_groups_joined'])
+                self.assertEqual(result['installed_build_packages'], value.get('installed_build_packages'))
+                self.assertFalse(result['model_execution'] or result['assets_exported'] or result['complete_guest_cleanup'])
+                for key in ('source_commit', 'source_tree', 'provision', 'export', 'native_build_manifest_sha256'):
+                    self.assertNotIn(key, result)
+
+    def test_projection_rejects_wrong_source_scope_shape_types_and_extra_fields(self):
+        invalid = [b'', b'x' * 16385, b'[]', b'{"version":1,"version":1}', b'{"version":NaN}', b'\xff']
+        for changes in ({'version': True}, {'kind': 'foreign'}, {'state': 'assets_built'}, {'phase': 'complete'},
+                        {'source_commit': 'c' * 40}, {'source_tree': 'd' * 40}, {'code_helper_commit': '0' * 40},
+                        {'code_helper_sha256': '0' * 64}, {'package_lock_sha256': '0' * 64},
+                        {'assets_exported': True}, {'model_execution': True}, {'private_inputs': True},
+                        {'complete_guest_cleanup': True}, {'scratch_removed': True}, {'descendants_joined': True},
+                        {'direct_child_groups_joined': 1}, {'controller_cgroup_cleanup_required': False},
+                        {'installed_build_packages': True}, {'installed_build_packages': 198},
+                        {'raw': 'PRIVATE_CANARY'}, {'failure': 'PRIVATE_CANARY'}):
+            invalid.append(R.encoded(self.receipt(**changes)))
+        for key in self.receipt():
+            value = self.receipt()
+            del value[key]
+            invalid.append(R.encoded(value))
+        for raw in invalid:
+            with self.subTest(raw=raw[:45]), self.assertRaises((ValueError, TypeError, UnicodeError)):
+                R.builder_failure_projection(raw, self.SOURCE)
+        for source in (None, {}, {'commit': 'a' * 40, 'tree': 'wrong'}, dict(self.SOURCE, extra='private')):
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                R.builder_failure_projection(R.encoded(self.receipt()), source)
+
+    def test_stage_dependent_fields_and_nested_metadata_are_strictly_bounded(self):
+        invalid = [self.receipt('source', installed_build_packages=199),
+            self.receipt('packages', provision=self.provision()), self.receipt('build', export=self.export()),
+            self.receipt('provision', native_build_manifest_sha256='a' * 64),
+            self.receipt('provision', provision=dict(self.provision(), private='PRIVATE_CANARY')),
+            self.receipt('provision', provision=dict(self.provision(), installed_wheels=True)),
+            self.receipt('provision', provision=dict(self.provision(), download_bytes=20 * R.GIB + 1)),
+            self.receipt('provision', provision=dict(self.provision(), revision='PRIVATE_CANARY')),
+            self.receipt('export', export=dict(self.export(), private='PRIVATE_CANARY')),
+            self.receipt('export', export=dict(self.export(), asset_files=True)),
+            self.receipt('export', export=dict(self.export(), asset_bytes=32 * R.GIB + 1)),
+            self.receipt('export', export=dict(self.export(), inventory_sha256='PRIVATE_CANARY'))]
+        for raw in map(R.encoded, invalid):
+            with self.subTest(raw=raw[:45]), self.assertRaises(ValueError):
+                R.builder_failure_projection(raw, self.SOURCE)
+
+    def test_failure_observation_follows_unit_stop_and_empty_cgroup_without_masking_error(self):
+        error, diagnostics, calls = self.observe()
+        self.assertEqual(str(error), 'guest_unit_failed')
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(calls[2][0][2:4], ['systemctl', 'stop'])
+        self.assertIn('populated 0', calls[3][0][-1])
+        self.assertEqual(calls[4][0][-3:], [R.BUILDER_RECEIPT_READ, '1000', '1000'])
+        self.assertEqual(calls[4][1], dict(cap=5, deadline=140.0, maximum=20480, check=False))
+        self.assertEqual(diagnostics[0]['unit_last_observed']['exec_main_status'], 17)
+        self.assertEqual(diagnostics[0]['builder']['phase'], 'build')
+        self.assertTrue(diagnostics[0]['diagnostic_only'])
+        self.assertFalse(diagnostics[0]['acceptance_evidence'])
+        self.assertFalse(any(R.PACKAGE_RECEIPT_READ in argv for argv, _ in calls))
+
+    def test_absent_malformed_mismatched_receipt_is_unknown_not_a_source_failure(self):
+        for reply in ((b'', b'PRIVATE_CANARY', 1), (b'{', b'', 0),
+                      (R.encoded(self.receipt(source_commit='c' * 40)), b'', 0),
+                      (R.encoded(self.receipt(extra='PRIVATE_CANARY')), b'', 0), (b'x' * 16385, b'', 0)):
+            with self.subTest(reply=reply[0][:30]):
+                error, diagnostics, _ = self.observe(reply=reply)
+                self.assertEqual(str(error), 'guest_unit_failed')
+                self.assertIsNone(diagnostics[0]['builder'])
+                self.assertEqual(diagnostics[0]['unit_last_observed']['exec_main_status'], 17)
+                self.assertNotIn(b'PRIVATE_CANARY', R.encoded(diagnostics))
+
+    def test_success_has_no_builder_receipt_read(self):
+        error, diagnostics, calls = self.observe(success=True)
+        self.assertIsNone(error)
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(len(calls), 4)
+        self.assertFalse(any(R.BUILDER_RECEIPT_READ in argv for argv, _ in calls))
+
+    def test_failed_cleanup_prevents_builder_read_and_preserves_cleanup_failure(self):
+        for kwargs in ({'stop_error': OSError('stop_failed')}, {'empty_error': ValueError('empty_failed')},
+                       {'stop_status': 1}):
+            with self.subTest(kwargs=kwargs):
+                error, diagnostics, calls = self.observe(**kwargs)
+                self.assertEqual(diagnostics, [])
+                self.assertFalse(any(R.BUILDER_RECEIPT_READ in argv for argv, _ in calls))
+                self.assertEqual(str(error), 'stop_failed' if 'stop_error' in kwargs else
+                                 'empty_failed' if 'empty_error' in kwargs else 'guest_unit_failed')
+
+    def test_optional_observer_errors_cancellation_and_expiry_preserve_original_error(self):
+        for primary in (None, ValueError('command_failed'), ValueError('command_timeout')):
+            for observe_error in (ValueError('command_timeout'), OSError('PRIVATE_CANARY')):
+                error, diagnostics, _ = self.observe(query_error=primary, observation_error=observe_error)
+                self.assertIs(error, primary) if primary is not None else self.assertEqual(str(error), 'guest_unit_failed')
+                self.assertIsNone(diagnostics[0]['builder'])
+                self.assertNotIn(b'PRIVATE_CANARY', R.encoded(diagnostics))
+        with mock.patch.object(R, 'observe_builder_failure', side_effect=ValueError('PRIVATE_CANARY')):
+            error, diagnostics, calls = self.observe()
+        self.assertEqual(str(error), 'guest_unit_failed')
+        self.assertEqual(diagnostics, [])
+        error, diagnostics, calls = self.observe(cancelled=True)
+        self.assertEqual(str(error), 'guest_unit_failed')
+        self.assertEqual(len(calls), 4)
+        self.assertIsNone(diagnostics[0]['builder'])
+        R.CANCELLED = False
+        guest, diagnostics = mock.Mock(), []
+        R.observe_builder_failure(guest, self.UNIT, self.status(), 100, diagnostics, self.BINDING)
+        guest.ssh.assert_not_called()
+        self.assertIsNone(diagnostics[0]['builder'])
+
+    def test_diagnostic_tool_join_failure_remains_in_pending_cleanup_ledger(self):
+        pending, diagnostics = {}, []
+        token = R.TOOL_PROCESSES.set(pending)
+        try:
+            with fake_tool(join_error=R.CleanupUnconfirmed('PRIVATE_CANARY')) as (process, join):
+                R.observe_builder_failure(R.Guest(Path('/synthetic'), 200), self.UNIT,
+                                          self.status(), 140, diagnostics, self.BINDING)
+                self.assertEqual(pending, {id(process): process})
+                join.assert_called_once_with(process)
+                self.assertIsNone(diagnostics[0]['builder'])
+                self.assertNotIn(b'PRIVATE_CANARY', R.encoded(diagnostics))
+        finally:
+            R.TOOL_PROCESSES.reset(token)
+
+    def test_foreign_unit_invalid_binding_and_duplicate_observation_cannot_select_other_files(self):
+        guest, diagnostics = mock.Mock(), []
+        guest.ssh.return_value = (R.encoded(self.receipt()), b'', 0)
+        R.observe_builder_failure(guest, 'vp-resident-install-build.service', self.status(), 140,
+                                  diagnostics, self.BINDING)
+        self.assertEqual(diagnostics, [])
+        for binding in (None, {}, dict(self.BINDING, uid=0), dict(self.BINDING, uid=True),
+                        dict(self.BINDING, gid=2**31), dict(self.BINDING, path='/private'),
+                        dict(self.BINDING, source={'commit': 'private', 'tree': 'b' * 40})):
+            diagnostics = []
+            R.observe_builder_failure(guest, self.UNIT, self.status(), 140, diagnostics, binding)
+            guest.ssh.assert_not_called()
+            self.assertIsNone(diagnostics[0]['builder'])
+        diagnostics = []
+        R.observe_builder_failure(guest, self.UNIT, self.status(), 140, diagnostics, self.BINDING)
+        R.observe_builder_failure(guest, self.UNIT, self.status(), 140, diagnostics, self.BINDING)
+        self.assertEqual(len(diagnostics), 1)
+        guest.ssh.assert_called_once()
+
+    def reader(self, *, data=b'{}', change=None, parent_change=None, replaced=False, replaced_parent=False,
+               changed_fd=False, missing=False, owner_args=('1000', '1000')):
+        def meta(number, kind=stat.S_IFDIR, size=0, owner=0):
+            return types.SimpleNamespace(st_dev=1, st_ino=number, st_mode=kind | (0o600 if kind == stat.S_IFREG else 0o700),
+                st_uid=owner, st_gid=owner, st_nlink=1, st_size=size, st_mtime_ns=1, st_ctime_ns=1)
+        values = {fd: meta(fd, owner=1000 if fd >= 12 else 0) for fd in range(10, 15)}
+        values[14] = meta(14, stat.S_IFREG, len(data), 1000)
+        if change:
+            for key, value in change.items():
+                setattr(values[14], key, value)
+        if parent_change:
+            for fd, changes in parent_change.items():
+                for key, value in changes.items():
+                    setattr(values[fd], key, value)
+        opens, closes, snapshots = [], [], {}
+        def opened(name, flags, **kwargs):
+            opens.append((name, flags, kwargs))
+            if missing and name == 'build-result.json':
+                raise FileNotFoundError()
+            return 9 + len(opens)
+        def fstat(fd):
+            snapshots[fd] = snapshots.get(fd, 0) + 1
+            if changed_fd and fd == 14 and snapshots[fd] > 1:
+                return meta(100, stat.S_IFREG, len(data), 1000)
+            return values[fd]
+        def status(name, **kwargs):
+            fd = {'home': 11, 'vpci': 12, 'resident-output': 13, 'build-result.json': 14}[name]
+            if replaced_parent and fd == 13:
+                return meta(100, owner=1000)
+            return meta(100, stat.S_IFREG, len(data), 1000) if replaced and fd == 14 else values[fd]
+        output = io.BytesIO()
+        with mock.patch.object(os, 'open', side_effect=opened), mock.patch.object(os, 'fstat', side_effect=fstat), \
+             mock.patch.object(os, 'stat', side_effect=status), mock.patch.object(os, 'read', return_value=data), \
+             mock.patch.object(os, 'close', side_effect=closes.append), \
+             mock.patch.object(sys, 'argv', ['reader', *owner_args]), \
+             mock.patch.object(sys, 'stdout', types.SimpleNamespace(buffer=output)):
+            try:
+                exec(compile(R.BUILDER_RECEIPT_READ, '<fixed-builder-reader>', 'exec'), {})
+            except SystemExit as error:
+                self.assertEqual(error.code, 1)
+        return output.getvalue(), opens, closes
+
+    def test_fixed_reader_binds_owned_path_nofollow_bounds_and_closes_every_fd(self):
+        raw, opens, closes = self.reader()
+        self.assertEqual(raw, b'{}')
+        self.assertEqual([name for name, _, _ in opens], ['/', 'home', 'vpci', 'resident-output', 'build-result.json'])
+        self.assertTrue(all(flags & os.O_NOFOLLOW for _, flags, _ in opens))
+        self.assertTrue(opens[-1][1] & os.O_NONBLOCK)
+        self.assertEqual([kwargs for _, _, kwargs in opens], [{}, {'dir_fd': 10}, {'dir_fd': 11},
+                                                             {'dir_fd': 12}, {'dir_fd': 13}])
+        self.assertEqual(closes, [14, 13, 12, 11, 10])
+
+    def test_fixed_reader_rejects_missing_symlink_hardlink_owner_mode_size_and_replacement(self):
+        for kwargs in ({'missing': True}, {'replaced': True}, {'changed_fd': True}, {'data': b''},
+                       {'data': b'x' * 16385}, {'change': {'st_mode': stat.S_IFLNK | 0o777}},
+                       {'change': {'st_nlink': 2}}, {'change': {'st_uid': 0}}, {'change': {'st_gid': 0}},
+                       {'change': {'st_mode': stat.S_IFREG | 0o644}}, {'change': {'st_size': 3}}):
+            with self.subTest(kwargs=kwargs):
+                raw, opens, closes = self.reader(**kwargs)
+                self.assertEqual(raw, b'')
+                self.assertEqual(closes, [13, 12, 11, 10] if kwargs.get('missing') else [14, 13, 12, 11, 10])
+
+    def test_fixed_reader_rejects_parent_identity_ownership_and_unbound_owner_ids(self):
+        for fd, changes in ((10, {'st_uid': 1000}), (11, {'st_mode': stat.S_IFDIR | 0o777}),
+                            (12, {'st_uid': 0}), (12, {'st_gid': 0}),
+                            (13, {'st_mode': stat.S_IFDIR | 0o755}), (13, {'st_mode': stat.S_IFLNK | 0o700})):
+            raw, _, closes = self.reader(parent_change={fd: changes})
+            self.assertEqual(raw, b'')
+            self.assertEqual(closes, list(range(fd, 9, -1)))
+        raw, _, closes = self.reader(replaced_parent=True)
+        self.assertEqual(raw, b'')
+        self.assertEqual(closes, [14, 13, 12, 11, 10])
+        for args in ((), ('0', '1000'), ('1000', '01'), ('-1', '1000'), ('2147483648', '1000'),
+                     ('1000', '1000', '/private'), ('PRIVATE_CANARY', '1000')):
+            raw, opens, closes = self.reader(owner_args=args)
+            self.assertEqual((raw, opens, closes), (b'', [], []))
+
+    def test_unit_state_and_builder_receipt_remain_independent_diagnostics(self):
+        guest, diagnostics = mock.Mock(), []
+        guest.ssh.return_value = (R.encoded(self.receipt(direct_child_groups_joined=False)), b'', 0)
+        R.observe_builder_failure(guest, self.UNIT, b'PRIVATE_CANARY', 140, diagnostics, self.BINDING)
+        self.assertIsNone(diagnostics[0]['unit_last_observed'])
+        self.assertFalse(diagnostics[0]['builder']['direct_child_groups_joined'])
+        self.assertNotIn(b'PRIVATE_CANARY', R.encoded(diagnostics))
+
+
 class ReceiptAndBindings(Inert):
     def test_ready_uses_actual_fixed_entrypoint_literal(self):
         source = R.ROOT / 'packaging/protected-resident-model/entrypoint'

@@ -829,6 +829,155 @@ def observe_package_failure(guest, unit, raw, grace, diagnostics):
         pass  # Missing, malformed, cancelled or stalled evidence is unknown.
 
 
+def builder_failure_projection(raw, source):
+    require(type(raw) is bytes and len(raw) <= 16384
+            and type(source) is dict and source.keys() == {'commit', 'tree'}
+            and all(type(value) is str and re.fullmatch('[0-9a-f]{40}', value)
+                    for value in source.values()), 'builder_diagnostic')
+    value = module('protected-resident-model-workload').parse(raw)
+    forbidden = ('assets_exported', 'model_execution', 'worker_execution', 'private_inputs',
+                 'hardware_attestation', 'production_approval', 'complete_guest_cleanup', 'scratch_removed')
+    base = {'version', 'kind', 'state', 'phase', 'source_commit', 'code_helper_commit',
+            'code_helper_sha256', 'package_lock_sha256', 'controller_cgroup_cleanup_required',
+            'direct_child_groups_joined', 'descendants_joined', *forbidden}
+    require(type(value) is dict and base <= value.keys()
+            and type(value['version']) is int and value['version'] == 1
+            and value['kind'] == 'protected-resident-public-model-build' and value['state'] == 'failed'
+            and value['phase'] in ('source', 'packages', 'build', 'provision', 'export')
+            and value['source_commit'] == source['commit'] and value['code_helper_commit'] == CODE
+            and value['code_helper_sha256'] == HELPER_SHA and value['package_lock_sha256'] == LOCK_SHA
+            and all(value[key] is False for key in forbidden)
+            and value['controller_cgroup_cleanup_required'] is True and value['descendants_joined'] is None
+            and type(value['direct_child_groups_joined']) is bool, 'builder_diagnostic')
+    required, optional = set(), set()
+    phase = value['phase']
+    if phase == 'source':
+        optional.add('source_tree')  # An interrupt can precede the next phase assignment.
+    else:
+        required.add('source_tree')
+    if 'source_tree' in value or phase != 'source':
+        require(value.get('source_tree') == source['tree'], 'builder_diagnostic')
+    if phase == 'packages':
+        optional.add('installed_build_packages')
+    elif phase in ('build', 'provision', 'export'):
+        required.add('installed_build_packages')
+    if phase == 'provision':
+        optional.update(('provision', 'native_build_manifest_sha256'))
+    elif phase == 'export':
+        required.update(('provision', 'native_build_manifest_sha256'))
+        optional.add('export')
+    require(base | required <= value.keys() <= base | required | optional, 'builder_diagnostic')
+    if 'installed_build_packages' in value:
+        require(type(value['installed_build_packages']) is int and value['installed_build_packages'] == 199,
+                'builder_diagnostic')
+    if 'provision' in value:
+        provision = value['provision']
+        require(type(provision) is dict and provision.keys() == {'model_id', 'revision', 'model_profile',
+            'download_bytes', 'budget_bytes', 'installed_wheels', 'model_pins_sha256', 'requirements_sha256'},
+            'builder_diagnostic')
+        require(type(provision['model_id']) is str and re.fullmatch('[A-Za-z0-9_./-]{1,128}', provision['model_id'])
+                and type(provision['revision']) is str and re.fullmatch('[0-9a-f]{40}', provision['revision'])
+                and type(provision['model_profile']) is str
+                and re.fullmatch('[a-z0-9-]{1,128}', provision['model_profile']), 'builder_diagnostic')
+        for key in ('model_pins_sha256', 'requirements_sha256'):
+            require(type(provision[key]) is str and re.fullmatch('[0-9a-f]{64}', provision[key]), 'builder_diagnostic')
+        for key, maximum in (('download_bytes', 20 * GIB), ('budget_bytes', 20 * GIB), ('installed_wheels', 65536)):
+            require(type(provision[key]) is int and 0 < provision[key] <= maximum, 'builder_diagnostic')
+    if 'native_build_manifest_sha256' in value:
+        require('provision' in value and type(value['native_build_manifest_sha256']) is str
+                and re.fullmatch('[0-9a-f]{64}', value['native_build_manifest_sha256']), 'builder_diagnostic')
+    if 'export' in value:
+        exported = value['export']
+        require(type(exported) is dict and exported.keys() == {'inventory_sha256', 'workload_sha256',
+                'native_backend_sha256', 'asset_files', 'asset_bytes'}, 'builder_diagnostic')
+        for key in ('inventory_sha256', 'workload_sha256', 'native_backend_sha256'):
+            require(type(exported[key]) is str and re.fullmatch('[0-9a-f]{64}', exported[key]), 'builder_diagnostic')
+        for key, maximum in (('asset_files', 65536), ('asset_bytes', 32 * GIB)):
+            require(type(exported[key]) is int and 0 < exported[key] <= maximum, 'builder_diagnostic')
+    # Later-stage nested metadata is validated but never exported as a diagnostic.
+    return dict(state=value['state'], phase=phase, source_tree_bound='source_tree' in value,
+        installed_build_packages=value.get('installed_build_packages'),
+        direct_child_groups_joined=value['direct_child_groups_joined'],
+        controller_cgroup_cleanup_required=True, descendants_joined=None,
+        **{key: False for key in forbidden})
+
+
+# Exact vpci-owned output only, after the original builder unit/cgroup are joined.
+# The caller supplies observed numeric owner IDs, never a path or command.
+BUILDER_RECEIPT_READ = '''import os, stat, sys
+fds = []
+def identity(meta):
+    return (meta.st_dev, meta.st_ino, meta.st_mode, meta.st_uid, meta.st_gid,
+            meta.st_nlink, meta.st_size, meta.st_mtime_ns, meta.st_ctime_ns)
+try:
+    assert len(sys.argv) == 3
+    uid, gid = (int(value) for value in sys.argv[1:])
+    assert all(0 < value < 2**31 and str(value) == raw for value, raw in zip((uid, gid), sys.argv[1:]))
+    directory = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    fds.append(directory)
+    root_meta = identity(os.fstat(directory))
+    assert stat.S_ISDIR(root_meta[2]) and root_meta[3] == 0 and not root_meta[2] & 0o022
+    chain = []
+    for name, owner in (('home', 0), ('vpci', uid), ('resident-output', uid)):
+        child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+        fds.append(child)
+        meta = os.fstat(child)
+        assert stat.S_ISDIR(meta.st_mode) and meta.st_uid == owner and not meta.st_mode & 0o022
+        if name in ('vpci', 'resident-output'):
+            assert meta.st_gid == gid
+        if name == 'resident-output':
+            assert stat.S_IMODE(meta.st_mode) == 0o700
+        chain.append((directory, name, child, identity(meta)))
+        directory = child
+    name = 'build-result.json'
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    fds.append(fd)
+    before = os.fstat(fd)
+    assert stat.S_ISREG(before.st_mode) and before.st_uid == uid and before.st_gid == gid and before.st_nlink == 1
+    assert stat.S_IMODE(before.st_mode) == 0o600 and 0 < before.st_size <= 16384
+    raw = os.read(fd, 16385)
+    assert len(raw) == before.st_size and identity(os.fstat(fd)) == identity(before)
+    assert identity(os.stat(name, dir_fd=directory, follow_symlinks=False)) == identity(before)
+    for parent, name, child, before in chain:
+        assert identity(os.fstat(child)) == before
+        assert identity(os.stat(name, dir_fd=parent, follow_symlinks=False)) == before
+    assert identity(os.fstat(fds[0])) == root_meta
+    sys.stdout.buffer.write(raw)
+except Exception:
+    raise SystemExit(1)
+finally:
+    for fd in reversed(fds):
+        os.close(fd)
+'''
+
+
+def observe_builder_failure(guest, unit, raw, grace, diagnostics, binding):
+    if unit != 'vp-resident-builder.service' or diagnostics:
+        return
+    record = dict(version=1, unit_last_observed=None, builder=None,
+                  diagnostic_only=True, acceptance_evidence=False)
+    diagnostics.append(record)
+    try:
+        record['unit_last_observed'] = package_unit_projection(raw, unit)
+    except Exception:
+        pass
+    try:
+        require(type(binding) is dict and binding.keys() == {'source', 'uid', 'gid'}
+                and all(type(binding[key]) is int and 0 < binding[key] < 2 ** 31
+                        for key in ('uid', 'gid'))
+                and type(binding['source']) is dict and binding['source'].keys() == {'commit', 'tree'}
+                and all(type(value) is str and re.fullmatch('[0-9a-f]{40}', value)
+                        for value in binding['source'].values()), 'builder_diagnostic')
+        remaining(grace, 5)
+        reply = guest.ssh(['sudo', '-n', 'python3', '-c', BUILDER_RECEIPT_READ,
+                          str(binding['uid']), str(binding['gid'])],
+                         cap=5, deadline=grace, maximum=20480, check=False)
+        if reply[2] == 0:
+            record['builder'] = builder_failure_projection(reply[0], binding['source'])
+    except Exception:
+        pass  # Guard failures before receipt creation remain unknown, never "source".
+
+
 class Guest:
     def __init__(self, work, deadline):
         self.work, self.deadline = work, deadline
@@ -848,7 +997,7 @@ class Guest:
         run(['scp', *self.options, '-P', '22223', source, 'vpci@127.0.0.1:' + target],
             self.deadline, cap=600)
 
-    def unit(self, name, argv, guest_deadline, *, user='root', diagnostics=None):
+    def unit(self, name, argv, guest_deadline, *, user='root', diagnostics=None, builder_binding=None):
         require(name in ('vp-resident-install-build', 'vp-resident-install-runtime', 'vp-resident-builder'),
                 'guest_unit_name')
         unit = name + '.service'
@@ -890,7 +1039,10 @@ class Guest:
             self.ssh(['sudo', '-n', 'python3', '-c', proof], cap=10, deadline=grace)
             if failed and diagnostics is not None and stopped[2] == 0:
                 try:
-                    observe_package_failure(self, unit, raw, grace, diagnostics)
+                    if unit == 'vp-resident-builder.service':
+                        observe_builder_failure(self, unit, raw, grace, diagnostics, builder_binding)
+                    else:
+                        observe_package_failure(self, unit, raw, grace, diagnostics)
                 except Exception:
                     pass  # Optional projection never replaces failure or cleanup.
         return True
@@ -1078,7 +1230,8 @@ def execute_owned(args, pending):
                   production_approval=False, vm_cleanup_confirmed=False, scratch_removed=False,
                   tool_cleanup_confirmed=False, scratch_cleanup_failure=None,
                   memory_admissions=[], disk_memory_observations=[],
-                  build_boot_diagnostic=build_boot_diagnostic(), guest_package_diagnostics=[])
+                  build_boot_diagnostic=build_boot_diagnostic(), guest_package_diagnostics=[],
+                  guest_builder_diagnostics=[])
     current = build_scope = None
     try:
         images = ImageTools(work, args.appliance_kernel, deadline)
@@ -1192,7 +1345,9 @@ def execute_owned(args, pending):
         report['phase'] = 'guest_model_build'
         guest.unit('vp-resident-builder', ['python3', '-B', BUILD, '--execute', '--yes', '--disposable-guest',
             '--input', INPUT, '--output', OUTPUT, '--expected-source', args.expected_source,
-            '--package-lock', LOCK, '--package-lock-sha256', LOCK_SHA], guest_deadline, user='vpci')
+            '--package-lock', LOCK, '--package-lock-sha256', LOCK_SHA], guest_deadline, user='vpci',
+            diagnostics=report['guest_builder_diagnostics'],
+            builder_binding=dict(source=source, uid=guest_uid, gid=guest_gid))
         # A successful process is insufficient: verify detached units and disk use.
         device = guest.ssh(['readlink', '-f', '/dev/disk/by-id/virtio-vp-resident-runtime'])[0].decode().strip()
         require(re.fullmatch('/dev/vd[a-z]', device), 'runtime_device')

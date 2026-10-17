@@ -47,7 +47,7 @@ the merged binary has not been rerun through the model trial.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38860289559` on `08ba6b21` passes the base maintenance lifecycle but fails Cloud RESERVE: first the inner provider TLS handshake expires, then a second flow acquisition reports incomplete helper cleanup. The retained-route cleanup fix has not resolved consumer acceptance. Investigate bounded route lifetime and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven; earlier trials retain their separate outcomes. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 and native-only core PR277 are merged. Code retains its immutable core dependency; source acceptance of the new core composition is not a repeat model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Complete runtime-disk preparation and installation, then join an authorized immutable guest, resident coding worker and guest-terminated TLS 1.3 session. | Original actual `39073431997` on `c58d3910` configures and verifies all 199 build packages. Runtime preparation then fails before runtime package planning; its broad `runtime_device` phase does not identify the failed substep. VM/tool joining and scratch removal pass. Runtime installation, model construction, two turns, protected execution and production approval remain open. Integrate resident-only work separately from inherited unfinished Storage code; suitable confidential-computing hardware remains unavailable. |
+| Protected remote compute — `volparossa`, then Code/Browser | Complete model construction, then join an authorized immutable guest, resident coding worker and guest-terminated TLS 1.3 session. | Original actual `39075796147` on `6d0feec7` configures and verifies all 199 build and 65 runtime packages, then fails in the builder unit. The original receipt does not retain its failed substep. VM/tool joining and scratch removal pass. The candidate adds bounded, failure-only builder diagnostics after verified unit shutdown; it does not yet fix or identify the build failure. Model construction, two turns, protected execution and production approval remain open. Integrate resident-only work separately from inherited unfinished Storage code; suitable confidential-computing hardware remains unavailable. |
 
 ### Public resident model integration candidate
 
@@ -642,9 +642,57 @@ are exported, without device paths, raw output or exception text. The controller
 rejects inconsistent mode, phase and verification claims. Device/root/mount/size
 guards, subprocess commands, allowed exit codes, resource limits, package pins
 and cleanup remain unchanged. Independent inert runs pass **58 installer,
-142 controller and 29 assembly tests**; the hosted source inventory becomes
-100 Rust and 356 Python tests. Actual runtime installation and model execution
-still require the next exact-source hosted trial.
+142 controller and 29 assembly tests**. Original source run
+[`39075173513`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39075173513)
+passes on `6d0feec7271cf419d92c8202f6624f7006d4e9be`, tree
+`93eb14b7d60c8152d2756ee9e52d37bf17946701`: 100 unique Rust and 356 Python
+tests, compilation, strict Clippy, an empty formatter patch and exact final
+source. All 36 source blobs, 560 dependency identities and package/model pins
+bind. The subsequent original actual repeats these source checks successfully.
+
+Original actual
+[`39075796147`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39075796147)
+completes both package installations: **199 exact build packages and 65 exact
+runtime packages** are configured and verified. Both receipts finish at
+`complete`, with clear audits/triggers, policy restoration, namespace joining,
+mount cleanup and direct-child cleanup. Runtime preparation therefore progresses
+beyond the previous failed boundary.
+
+The same run then fails at `guest_model_build / guest_unit_failed`. Its retained
+trial contains the two successful installation receipts and the failed controller
+result, but no builder receipt. The exact failed source, package-verification,
+compilation, model-provisioning or export substep remains unknown. No compiler,
+dependency or model-pin change is justified by this evidence alone. Controller
+VM/tool joining, scratch removal, user-manager restoration and final source
+checks pass; the final host route/DNS comparison is not reached. Completed model
+construction, sealed runtime boot, both model turns and protected execution
+remain unproven.
+
+Both artifact API digests and all three ZIP CRC checks pass. Actual
+source-contract, trial and log ZIP SHA-256 values are respectively
+`1ac9fef304fa9ac5e8290a779f5126fd57e733e9d317d9d61e5cab00b2b980fd`,
+`30c0e386152fcefd71b49238c29cf8e3f5fa10e594f8df89846160e07b35450c`
+and `55e97745df60b0994963a970c073b388176729630193707668e033aeba4998eb`.
+The retained trial audit has SHA-256
+`9b175dd1cb75621bd149ccfea33d596e18ebfc05c310288e0771400803ca847a`.
+Earlier runs retain their separate outcomes and unknown historical substeps.
+
+The follow-up retains only closed, failure-only builder diagnostics, read after
+successful unit stop and an empty-cgroup check. It uses the existing fixed
+builder receipt, with bounded size, expected ownership, private modes,
+no-follow/single-link checks and stable file and parent identities. A strict,
+stage-dependent schema binds available source identity and package verification
+without exporting raw output, paths, model contents or nested metadata. Missing,
+malformed or inconsistent receipts remain unknown. Optional observation cannot
+replace the original failure or erase pending tool cleanup; the diagnostic is
+not acceptance evidence or a claim of complete guest cleanup.
+
+Builder subprocesses, phase granularity, deadlines, resource limits and all
+package/native/core dependency pins remain unchanged. Focused inert checks pass
+**58 installer, 156 controller and 29 assembly tests**, including 14 new builder
+diagnostic cases. The expected hosted source inventory is now 100 Rust and
+370 Python tests. This correction still needs its own exact-source hosted checks
+and subsequent actual trial; it does not identify or resolve the build failure.
 
 Main integration must isolate the resident-only changes: this candidate's
 parent chain also contains unfinished Storage production code. Preserve main's
