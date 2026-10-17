@@ -30,7 +30,7 @@ or go directly to a topic when you already know what you need.
 
 ### I am new to the project
 
-1. Read the [project introduction](../README.md) for the four layers and seven virtues.
+1. Read the [project introduction](../README.md) for the five layers and seven virtues.
 2. Explore the [application family](applications/APPLICATIONS.md) to see what each integration is for.
 3. Check the [development summary](../README.md#development-status) and [FAQ](FAQ.md)
    before trying a build. This is not a supported end-user release.
@@ -79,7 +79,7 @@ or go directly to a topic when you already know what you need.
 | [Unbound fallback](network/UNBOUND_FALLBACK.md) | Resolver lifecycle and bounded DNS-cache misses. |
 | [Decentralized agents](services/DECENTRALIZED_AGENTS.md) | Training, public peer tasks, models, privacy and mutual review. |
 | [Protected compute preparation](development/PROTECTED_COMPUTE_VERIFIER.md) | Public attestation fixtures, limited evidence and the missing private-worker acceptance path. |
-| [Cooperative Code evidence](COOPERATIVE_CODE.md) | Passed bounded public code repair and the separate incomplete native OpenCode trial. |
+| [Cooperative Code evidence](COOPERATIVE_CODE.md) | Public peer-repair evidence and the historical two-peer document trial; the [current native coding milestone](IMPLEMENTATION_STATUS.md#latest-completed-integration-evidence) is recorded separately. |
 | [Cooperative browser evidence](COOPERATIVE_BROWSER.md) | Public peer execution, source-bound trials and remaining answer-completion limits. |
 | [Whitelist](privacy/WHITELIST.md) | Current destination-policy authority and enforcement. |
 | [Repository maintenance](services/REPOSITORY_MAINTENANCE.md) | Autonomous maintenance and authorized client-update design. |
