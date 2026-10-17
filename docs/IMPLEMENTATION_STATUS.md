@@ -41,7 +41,7 @@ and `1f28e0f3e71f29d29fad1d1ab6f4d30344117fbeeec1c22618dbfb329ba17cec`.
 
 ### Repeated storage reservations through production egress
 
-The next targeted regression closes a gap in the earlier TLS-close tests, which
+The targeted regression covers a gap in the earlier TLS-close tests, which
 preconnect the provider socket and bypass production SNI inspection, DNS,
 connection setup and ClientHello replay. It performs three distinct signed
 RESERVE exchanges through `ExitService::run_tcp_egress`, reusing the verified
@@ -58,10 +58,25 @@ This is not a DNSSEC/Unbound implementation test, activated route admission,
 deployed WireGuard relays or proof of multiple live subflows. Production
 handshake/setup deadlines and privacy controls remain unchanged.
 
-Hosted compilation and execution are pending. The existing two kernel close
-tests remain separate checks. Even a passing new regression would not establish
-the cause of the original consumer failure or replace complete Image/Cloud
-maintenance acceptance; the dependent upload lifecycle stays deferred.
+Original hosted source run
+[`39073538705`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39073538705)
+on `40348fe5ce6b8ed2172b2e6b7bfb848de677d07c`, tree
+`4b446c82863c7ef86189b4fd6a04639ed304b1ef`, compiles and passes strict lint,
+148 unique Rust tests, 296 Python tests, 50 Node tests and 48 normalizer checks.
+All three exact kernel cases pass; the new production-egress case takes 1.86
+seconds. All 62 source bindings, 21 unchanged dependency blobs, the separately
+pinned namespace runner and final source/host-state comparisons pass.
+
+The workflow fails only one formatter hunk in the new test. The follow-up applies
+that exact whitespace change; unchanged-source acceptance of the correction is
+still required. Original artifact/log CRC checks and the API artifact digest
+pass, with ZIP SHA-256 values
+`53e344421ca48090fd9e1b50f17d8b7f55c387fe9321d16effd88067f6ae9d9c`
+and `8f65b0f54204a497ea4c94eece4217249d47b1c6ee2506c60865a15ff1891ee5`.
+These passing exchanges do not establish the original consumer timeout's cause
+or replace complete Image/Cloud maintenance acceptance. Activated reusable routes,
+real relay subflows and daemon lifetime handling remain outside this regression;
+the dependent upload lifecycle stays deferred.
 
 ### Earlier storage consumer outcome
 
@@ -539,7 +554,7 @@ neither source checks nor this diagnostic extension replace those trials.
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resolve the TLS publication blocker, then complete repair, repeated restoration, deletion and confirmed provider cleanup. | Source `38915098088` passes on `acba3244`; actual `38917106698` fails Cloud RESERVE fragment 0/copy 1 at the TLS-handshake deadline. A new targeted repeated-reservation test covers production SNI/DNS/egress omitted by earlier close tests, without a speculative production fix or increased deadlines. Its hosted execution is pending; full consumer acceptance and remote cleanup remain unconfirmed. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resolve the TLS publication blocker, then complete repair, repeated restoration, deletion and confirmed provider cleanup. | Actual `38917106698` still fails Cloud RESERVE at the TLS-handshake deadline. Source `39073538705` on `40348fe5` passes compilation, lint and all 148 Rust/296 Python/50 Node cases, including repeated production-egress reservations; only one formatter hunk fails and is corrected here. Investigate the remaining activated-route/daemon boundary without extending deadlines. Full consumer acceptance and remote cleanup remain unconfirmed. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 retains that immutable core pin. Core PR277 integrates the native-only composition after source checks; it does not transfer the model trial to that new binary. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. |
 | Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258's authenticated refusal path has actual route evidence; PR262 integrates explicit same-connection key confirmation. The next implementation reuses the native worker lifecycle and existing TLS stack, rather than extending the probe into task authority. Boot/runtime/model integrity, production roots and current vendor appraisal must be checked before private input; task authority needs its own finite grant. Those functions and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |

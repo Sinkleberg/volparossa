@@ -75,7 +75,12 @@ fn socket_identities() -> BTreeSet<PathBuf> {
     fs::read_dir("/proc/self/fd")
         .unwrap()
         .filter_map(|entry| fs::read_link(entry.unwrap().path()).ok())
-        .filter(|target| target.as_os_str().as_encoded_bytes().starts_with(b"socket:["))
+        .filter(|target| {
+            target
+                .as_os_str()
+                .as_encoded_bytes()
+                .starts_with(b"socket:[")
+        })
         .collect()
 }
 
