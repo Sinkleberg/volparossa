@@ -12,7 +12,7 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-16
+Last updated: 2026-10-17
 
 ## Current integration and active work
 
@@ -47,7 +47,7 @@ the merged binary has not been rerun through the model trial.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38860289559` on `08ba6b21` passes the base maintenance lifecycle but fails Cloud RESERVE: first the inner provider TLS handshake expires, then a second flow acquisition reports incomplete helper cleanup. The retained-route cleanup fix has not resolved consumer acceptance. Investigate bounded route lifetime and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven; earlier trials retain their separate outcomes. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 and native-only core PR277 are merged. Code retains its immutable core dependency; source acceptance of the new core composition is not a repeat model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Correct the offline package plan, then join an authorized immutable guest, resident coding worker and guest-terminated TLS 1.3 session. | Original actual `38911735085` on `6ba9cb72` reaches build-guest readiness but fails the first package unit at `package_plan`, before installation or model construction. Its source gates pass 100 Rust and 318 Python tests. A static mismatch between the pinned base image's curl and the selected libcurl requires a lock correction; closed plan-failure labels distinguish command failure from validation failure. Corrected source and guest acceptance remain required. Two model turns, protected execution, production approval and suitable confidential-computing hardware remain open. Integrate resident-only work separately from the inherited unfinished Storage branch. |
+| Protected remote compute — `volparossa`, then Code/Browser | Complete offline guest package installation, then join an authorized immutable guest, resident coding worker and guest-terminated TLS 1.3 session. | Original actual `38917448052` on `315ddb3e` passes the package plan after the curl correction, but fails at `package_install`, before model construction. The next correction supplies fresh authenticated archives at APT's canonical cache paths while retaining `--no-download`; its actual guest acceptance remains required. Two model turns, protected execution, production approval and suitable confidential-computing hardware remain open. Integrate resident-only work separately from the inherited unfinished Storage branch. |
 
 ### Public resident model integration candidate
 
@@ -559,6 +559,45 @@ Independent review and 256 targeted inert tests pass: 19 lock/resolver, 32 build
 The next hosted gate requires 100 Rust and 332 Python cases. These checks retain
 the package-installation and guest-execution acceptance gates; they do not run
 APT, construct a model image or execute a model on the development host.
+
+#### Offline archive installation correction
+
+Original source run
+[`38916171428`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38916171428)
+passes on `315ddb3e`: 100 Rust and 332 Python tests, compilation, strict Clippy,
+an empty formatter patch and exact final source checks. Its subsequent original
+actual run
+[`38917448052`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38917448052)
+passes build-guest readiness, archive authentication and package-plan validation,
+then fails in `package_install`. The installer verifies no installed packages.
+Its receipt confirms direct-child, namespace, policy and mount cleanup; the
+controller confirms VM/tool cleanup and removal of its scratch payload. Model
+construction and execution are not reached. The retained trial ZIP has verified
+API digest and CRC, with SHA-256
+`145e4162e5fd366a49d89c550e8dd89b714ca8550b6ca18b8a0498c8f9c21f83`.
+
+The pinned APT 3.0.3 implementation explains a concrete offline-path defect:
+[`--no-download` shuts down acquisition before local file completion](https://github.com/Debian/apt/blob/45bebdfb891535d15e66e860aab1ee7c7b2ecaab/apt-private/private-install.cc#L256),
+whereas an existing
+[archive-cache hit resolves the absolute path beforehand](https://github.com/Debian/apt/blob/45bebdfb891535d15e66e860aab1ee7c7b2ecaab/apt-pkg/acquire-item.cc#L3527).
+Without that hit, installation can retain a relative archive name that the dpkg
+driver rejects. The previous run retained no raw package error, so this source
+finding does not conclusively identify its historical failure.
+
+The correction places fresh, streamed, hash-verified regular copies in the
+private APT cache before planning or installation. Names follow APT's canonical
+version/architecture convention, including lowercase epoch escaping. Metadata,
+file identity, byte bounds and the original deadline remain checked; symlinks,
+hardlinks and prepopulated caches are rejected. The exact 199/65-package lock,
+offline/no-removal options, command runner, guest isolation and cleanup logic are
+unchanged. Closed install-failure labels distinguish exit failure, deadline,
+output bound and unconfirmed command cleanup without exporting raw logs.
+
+Independent local inert checks pass **52 installer, 139 controller and 29 assembly
+tests**. They exercise fresh cache bytes and adversarial inputs without running
+APT, a VM or a model. The hosted source gate now requires 100 Rust and 347 Python
+tests. A new exact-source guest trial must still prove real installation and the
+two model turns before the correction is considered operationally accepted.
 
 Main integration must isolate the resident-only changes: this candidate's
 parent chain also contains unfinished Storage production code. Preserve main's

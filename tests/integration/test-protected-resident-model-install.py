@@ -44,6 +44,16 @@ def status_row(name='public', version='1.2-3', state='install ok installed', pen
     return f'{name}\t{version}\tamd64\t{state}\t{pending}\t{awaited}\n'.encode()
 
 
+def root_directories(original):
+    def converted(path, *args, **kwargs):
+        value = original(path, *args, **kwargs)
+        if not stat.S_ISDIR(value.st_mode):
+            return value
+        fields = {name: getattr(value, name) for name in dir(value) if name.startswith('st_')}
+        return types.SimpleNamespace(**dict(fields, st_uid=0))
+    return converted
+
+
 class FakeRunner:
     def __init__(self, deadline_value=None):
         self.deadline = deadline_value or deadline()
@@ -212,6 +222,203 @@ class PackageTests(unittest.TestCase):
                 M.stage_packages(root / 'inputs', root / 'staged', {'public': item()}, runner)
 
 
+class CacheTests(unittest.TestCase):
+    def prepared(self, root):
+        root.chmod(0o700)
+        (root / 'debs').mkdir(mode=0o700)
+        put(root / 'debs' / item()['basename'], b'public deb', 0o400)
+        M.apt_configuration(root, Path('/run/vp-resident-install'))
+
+    def test_canonical_names_include_epoch_and_all_architecture(self):
+        for version, arch, expected in (
+                ('1.2-3', 'amd64', 'public_1.2-3_amd64.deb'),
+                ('2:1.2+dfsg~rc1-3', 'all', 'public_2%3a1.2+dfsg~rc1-3_all.deb')):
+            self.assertEqual(M.apt_archive_name('public', dict(item(), version=version, architecture=arch)), expected)
+        for name, values in (('../public', item()), ('pub_lic', item()),
+                             ('public', dict(item(), version='1/2')), ('public', dict(item(), version='1%3a2')),
+                             ('public', dict(item(), architecture='arm64'))):
+            with self.subTest(name=name, values=values), self.assertRaises(ValueError):
+                M.apt_archive_name(name, values)
+
+    def test_fresh_regular_cache_bytes_hash_metadata_and_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepared(root)
+            runner = FakeRunner()
+            with mock.patch.object(M.Path, 'lstat', root_directories(M.Path.lstat)):
+                self.assertEqual(M.cache_packages(root, {'public': item()}, runner), 10)
+            cached = root / 'archives' / M.apt_archive_name('public', item())
+            self.assertEqual(cached.read_bytes(), b'public deb')
+            self.assertEqual(stat.S_IMODE(cached.stat().st_mode), 0o400)
+            self.assertEqual(cached.stat().st_nlink, 1)
+            self.assertNotEqual(cached.stat().st_ino, (root / 'debs' / item()['basename']).stat().st_ino)
+            self.assertEqual(runner.calls[0][0][-1], str(cached))
+
+    def test_corrupted_same_size_bytes_rejected_before_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepared(root)
+            (root / 'debs' / item()['basename']).unlink()
+            put(root / 'debs' / item()['basename'], b'PRIVATEBAD', 0o400)
+            runner = FakeRunner()
+            with mock.patch.object(M.Path, 'lstat', root_directories(M.Path.lstat)), self.assertRaisesRegex(ValueError, 'package_hash'):
+                M.cache_packages(root, {'public': item()}, runner)
+            self.assertEqual(runner.calls, [])
+
+    def test_cache_source_symlink_hardlink_size_and_writable_refused(self):
+        for kind in ('symlink', 'hardlink', 'size', 'writable'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.prepared(root)
+                source = root / 'debs' / item()['basename']
+                if kind == 'symlink':
+                    source.unlink()
+                    source.symlink_to(put(root / 'other', b'public deb'))
+                elif kind == 'hardlink':
+                    os.link(source, root / 'other')
+                elif kind == 'size':
+                    source.chmod(0o600)
+                    source.write_bytes(b'short')
+                else:
+                    source.chmod(0o666)
+                runner = FakeRunner()
+                with mock.patch.object(M.Path, 'lstat', root_directories(M.Path.lstat)), self.assertRaises((OSError, ValueError)):
+                    M.cache_packages(root, {'public': item()}, runner)
+                self.assertEqual(runner.calls, [])
+
+    def test_nonempty_partial_or_archive_and_unsafe_directory_refused(self):
+        for kind in ('partial', 'archive', 'mode', 'symlink', 'owner'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.prepared(root)
+                if kind == 'partial':
+                    put(root / 'archives/partial/foreign', b'PRIVATE_CANARY')
+                elif kind == 'archive':
+                    put(root / 'archives' / M.apt_archive_name('public', item()))
+                elif kind == 'mode':
+                    (root / 'archives').chmod(0o755)
+                elif kind == 'symlink':
+                    (root / 'archives/partial').rmdir()
+                    (root / 'archives/partial').symlink_to(root / 'empty')
+                original = root_directories(M.Path.lstat)
+                def lstat(path, *args, **kwargs):
+                    value = original(path, *args, **kwargs)
+                    if kind == 'owner' and path == root / 'archives':
+                        value.st_uid = 1000
+                    return value
+                runner = FakeRunner()
+                with mock.patch.object(M.Path, 'lstat', lstat), self.assertRaises(ValueError):
+                    M.cache_packages(root, {'public': item()}, runner)
+                self.assertEqual(runner.calls, [])
+
+    def test_copy_observes_source_identity_change_and_shared_byte_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepared(root)
+            original, reads = M.os.fstat, 0
+            def fstat(fd):
+                nonlocal reads
+                value = original(fd)
+                fields = {name: getattr(value, name) for name in dir(value) if name.startswith('st_')}
+                reads += 1
+                return types.SimpleNamespace(**dict(fields, st_mtime_ns=value.st_mtime_ns + (reads > 1)))
+            runner = FakeRunner()
+            with mock.patch.object(M.Path, 'lstat', root_directories(M.Path.lstat)), \
+                 mock.patch.object(M.os, 'fstat', side_effect=fstat), self.assertRaisesRegex(ValueError, 'package_hash'):
+                M.cache_packages(root, {'public': item()}, runner)
+            self.assertEqual(runner.calls, [])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepared(root)
+            with mock.patch.object(M.Path, 'lstat', root_directories(M.Path.lstat)), \
+                 mock.patch.object(M, 'copy_package', return_value=512 * 1024 ** 2 + 1), \
+                 self.assertRaisesRegex(ValueError, 'packages_bytes'):
+                M.cache_packages(root, {'public': item()}, FakeRunner())
+
+    def test_collision_and_later_hash_failure_precede_metadata(self):
+        selected = {'public': item(), 'zzz': dict(item(), basename='zzz_1.2-3_amd64.deb')}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepared(root)
+            runner = FakeRunner()
+            with mock.patch.object(M.Path, 'lstat', root_directories(M.Path.lstat)), \
+                 mock.patch.object(M, 'apt_archive_name', return_value='collision.deb'), \
+                 mock.patch.object(M, 'copy_package') as copied, self.assertRaisesRegex(ValueError, 'package_cache_duplicate'):
+                M.cache_packages(root, selected, runner)
+            copied.assert_not_called()
+            self.assertEqual(runner.calls, [])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepared(root)
+            put(root / 'debs/zzz_1.2-3_amd64.deb', b'PRIVATEBAD', 0o400)
+            runner = FakeRunner()
+            with mock.patch.object(M.Path, 'lstat', root_directories(M.Path.lstat)), self.assertRaisesRegex(ValueError, 'package_hash'):
+                M.cache_packages(root, selected, runner)
+            self.assertTrue((root / 'archives' / M.apt_archive_name('public', item())).is_file())
+            self.assertEqual(runner.calls, [])
+
+    def test_cache_metadata_rechecked_and_deadline_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepared(root)
+            runner = FakeRunner()
+            runner.run = mock.Mock(return_value=b'public\n9\namd64\n')
+            with mock.patch.object(M.Path, 'lstat', root_directories(M.Path.lstat)), self.assertRaisesRegex(ValueError, 'package_metadata'):
+                M.cache_packages(root, {'public': item()}, runner)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepared(root)
+            runner = FakeRunner(time.monotonic_ns() - 1)
+            with mock.patch.object(M.Path, 'lstat', root_directories(M.Path.lstat)), self.assertRaisesRegex(ValueError, 'deadline'):
+                M.cache_packages(root, {'public': item()}, runner)
+            self.assertEqual(runner.calls, [])
+
+    def test_cache_failure_stops_before_policy_plan_and_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner, report = FakeRunner(), M.receipt('build')
+            original = ValueError('package_hash')
+            with mock.patch.object(M, 'cache_packages', side_effect=original), \
+                 mock.patch.object(M, 'Policy') as policy, self.assertRaises(ValueError) as caught:
+                M.install(Path('/'), Path(directory), Path('/run/vp-resident-install'),
+                          {'public': item()}, runner, report)
+            self.assertIs(caught.exception, original)
+            policy.assert_not_called()
+            self.assertEqual(report['phase'], 'package_cache')
+            self.assertFalse(any('/usr/bin/apt-get' in argv for argv, _ in runner.calls))
+
+    def test_actual_epoch_cache_precedes_both_offline_apt_calls(self):
+        for visible in (None, Path('/run/vp-resident-install')):
+            with self.subTest(visible=visible), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'debs').mkdir(mode=0o700)
+                selected = {'public': dict(item(), version='2:1.2-3')}
+                put(root / 'debs' / item()['basename'], b'public deb', 0o400)
+                cached = root / 'archives/public_2%3a1.2-3_amd64.deb'
+                runner, report = FakeRunner(), M.receipt('build')
+                runner.plan = runner.plan.replace(b'(1.2-3 ', b'(2:1.2-3 ')
+                runner.after = runner.before + status_row(version='2:1.2-3')
+                original_run = runner.run
+                def run(argv, **options):
+                    if '/usr/bin/apt-get' in argv:
+                        self.assertEqual(cached.read_bytes(), b'public deb')
+                        self.assertIn('--no-download', argv)
+                        self.assertIn('--no-remove', argv)
+                    if '/usr/bin/dpkg-deb' in argv:
+                        self.assertEqual(argv[-1], cached)
+                        return b'public\n2:1.2-3\namd64\n'
+                    return original_run(argv, **options)
+                runner.run = run
+                policy = mock.Mock()
+                policy.restore.return_value = True
+                with mock.patch.object(M.Path, 'lstat', root_directories(M.Path.lstat)), \
+                     mock.patch.object(M, 'Policy', return_value=policy), \
+                     mock.patch.object(M.subprocess, 'Popen', side_effect=AssertionError('real_process_forbidden')):
+                    M.install(Path('/'), root, visible or root, selected, runner, report)
+                self.assertEqual(sum('/usr/bin/apt-get' in argv for argv, _ in runner.calls), 2)
+                self.assertEqual(report['packages_verified'], 1)
+                self.assertTrue(report['policy_restored'])
+
+
 class PlanTests(unittest.TestCase):
     def test_exact_reinstall_plan(self):
         M.validate_plan(FakeRunner().plan, {'public': item()}, {'base': ['1', 'amd64', 'install ok installed']})
@@ -262,7 +469,18 @@ class PlanTests(unittest.TestCase):
             runner, report = FakeRunner(), M.receipt('build')
             policy = mock.Mock()
             policy.restore.return_value = True
-            with mock.patch.object(M, 'Policy', return_value=policy):
+            copied = False
+            original_run = runner.run
+            def cached(*_args):
+                nonlocal copied
+                copied = True
+            def run(argv, **options):
+                if '/usr/bin/apt-get' in argv:
+                    self.assertTrue(copied)
+                return original_run(argv, **options)
+            runner.run = run
+            with mock.patch.object(M, 'Policy', return_value=policy), \
+                 mock.patch.object(M, 'cache_packages', side_effect=cached) as cache:
                 M.install(Path('/'), Path(directory), Path('/run/vp-resident-install'),
                           {'public': item()}, runner, report)
             apt = [call for call in runner.calls if '/usr/bin/apt-get' in call[0]]
@@ -277,6 +495,7 @@ class PlanTests(unittest.TestCase):
             self.assertEqual(report['packages_verified'], 1)
             self.assertEqual(M.ENV['SYSTEMD_OFFLINE'], '1')
             policy.restore.assert_called_once()
+            cache.assert_called_once_with(Path(directory), {'public': item()}, runner)
 
     def test_failed_install_always_restores_policy_without_replacing_error(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -284,7 +503,8 @@ class PlanTests(unittest.TestCase):
             runner.failure = lambda argv: '/usr/bin/apt-get' in argv and '--simulate' not in argv
             policy = mock.Mock()
             policy.restore.side_effect = OSError('second private error')
-            with mock.patch.object(M, 'Policy', return_value=policy), self.assertRaisesRegex(ValueError, 'PRIVATE_CANARY'):
+            with mock.patch.object(M, 'Policy', return_value=policy), mock.patch.object(M, 'cache_packages'), \
+                 self.assertRaisesRegex(ValueError, 'PRIVATE_CANARY'):
                 M.install(Path('/'), Path(directory), Path('/run/vp-resident-install'),
                           {'public': item()}, runner, report)
             self.assertFalse(report['policy_restored'])
@@ -317,6 +537,7 @@ class PlanDiagnosticTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, \
              mock.patch.object(M.subprocess, 'Popen', side_effect=AssertionError('real_process_forbidden')) as spawn, \
              mock.patch.object(M, 'Policy', return_value=policy), \
+             mock.patch.object(M, 'cache_packages'), \
              mock.patch.object(M, 'validate_plan', side_effect=validate):
             with self.assertRaises(Exception) as caught:
                 M.install(Path('/'), Path(directory), Path('/run/vp-resident-install'),
@@ -374,12 +595,38 @@ class PlanDiagnosticTests(unittest.TestCase):
             self.assertIs(error, original)
             self.assertEqual(report['failure'], label)
 
-    def test_same_command_code_outside_plan_keeps_legacy_failure(self):
+    def test_same_command_code_binds_to_plan_or_install_phase(self):
         for phase in ('status_before', 'package_install'):
             original = ValueError('command_failed')
             error, report = self.install_failure(command_error=original, outside_phase=phase)
             self.assertIs(error, original)
             self.assertEqual(report['phase'], phase)
+            self.assertEqual(report['failure'], 'install_command_exit' if phase == 'package_install'
+                             else 'installation_failed')
+
+    def test_install_command_labels_preserve_original_exception_and_cleanup(self):
+        for original, label in ((ValueError('command_failed'), 'install_command_exit'),
+                                (ValueError('command_deadline'), 'install_command_deadline'),
+                                (ValueError('command_output'), 'install_command_output'),
+                                (M.CleanupUnconfirmed(), 'install_command_cleanup')):
+            with self.subTest(label=label):
+                error, report = self.install_failure(command_error=original, outside_phase='package_install')
+                self.assertIs(error, original)
+                self.assertEqual(report['failure'], label)
+                self.assertEqual(report['packages_verified'], 0)
+
+    def test_install_diagnostic_rejects_foreign_codes_subclasses_and_detail(self):
+        class ForeignError(ValueError):
+            pass
+        class ForeignCode(str):
+            pass
+        class ForeignCleanup(M.CleanupUnconfirmed):
+            pass
+        for original in (ValueError('PRIVATE_CANARY'), ValueError('command_failed', 'PRIVATE_CANARY'),
+                         ValueError(ForeignCode('command_failed')), ForeignError('command_failed'),
+                         OSError('PRIVATE_CANARY'), ForeignCleanup('PRIVATE_CANARY'), ValueError('plan_missing')):
+            error, report = self.install_failure(command_error=original, outside_phase='package_install')
+            self.assertIs(error, original)
             self.assertEqual(report['failure'], 'installation_failed')
 
     def worker_result(self, *, plan_error=None, cleanup_failure=False):
@@ -408,6 +655,7 @@ class PlanDiagnosticTests(unittest.TestCase):
                  mock.patch.object(M, 'load_lock', return_value={'public': item()}), \
                  mock.patch.object(M, 'Runner', side_effect=[runner, cleanup]), \
                  mock.patch.object(M, 'Policy', return_value=policy), \
+                 mock.patch.object(M, 'cache_packages'), \
                  mock.patch.object(M.Path, 'exists', return_value=False):
                 report = M.worker({'mode': 'build', 'deadline': deadline()}, stage)
                 spawn.assert_not_called()

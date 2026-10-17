@@ -208,36 +208,78 @@ def load_lock(path, expected, mode, deadline):
     return selected
 
 
+def copy_package(source_path, target_path, item, deadline):
+    remaining(deadline)
+    with os.fdopen(os.open(source_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as source:
+        before = os.fstat(source.fileno())
+        require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1 and not before.st_mode & 0o022
+                and before.st_size == item['bytes'], 'package_file')
+        fd = os.open(target_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o400)
+        digest, count = hashlib.sha256(), 0
+        with os.fdopen(fd, 'wb') as sink:
+            while block := source.read(1024 ** 2):
+                remaining(deadline)
+                count += len(block)
+                require(count <= item['bytes'], 'package_bytes')
+                digest.update(block)
+                sink.write(block)
+        require(count == item['bytes'] and digest.hexdigest() == item['sha256']
+                and identity(before) == identity(os.fstat(source.fileno())), 'package_hash')
+    return count
+
+
+def verify_package_metadata(paths, selected, runner):
+    # Metadata is checked only AFTER every payload hash passed, before APT.
+    for name, item in sorted(selected.items()):
+        raw = runner.run(['/usr/bin/dpkg-deb', '--show', '--showformat=${Package}\n${Version}\n${Architecture}\n',
+                          paths[name]], cap=15, maximum=4096)
+        require(raw.decode().splitlines() == [name, item['version'], item['architecture']], 'package_metadata')
+
+
 def stage_packages(directory, target, selected, runner):
     require(directory.is_absolute() and directory.resolve(strict=True) == directory and directory.is_dir(),
             'packages_directory')
     target.mkdir(mode=0o700)
-    total = 0
+    total, paths = 0, {}
     for name, item in sorted(selected.items()):
-        remaining(runner.deadline)
-        path = directory / (name + '.deb')
-        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as source:
-            before = os.fstat(source.fileno())
-            require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1 and not before.st_mode & 0o022
-                    and before.st_size == item['bytes'], 'package_file')
-            fd = os.open(target / item['basename'], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o400)
-            digest, count = hashlib.sha256(), 0
-            with os.fdopen(fd, 'wb') as sink:
-                while block := source.read(1024 ** 2):
-                    remaining(runner.deadline)
-                    count += len(block)
-                    require(count <= item['bytes'], 'package_bytes')
-                    digest.update(block)
-                    sink.write(block)
-            require(count == item['bytes'] and digest.hexdigest() == item['sha256']
-                    and identity(before) == identity(os.fstat(source.fileno())), 'package_hash')
-        total += count
+        paths[name] = target / item['basename']
+        total += copy_package(directory / (name + '.deb'), paths[name], item, runner.deadline)
         require(total <= 512 * 1024 ** 2, 'packages_bytes')
-    # Metadata is checked only AFTER every payload hash passed, before APT.
+    verify_package_metadata(paths, selected, runner)
+    return total
+
+
+def apt_archive_name(name, item):
+    require(type(name) is str and PACKAGE.fullmatch(name) and type(item['version']) is str
+            and VERSION.fullmatch(item['version']) and item['architecture'] in ('amd64', 'all'),
+            'package_cache_name')
+    # APT 3.0.3 pkgAcqArchive uses QuoteString(..., "_:"). The lock's
+    # restricted alphabet permits only ':' to need quoting (lowercase %3a).
+    return name + '_' + item['version'].replace(':', '%3a') + '_' + item['architecture'] + '.deb'
+
+
+def cache_packages(directory, selected, runner):
+    target = directory / 'archives'
+    for path in (directory, directory / 'debs', target, target / 'partial'):
+        meta = path.lstat()
+        require(path.is_absolute() and path.resolve(strict=True) == path and stat.S_ISDIR(meta.st_mode)
+                and meta.st_uid == 0 and stat.S_IMODE(meta.st_mode) == 0o700, 'package_cache_directory')
+    require({path.name for path in target.iterdir()} == {'partial'}
+            and not any((target / 'partial').iterdir()), 'package_cache_not_empty')
+    paths = {name: target / apt_archive_name(name, item) for name, item in selected.items()}
+    require(len(set(paths.values())) == len(paths), 'package_cache_duplicate')
+    total = 0
+    # With --no-download APT retains local items but then shuts down their
+    # acquisition queue before file-method completion. Cache hits resolve an
+    # absolute archive path beforehand; absent hits leave relative basenames.
+    # Source: Debian/apt 45bebdfb891535d15e66e860aab1ee7c7b2ecaab,
+    # apt-private/private-install.cc, apt-pkg/{acquire,acquire-item}.cc.
+    # Do not trust a cache hit's size-only check: authenticate fresh regular
+    # copies ourselves. No downloads, links or changes to package selection.
     for name, item in sorted(selected.items()):
-        raw = runner.run(['/usr/bin/dpkg-deb', '--show', '--showformat=${Package}\n${Version}\n${Architecture}\n',
-                          target / item['basename']], cap=15, maximum=4096)
-        require(raw.decode().splitlines() == [name, item['version'], item['architecture']], 'package_metadata')
+        total += copy_package(directory / 'debs' / item['basename'], paths[name], item, runner.deadline)
+        require(total <= 512 * 1024 ** 2, 'packages_bytes')
+    verify_package_metadata(paths, selected, runner)
     return total
 
 
@@ -413,6 +455,15 @@ def plan_failure(error, *, command):
                            'plan_missing', 'plan_removal', 'plan_before') else 'installation_failed'
 
 
+def install_failure(error):
+    if type(error) is CleanupUnconfirmed:
+        return 'install_command_cleanup'
+    if type(error) is not ValueError or len(error.args) != 1 or type(error.args[0]) is not str:
+        return 'installation_failed'
+    return {'command_failed': 'install_command_exit', 'command_deadline': 'install_command_deadline',
+            'command_output': 'install_command_output'}.get(error.args[0], 'installation_failed')
+
+
 def install(root, directory, visible, selected, runner, report):
     prefix = ['/usr/sbin/chroot', root]
     env = {'APT_CONFIG': str(visible / 'apt.conf')}
@@ -421,6 +472,8 @@ def install(root, directory, visible, selected, runner, report):
     before = status(runner.run([*prefix, *query], maximum=MAX_OUTPUT))
     require(runner.run([*prefix, '/usr/bin/dpkg', '--audit'], maximum=MAX_OUTPUT).strip() == b'', 'dpkg_audit')
     apt_configuration(directory, visible)
+    report['phase'] = 'package_cache'
+    cache_packages(directory, selected, runner)
     policy = Policy(root, runner.deadline)
     try:
         policy.install()
@@ -440,7 +493,11 @@ def install(root, directory, visible, selected, runner, report):
             report['failure'] = plan_failure(error, command=False)
             raise
         report['phase'] = 'package_install'
-        runner.run([*prefix, *apt, 'install', *packages], env=env, cap=1200)
+        try:
+            runner.run([*prefix, *apt, 'install', *packages], env=env, cap=1200)
+        except (ValueError, CleanupUnconfirmed) as error:
+            report['failure'] = install_failure(error)
+            raise
         report['phase'] = 'package_verify'
         runner.run([*prefix, '/usr/bin/dpkg', '--configure', '--pending'], cap=600)
         after = status(runner.run([*prefix, *query], maximum=MAX_OUTPUT))

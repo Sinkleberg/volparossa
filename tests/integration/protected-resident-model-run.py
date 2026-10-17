@@ -710,6 +710,8 @@ def package_installer_projection(raw, mode):
     plan_failures = ('plan_command_exit', 'plan_command_deadline', 'plan_command_output', 'plan_bytes',
                      'plan_schema', 'plan_outside_lock', 'plan_duplicate', 'plan_missing',
                      'plan_removal', 'plan_before', 'plan_encoding')
+    install_failures = ('install_command_exit', 'install_command_deadline', 'install_command_output',
+                        'install_command_cleanup')
     require(type(value) is dict and value.keys() == {'version', 'kind', 'mode', 'state', 'phase', 'failure',
                 'package_lock_sha256', 'packages_verified', 'archive_bytes', 'descendants_joined',
                 'controller_cgroup_cleanup_required', *flags, *forbidden}, 'package_installer_diagnostic')
@@ -717,8 +719,9 @@ def package_installer_projection(raw, mode):
             and value['kind'] == 'protected-resident-offline-package-install' and value['mode'] == mode
             and value['package_lock_sha256'] == LOCK_SHA and value['state'] in ('failed', 'configured')
             and value['phase'] in ('guard', 'archives', 'namespace', 'runtime_device', 'status_before',
-                'package_plan', 'package_install', 'package_verify', 'unmount', 'complete')
-            and value['failure'] in (None, 'installation_failed', 'cleanup_unconfirmed', *plan_failures)
+                'package_cache', 'package_plan', 'package_install', 'package_verify', 'unmount', 'complete')
+            and value['failure'] in (None, 'installation_failed', 'cleanup_unconfirmed',
+                                    *plan_failures, *install_failures)
             and all(type(value[key]) is bool for key in flags)
             and all(value[key] is False for key in forbidden)
             and value['controller_cgroup_cleanup_required'] is True and value['descendants_joined'] is None,
@@ -735,6 +738,9 @@ def package_installer_projection(raw, mode):
         require(value['failure'] is not None, 'package_installer_diagnostic')
     if value['failure'] in plan_failures:
         require(value['state'] == 'failed' and value['phase'] == 'package_plan',
+                'package_installer_diagnostic')
+    if value['failure'] in install_failures:
+        require(value['state'] == 'failed' and value['phase'] == 'package_install',
                 'package_installer_diagnostic')
     return {key: value[key] for key in ('state', 'phase', 'failure', 'packages_verified', *flags)}
 

@@ -1440,6 +1440,39 @@ class PackageDiagnostic(Inert):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 R.package_installer_projection(R.encoded(value), 'build')
 
+    def test_install_failure_projection_accepts_closed_labels_and_cache_phase(self):
+        for mode in ('build', 'runtime'):
+            for label in ('install_command_exit', 'install_command_deadline', 'install_command_output',
+                          'install_command_cleanup'):
+                value = self.receipt(mode, phase='package_install', failure=label)
+                result = R.package_installer_projection(R.encoded(value), mode)
+                self.assertEqual(result['failure'], label)
+                self.assertEqual(result['phase'], 'package_install')
+                self.assertEqual(result['state'], 'failed')
+            result = R.package_installer_projection(R.encoded(self.receipt(mode, phase='package_cache')), mode)
+            self.assertEqual(result['phase'], 'package_cache')
+
+    def test_install_failure_projection_rejects_wrong_phase_success_and_raw_details(self):
+        for changes in ({'phase': 'package_plan'}, {'phase': 'package_cache'}, {'phase': 'status_before'},
+                        {'phase': 'complete', 'state': 'configured'}, {'failure': 'command_failed'},
+                        {'failure': 'install_PRIVATE_CANARY'},
+                        {'failure': {'reason': 'command_failed', 'raw': 'PRIVATE_CANARY'}}):
+            value = self.receipt(phase='package_install', failure='install_command_exit')
+            value.update(changes)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                R.package_installer_projection(R.encoded(value), 'build')
+
+    def test_install_failure_observation_keeps_failed_unit_and_cleanup_truth(self):
+        raw = R.encoded(self.receipt(phase='package_install', failure='install_command_exit',
+                                    direct_child_groups_joined=False))
+        error, diagnostic, calls = self.failing_unit(observation=(raw, b'', 0))
+        self.assertEqual(str(error), 'guest_unit_failed')
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(calls[2][0][2:4], ['systemctl', 'stop'])
+        self.assertIn('populated 0', calls[3][0][-1])
+        self.assertEqual(diagnostic[0]['installer']['failure'], 'install_command_exit')
+        self.assertFalse(diagnostic[0]['installer']['direct_child_groups_joined'])
+
     def test_plan_failure_observation_keeps_failed_unit_error_and_cleanup_sequence(self):
         raw = R.encoded(self.receipt(failure='plan_missing', direct_child_groups_joined=False))
         error, diagnostic, calls = self.failing_unit(observation=(raw, b'', 0))
