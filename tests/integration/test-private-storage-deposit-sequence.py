@@ -54,6 +54,22 @@ def evidence_fixture():
         expected_peers=previous["expected_peers"], network=previous["network"]["finish"])
 
 
+def write_evidence_fixture(work):
+    value = evidence_fixture()
+    prefix = CHECK["PREFIX"]
+    files = {f"{prefix}-{name}.json": value[name] for name in
+        ("prepare", "sequence", "private_cleanup", "isolation", "layout", "deleted_usage")}
+    files.update({"a01-expected-peers.json": value["expected_peers"],
+        f"{prefix}-live-selection.json": value["network"]["selected_route"],
+        f"content-provider-adaptive-{prefix}-control.json": value["network"]["control_privacy"],
+        f"{prefix}-gates.json": value["network"]["gates"]})
+    files.update({f"{prefix}-privacy-{role}.json": value["network"]["privacy"][role]
+        for role in CHECK["FRAG"]["ROLES"]})
+    for name, content in files.items():
+        (work / name).write_text(json.dumps(content), encoding="ascii")
+    return value
+
+
 class DepositSequence(unittest.TestCase):
     def fake_cli(self, root, failure=None, reserved=False, timeout_operation=None):
         calls = []
@@ -284,6 +300,63 @@ class DepositSequence(unittest.TestCase):
             mutation(bad)
             with self.assertRaises((ValueError, KeyError)):
                 CHECK["validate_evidence"](bad)
+
+    def test_evidence_assembles_real_sidecar_files_with_three_provider_usage_array(self):
+        with tempfile.TemporaryDirectory(prefix="vp-sequence-evidence-") as temporary:
+            work = Path(temporary)
+            expected = write_evidence_fixture(work)
+            self.assertEqual(CHECK["evidence"](work), expected)
+            usage = work / f"{CHECK['PREFIX']}-deleted_usage.json"
+            # Other evidence must remain object-shaped; only usage uses the
+            # existing three-provider array reader, not a relaxed shared reader.
+            with self.assertRaisesRegex(ValueError, "evidence must be an object"):
+                CHECK["read"](usage)
+
+    def test_evidence_rejects_malformed_and_nonzero_usage_sidecars(self):
+        zero = dict(reserved_bytes=0, committed_bytes=0, leases=0)
+        invalid = [None, zero, [], [zero] * 2, [zero] * 4, [zero, zero, None],
+            [zero, zero, dict(reserved_bytes=0, committed_bytes=0)],
+            [zero, zero, dict(zero, extra=0)]]
+        for counter in zero:
+            for count in (1, -1, True, 0.0, "0", 2**64):
+                invalid.append([zero, zero, dict(zero, **{counter: count})])
+        with tempfile.TemporaryDirectory(prefix="vp-sequence-usage-") as temporary:
+            work = Path(temporary)
+            write_evidence_fixture(work)
+            usage = work / f"{CHECK['PREFIX']}-deleted_usage.json"
+            for value in invalid:
+                with self.subTest(value=value):
+                    usage.write_text(json.dumps(value), encoding="ascii")
+                    with self.assertRaises(ValueError):
+                        CHECK["evidence"](work)
+            usage.write_text("[malformed JSON", encoding="ascii")
+            with self.assertRaises(ValueError):
+                CHECK["evidence"](work)
+
+    def test_evidence_usage_file_bound_and_regular_file_checks(self):
+        with tempfile.TemporaryDirectory(prefix="vp-sequence-usage-file-") as temporary:
+            work = Path(temporary)
+            expected = write_evidence_fixture(work)
+            usage = work / f"{CHECK['PREFIX']}-deleted_usage.json"
+            text = usage.read_text(encoding="ascii")
+            usage.write_text(text.ljust(2048), encoding="ascii")
+            self.assertEqual(CHECK["evidence"](work), expected)
+            usage.write_text(text.ljust(2049), encoding="ascii")
+            with self.assertRaises(ValueError):
+                CHECK["evidence"](work)
+            usage.unlink()
+            with self.assertRaises(ValueError):
+                CHECK["evidence"](work)
+            usage.mkdir()
+            with self.assertRaises(ValueError):
+                CHECK["evidence"](work)
+            usage.rmdir()
+            target = work / "inert-usage-target.json"
+            target.write_text(text, encoding="ascii")
+            usage.symlink_to(target)
+            with self.assertRaises(ValueError):
+                CHECK["evidence"](work)
+            self.assertEqual(target.read_text(encoding="ascii"), text)
 
     def test_preview_selection_does_not_run_other_storage_lifecycles(self):
         scenario = "private-storage-deposit-sequence"

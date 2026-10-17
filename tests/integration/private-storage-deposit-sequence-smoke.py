@@ -446,7 +446,8 @@ def validate_evidence(value):
 
 def evidence(work):
     value = {name: read(work / f"{PREFIX}-{name}.json") for name in
-             ("prepare", "sequence", "private_cleanup", "isolation", "layout", "deleted_usage")}
+             ("prepare", "sequence", "private_cleanup", "isolation", "layout")}
+    value["deleted_usage"] = FRAG["read_usage"](work / f"{PREFIX}-deleted_usage.json")
     value.update(success=True, scope=SCOPE, expected_peers=read(work / "a01-expected-peers.json"))
     value["network"] = dict(selected_route=read(work / f"{PREFIX}-live-selection.json"),
         privacy={role: read(work / f"{PREFIX}-privacy-{role}.json") for role in FRAG["ROLES"]},
