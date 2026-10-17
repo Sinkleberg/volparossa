@@ -12,11 +12,58 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-16
+Last updated: 2026-10-18
 
 ## Current integration and active work
 
 ### Latest storage consumer outcome
+
+Original source run
+[`38915098088`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38915098088)
+passes on `acba3244`: 147 Rust tests, including two isolated kernel cases,
+296 Python tests, 50 Node tests and 48 normalizer checks, with compilation,
+strict lint, formatting, exact source and host-state checks. Subsequent original
+actual run
+[`38917106698`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38917106698)
+fails Cloud publication at RESERVE fragment 0/copy 1: provider TLS reaches its
+handshake deadline. Consumer maintenance, repeated restoration, deletion and
+remote cleanup remain unproven. Owned topology cleanup and unchanged guest-root
+network state pass; those do not prove remote consumer-data cleanup.
+
+The bounded correlation record matches a client and provider-B connection whose
+two TLS handshakes both time out. Matching covers the first 64 ClientHello bytes,
+not complete delivery or the return handshake flight. The collection is
+incomplete and has no fragment/copy binding, so it cannot establish that this
+connection is the failing copy or identify the cause. Original artifact/log CRC
+checks and the API artifact digest pass; their ZIP SHA-256 values are
+`90711701e55a011b362058ee1577ccd8b276131cae15aa977d4b5c7842a72340`
+and `1f28e0f3e71f29d29fad1d1ab6f4d30344117fbeeec1c22618dbfb329ba17cec`.
+
+### Repeated storage reservations through production egress
+
+The next targeted regression closes a gap in the earlier TLS-close tests, which
+preconnect the provider socket and bypass production SNI inspection, DNS,
+connection setup and ClientHello replay. It performs three distinct signed
+RESERVE exchanges through `ExitService::run_tcp_egress`, reusing the verified
+route, listeners and provider store. Each connection negotiates genuine kernel
+MPTCP and nested TLS; partial reads and bounded writes exercise the real proxy.
+Success requires three verified distinct reservation receipts, completed closes,
+joined tasks and no surviving owned socket descriptors.
+
+A synthetic DNS-over-TCP fixture supplies the exact permitted hostname through
+the existing fallback path with caching disabled. Its provider address is added
+only to loopback inside the explicitly checked disposable namespace before
+privileges are dropped; no host route or production egress permission changes.
+This is not a DNSSEC/Unbound implementation test, activated route admission,
+deployed WireGuard relays or proof of multiple live subflows. Production
+handshake/setup deadlines and privacy controls remain unchanged.
+
+Hosted compilation and execution are pending. The existing two kernel close
+tests remain separate checks. Even a passing new regression would not establish
+the cause of the original consumer failure or replace complete Image/Cloud
+maintenance acceptance; the dependent upload lifecycle stays deferred.
+
+### Earlier storage consumer outcome
 
 Source run
 [`38898873084`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38898873084)
@@ -492,7 +539,7 @@ neither source checks nor this diagnostic extension replace those trials.
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resolve Cloud transport acquisition, then complete publication, repair, repeated restoration, deletion and confirmed provider cleanup. | Source `38898873084` passes on `2ce38aa9`; actual `38900639690` passes the separate core lifecycle but fails Cloud FINALIZE fragment 0/copy 0 with `helper_kernel` then `helper_cleanup_incomplete`. The fixture-v2 candidate retains the authenticated request-local rejection category without changing retries or cleanup. Hosted source checks and a new actual trial remain required; consumer remote cleanup and provider usage are unconfirmed. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resolve the TLS publication blocker, then complete repair, repeated restoration, deletion and confirmed provider cleanup. | Source `38915098088` passes on `acba3244`; actual `38917106698` fails Cloud RESERVE fragment 0/copy 1 at the TLS-handshake deadline. A new targeted repeated-reservation test covers production SNI/DNS/egress omitted by earlier close tests, without a speculative production fix or increased deadlines. Its hosted execution is pending; full consumer acceptance and remote cleanup remain unconfirmed. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 retains that immutable core pin. Core PR277 integrates the native-only composition after source checks; it does not transfer the model trial to that new binary. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. |
 | Protected remote compute — `volparossa`, then Code/Browser | Join an authorized immutable guest, the resident coding worker and a guest-terminated TLS 1.3 session. | PR258's authenticated refusal path has actual route evidence; PR262 integrates explicit same-connection key confirmation. The next implementation reuses the native worker lifecycle and existing TLS stack, rather than extending the probe into task authority. Boot/runtime/model integrity, production roots and current vendor appraisal must be checked before private input; task authority needs its own finite grant. Those functions and actual protected execution remain open; suitable confidential-computing hardware is unavailable. |

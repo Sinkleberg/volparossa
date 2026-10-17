@@ -104,6 +104,8 @@ jobs:
           crates/volparossa-agent/src/route_setup/tests/tcp_flow_admission_tests.rs
           crates/volparossa-agent/src/content/tls.rs
           crates/volparossa-agent/src/content/tls/tests/kernel_close.rs
+          crates/volparossa-agent/src/content/tls/tests/kernel_close/repeated_egress.rs
+          scripts/run-isolated-test.sh
           crates/volparossa-agent/src/content/tls/close_diagnostic_tests.rs
           crates/volparossa-agent/src/content/private_storage.rs
           crates/volparossa-agent/src/content/private_storage/outcome.rs
@@ -156,8 +158,8 @@ jobs:
           for name in dependencies:
               assert git('rev-parse', 'HEAD:' + name) == git('rev-parse', os.environ['SOURCE_BASE'] + ':' + name)
           runner = 'scripts/run-isolated-test.sh'
-          assert git('rev-parse', 'HEAD:' + runner) == git('rev-parse', os.environ['SOURCE_BASE'] + ':' + runner)
-          assert git('rev-parse', 'HEAD:' + runner) == 'ba5c00260f42777c7fa72f46c6f9029f530a41aa'
+          assert git('rev-parse', os.environ['SOURCE_BASE'] + ':' + runner) == 'ba5c00260f42777c7fa72f46c6f9029f530a41aa'
+          assert git('rev-parse', 'HEAD:' + runner) == '14e551d91b4ac5bf8feb7a3275b6ce6e86d7f99b'
           record = dict(version=1, source_commit=os.environ['GITHUB_SHA'],
               workflow_commit=os.environ['GITHUB_WORKFLOW_SHA'], source_tree=git('rev-parse', 'HEAD^{tree}'),
               base_commit=os.environ['SOURCE_BASE'],
@@ -165,7 +167,7 @@ jobs:
               dependency_blobs={name:git('rev-parse', 'HEAD:' + name) for name in dependencies},
               runner_blob=git('rev-parse', 'HEAD:' + runner),
               scope='retained-route-retirement-tls-close-v9-and-consumer-profile-10-contracts',
-              kernel_test_scope='signed-reserve-loopback-mptcp-and-tcp-provider-close-order',
+              kernel_test_scope='signed-reserve-close-order-and-repeated-production-sni-dns-egress',
               tls_production_diagnostic_changed=True, historical_consumer_pins_unchanged=True,
               fixture_helper_diagnostic_version=2, fixture_fragment_copy_binding=False,
               live_consumer_acceptance=False, original_timeout_cause_proven=False,
@@ -280,6 +282,7 @@ jobs:
           tests = (
               'content::tls::tests::kernel_close::signed_reserve_survives_tcp_provider_and_proxy_drop_before_outer_finish',
               'content::tls::tests::kernel_close::signed_reserve_rejects_abrupt_outer_drop_after_inner_finish',
+              'content::tls::tests::kernel_close::repeated_egress::three_signed_reserves_use_reusable_production_egress_and_fragmented_hello',
           )
           for index, name in enumerate(tests):
               inventory = subprocess.check_output([str(binary), '--ignored', '--exact', name, '--list'], text=True)
@@ -460,7 +463,7 @@ jobs:
           pathlib.Path('storage-retirement-evidence/firewall-normalizer.json').write_text(
               json.dumps(dict(checks=checked, passed=True, scope='inert-normalizer-fixtures'), sort_keys=True) + '\n')
           PY
-      - name: Run both exact TLS close contracts in disposable loopback namespaces
+      - name: Run exact TLS close and production egress contracts in disposable namespaces
         run: |
           set -euo pipefail
           parent_namespace=$(readlink /proc/self/ns/net)
@@ -474,13 +477,15 @@ jobs:
           } > storage-retirement-evidence/host-before.sha256
           read -r binary < storage-retirement-evidence/binary.txt
           mapfile -t kernel_tests < <(python3 -B -c 'import json; print(*json.load(open("storage-retirement-evidence/kernel-tests.json")), sep="\n")')
-          test "${#kernel_tests[@]}" = 2
+          test "${#kernel_tests[@]}" = 3
           kernel_status=0
-          for index in 0 1; do
+          for index in 0 1 2; do
             test_name=${kernel_tests[$index]}
+            network=loopback
+            if test "$index" = 2; then network=content-egress; fi
             set +e
             VOLPAROSSA_TEST_ALLOW_SUDO_NETNS=1 scripts/run-isolated-test.sh --command \
-              "$binary" "$test_name" VOLPAROSSA_EXACT_CONTENT_PARENT_NETNS loopback \
+              "$binary" "$test_name" VOLPAROSSA_EXACT_CONTENT_PARENT_NETNS "$network" \
               --ignored --exact "$test_name" --nocapture \
               2>&1 | tee "storage-retirement-evidence/kernel-$index-test.log"
             status=$?
@@ -493,7 +498,7 @@ jobs:
           import json, pathlib, re
           root = pathlib.Path('storage-retirement-evidence')
           tests = json.loads((root / 'kernel-tests.json').read_text())
-          assert len(tests) == len(set(tests)) == 2
+          assert len(tests) == len(set(tests)) == 3
           for index, name in enumerate(tests):
               assert (root / f'kernel-{index}-exit.txt').read_text().strip() == '0'
               output = (root / f'kernel-{index}-test.log').read_text()
@@ -502,10 +507,13 @@ jobs:
               assert re.fullmatch(r'test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; [0-9]+ filtered out; finished in [0-9.]+s', summaries[0])
               assert re.findall(r'^test (.+) \.\.\. ok$', output, re.M) == [name]
           (root / 'kernel-results.json').write_text(json.dumps(dict(version=1,
-              unique_tests=2, test_names=tests, passed=True,
+              unique_tests=3, test_names=tests, passed=True,
               genuine_loopback_kernel_mptcp=True, real_loopback_tcp_provider=True,
               production_nested_tls_and_proxy=True, signed_reserve_receipt_verified=True,
               normal_close_after_peer_drop=True, abrupt_outer_close_rejected=True,
+              repeated_production_egress=True, signed_reserve_exchanges=3,
+              real_synthetic_dns_tcp=True, production_sni_prefix_inspection=True,
+              public_fixture_address_only_in_disposable_namespace=True,
               full_relay_datapath_proven=False, multiple_live_subflows_proven=False,
               live_consumer_acceptance=False, original_timeout_cause_proven=False), sort_keys=True) + '\n')
           PY
