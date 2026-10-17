@@ -1462,6 +1462,59 @@ class PackageDiagnostic(Inert):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 R.package_installer_projection(R.encoded(value), 'build')
 
+    def test_preparation_projection_accepts_closed_command_labels_and_exact_guards(self):
+        installer = R.module('protected-resident-model-install')
+        labels = ('preparation_command_exit', 'preparation_command_deadline', 'preparation_command_output',
+                  'preparation_command_cleanup', 'preparation_deadline', 'preparation_missing',
+                  'preparation_permission', 'preparation_io')
+        for phase in installer.PREPARATION_PHASES:
+            for label in (*labels, *installer.PREPARATION_GUARDS.get(phase, ())):
+                for mode in (('build', 'runtime') if phase == 'archive_mount' else ('runtime',)):
+                    with self.subTest(phase=phase, label=label, mode=mode):
+                        value = self.receipt(mode, phase=phase, failure=label)
+                        result = R.package_installer_projection(R.encoded(value), mode)
+                        self.assertEqual((result['phase'], result['failure'], result['state']),
+                                         (phase, label, 'failed'))
+                        self.assertEqual(set(result), set(R.package_installer_projection(
+                            R.encoded(self.receipt(mode)), mode)))
+
+    def test_preparation_projection_rejects_wrong_phase_mode_proofs_and_private_details(self):
+        installer = R.module('protected-resident-model-install')
+        for phase, codes in installer.PREPARATION_GUARDS.items():
+            for code in codes:
+                for wrong_phase in (*[value for value in installer.PREPARATION_PHASES if value != phase],
+                                    'package_install', 'complete'):
+                    with self.subTest(code=code, phase=wrong_phase), self.assertRaises(ValueError):
+                        R.package_installer_projection(R.encoded(self.receipt(
+                            'runtime', phase=wrong_phase, failure=code)), 'runtime')
+        for phase in installer.PREPARATION_PHASES:
+            if phase != 'archive_mount':
+                with self.subTest(phase=phase), self.assertRaises(ValueError):
+                    R.package_installer_projection(R.encoded(self.receipt('build', phase=phase)), 'build')
+            for changes in ({'packages_verified': 1}, {'status_verified': True}, {'triggers_clear': True},
+                            {'audit_clear': True}, {'state': 'configured'}, {'failure': 'preparation_PRIVATE_CANARY'},
+                            {'failure': {'reason': 'runtime_serial', 'raw': 'PRIVATE_CANARY'}}):
+                value = self.receipt('runtime', phase=phase, failure='preparation_command_exit')
+                value.update(changes)
+                with self.subTest(phase=phase, changes=changes), self.assertRaises(ValueError):
+                    R.package_installer_projection(R.encoded(value), 'runtime')
+        for phase in ('guard', 'archives', 'namespace', 'package_install', 'status_before', 'complete'):
+            with self.subTest(phase=phase), self.assertRaises(ValueError):
+                R.package_installer_projection(R.encoded(self.receipt(
+                    'runtime', phase=phase, failure='preparation_command_exit')), 'runtime')
+
+    def test_preparation_observation_preserves_failure_and_cleanup_sequence(self):
+        raw = R.encoded(self.receipt(phase='archive_mount', failure='preparation_command_cleanup',
+                                    direct_child_groups_joined=False, runtime_unmounted=False))
+        error, diagnostic, calls = self.failing_unit(observation=(raw, b'', 0))
+        self.assertEqual(str(error), 'guest_unit_failed')
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(calls[2][0][2:4], ['systemctl', 'stop'])
+        self.assertIn('populated 0', calls[3][0][-1])
+        self.assertEqual(diagnostic[0]['installer']['failure'], 'preparation_command_cleanup')
+        self.assertFalse(diagnostic[0]['installer']['direct_child_groups_joined'])
+        self.assertFalse(diagnostic[0]['installer']['runtime_unmounted'])
+
     def test_install_failure_observation_keeps_failed_unit_and_cleanup_truth(self):
         raw = R.encoded(self.receipt(phase='package_install', failure='install_command_exit',
                                     direct_child_groups_joined=False))

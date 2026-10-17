@@ -712,16 +712,28 @@ def package_installer_projection(raw, mode):
                      'plan_removal', 'plan_before', 'plan_encoding')
     install_failures = ('install_command_exit', 'install_command_deadline', 'install_command_output',
                         'install_command_cleanup')
+    preparation_phases = ('runtime_device', 'runtime_fsck', 'runtime_resize', 'runtime_mount',
+                          'runtime_bootstrap', 'archive_mount')
+    preparation_failures = ('preparation_command_exit', 'preparation_command_deadline',
+        'preparation_command_output', 'preparation_command_cleanup', 'preparation_deadline',
+        'preparation_missing', 'preparation_permission', 'preparation_io')
+    preparation_guards = {
+        'runtime_device': ('runtime_alias', 'runtime_path', 'runtime_device', 'runtime_serial',
+            'runtime_root_device', 'runtime_already_mounted', 'runtime_changed', 'runtime_size',
+            'runtime_ext4', 'mountinfo_bound', 'kernel_file_bound'),
+        'runtime_bootstrap': ('runtime_debian', 'runtime_mountpoint', 'input_file', 'input_changed'),
+    }
+    guard_failures = tuple(code for codes in preparation_guards.values() for code in codes)
     require(type(value) is dict and value.keys() == {'version', 'kind', 'mode', 'state', 'phase', 'failure',
                 'package_lock_sha256', 'packages_verified', 'archive_bytes', 'descendants_joined',
                 'controller_cgroup_cleanup_required', *flags, *forbidden}, 'package_installer_diagnostic')
     require(type(value['version']) is int and value['version'] == 1
             and value['kind'] == 'protected-resident-offline-package-install' and value['mode'] == mode
             and value['package_lock_sha256'] == LOCK_SHA and value['state'] in ('failed', 'configured')
-            and value['phase'] in ('guard', 'archives', 'namespace', 'runtime_device', 'status_before',
+            and value['phase'] in ('guard', 'archives', 'namespace', 'status_before', *preparation_phases,
                 'package_cache', 'package_plan', 'package_install', 'package_verify', 'unmount', 'complete')
             and value['failure'] in (None, 'installation_failed', 'cleanup_unconfirmed',
-                                    *plan_failures, *install_failures)
+                                    *plan_failures, *install_failures, *preparation_failures, *guard_failures)
             and all(type(value[key]) is bool for key in flags)
             and all(value[key] is False for key in forbidden)
             and value['controller_cgroup_cleanup_required'] is True and value['descendants_joined'] is None,
@@ -741,6 +753,15 @@ def package_installer_projection(raw, mode):
                 'package_installer_diagnostic')
     if value['failure'] in install_failures:
         require(value['state'] == 'failed' and value['phase'] == 'package_install',
+                'package_installer_diagnostic')
+    if value['phase'] in preparation_phases:
+        require(value['state'] == 'failed' and (mode == 'runtime' or value['phase'] == 'archive_mount')
+                and value['packages_verified'] == 0
+                and not any(value[key] for key in ('status_verified', 'triggers_clear', 'audit_clear')),
+                'package_installer_diagnostic')
+    if value['failure'] in preparation_failures or value['failure'] in guard_failures:
+        require(value['phase'] in preparation_phases and (value['failure'] in preparation_failures
+                or value['failure'] in preparation_guards.get(value['phase'], ())),
                 'package_installer_diagnostic')
     return {key: value[key] for key in ('state', 'phase', 'failure', 'packages_verified', *flags)}
 

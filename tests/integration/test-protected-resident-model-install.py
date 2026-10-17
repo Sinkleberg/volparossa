@@ -748,8 +748,8 @@ class PolicyTests(unittest.TestCase):
 
 
 class RuntimeDeviceTests(unittest.TestCase):
-    def exercise(self, *, serial=b'vp-resident-runtime\n', size=M.DISK_BYTES,
-                 root_name='vda1', mounted=False, kind=stat.S_IFBLK, owner=0):
+    def exercise(self, *, serial=b'vp-resident-runtime', size=M.DISK_BYTES,
+                 root_name='vda1', mounted=False, kind=stat.S_IFBLK, owner=0, runner=None):
         meta = types.SimpleNamespace(st_mode=kind | 0o660, st_uid=owner, st_gid=6, st_nlink=1,
             st_dev=5, st_ino=9, st_size=0, st_mtime_ns=0, st_ctime_ns=0, st_rdev=os.makedev(252, 32))
         root_meta = types.SimpleNamespace(st_dev=os.makedev(252, 1))
@@ -768,7 +768,7 @@ class RuntimeDeviceTests(unittest.TestCase):
              mock.patch.object(M.os, 'fstat', return_value=meta), \
              mock.patch.object(M.os, 'close'), \
              mock.patch.object(M.fcntl, 'ioctl', return_value=struct.pack('Q', size)):
-            return M.runtime_device(FakeRunner())
+            return M.runtime_device(runner or FakeRunner())
 
     def test_fixed_raw_disk_serial_size_and_not_root(self):
         self.assertEqual(self.exercise(), Path('/dev/vdc'))
@@ -778,6 +778,56 @@ class RuntimeDeviceTests(unittest.TestCase):
                         {'kind': stat.S_IFREG}, {'root_name': 'vdc1'}, {'mounted': True}):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 self.exercise(**options)
+
+
+    def test_linux_virtio_serial_has_no_newline_and_reaches_only_readonly_probe(self):
+        runner = FakeRunner()
+        self.assertEqual(self.exercise(serial=b'vp-resident-runtime', runner=runner), Path('/dev/vdc'))
+        self.assertEqual(runner.calls, [(['/usr/sbin/blkid', '-p', '-s', 'TYPE', '-o', 'value', '/dev/vdc'],
+                                        {'cap': 15, 'maximum': 1024})])
+
+    def test_serial_whitespace_nul_prefix_suffix_and_oversize_rejected_before_probe(self):
+        expected = M.RUNTIME_SERIAL.encode()
+        for serial in (b'', expected + b'\n', expected + b'\r\n', expected + b'\0', b' ' + expected,
+                       expected + b' ', b'foreign-' + expected, expected + b'-foreign', expected[:-1],
+                       expected + b'x' * 129):
+            runner = FakeRunner()
+            with self.subTest(serial=serial), self.assertRaisesRegex(ValueError, '^runtime_serial$'):
+                self.exercise(serial=serial, runner=runner)
+            self.assertEqual(runner.calls, [])
+
+
+class PreparationDiagnosticTests(unittest.TestCase):
+    def test_only_closed_labels_are_projected_without_exception_text(self):
+        class PrivateValue(ValueError):
+            def __str__(self):
+                raise AssertionError('exception string must not be read')
+        cases = ((ValueError('command_failed'), 'preparation_command_exit'),
+                 (ValueError('command_deadline'), 'preparation_command_deadline'),
+                 (ValueError('command_output'), 'preparation_command_output'),
+                 (ValueError('deadline'), 'preparation_deadline'),
+                 (M.CleanupUnconfirmed('PRIVATE_CANARY'), 'preparation_command_cleanup'),
+                 (FileNotFoundError(2, 'PRIVATE_CANARY', '/private/path'), 'preparation_missing'),
+                 (PermissionError(13, 'PRIVATE_CANARY', '/private/path'), 'preparation_permission'),
+                 (OSError(5, 'PRIVATE_CANARY', '/private/path'), 'preparation_io'),
+                 (ValueError('PRIVATE_CANARY'), 'installation_failed'),
+                 (ValueError('command_failed', 'PRIVATE_CANARY'), 'installation_failed'),
+                 (ValueError({'private': 'PRIVATE_CANARY'}), 'installation_failed'),
+                 (PrivateValue('runtime_serial'), 'installation_failed'),
+                 (TypeError('PRIVATE_CANARY'), 'installation_failed'))
+        for phase in M.PREPARATION_PHASES:
+            for error, label in cases:
+                with self.subTest(phase=phase, label=label):
+                    self.assertEqual(M.preparation_failure(error, phase), label)
+                    self.assertEqual(M.preparation_failure(error, 'package_install'), 'installation_failed')
+
+    def test_guard_reasons_are_bound_to_their_own_phase(self):
+        for expected_phase, codes in M.PREPARATION_GUARDS.items():
+            for code in codes:
+                for phase in M.PREPARATION_PHASES:
+                    with self.subTest(phase=phase, code=code):
+                        self.assertEqual(M.preparation_failure(ValueError(code), phase),
+                                         code if phase == expected_phase else 'installation_failed')
 
 
 class LifecycleTests(unittest.TestCase):
@@ -844,11 +894,95 @@ class LifecycleTests(unittest.TestCase):
                     expected.append(['/usr/sbin/resize2fs', '/dev/vdc'])
                 self.assertEqual([argv for argv, _ in runner.calls], expected)
                 self.assertFalse((stage / 'root').exists())
-                self.assertEqual((report['state'], report['phase']), ('failed', 'runtime_device'))
+                self.assertEqual((report['state'], report['phase']),
+                                 ('failed', 'runtime_fsck' if failure.endswith('e2fsck') else 'runtime_resize'))
                 self.assertTrue(report['runtime_unmounted'])
                 self.assertFalse(report['complete_guest_cleanup'])
                 self.assertNotIn('PRIVATE_CANARY', json.dumps(report))
                 self.assertEqual(json.loads((stage / 'worker-result.json').read_bytes()), report)
+
+    def test_preparation_failures_block_next_mutation_and_join_every_owned_mount(self):
+        for failed_phase in M.PREPARATION_PHASES:
+            with self.subTest(phase=failed_phase), tempfile.TemporaryDirectory() as directory:
+                stage = Path(directory)
+                (stage / 'debs').mkdir()
+                runner, completed = FakeRunner(), []
+                original_run = runner.run
+                def run(argv, **options):
+                    values = [str(value) for value in argv]
+                    phase = None
+                    if values[0] == '/usr/sbin/e2fsck':
+                        phase = 'runtime_fsck'
+                    elif values[0] == '/usr/sbin/resize2fs':
+                        phase = 'runtime_resize'
+                    elif values[:3] == ['/usr/bin/mount', '-t', 'ext4']:
+                        phase = 'runtime_mount'
+                    elif values[0] == '/usr/bin/mount' and values[-1] == str(stage / 'root/run'):
+                        phase = 'runtime_bootstrap'
+                    elif values[:2] == ['/usr/bin/mount', '--bind'] and values[-1].endswith('/debs'):
+                        phase = 'archive_mount'
+                    if phase is not None:
+                        if phase == failed_phase:
+                            runner.calls.append((values, options))
+                            raise ValueError('command_failed')
+                        completed.append(phase)
+                    result = original_run(argv, **options)
+                    if phase == 'runtime_mount':
+                        root = Path(values[-1])
+                        for name in ('run', 'proc', 'dev'):
+                            (root / name).mkdir()
+                        put(root / 'usr/lib/os-release', b'VERSION_ID="13"\n')
+                    return result
+                runner.run = run
+                device_error = ValueError('runtime_serial') if failed_phase == 'runtime_device' else None
+                with mock.patch.object(M.subprocess, 'Popen', side_effect=AssertionError('real_process_forbidden')) as spawn, \
+                     mock.patch.object(M, 'namespace_guard'), mock.patch.object(M, 'guest_guard'), \
+                     mock.patch.object(M, 'load_lock', return_value={'public': item()}), \
+                     mock.patch.object(M, 'runtime_device', return_value=Path('/dev/vdc'), side_effect=device_error), \
+                     mock.patch.object(M, 'Runner', return_value=runner), mock.patch.object(M, 'install') as install:
+                    report = M.worker({'mode': 'runtime', 'deadline': deadline()}, stage)
+                spawn.assert_not_called()
+                install.assert_not_called()
+                self.assertEqual(report['phase'], failed_phase)
+                self.assertEqual(report['failure'], 'runtime_serial' if device_error else 'preparation_command_exit')
+                self.assertEqual(report['state'], 'failed')
+                self.assertEqual(completed, list(M.PREPARATION_PHASES[1:M.PREPARATION_PHASES.index(failed_phase)]))
+                calls = [argv for argv, _ in runner.calls]
+                successful_mounts = [argv[-1] for argv in calls if argv[0] == '/usr/bin/mount']
+                if failed_phase in ('runtime_mount', 'runtime_bootstrap', 'archive_mount'):
+                    successful_mounts.pop()  # The failing mount is not owned.
+                self.assertEqual([argv[-1] for argv in calls if argv[0] == '/usr/bin/umount'],
+                                 successful_mounts[::-1])
+                self.assertTrue(report['runtime_unmounted'] and report['direct_child_groups_joined'])
+                self.assertFalse(report['complete_guest_cleanup'])
+                self.assertEqual(report['packages_verified'], 0)
+
+    def test_preparation_failure_keeps_original_reason_when_unmount_is_unconfirmed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stage, runner = Path(directory), FakeRunner()
+            original_run = runner.run
+            def run(argv, **options):
+                values = [str(value) for value in argv]
+                if values[0] == '/usr/bin/umount':
+                    runner.joined = False
+                    raise M.CleanupUnconfirmed('PRIVATE_CANARY')
+                result = original_run(argv, **options)
+                if values[:3] == ['/usr/bin/mount', '-t', 'ext4']:
+                    put(Path(values[-1]) / 'usr/lib/os-release', b'VERSION_ID="12"\n')
+                return result
+            runner.run = run
+            with mock.patch.object(M.subprocess, 'Popen', side_effect=AssertionError('real_process_forbidden')), \
+                 mock.patch.object(M, 'namespace_guard'), mock.patch.object(M, 'guest_guard'), \
+                 mock.patch.object(M, 'load_lock', return_value={'public': item()}), \
+                 mock.patch.object(M, 'runtime_device', return_value=Path('/dev/vdc')), \
+                 mock.patch.object(M, 'Runner', return_value=runner), mock.patch.object(M, 'install') as install:
+                report = M.worker({'mode': 'runtime', 'deadline': deadline()}, stage)
+            install.assert_not_called()
+            self.assertEqual((report['state'], report['phase'], report['failure']),
+                             ('failed', 'runtime_bootstrap', 'runtime_debian'))
+            self.assertFalse(report['runtime_unmounted'])
+            self.assertFalse(report['direct_child_groups_joined'])
+            self.assertNotIn('PRIVATE_CANARY', json.dumps(report))
 
     def test_outer_fixed_namespace_launcher_and_original_deadline_receipt(self):
         with tempfile.TemporaryDirectory() as directory:

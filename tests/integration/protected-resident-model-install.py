@@ -40,6 +40,14 @@ ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C', 'LC_ALL': 'C',
        'SYSTEMD_OFFLINE': '1'}
 POLICY = b'#!/bin/sh\nexit 101\n'
 STATUS_FORMAT = '${Package}\t${Version}\t${Architecture}\t${Status}\t${Triggers-Pending}\t${Triggers-Awaited}\n'
+PREPARATION_PHASES = ('runtime_device', 'runtime_fsck', 'runtime_resize', 'runtime_mount',
+                      'runtime_bootstrap', 'archive_mount')
+PREPARATION_GUARDS = {
+    'runtime_device': ('runtime_alias', 'runtime_path', 'runtime_device', 'runtime_serial',
+        'runtime_root_device', 'runtime_already_mounted', 'runtime_changed', 'runtime_size',
+        'runtime_ext4', 'mountinfo_bound', 'kernel_file_bound'),
+    'runtime_bootstrap': ('runtime_debian', 'runtime_mountpoint', 'input_file', 'input_changed'),
+}
 
 
 def require(condition, code):
@@ -304,7 +312,9 @@ def runtime_device(runner):
     require(stat.S_ISBLK(meta.st_mode) and meta.st_uid == 0 and meta.st_nlink == 1, 'runtime_device')
     serial = Path('/sys/class/block') / path.name / 'serial'
     with serial.open('rb') as source:
-        require(source.read(128) == (RUNTIME_SERIAL + '\n').encode(), 'runtime_serial')
+        # virtio_blk serial_show returns strlen(buf), without a newline:
+        # https://github.com/gregkh/linux/blob/v6.12.105/drivers/block/virtio_blk.c#L835-L852
+        require(source.read(128) == RUNTIME_SERIAL.encode(), 'runtime_serial')
     root = Path('/sys/dev/block') / f'{os.major(Path("/").stat().st_dev)}:{os.minor(Path("/").stat().st_dev)}'
     root = root.resolve(strict=True)
     require(path.name not in (root.name, root.parent.name), 'runtime_root_device')
@@ -464,6 +474,28 @@ def install_failure(error):
             'command_output': 'install_command_output'}.get(error.args[0], 'installation_failed')
 
 
+def preparation_failure(error, phase):
+    """Closed diagnostics from existing operations; no extra device probes or logs."""
+    if phase not in PREPARATION_PHASES:
+        return 'installation_failed'
+    if type(error) is CleanupUnconfirmed:
+        return 'preparation_command_cleanup'
+    if type(error) is FileNotFoundError:
+        return 'preparation_missing'
+    if type(error) is PermissionError:
+        return 'preparation_permission'
+    if isinstance(error, OSError):
+        return 'preparation_io'
+    if type(error) is not ValueError or len(error.args) != 1 or type(error.args[0]) is not str:
+        return 'installation_failed'
+    code = error.args[0]
+    if code in PREPARATION_GUARDS.get(phase, ()):
+        return code
+    return {'command_failed': 'preparation_command_exit', 'command_deadline': 'preparation_command_deadline',
+            'command_output': 'preparation_command_output', 'deadline': 'preparation_deadline'}.get(
+                code, 'installation_failed')
+
+
 def install(root, directory, visible, selected, runner, report):
     prefix = ['/usr/sbin/chroot', root]
     env = {'APT_CONFIG': str(visible / 'apt.conf')}
@@ -547,12 +579,16 @@ def worker(config, stage):
         if mode == 'runtime':
             report['phase'] = 'runtime_device'
             device = runtime_device(runner)
+            report['phase'] = 'runtime_fsck'
             runner.run(['/usr/sbin/e2fsck', '-f', '-p', device], allowed=(0, 1), cap=600)
+            report['phase'] = 'runtime_resize'
             runner.run(['/usr/sbin/resize2fs', device], cap=600)
+            report['phase'] = 'runtime_mount'
             root = stage / 'root'
             root.mkdir(mode=0o700)
             runner.run(['/usr/bin/mount', '-t', 'ext4', '-o', 'rw,nosuid,nodev', device, root], cap=30)
             mounts.append(root)
+            report['phase'] = 'runtime_bootstrap'
             require('VERSION_ID="13"' in read_file(root / 'usr/lib/os-release', 16384,
                                                   runner.deadline).decode(), 'runtime_debian')
             for name in ('run', 'proc', 'dev'):
@@ -572,6 +608,7 @@ def worker(config, stage):
             visible = Path('/run/vp-resident-install')
             directory = root / visible.relative_to('/')
             directory.mkdir(mode=0o700)
+        report['phase'] = 'archive_mount'
         (directory / 'debs').mkdir(mode=0o700)
         runner.run(['/usr/bin/mount', '--bind', stage / 'debs', directory / 'debs'], cap=30)
         mounts.append(directory / 'debs')
@@ -581,8 +618,10 @@ def worker(config, stage):
         runner.run(['/usr/bin/sync'], cap=60)
         report['state'] = 'configured'
         report['failure'] = None
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, CleanupUnconfirmed):
-        pass  # Fixed phase only: no exception, argv, package log or guest path export.
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, CleanupUnconfirmed) as error:
+        if report['phase'] in PREPARATION_PHASES:
+            report['failure'] = preparation_failure(error, report['phase'])
+        # Never export exception text, argv, package output or guest paths.
     finally:
         unmounted = True
         clean = Runner(time.monotonic_ns() + 30 * 1_000_000_000)

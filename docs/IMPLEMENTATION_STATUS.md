@@ -12,7 +12,7 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-17
+Last updated: 2026-10-18
 
 ## Current integration and active work
 
@@ -47,7 +47,7 @@ the merged binary has not been rerun through the model trial.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38860289559` on `08ba6b21` passes the base maintenance lifecycle but fails Cloud RESERVE: first the inner provider TLS handshake expires, then a second flow acquisition reports incomplete helper cleanup. The retained-route cleanup fix has not resolved consumer acceptance. Investigate bounded route lifetime and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven; earlier trials retain their separate outcomes. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 and native-only core PR277 are merged. Code retains its immutable core dependency; source acceptance of the new core composition is not a repeat model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Complete offline guest package installation, then join an authorized immutable guest, resident coding worker and guest-terminated TLS 1.3 session. | Original actual `38917448052` on `315ddb3e` passes the package plan after the curl correction, but fails at `package_install`, before model construction. The next correction supplies fresh authenticated archives at APT's canonical cache paths while retaining `--no-download`; its actual guest acceptance remains required. Two model turns, protected execution, production approval and suitable confidential-computing hardware remain open. Integrate resident-only work separately from the inherited unfinished Storage branch. |
+| Protected remote compute — `volparossa`, then Code/Browser | Complete runtime-disk preparation and installation, then join an authorized immutable guest, resident coding worker and guest-terminated TLS 1.3 session. | Original actual `39073431997` on `c58d3910` configures and verifies all 199 build packages. Runtime preparation then fails before runtime package planning; its broad `runtime_device` phase does not identify the failed substep. VM/tool joining and scratch removal pass. Runtime installation, model construction, two turns, protected execution and production approval remain open. Integrate resident-only work separately from inherited unfinished Storage code; suitable confidential-computing hardware remains unavailable. |
 
 ### Public resident model integration candidate
 
@@ -595,9 +595,56 @@ output bound and unconfirmed command cleanup without exporting raw logs.
 
 Independent local inert checks pass **52 installer, 139 controller and 29 assembly
 tests**. They exercise fresh cache bytes and adversarial inputs without running
-APT, a VM or a model. The hosted source gate now requires 100 Rust and 347 Python
-tests. A new exact-source guest trial must still prove real installation and the
-two model turns before the correction is considered operationally accepted.
+APT, a VM or a model. Original source run
+[`39072782650`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39072782650)
+passes on `c58d39104dfb937617c5920269e8286749718399`, tree
+`6235102a6b2bbd3f62b63dcd0931b38cdbce67ca`: 100 unique Rust and 347 Python
+tests, compilation, strict Clippy, an empty formatter patch and exact final
+source. All 36 source blobs, 560 dependency identities and the package/model
+pins bind. These source checks also pass in the subsequent original actual run.
+
+Original actual
+[`39073431997`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39073431997)
+now completes offline build-package installation: all **199 exact packages** are
+configured and verified, with clear audits/triggers and policy restoration,
+namespace joining and direct-child cleanup. This is actual guest installation,
+not merely a simulated APT plan.
+
+The same run fails during runtime preparation with `guest_unit_failed`; the
+runtime installer reports `runtime_device / installation_failed`. That phase
+covers disk identity checks, filesystem check/growth, mounting and bootstrap,
+so the exact failed substep remains unknown. Runtime archives are authenticated,
+but runtime package planning and installation are not reached. Its namespace,
+direct-child and mount cleanup flags pass. Controller VM/tool joining, scratch
+removal, user-manager restoration and final source checks also pass; the final
+host route/DNS comparison is not reached. Model construction, sealed runtime
+boot and both model turns remain unproven.
+
+Both original artifact API digests and all three ZIP CRC checks pass. Actual
+source-contract, trial and log ZIP SHA-256 values are respectively
+`1f4b178db7ee0ae591bd4d39f91fc0ad00161f24f7588ce935b6e6aa493bc88e`,
+`b5d2d3b1233722b00c36b1f307ebac59b646af18e4103e4b95a18487ce68435c`
+and `0810ae6ae6fe7b5e0f6b8d6286c3d2b55f7a0249fb48bc05661ab62f021c1818`.
+The earlier installation failure retains its original outcome and unproven cause.
+
+The follow-up corrects a concrete disk-identity mismatch: Linux's
+[`virtio_blk` serial attribute](https://github.com/gregkh/linux/blob/v6.12.105/drivers/block/virtio_blk.c#L835-L852)
+returns the serial without a newline. The installer previously required a
+newline, and its inert fixture repeated that incorrect assumption. It now
+requires the exact serial bytes; whitespace, NUL, prefix/suffix additions and
+oversized values remain rejected before the filesystem probe. This source defect
+is established, but the previous broad receipt cannot prove it was the first
+runtime failure or that no further problem remains.
+
+Fixed preparation phases now distinguish device validation, filesystem check,
+growth, mount, bootstrap and archive mounting. Only closed failure categories
+are exported, without device paths, raw output or exception text. The controller
+rejects inconsistent mode, phase and verification claims. Device/root/mount/size
+guards, subprocess commands, allowed exit codes, resource limits, package pins
+and cleanup remain unchanged. Independent inert runs pass **58 installer,
+142 controller and 29 assembly tests**; the hosted source inventory becomes
+100 Rust and 356 Python tests. Actual runtime installation and model execution
+still require the next exact-source hosted trial.
 
 Main integration must isolate the resident-only changes: this candidate's
 parent chain also contains unfinished Storage production code. Preserve main's
