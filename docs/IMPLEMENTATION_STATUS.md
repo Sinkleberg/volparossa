@@ -33,7 +33,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Accept the corrected fresh-route deposit probe, then close the route-lifecycle coverage gap before completing consumer repair, restoration and deletion. | Source `39074693102` passes on `3ab2f6cb`. Probes `39077261472` and `39079108548` each complete ten verified deposits/deletions and zero provider usage, but fail separate reporting steps. Candidate `82a23bdd` corrects the remaining success marker with 15 passing sequence tests; original run `39080705711` awaits acceptance. The earlier full consumer failure `38917106698` remains unresolved; fresh-route cleanup does not establish cleanup for that failed consumer run. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Close the route-lifecycle coverage gap, then complete consumer repair, restoration and deletion. | Source `39074693102` passes on `3ab2f6cb`. Fresh-route probe `39080705711` on `82a23bdd` passes ten verified deposits/deletions, 40 completed flows, zero provider usage and full cleanup. Its original report, source and artifacts pass independent audit. Earlier report failures and full consumer failure `38917106698` retain their outcomes; fresh-route success does not establish the failed consumer's cleanup or cause. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then repair, restore and delete it after provider loss. | PR279 joins upload profile 6 to shared consumer profile 10 on `dd1fd4df`; source run `38903572207` passes. A real upload trial still requires the shared Storage consumer acceptance above, joined cleanup and zero usage at all three providers. Finite authorization, HTTP PUT, enrollment, repeated restore and all-copy deletion remain required; source checks and synthetic-core SDK results do not replace them. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and the native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 keeps that immutable core pin. Core PR277 integrates the native-only composition after Quality and CodeQL pass; this main composition has not had a new model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
 | Protected remote compute — `volparossa`, then Code/Browser | Resolve the guest export failure, construct the sealed runtime and execute two public model turns before joining approved private workloads. | Actual `39078833292` on `fabfa849` repeats 100 Rust / 370 Python source checks and verifies all 199 build and 65 runtime packages. Its bounded receipt identifies the export phase, after native build and model provisioning, but not the exact failed export or final-check operation. Model execution, production approval, vendor appraisal and confidential hardware remain open. |
@@ -46,7 +46,7 @@ Image/Cloud maintenance, model execution in the immutable guest, or private admi
 
 #### Latest Storage and model checkpoints
 
-**Ten fresh-route deposits succeed; report acceptance still needs verification.**
+**Ten fresh-route deposits and their complete cleanup are accepted.**
 [Source run `39074693102`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39074693102)
 on `3ab2f6cb9476623234191a7b416934960538ef9d` passes 148 Rust, 296 Python,
 50 Node and 48 normalizer checks, compilation, strict lint, formatting and all
@@ -82,7 +82,15 @@ only after evidence validation succeeds. Fifteen sequence tests pass, including
 real-shell finalization, preserved evidence/cleanup failures and a negative
 control reproducing the old marker error. Original
 [run `39080705711`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39080705711)
-awaits acceptance on that frozen source. No original report is rewritten.
+passes on that frozen source: ten owner-verified deposits and deletions, 40
+completed protected flows with zero failures, zero usage at all three providers,
+joined observers/children, removed private fixtures and complete topology
+cleanup. Guest-root host-state hashes match. Independent reconstruction matches
+the unmodified combined evidence and final report; its blocker is null and guest
+exit status is zero. Exact source bindings, the closed 22-file export, artifact
+API digest and ZIP integrity pass. Original artifact SHA-256:
+`65acd1436a71c1d315786cbb2ae9fac60ed632ed3d70d33e02122327382f7138`.
+No earlier report is rewritten.
 
 This fresh-route probe does not resolve the full Image/Cloud failure below. The
 older fixture completed 106 post-reconnect flows across at least 531 seconds
@@ -90,6 +98,11 @@ before starting its consumers. It reused the post-reconnect route and reopened
 provider stores; the application owners were freshly created. Its failing
 consumer has no final failure-to-route-age binding. Ordinary route expiry or
 lifecycle overlap is a coverage gap to test, not an established failure cause.
+The next retained fixture, [PR287](https://github.com/VOLPAROSSA/volparossa/pull/287),
+tests natural idle expiry and ordinary route reselection with unchanged owner
+and provider state. It preserves production lifetimes and does not force a
+reconnect; live handshake expiry and the full consumer lifecycle remain separate
+acceptance requirements.
 
 **Both package profiles install; the guest builder remains the model blocker.**
 Original [public trial `39075796147`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39075796147)
@@ -126,6 +139,17 @@ integrity checks pass; trial artifact SHA-256 is
 The diagnostic change improves failure identification rather than proving a
 builder fix; public execution would not prove confidential private-peer
 execution or hardware attestation.
+
+The subsequent diagnostic candidate `3a1a15930fa69b89c9275f980e02eb6b89c94fb7`
+adds closed export-operation labels while preserving commands, pins, deadlines,
+cleanup and the successful receipt schema. [Source run `39081437862`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39081437862)
+passes 100 Rust and 381 Python cases, compilation, strict lint, an empty formatter
+patch and final-source checks. All earlier test methods remain; 11 diagnostic
+cases are added. The exact source, dependency and fixed-input bindings, artifact
+digest and ZIP integrity pass. Artifact SHA-256:
+`b056c7610888648818d9e30f4dcc6f7b6f9602b76e988999cb1eff7af4030613`.
+This source acceptance does not resolve the original export failure or accept
+model execution.
 
 #### Earlier candidate evidence
 
