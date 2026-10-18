@@ -47,7 +47,7 @@ the merged binary has not been rerun through the model trial.
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Complete consumer publication, repair and restoration after provider loss. | Actual `38860289559` on `08ba6b21` passes the base maintenance lifecycle but fails Cloud RESERVE: first the inner provider TLS handshake expires, then a second flow acquisition reports incomplete helper cleanup. The retained-route cleanup fix has not resolved consumer acceptance. Investigate bounded route lifetime and failure cleanup without extending deadlines or treating diagnostics as acceptance. Consumer remote cleanup remains unproven; earlier trials retain their separate outcomes. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then resume maintenance and restore it after provider loss. | Core PR233 adds an absolute authorization ceiling; Image PR7 forwards it without rebasing. Cloud PR14 implements finite shared admission budgets, durable reservation/enrollment, restart reconciliation and an encrypted empty catalog for a first upload. Actual OpenCloud SDK upload/list/read checks pass with a synthetic core; this does not prove peer maintenance. Join these candidates to the real upload-to-repair-to-restore trial after the existing storage milestone; its pinned consumers stay unchanged. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 and native-only core PR277 are merged. Code retains its immutable core dependency; source acceptance of the new core composition is not a repeat model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Complete model construction, then join an authorized immutable guest, resident coding worker and guest-terminated TLS 1.3 session. | Original actual `39075796147` on `6d0feec7` configures and verifies all 199 build and 65 runtime packages, then fails in the builder unit. The original receipt does not retain its failed substep. VM/tool joining and scratch removal pass. The candidate adds bounded, failure-only builder diagnostics after verified unit shutdown; it does not yet fix or identify the build failure. Model construction, two turns, protected execution and production approval remain open. Integrate resident-only work separately from inherited unfinished Storage code; suitable confidential-computing hardware remains unavailable. |
+| Protected remote compute — `volparossa`, then Code/Browser | Complete immutable asset export, then join an authorized guest, resident coding worker and guest-terminated TLS 1.3 session. | Original actual `39078833292` on `fabfa849` again verifies 199 build and 65 runtime packages. Its closed builder receipt reaches `export`, after native build/provision validation, but does not identify which export or final recheck failed. VM/tool joining and scratch removal pass. The candidate adds bounded export-operation labels, not a demonstrated fix. Completed asset export, runtime boot, two turns, protected execution and production approval remain open. Integrate resident-only work separately from inherited unfinished Storage code; suitable confidential-computing hardware remains unavailable. |
 
 ### Public resident model integration candidate
 
@@ -691,8 +691,38 @@ Builder subprocesses, phase granularity, deadlines, resource limits and all
 package/native/core dependency pins remain unchanged. Focused inert checks pass
 **58 installer, 156 controller and 29 assembly tests**, including 14 new builder
 diagnostic cases. The expected hosted source inventory is now 100 Rust and
-370 Python tests. This correction still needs its own exact-source hosted checks
-and subsequent actual trial; it does not identify or resolve the build failure.
+370 Python tests. Original source
+[`39078193265`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39078193265)
+passes that inventory, compilation, strict Clippy, formatting and exact final
+source checks on `fabfa8494585fc4bcd91ec452389ec77c743e81f`, tree
+`e253f01d4b3f0e96b1b27a56fd9d49f06c79f0a7`.
+
+Original actual
+[`39078833292`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39078833292)
+repeats the source checks and both **199/65-package installations**, then fails
+with `guest_model_build / guest_unit_failed`. The new diagnostic identifies
+builder phase `export` and exit status 1, with source binding and direct-child
+joining confirmed. The bound builder source reaches that phase only after
+native compilation, provisioning and their validation return. The phase still
+covers asset export and final source/deadline rechecks; the exact failed operation
+and cause remain unknown. Controller VM/tool joining, scratch removal and
+workflow restoration pass. Runtime boot, model turns and the final host route/DNS
+comparison are not reached. Both artifact API digests and all three ZIP CRC
+checks pass; the trial ZIP SHA-256 is
+`3369301879d00e7f4c10cc93dc07dc28b68b75a658a6a2068e078d51c2772425`,
+and its retained audit SHA-256 is
+`00a0a14398edae00ec20334bb71a98c20916d5f733ad090a896951976ad3f436`.
+
+The next correction labels nine existing export operations and retains only
+known, operation-specific validation codes or closed exception categories. It
+distinguishes an export return from final source/deadline checks, preserves the
+successful receipt schema and accepts older failure receipts without these
+labels. Raw exception text, paths and model data remain excluded. Commands,
+mutation order, validation, pins, budgets and cleanup are unchanged. Inert
+checks pass **39 builder, 160 controller, 58 installer and 29 assembly tests**;
+the expected hosted inventory is 100 Rust and 381 Python tests, retaining all
+370 prior cases. This diagnostic change still needs its own hosted source check
+and actual trial; it is not a fix for the unproven export cause.
 
 Main integration must isolate the resident-only changes: this candidate's
 parent chain also contains unfinished Storage production code. Preserve main's

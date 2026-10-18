@@ -865,7 +865,7 @@ def builder_failure_projection(raw, source):
         optional.update(('provision', 'native_build_manifest_sha256'))
     elif phase == 'export':
         required.update(('provision', 'native_build_manifest_sha256'))
-        optional.add('export')
+        optional.update(('export', 'export_diagnostic'))
     require(base | required <= value.keys() <= base | required | optional, 'builder_diagnostic')
     if 'installed_build_packages' in value:
         require(type(value['installed_build_packages']) is int and value['installed_build_packages'] == 199,
@@ -894,9 +894,29 @@ def builder_failure_projection(raw, source):
             require(type(exported[key]) is str and re.fullmatch('[0-9a-f]{64}', exported[key]), 'builder_diagnostic')
         for key, maximum in (('asset_files', 65536), ('asset_bytes', 32 * GIB)):
             require(type(exported[key]) is int and 0 < exported[key] <= maximum, 'builder_diagnostic')
+    diagnostic = value.get('export_diagnostic')
+    if 'export_diagnostic' in value:
+        contract = module('protected-resident-model-build')  # Source-owned stdlib schema, no guest assets.
+        require(type(diagnostic) is dict and diagnostic.keys() == {'operation', 'reason'}
+                and type(diagnostic['operation']) is str and diagnostic['operation'] in contract.EXPORT_ERRORS,
+                'builder_diagnostic')
+        operation, reason = diagnostic['operation'], diagnostic['reason']
+        require(reason is None or (type(reason) is str
+                and reason in contract.EXPORT_ERRORS[operation] | contract.EXPORT_CATEGORIES), 'builder_diagnostic')
+        if reason is not None:
+            require((reason == 'cleanup_unconfirmed') == (not value['direct_child_groups_joined']),
+                    'builder_diagnostic')
+        if operation in ('source_recheck', 'final_deadline'):
+            require('export' in value, 'builder_diagnostic')
+        elif operation != 'write_inventory':
+            require('export' not in value, 'builder_diagnostic')
+        # An interrupt can occur after export returned but before the next label.
+        if 'export' in value and operation == 'write_inventory':
+            require(reason in (None, 'interrupted'), 'builder_diagnostic')
     # Later-stage nested metadata is validated but never exported as a diagnostic.
     return dict(state=value['state'], phase=phase, source_tree_bound='source_tree' in value,
         installed_build_packages=value.get('installed_build_packages'),
+        export_returned='export' in value, export_diagnostic=diagnostic,
         direct_child_groups_joined=value['direct_child_groups_joined'],
         controller_cgroup_cleanup_required=True, descendants_joined=None,
         **{key: False for key in forbidden})

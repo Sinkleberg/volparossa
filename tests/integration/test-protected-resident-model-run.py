@@ -1755,6 +1755,64 @@ class BuilderDiagnostic(Inert):
         return dict(inventory_sha256='1' * 64, workload_sha256='2' * 64, native_backend_sha256='3' * 64,
                     asset_files=1, asset_bytes=1024)
 
+    def test_export_operation_projection_is_closed_and_binds_returned_boundary(self):
+        contract = R.module('protected-resident-model-build')
+        for operation, labels in contract.EXPORT_ERRORS.items():
+            for reason in (None, *sorted(labels | contract.EXPORT_CATEGORIES)):
+                with self.subTest(operation=operation, reason=reason):
+                    extra = {'export': self.export()} if operation in ('source_recheck', 'final_deadline') else {}
+                    value = self.receipt('export', export_diagnostic=dict(operation=operation, reason=reason),
+                        direct_child_groups_joined=reason != 'cleanup_unconfirmed', **extra)
+                    result = R.builder_failure_projection(R.encoded(value), self.SOURCE)
+                    self.assertEqual(result['export_diagnostic'], value['export_diagnostic'])
+                    self.assertEqual(result['export_returned'], 'export' in value)
+                    self.assertFalse(result['assets_exported'] or result['model_execution'])
+                    for key in ('provision', 'export', 'source_commit', 'native_build_manifest_sha256'):
+                        self.assertNotIn(key, result)
+
+    def test_export_projection_accepts_legacy_and_interrupted_return_boundary(self):
+        for exported in (False, True):
+            value = self.receipt('export', **({'export': self.export()} if exported else {}))
+            result = R.builder_failure_projection(R.encoded(value), self.SOURCE)
+            self.assertIsNone(result['export_diagnostic'])
+            self.assertEqual(result['export_returned'], exported)
+        for reason in (None, 'interrupted'):
+            value = self.receipt('export', export=self.export(),
+                export_diagnostic=dict(operation='write_inventory', reason=reason))
+            self.assertTrue(R.builder_failure_projection(R.encoded(value), self.SOURCE)['export_returned'])
+
+    def test_export_projection_denies_private_unknown_and_inconsistent_combinations(self):
+        invalid = [None, [], {}, {'operation': 'metadata'}, {'reason': None},
+            dict(operation='PRIVATE_CANARY', reason=None), dict(operation='complete', reason=None),
+            dict(operation='metadata', reason='PRIVATE_CANARY'), dict(operation='metadata', reason=True),
+            dict(operation=True, reason=None), dict(operation='metadata', reason=[]),
+            dict(operation='declaration', reason='model_pin'),
+            dict(operation='metadata', reason='source_changed'),
+            dict(operation='metadata', reason=None, raw='PRIVATE_CANARY')]
+        values = [self.receipt('export', export_diagnostic=item) for item in invalid]
+        values += [self.receipt('build', export_diagnostic=dict(operation='metadata', reason=None)),
+            self.receipt('export', export_diagnostic=dict(operation='source_recheck', reason=None)),
+            self.receipt('export', export_diagnostic=dict(operation='final_deadline', reason='build_deadline')),
+            self.receipt('export', export=self.export(), export_diagnostic=dict(operation='metadata', reason=None)),
+            self.receipt('export', export=self.export(), export_diagnostic=dict(operation='write_inventory', reason='io_error')),
+            self.receipt('export', export_diagnostic=dict(operation='metadata', reason='cleanup_unconfirmed')),
+            self.receipt('export', direct_child_groups_joined=False,
+                export_diagnostic=dict(operation='metadata', reason='model_pin'))]
+        for value in values:
+            with self.subTest(value=value.get('export_diagnostic')), self.assertRaises(ValueError):
+                R.builder_failure_projection(R.encoded(value), self.SOURCE)
+
+    def test_export_observer_keeps_original_unit_failure_for_valid_and_rejected_diagnostics(self):
+        for reason, accepted in (('model_pin', True), ('PRIVATE_CANARY', False)):
+            value = self.receipt('export', export_diagnostic=dict(operation='metadata', reason=reason))
+            error, diagnostics, calls = self.observe(reply=(R.encoded(value), b'', 0))
+            self.assertEqual(str(error), 'guest_unit_failed')
+            self.assertEqual(len(calls), 5)
+            self.assertEqual(diagnostics[0]['builder'] is not None, accepted)
+            self.assertNotIn('PRIVATE_CANARY', str(diagnostics))
+            if accepted:
+                self.assertEqual(diagnostics[0]['builder']['export_diagnostic']['reason'], 'model_pin')
+
     def observe(self, *, reply=None, query_error=None, stop_error=None, stop_status=0, empty_error=None,
                 observation_error=None, cancelled=False, success=False, status=None):
         guest, calls, diagnostics = R.Guest(Path('/synthetic'), 200), [], []

@@ -41,6 +41,55 @@ ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.
        'PYTHONDONTWRITEBYTECODE': '1', 'GIT_CONFIG_NOSYSTEM': '1',
        'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0',
        'CARGO_BUILD_JOBS': '2', 'CARGO_PROFILE_DEV_DEBUG': '0', 'CARGO_INCREMENTAL': '0'}
+# Diagnostic schema only. These exact source-owned labels never authorize work.
+EXPORT_ERRORS = {
+    'declaration': frozenset(('build_deadline', 'module_path', 'input_file', 'input_changed',
+        'duplicate_json_key', 'nonfinite_json', 'public_requester_declaration')),
+    'relocate': frozenset(),
+    'core_copy': frozenset(('build_deadline', 'core_binary_metadata', 'core_binary_elf',
+        'core_binary_changed', 'core_binary_copy', 'asset_file', 'asset_changed')),
+    'fixture_copy': frozenset(('build_deadline', 'input_file', 'input_changed', 'public_tls_fixture')),
+    'inventory': frozenset(('build_deadline', 'stage_deadline', 'inventory_entries',
+        'asset_directory_metadata', 'asset_file', 'asset_changed', 'export_bytes',
+        'inventory_digest', 'core_source', 'inventory_bound', 'inventory_scope', 'inventory_entry',
+        'asset_scope', 'lease_is_generated', 'symlink_scope', 'file_inventory', 'executable_scope',
+        'inventory_parent_file', 'inventory_total', 'core_executable', 'symlink_loop',
+        'symlink_external', 'symlink_escape', 'symlink_target', 'symlink_missing')),
+    'metadata': frozenset(('stage_deadline', 'asset_path', 'asset_file_metadata', 'asset_file_bound',
+        'asset_digest', 'duplicate_json_key', 'nonfinite_json', 'model_inventory', 'model_pin',
+        'native_inventory', 'native_session_required', 'native_build_digest', 'native_build_binding',
+        'native_dependency_binding', 'native_wrapper_binding', 'native_artifact_binding',
+        'runtime_python', 'runtime_config', 'elf_bound', 'elf_identity', 'public_policy_binding',
+        'fixture_tls_bound', 'symlink_loop', 'symlink_external', 'symlink_escape', 'symlink_target',
+        'symlink_missing', 'NATIVE_OUTPUT_CONSTRAINT_VERSION', 'NATIVE_OUTPUT_CONSTRAINT_BINDING',
+        'NATIVE_SESSION_BINDING', 'NATIVE_BUILD_PATCH_BINDING', 'NATIVE_CPU_PATCH_BINDING',
+        'NATIVE_ARTIFACT_BINDING', 'NATIVE_CONVERSION_BINDING', 'NATIVE_MANIFEST_BINDING',
+        'NATIVE_MANIFEST_FIELDS')),
+    'write_inventory': frozenset(),
+    'source_recheck': frozenset(('build_deadline', 'input_file', 'input_changed', 'source_commit',
+        'source_path', 'source_commit_tree', 'source_entries', 'source_owner', 'source_bytes',
+        'source_tree', 'helper_path', 'helper_source', 'source_changed')),
+    'final_deadline': frozenset(('build_deadline',)),
+}
+EXPORT_CATEGORIES = frozenset(('missing_file', 'existing_path', 'permission_denied', 'interrupted',
+    'timeout', 'io_error', 'missing_field', 'invalid_type', 'invalid_value', 'subprocess_failed',
+    'cleanup_unconfirmed'))
+
+
+def export_failure(error, operation):
+    # Never stringify exceptions: only exact closed labels or their class escape.
+    if (type(error) is ValueError and len(error.args) == 1 and type(error.args[0]) is str
+            and type(operation) is str and operation in EXPORT_ERRORS
+            and error.args[0] in EXPORT_ERRORS[operation]):
+        return error.args[0]
+    for kind, label in ((CleanupUnconfirmed, 'cleanup_unconfirmed'),
+            (FileNotFoundError, 'missing_file'), (FileExistsError, 'existing_path'),
+            (PermissionError, 'permission_denied'), (InterruptedError, 'interrupted'),
+            (TimeoutError, 'timeout'), (OSError, 'io_error'), (KeyError, 'missing_field'),
+            (TypeError, 'invalid_type'), (subprocess.SubprocessError, 'subprocess_failed')):
+        if isinstance(error, kind):
+            return label
+    return 'invalid_value'
 
 
 def require(condition, code):
@@ -407,7 +456,9 @@ def copy_core_binary(source, target, deadline):
                 sha256=digest.hexdigest(), executable=True), 'core_binary_copy')
 
 
-def export_assets(core, binary, native, fixture, output, source, deadline):
+def export_assets(core, binary, native, fixture, output, source, deadline, progress=None):
+    if progress is not None:
+        progress['operation'] = 'declaration'
     stager = load_module(core / 'tests/integration/protected-resident-model-workload.py', 'resident_stager')
     declaration = parse(read_file(fixture / 'requester.json', 4096, deadline))
     require(type(declaration) is dict and set(declaration) == {'requester_key', 'public_input_sha256'}
@@ -415,6 +466,8 @@ def export_assets(core, binary, native, fixture, output, source, deadline):
             and type(declaration['public_input_sha256']) is list and len(declaration['public_input_sha256']) == 2
             and all(type(item) is str and SHA.fullmatch(item) for item in declaration['public_input_sha256']),
             'public_requester_declaration')
+    if progress is not None:
+        progress['operation'] = 'relocate'
     assets = output / 'assets'
     assets.mkdir(mode=0o700)
     # Rename same-filesystem owned assets rather than duplicating ~20 GiB.
@@ -424,11 +477,17 @@ def export_assets(core, binary, native, fixture, output, source, deadline):
     backend.mkdir(mode=0o700)
     for name in sorted(stager.NATIVE | {'licenses'}):
         (native / 'ml/native-backend' / name).rename(backend / name)
+    if progress is not None:
+        progress['operation'] = 'core_copy'
     copy_core_binary(binary, assets / 'volparossa', deadline)
+    if progress is not None:
+        progress['operation'] = 'fixture_copy'
     for name in ('server.der', 'server-key.der'):
         raw = read_file(fixture / name, 8192, deadline)
         require(raw, 'public_tls_fixture')
         write_new(assets / name, raw)
+    if progress is not None:
+        progress['operation'] = 'inventory'
     value = asset_inventory(assets, source, stager, deadline)
     workload = stager.workload_sha256(value)
     policy = dict(version=1, visibility='public_fixture', workload_sha256=workload, **declaration)
@@ -437,11 +496,15 @@ def export_assets(core, binary, native, fixture, output, source, deadline):
     raw = encoded(value)
     digest = hashlib.sha256(raw).hexdigest()
     checked = stager.inventory(raw, digest, source)
+    if progress is not None:
+        progress['operation'] = 'metadata'
     fd = os.open(assets, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         backend_digest = stager.verified_metadata(fd, checked, deadline / 1_000_000_000)
     finally:
         os.close(fd)
+    if progress is not None:
+        progress['operation'] = 'write_inventory'
     write_new(output / 'inventory.json', raw)
     return dict(inventory_sha256=digest, workload_sha256=workload, native_backend_sha256=backend_digest,
                 asset_files=len(value['entries']), asset_bytes=sum(item.get('bytes', 0)
@@ -491,15 +554,23 @@ def execute(args):
         helper.require_output_constraint(built, backend)
         report['native_build_manifest_sha256'] = built['build_manifest_sha256']
         report['phase'] = 'export'
+        report['export_diagnostic'] = dict(operation='declaration', reason=None)
         report['export'] = export_assets(core, binary, native, inputs / 'fixture', output,
-                                         args.expected_source, deadline)
+                                         args.expected_source, deadline, report['export_diagnostic'])
+        report['export_diagnostic']['operation'] = 'source_recheck'
         require(source_binding(inputs, args.expected_source, deadline)[2] == tree, 'source_changed')
+        report['export_diagnostic']['operation'] = 'final_deadline'
         remaining(deadline)
+        report.pop('export_diagnostic')  # Preserve the exact successful assembly receipt schema.
         report.update(state='assets_built', phase='complete', assets_exported=True)
-    except CleanupUnconfirmed:
+    except CleanupUnconfirmed as error:
         report['direct_child_groups_joined'] = False
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
-        pass  # Closed phase only. No argv, source text, paths or exception export.
+        if 'export_diagnostic' in report:
+            report['export_diagnostic']['reason'] = export_failure(error, report['export_diagnostic']['operation'])
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        if 'export_diagnostic' in report:
+            report['export_diagnostic']['reason'] = export_failure(error, report['export_diagnostic']['operation'])
+        # Closed labels only. No argv, source text, paths or exception export.
     finally:
         try:
             meta = output.lstat() if created is not None else None

@@ -256,6 +256,78 @@ class DeadlineAndProcessTests(unittest.TestCase):
 
 
 class BuildAndExportTests(unittest.TestCase):
+    def test_export_failure_labels_are_closed_and_never_stringify_exceptions(self):
+        class PrivateError(ValueError):
+            def __str__(self):
+                raise AssertionError('exception stringification forbidden')
+        for operation, reasons in M.EXPORT_ERRORS.items():
+            for reason in reasons:
+                self.assertEqual(M.export_failure(ValueError(reason), operation), reason)
+            self.assertEqual(M.export_failure(ValueError('PRIVATE_CANARY'), operation), 'invalid_value')
+            self.assertEqual(M.export_failure(PrivateError('PRIVATE_CANARY'), operation), 'invalid_value')
+        for error, expected in ((FileNotFoundError(2, 'PRIVATE_CANARY', '/private'), 'missing_file'),
+                (FileExistsError('PRIVATE_CANARY'), 'existing_path'),
+                (PermissionError('PRIVATE_CANARY'), 'permission_denied'),
+                (InterruptedError('PRIVATE_CANARY'), 'interrupted'), (TimeoutError('PRIVATE_CANARY'), 'timeout'),
+                (OSError('PRIVATE_CANARY'), 'io_error'), (KeyError('PRIVATE_CANARY'), 'missing_field'),
+                (TypeError('PRIVATE_CANARY'), 'invalid_type'),
+                (subprocess.CalledProcessError(1, '/private'), 'subprocess_failed'),
+                (M.CleanupUnconfirmed('PRIVATE_CANARY'), 'cleanup_unconfirmed')):
+            self.assertEqual(M.export_failure(error, 'inventory'), expected)
+        self.assertEqual(M.export_failure(ValueError('model_pin'), 'declaration'), 'invalid_value')
+        self.assertEqual(M.export_failure(ValueError('model_pin'), []), 'invalid_value')
+        self.assertEqual(M.export_failure(ValueError(True), 'metadata'), 'invalid_value')
+
+    def test_export_operation_failure_keeps_original_error_and_stops_before_next_operation(self):
+        operations = list(M.EXPORT_ERRORS)[:7]
+        for failed in operations:
+            with self.subTest(operation=failed), tempfile.TemporaryDirectory() as directory:
+                core, binary, native, fixture, output, stager = self.export_fixture(directory)
+                events = []
+                class Progress(dict):
+                    def __setitem__(self, key, value):
+                        if key == 'operation':
+                            events.append(value)
+                        super().__setitem__(key, value)
+                progress = Progress(reason=None)
+                original = ValueError('PRIVATE_CANARY')
+                read, rename = M.read_file, Path.rename
+                copy, inventory, write = M.copy_core_binary, M.asset_inventory, M.write_new
+                def step(operation, call, *args, **kwargs):
+                    if operation == failed:
+                        raise original
+                    return call(*args, **kwargs)
+                with mock.patch.object(M, 'load_module', return_value=stager), \
+                        mock.patch.object(M, 'read_file', side_effect=lambda path, *args:
+                            step('declaration' if path.name == 'requester.json' else 'fixture_copy', read, path, *args)), \
+                        mock.patch.object(Path, 'rename', autospec=True,
+                            side_effect=lambda path, target: step('relocate', rename, path, target)), \
+                        mock.patch.object(M, 'copy_core_binary', side_effect=lambda *args: step('core_copy', copy, *args)), \
+                        mock.patch.object(M, 'asset_inventory', side_effect=lambda *args: step('inventory', inventory, *args)), \
+                        mock.patch.object(stager, 'verified_metadata',
+                            side_effect=lambda *_: step('metadata', lambda: 'd'*64)), \
+                        mock.patch.object(M, 'write_new', side_effect=lambda path, *args:
+                            step('write_inventory' if path.name == 'inventory.json' else
+                                 'inventory' if path.name == 'public-policy.json' else 'fixture_copy', write, path, *args)), \
+                        mock.patch.object(M.subprocess, 'Popen', side_effect=AssertionError('no execution')), \
+                        self.assertRaises(ValueError) as caught:
+                    M.export_assets(core, binary, native, fixture, output, 'f'*40, deadline(), progress)
+                self.assertIs(caught.exception, original)
+                self.assertEqual(events, operations[:operations.index(failed)+1])
+                self.assertEqual(progress, dict(operation=failed, reason=None))
+                self.assertFalse((output / 'inventory.json').exists())
+
+    def test_export_success_reaches_inventory_write_without_claiming_final_rechecks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            core, binary, native, fixture, output, stager = self.export_fixture(directory)
+            progress = dict(operation='declaration', reason=None)
+            with mock.patch.object(M, 'load_module', return_value=stager), \
+                    mock.patch.object(stager, 'verified_metadata', return_value='d'*64), \
+                    mock.patch.object(M.subprocess, 'Popen', side_effect=AssertionError('no execution')):
+                result = M.export_assets(core, binary, native, fixture, output, 'f'*40, deadline(), progress)
+            self.assertEqual(progress, dict(operation='write_inventory', reason=None))
+            self.assertEqual(result['inventory_sha256'], hashlib.sha256((output/'inventory.json').read_bytes()).hexdigest())
+
     def test_build_exact_core_and_native_commands_without_install_or_inference(self):
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(M, 'command', return_value=b'') as run:
             output, core = Path(directory), Path('/public/core')
@@ -421,6 +493,89 @@ class OrchestrationTests(unittest.TestCase):
         inputs.mkdir(mode=0o700)
         return types.SimpleNamespace(input=inputs, output=root / 'output', expected_source='f'*40,
             package_lock=root / 'lock', package_lock_sha256='a'*64, deadline_monotonic_ns=deadline())
+
+    def export_observation(self, directory, fail):
+        args = self.arguments(directory)
+        events, shared = [], {}
+        helper = types.SimpleNamespace(SOURCE=M.LLAMA_SOURCE, ORIGIN=M.LLAMA_ORIGIN, MODEL=M.MODEL,
+            validate_build=lambda *_: {'build_manifest_sha256': 'a'*64},
+            validate_provision=lambda *_: {}, require_output_constraint=lambda *_: None)
+        def source(*_):
+            events.append('source')
+            tree = 'c'*40 if fail == 'source_recheck' and len(events) > 1 else 'b'*40
+            return args.input, args.input, tree
+        def export(*values):
+            events.append('export')
+            shared['progress'] = values[-1]
+            shared['progress']['operation'] = 'metadata' if fail in ('metadata', 'cleanup') else 'write_inventory'
+            if fail == 'metadata':
+                raise ValueError('model_pin')
+            if fail == 'cleanup':
+                raise M.CleanupUnconfirmed('PRIVATE_CANARY')
+            return {}
+        original_remaining = M.remaining
+        def remaining(*values):
+            if shared.get('progress', {}).get('operation') == 'final_deadline' and fail == 'final_deadline':
+                raise ValueError('build_deadline')
+            return original_remaining(*values)
+        class InterruptedReturn(dict):
+            def __setitem__(self, key, value):
+                if key == 'operation' and value == 'source_recheck':
+                    raise InterruptedError('PRIVATE_CANARY')
+                super().__setitem__(key, value)
+        def report_dict(*values, **fields):
+            kind = InterruptedReturn if fail == 'returned_interrupt' and fields.keys() == {'operation', 'reason'} else dict
+            return kind(*values, **fields)
+        with mock.patch.object(M, 'guest_guard'), mock.patch.object(M, 'source_binding', side_effect=source), \
+                mock.patch.object(M, 'package_lock', return_value={}), mock.patch.object(M, 'verify_packages', return_value=199), \
+                mock.patch.object(M, 'load_module', return_value=helper), \
+                mock.patch.object(M, 'build_assets', return_value=(args.output/'binary', args.output/'native')), \
+                mock.patch.object(M, 'provision', return_value=({}, {})), \
+                mock.patch.object(M, 'export_assets', side_effect=export), \
+                mock.patch.object(M, 'remaining', side_effect=remaining), \
+                mock.patch.object(M, 'dict', side_effect=report_dict, create=True), \
+                mock.patch.object(M.subprocess, 'Popen', side_effect=AssertionError('no execution')):
+            result = M.execute(args)
+        self.assertEqual(json.loads((args.output/'build-result.json').read_bytes()), result)
+        return result, events
+
+    def test_export_failure_and_returned_export_final_checks_remain_distinct(self):
+        for failed, reason in (('metadata', 'model_pin'), ('source_recheck', 'source_changed'),
+                               ('final_deadline', 'build_deadline')):
+            with self.subTest(operation=failed), tempfile.TemporaryDirectory() as directory:
+                result, events = self.export_observation(directory, failed)
+                self.assertEqual(result['export_diagnostic'], dict(operation=failed, reason=reason))
+                self.assertEqual((result['state'], result['phase']), ('failed', 'export'))
+                self.assertEqual('export' in result, failed != 'metadata')
+                self.assertEqual(events, ['source', 'export'] + ([] if failed == 'metadata' else ['source']))
+                self.assertFalse(result['assets_exported'] or result['model_execution'] or result['complete_guest_cleanup'])
+
+    def test_export_completion_has_no_failure_and_requires_final_source_and_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, events = self.export_observation(directory, None)
+        self.assertEqual(events, ['source', 'export', 'source'])
+        self.assertEqual((result['state'], result['phase']), ('assets_built', 'complete'))
+        self.assertNotIn('export_diagnostic', result)
+        self.assertTrue(result['assets_exported'])
+        self.assertFalse(result['model_execution'] or result['complete_guest_cleanup'])
+
+    def test_interrupt_after_export_return_keeps_returned_metadata_without_next_recheck(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, events = self.export_observation(directory, 'returned_interrupt')
+        self.assertEqual(events, ['source', 'export'])
+        self.assertIn('export', result)
+        self.assertEqual((result['state'], result['phase']), ('failed', 'export'))
+        self.assertEqual(result['export_diagnostic'], dict(operation='write_inventory', reason='interrupted'))
+        self.assertFalse(result['assets_exported'] or result['model_execution'])
+        self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
+
+    def test_export_cleanup_failure_still_marks_unjoined_children_without_private_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, events = self.export_observation(directory, 'cleanup')
+        self.assertEqual(events, ['source', 'export'])
+        self.assertEqual(result['export_diagnostic'], dict(operation='metadata', reason='cleanup_unconfirmed'))
+        self.assertFalse(result['direct_child_groups_joined'])
+        self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
 
     def test_all_ordered_stages_and_source_recheck_without_false_cleanup_or_execution(self):
         with tempfile.TemporaryDirectory() as directory:
