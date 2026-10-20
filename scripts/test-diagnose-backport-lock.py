@@ -228,7 +228,7 @@ python3() {
     def test_failure_only_exact_artifact_allowlist(self):
         step = workflow_step("Preserve failed standalone lock reconciliation")
         self.assertIn("        if: ${{ failure() && steps.fetch-dependencies.outputs.backport_lock_diagnostic == 'true' }}", step)
-        self.assertIn("        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1", step)
+        self.assertIn("        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2", step)
         start = step.index("          path: |") + 1
         paths = []
         for line in step[start:]:

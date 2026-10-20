@@ -58,10 +58,13 @@ jobs:
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$(dpkg --print-architecture)" = amd64
           # Official Noble security package; signed apt metadata authenticates it.
-          # https://packages.ubuntu.com/noble/amd64/protobuf-compiler
+          # Compiler and library family from Noble security, published 2026-10-20.
+          # https://security.ubuntu.com/ubuntu/dists/noble-security/universe/binary-amd64/Packages.xz
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            protobuf-compiler=3.21.12-8.2ubuntu0.3
+            protobuf-compiler=3.21.12-8.2ubuntu0.4 \
+            libprotoc32t64=3.21.12-8.2ubuntu0.4 \
+            libprotobuf32t64=3.21.12-8.2ubuntu0.4
           test "$(protoc --version)" = 'libprotoc 3.21.12'
 
       - name: Verify original ABCI schemas and inert fixture contracts
@@ -82,7 +85,7 @@ jobs:
           sh -n tests/integration/content-provider-pressure-smoke.sh
           node --version
           node -e 'if (Number(process.versions.node.split(".")[0]) < 22) process.exit(1)'
-          node --test tests/integration/test-weather-source-observer.mjs
+          node --test tests/integration/test-weather-source-observer.mjs tests/integration/test-descriptor-reads.mjs
           python3 -B tests/integration/test-weather-products-delivery.py
           python3 -B tests/integration/test-weather-products-hosted-wiring.py
           python3 -B tests/integration/test-weather-overmorrow-hosted-wiring.py
@@ -182,7 +185,7 @@ jobs:
 
       - name: Preserve failed standalone lock reconciliation
         if: ${{ failure() && steps.fetch-dependencies.outputs.backport_lock_diagnostic == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: backport-lock-diagnostic-${{ github.run_id }}
           path: |
