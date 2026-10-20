@@ -117,6 +117,7 @@ jobs:
       - name: Check formatting and shell sources
         run: |
           python3 -B scripts/test-diagnose-backport-lock.py
+          python3 -B scripts/test-quality-audit-tools.py
           cargo fmt --all -- --check
           ./scripts/check-shell.sh
 
@@ -139,13 +140,27 @@ jobs:
         # In-memory duplex and real TLS only; no host sockets or namespace setup.
         run: cargo test --locked -p volparossa-tcp-proxy --test streaming
 
-      - name: Install pinned dependency-audit tools
+      - name: Prepare exact pinned audit-tool cache recipe
+        id: audit-cache
+        run: python3 -B scripts/quality-audit-tools.py prepare
+
+      - name: Restore optional own source-built audit tools
+        id: restore-audit-tools
+        # Restore-only: PRs and manual runs never publish cache entries. No
+        # prefix fallback; an inexact or damaged candidate is rebuilt below.
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.audit-cache.outputs.path }}
+          key: ${{ steps.audit-cache.outputs.key }}
+
+      - name: Validate cached tools or build pinned audit sources
+        id: audit-tools
+        env:
+          AUDIT_CACHE_KEY: ${{ steps.audit-cache.outputs.key }}
+          AUDIT_CACHE_EXACT_HIT: ${{ steps.restore-audit-tools.outputs.cache-hit }}
         run: |
-          tool_root="${RUNNER_TEMP}/cargo-tools"
-          rustup toolchain install 1.88.0 --profile minimal
-          cargo +1.88.0 install --locked --root "$tool_root" --version 0.18.6 cargo-deny
-          cargo install --locked --root "$tool_root" --version 0.22.1 cargo-audit
-          printf '%s\n' "$tool_root/bin" >>"$GITHUB_PATH"
+          python3 -B scripts/quality-audit-tools.py install
 
       - name: Fetch locked Rust dependencies
         id: fetch-dependencies
@@ -236,3 +251,20 @@ jobs:
         run: |
           ./tests/netns/test-lifecycle-contract.sh
           ./tests/integration/test-harness.sh
+
+      - name: Revalidate bounded source-built tools before cache publication
+        id: audit-cache-save
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.audit-tools.outputs.source-built == 'true'
+        env:
+          AUDIT_CACHE_KEY: ${{ steps.audit-cache.outputs.key }}
+        run: python3 -B scripts/quality-audit-tools.py save-check
+
+      - name: Save own audit-tool build from successful main push only
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.audit-cache-save.outputs.cacheable == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Only two public tool binaries and their recipe/integrity receipt;
+          # helper enforces a closed inventory and a 128 MiB payload limit.
+          path: ${{ steps.audit-cache.outputs.path }}
+          key: ${{ steps.audit-cache.outputs.key }}

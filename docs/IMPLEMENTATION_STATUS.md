@@ -40,10 +40,62 @@ The immediate milestones build on the retained candidates and evidence below:
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and the native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 keeps that immutable core pin. Core PR277 integrates the native-only composition after Quality and CodeQL pass; this main composition has not had a new model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
 | Protected remote compute — `volparossa`, then Code/Browser | Resolve the guest builder/export blocker, construct the sealed runtime and execute two public model turns before joining approved private workloads. | Actual `39078833292` on `fabfa849` verifies all 199 build and 65 runtime packages, then fails in export. Diagnostic source `39081437862` passes on `3a1a1593`; subsequent actual `39082065142` passes contracts but fails public-model execution. Its job metadata does not identify the builder operation or accept model turns. Model execution, production approval, vendor appraisal and confidential hardware remain open. |
 
+### Organization-wide efficiency work — 2026-10-20
+
+The explicit follow-up authorizes optimization alongside the milestones above;
+it does not replace them. A live inventory covered all 14 organization repositories
+(core, ten applications, organization profile, website and demo). Application
+feature checkouts, retained candidate branches and unpublished files are preserved.
+The new work uses isolated checkouts from live default-branch heads.
+
+- [x] Verify actual delegation: session metadata records Astra/Ultra principal,
+  Sol/High implementer and Luna/Medium support with the correct parent thread;
+  both custom roles performed real repository/GitHub work. This is current-session
+  evidence, not a promise about future account availability.
+- [x] Review shared architecture and existing optimization boundaries: retain one
+  core-owned node/resource budget, scoped application authority, separate public
+  cache/private storage lifecycles and the existing protected resident-model work.
+  No measured runtime bottleneck justifies a new scheduler or storage-format
+  migration in this increment. Native cache hints already preserve worker joining
+  and mandatory model validation; source inspection establishes no new speedup.
+- [ ] Accept the core audit-tool cache after independent review and hosted checks.
+  Baseline [Quality `39082177286`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39082177286)
+  on `65c2af6b` spends 6m27s of 28m57s rebuilding pinned audit tools (22.3%).
+  Cache only checked, source-built tools with an exact recipe/platform key,
+  trusted-main writes and ordinary source-build fallback. Keep every audit,
+  advisory pin and default/all-feature test. Independent review and 22 inert
+  cache/probe tests pass; hosted acceptance remains pending in
+  [PR289](https://github.com/VOLPAROSSA/volparossa/pull/289). A separate manual,
+  read-only probe measures a fresh-runner warm hit after trusted-main seeding,
+  without repeating workspace compilation. Warm savings remain unmeasured.
+- [ ] Accept superseded-run cancellation in Browser, Mail, Code, Map, Weather
+  and Cloud automatic source workflows. Preserve manual evidence runs, original
+  triggers, permissions, action pins, checks and application/core compatibility
+  pins. Reviewed candidates are Browser [PR17](https://github.com/VOLPAROSSA/volparossa-browser/pull/17),
+  Mail [PR4](https://github.com/VOLPAROSSA/volparossa-mail/pull/4), Code
+  [PR19](https://github.com/VOLPAROSSA/volparossa-code/pull/19), Map
+  [PR5](https://github.com/VOLPAROSSA/volparossa-map/pull/5), Weather
+  [PR25](https://github.com/VOLPAROSSA/volparossa-weather/pull/25), and Cloud
+  [PR16](https://github.com/VOLPAROSSA/volparossa-cloud/pull/16).
+  This avoids redundant runs when superseded; no numeric saving is claimed.
+
+The next opportunities are deliberately small: measure cold/warm audit-tool reuse;
+then assess lockfile-scoped dependency caching against actual compile/download
+costs. Chat, Image and Citizen lack explicit app source-check workflows in the
+inspected defaults. Reviewed additions run their existing synthetic source suites
+on hosted runners; Image's separate real GnuPG snapshot trial stays outside that
+source scope. Acceptance awaits their actual hosted results.
+Avoid a universal reusable workflow across unlike Firefox, Rust, Node and mobile
+builds. Do not cache test outcomes, private fixtures or credentials, enable paid
+services, or duplicate completed hosted computations locally. Storage consumer
+acceptance and protected-model export remain the shared functional priorities.
+
 ### Retained branches and resumption dependencies
 
-This is a read-only GitHub snapshot from 2026-10-20. No core workflow runs are queued or
-in progress; the trials below are terminal, not work still running in another session.
+This retained-candidate table is the earlier 2026-10-20 read-only snapshot. Its
+trials are terminal, not work still running in another session. The optimization
+follow-up found fresh Quality/CodeQL runs for merged PR286 and main `5107dbda`;
+the earlier no-running-workflows observation is no longer current.
 Recheck branch heads and results before resuming. These retained worktrees are under
 the primary checkout's `.git/` directory; their changes are not thereby integrated into `main`.
 The [complete goal](development/GOAL.md) remains in scope beyond these immediate blockers.
@@ -56,7 +108,7 @@ The [complete goal](development/GOAL.md) remains in scope beyond these immediate
 | `fix/storage-post-acquire-clock` — [PR288](https://github.com/VOLPAROSSA/volparossa/pull/288) | `139573f351b945c68dc800391ba82befc86f50ef` | Based on `3ab2f6cb`. [Run `39082596009`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39082596009) passes compilation, regression and negative-control steps, then fails lint and formatting. No passing complete source gate or new consumer trial is accepted. |
 | `feature/cloud-upload-tls-v9` — [PR279](https://github.com/VOLPAROSSA/volparossa/pull/279) | `dd1fd4dff55413ade4cfb26ffcb7bf5a9ad26c01` | Source `38903572207` passes. Actual upload requires shared consumer profile 10 acceptance, joined cleanup and zero usage at all three providers. |
 | `feature/protected-resident-model` — [PR276](https://github.com/VOLPAROSSA/volparossa/pull/276) | `3a1a15930fa69b89c9275f980e02eb6b89c94fb7` | Source `39081437862` passes; actual `39082065142` fails public-model execution after contracts pass. Keep resident-task [PR271](https://github.com/VOLPAROSSA/volparossa/pull/271) and immutable-image [PR272](https://github.com/VOLPAROSSA/volparossa/pull/272) prerequisites distinct from model and private-worker acceptance. |
-| `docs/storage-compute-checkpoint-20261018` — [PR286](https://github.com/VOLPAROSSA/volparossa/pull/286) | `65c2af6b5c03a6a1be6ab72859ec10e55d9de9d6` | Documentation snapshot before this handover update; accepted fresh-route and package/export evidence is newer than main's Oct17 ledger. |
+| `docs/storage-compute-checkpoint-20261018` — [PR286](https://github.com/VOLPAROSSA/volparossa/pull/286), merged | `ee901c2ea238bcc953e0b977a7b8635da801907d` | Handover and complete goal merged into main at `5107dbdadec07b935cb8942508c02f0d9cda1241`. The earlier `65c2af6b` snapshot remains historical evidence. |
 
 The remaining questions are which condition rejects the ordinary-expiry evidence,
 which operation stops the latest public model trial, and whether the full consumers
