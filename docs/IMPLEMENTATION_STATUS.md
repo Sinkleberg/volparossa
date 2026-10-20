@@ -38,7 +38,7 @@ The immediate milestones build on the retained candidates and evidence below:
 | Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resolve the ordinary-expiry acceptance failure, then complete consumer repair, restoration and deletion. | Source `39074693102` passes on `3ab2f6cb`; fresh-route probe `39080705711` passes on `82a23bdd` with ten deposits/deletions, 40 completed flows, zero provider usage and full cleanup. Ordinary-expiry trial `39081968944` on `b2b9c6b3` fails its required acceptance step. Post-acquire guard `139573f3` passes compile/regression steps but fails lint/formatting in `39082596009`; it is not accepted. Full consumer failure `38917106698`, its unconfirmed remote cleanup and its unknown cause remain separate. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then repair, restore and delete it after provider loss. | PR279 joins upload profile 6 to shared consumer profile 10 on `dd1fd4df`; source run `38903572207` passes. A real upload trial still requires the shared Storage consumer acceptance above, joined cleanup and zero usage at all three providers. Finite authorization, HTTP PUT, enrollment, repeated restore and all-copy deletion remain required; source checks and synthetic-core SDK results do not replace them. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and the native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 keeps that immutable core pin. Core PR277 integrates the native-only composition after Quality and CodeQL pass; this main composition has not had a new model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Resolve the guest builder/export blocker, construct the sealed runtime and execute two public model turns before joining approved private workloads. | Actual `39078833292` on `fabfa849` verifies all 199 build and 65 runtime packages, then fails in export. Diagnostic source `39081437862` passes on `3a1a1593`; subsequent actual `39082065142` passes contracts but fails public-model execution. Its job metadata does not identify the builder operation or accept model turns. Model execution, production approval, vendor appraisal and confidential hardware remain open. |
+| Protected remote compute — `volparossa`, then Code/Browser | Resolve the guest builder/export blocker, construct the sealed runtime and execute two public model turns before joining approved private workloads. | Actual `39078833292` on `fabfa849` verifies all 199 build and 65 runtime packages, then fails in export. Diagnostic source `39081437862` passes on `3a1a1593`; subsequent actual `39082065142` passes contracts but fails public-model execution. The original artifact now identifies an export inventory pathname rejection; the exact pathname and failing rule remain unknown. Model execution, production approval, vendor appraisal and confidential hardware remain open. |
 
 ### Organization-wide efficiency work — 2026-10-20
 
@@ -58,37 +58,67 @@ The new work uses isolated checkouts from live default-branch heads.
   No measured runtime bottleneck justifies a new scheduler or storage-format
   migration in this increment. Native cache hints already preserve worker joining
   and mandatory model validation; source inspection establishes no new speedup.
-- [ ] Accept the core audit-tool cache after independent review and hosted checks.
+- [x] Accept the core audit-tool cache after independent review and hosted checks.
   Baseline [Quality `39082177286`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39082177286)
   on `65c2af6b` spends 6m27s of 28m57s rebuilding pinned audit tools (22.3%).
   Cache only checked, source-built tools with an exact recipe/platform key,
   trusted-main writes and ordinary source-build fallback. Keep every audit,
   advisory pin and default/all-feature test. Independent review and 22 inert
-  cache/probe tests pass; hosted acceptance remains pending in
-  [PR289](https://github.com/VOLPAROSSA/volparossa/pull/289). A separate manual,
-  read-only probe measures a fresh-runner warm hit after trusted-main seeding,
-  without repeating workspace compilation. Warm savings remain unmeasured.
-- [ ] Accept superseded-run cancellation in Browser, Mail, Code, Map, Weather
-  and Cloud automatic source workflows. Preserve manual evidence runs, original
+  cache/probe tests pass. [PR289](https://github.com/VOLPAROSSA/volparossa/pull/289)
+  merged at `abb2a5ac`; full
+  [Quality `39444372283`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39444372283)
+  and CodeQL passed on `6438f8e8`. On merged main
+  `abb2a5ac07ff8df9dcc3ff2c15d96d99d440863b`,
+  [Quality `39448474486`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39448474486)
+  passed and published the exact-key cache; the audit-tool install step took
+  5m32s (15:31:12–15:36:44 UTC), including a 2m19s optimized `cargo-audit`
+  build. [CodeQL `39448473910`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39448473910)
+  also passed on that SHA. The separate fresh-runner
+  [read-only probe `39452640580`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39452640580)
+  passed on `abb2a5ac07ff8df9dcc3ff2c15d96d99d440863b`, hit key
+  `quality-audit-tools-v1-28be1345550fe3878578ba630d5ed31215566db46295557f1c85ed3dcf5e7ada`,
+  restored a 15,352,456-byte archive, and validated the tools without building
+  or saving. Restore took 1s at whole-second job-step precision; the validation
+  step began and ended within the same reported second. This measures tool
+  reuse only, not whole-Quality savings or runtime performance.
+- [x] Integrate reviewed superseded-run cancellation settings in Browser, Mail,
+  Code, Map, Weather and Cloud automatic source workflows. Preserve manual evidence runs, original
   triggers, permissions, action pins, checks and application/core compatibility
-  pins. Reviewed candidates are Browser [PR17](https://github.com/VOLPAROSSA/volparossa-browser/pull/17),
+  pins. Source checks and CodeQL pass on all six merged candidates: Browser [PR17](https://github.com/VOLPAROSSA/volparossa-browser/pull/17),
   Mail [PR4](https://github.com/VOLPAROSSA/volparossa-mail/pull/4), Code
   [PR19](https://github.com/VOLPAROSSA/volparossa-code/pull/19), Map
   [PR5](https://github.com/VOLPAROSSA/volparossa-map/pull/5), Weather
   [PR25](https://github.com/VOLPAROSSA/volparossa-weather/pull/25), and Cloud
   [PR16](https://github.com/VOLPAROSSA/volparossa-cloud/pull/16).
-  This avoids redundant runs when superseded; no numeric saving is claimed.
+  Actual cancellation timing and resource savings were not separately measured.
+- [x] Add automatic checks for existing synthetic suites in Chat
+  [PR5](https://github.com/VOLPAROSSA/volparossa-chat/pull/5), Image
+  [PR9](https://github.com/VOLPAROSSA/volparossa-image/pull/9), and Citizen
+  [PR3](https://github.com/VOLPAROSSA/volparossa-citizen/pull/3). All three are
+  merged after source and CodeQL pass. Original hosted results:
+  - Chat [39444241767](https://github.com/VOLPAROSSA/volparossa-chat/actions/runs/39444241767)
+    on `ebc71f2e`: 41 Python passes, one optional pinned-checkout skip, 14 Node
+    passes; job 12s.
+  - Image [39444252971](https://github.com/VOLPAROSSA/volparossa-image/actions/runs/39444252971)
+    on `f00fa379`: 38 Node passes; job 10s. The separate real GnuPG snapshot
+    round trip is outside this source suite.
+  - Citizen [39444268142](https://github.com/VOLPAROSSA/volparossa-citizen/actions/runs/39444268142)
+    on `3872b17f`: 21 Python passes; job 7s, fictional simulation only.
+  These checks do not establish real application, peer or election acceptance.
 
-The next opportunities are deliberately small: measure cold/warm audit-tool reuse;
-then assess lockfile-scoped dependency caching against actual compile/download
-costs. Chat, Image and Citizen lack explicit app source-check workflows in the
-inspected defaults. Reviewed additions run their existing synthetic source suites
-on hosted runners; Image's separate real GnuPG snapshot trial stays outside that
-source scope. Acceptance awaits their actual hosted results.
-Avoid a universal reusable workflow across unlike Firefox, Rust, Node and mobile
-builds. Do not cache test outcomes, private fixtures or credentials, enable paid
-services, or duplicate completed hosted computations locally. Storage consumer
-acceptance and protected-model export remain the shared functional priorities.
+The next opportunity is to assess lockfile/toolchain-scoped dependency build
+caching. Completed main Quality
+[39440394363](https://github.com/VOLPAROSSA/volparossa/actions/runs/39440394363)
+on `5107dbda` spent 10m09s in workspace tests: Cargo reports 4m57s compiling the
+test profile, followed by about five minutes executing tests. Logs do not establish
+individual-test bottlenecks, so neither coverage reductions nor virtual-time
+rewrites are justified. Build-cache gains remain unmeasured. Avoid a universal
+workflow across unlike Firefox, Rust, Node and mobile builds; preserve core/app
+compatibility pins. Do not cache test outcomes, private fixtures or credentials,
+enable paid services, or repeat completed hosted computations locally. Storage
+consumer acceptance and protected-model export remain shared functional priorities.
+The original model artifact was inspected without rerunning its expensive trial;
+its new bounded diagnosis is recorded below. No new runtime speedup is claimed.
 
 ### Retained branches and resumption dependencies
 
@@ -111,7 +141,7 @@ The [complete goal](development/GOAL.md) remains in scope beyond these immediate
 | `docs/storage-compute-checkpoint-20261018` — [PR286](https://github.com/VOLPAROSSA/volparossa/pull/286), merged | `ee901c2ea238bcc953e0b977a7b8635da801907d` | Handover and complete goal merged into main at `5107dbdadec07b935cb8942508c02f0d9cda1241`. The earlier `65c2af6b` snapshot remains historical evidence. |
 
 The remaining questions are which condition rejects the ordinary-expiry evidence,
-which operation stops the latest public model trial, and whether the full consumers
+which exported pathname fails the model inventory rules, and whether the full consumers
 can publish, repair, restore and delete with confirmed remote cleanup. Step/job results
 alone do not answer them. Preserve original failed reports while investigating;
 a passing fresh-route probe or a proposed expiry guard does not resolve them.
@@ -238,6 +268,27 @@ fails at the execution step. Source preservation and user-manager restoration
 steps pass. The job result alone does not identify the failing guest operation,
 prove complete host-state restoration or establish model execution. The original
 export failure above remains distinct from this latest trial's unresolved cause.
+
+**Original artifact inspection, 2026-10-20; no trial rerun.** The original
+`public-resident-model-trial-39082065142` archive (artifact `12119517370`, 2,584
+bytes) matches its GitHub API SHA-256
+`b487373c06ea5a5a3184c72cb1c7144bb36d301c9374028b401923967d3af6bb`
+and passes ZIP integrity. Its bound report identifies `guest_model_build /
+guest_unit_failed` and `builder.export_diagnostic = {operation: inventory,
+reason: inventory_entry}`. At exact source `3a1a1593`, the producer constructs
+dictionary records; the rejecting validator therefore establishes an exported
+relative pathname violating its length, character or component rules. The exact
+pathname and failing rule are not retained. Preserve those restrictions until a
+compatible correction is established; do not attribute this to a particular package.
+
+The source order places rejection after exported-file scanning/hashing, before
+inventory completion and model execution. A preflight with closed diagnostic
+classes is a next candidate, not an implemented fix or measured runtime gain.
+The outer report confirms VM/tool cleanup and scratch removal; the nested guest
+builder's `complete_guest_cleanup=false` is a separate scope. The failed artifact
+contains no completed host-after DNS/routes comparison. Model execution remains
+false, and no confidential execution, hardware attestation or production approval
+is established. Original failure outcomes remain unchanged.
 
 #### Earlier candidate evidence
 
