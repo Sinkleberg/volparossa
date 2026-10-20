@@ -134,3 +134,13 @@ These clarifications supplement the preserved objective; they do not replace it.
   without enabling paid services or additional paid storage. Performance claims
   require measured evidence. The [execution plan](../IMPLEMENTATION_STATUS.md#execution-priorities-and-next-milestones)
   retains the current priorities and acceptance boundaries.
+
+- Sustainable public growth (2026-10-20) is authorized across the organization,
+  repositories and existing website, alongside the complete technical objective.
+  Improve discoverability, contribution paths, documentation, visual communication
+  and funding readiness while distinguishing vision, implementation and evidence.
+  Keep external outreach and funding applications for explicit approval; do not
+  restart the pending Sponsors application, change financial/legal identities,
+  alter DNS/hosting or submit financial/legal commitments. Respect funder-specific
+  AI policies. The [public-growth record](PUBLIC_GROWTH_20261020.md) preserves the
+  audit, priorities, verification, remaining opportunities and roadmap.

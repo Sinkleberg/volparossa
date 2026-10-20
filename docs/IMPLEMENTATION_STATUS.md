@@ -53,6 +53,15 @@ changes and retention limits. Core PR292 is integrated at `3cac793e` after Quali
 `39465279385` and all four CodeQL analyses pass on the identical source tree. Net
 space recovered is about 340 GiB; runtime acceptance and the full goal remain open.
 
+### Public growth readiness — 2026-10-20
+
+Organization-wide presentation and contributor work is authorized alongside the
+technical priorities above. The [public-growth record](development/PUBLIC_GROWTH_20261020.md)
+covers the live public-repository/Pages audit, shared community guidance, website,
+evidence-oriented introductions, funding research and approval-dependent outreach.
+It does not change runtime acceptance, the preserved goal or retained candidates.
+Original passing and failed trial results remain bound to their exact source.
+
 ### Organization-wide efficiency work — 2026-10-20
 
 The explicit follow-up authorizes optimization alongside the milestones above;
