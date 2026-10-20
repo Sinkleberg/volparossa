@@ -7,6 +7,11 @@ applications and new research projects to its shared capabilities. They are
 **development integrations and research**, not released products. Each repository records its
 own current implementation and evidence; this page explains the scope and major boundaries.
 
+The [complete agreed goal](../development/GOAL.md) preserves the application requirements;
+the [core implementation ledger](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
+records shared dependencies and exact acceptance evidence. Follow each application's linked
+repository for its own implementation status rather than treating this overview as another ledger.
+
 Applications should share one compatible core rather than create competing peer planners
 or storage ledgers. Closing one frontend must not stop another application's work. Access
 is scoped by user and application; system-wide operation requires an explicit choice.
@@ -18,8 +23,10 @@ See the [shared-service contract](../architecture/APPLICATION_LIFECYCLE.md).
 with protected connectivity, eligible content caching and the shared VOLPAROSSA brain.
 
 Privacy defaults include strict tracking protection; telemetry, Mozilla accounts and sponsored
-links off; and uBlock Origin, Decentraleyes and Adaptive Tab Bar Color. The browser-specific
-kill switch starts **off**, permitting visible ordinary-Internet fallback when the overlay is
+links off; and uBlock Origin, Decentraleyes, Consent-O-Matic and Adaptive Tab Bar Color.
+Consent-O-Matic remains upstream without a VOLPAROSSA fork; upstream contributions are opt-in.
+Its cooperation with uBlock Origin must preserve necessary website functions and avoid unwanted consent.
+The browser-specific kill switch starts **off**, permitting visible ordinary-Internet fallback when the overlay is
 unavailable. It must not bypass a policy denial or weaken another core consumer's defaults.
 
 Privacy/sidebar and scoped protected-TCP milestones have real browser evidence. Complete
@@ -93,6 +100,9 @@ Licenses, freshness and uncertainty remain relevant even when data comes from ne
 [volparossa-weather](https://github.com/VOLPAROSSA/volparossa-weather) builds an application-independent
 weather service from **direct public model data**, starting with ECMWF—not Open-Meteo.
 Useful additional models and observations can complement that source.
+
+Both Drizz.li and Overmorrow are integration targets. Precipitation and air-quality support
+remain required follow-on work; unavailable data must be shown as unavailable, never invented.
 
 Direct field decoding and a core-cache adapter exist. Distributed processing and learning
 should produce measurable forecast improvements against observations; a learned forecasting

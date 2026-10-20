@@ -2,6 +2,20 @@
 
 These instructions apply to the entire repository and must remain in force in future sessions.
 
+## Start and resume
+
+- Read `docs/development/GOAL.md` for the complete agreed goal and subsequent clarifications. Do not replace that scope with the next milestone or an older v1 specification.
+- Use `docs/IMPLEMENTATION_STATUS.md` for the current execution plan, retained branches, dependencies and evidence. Then read only the relevant topic documents and the affected application's own instructions/status. `docs/README.md` is the index.
+- Follow `docs/development/CODEX_WORKFLOW.md` for conversation handover, delegation and checkout recovery. Recheck live branch/run state; a prior conversation or an old “running” entry is not current evidence.
+
+## Task-aware multi-agent development
+
+- User revision 2026-10-20: keep the manually selected Astra Ultra principal responsible for architecture, coordination, consequential decisions and integration. Autonomously delegate suitable bounded work; do not routinely consume principal context on implementation or support work Sol or Luna can reliably complete.
+- Use `gpt-6.1-sol` for substantial implementation, integration, complex debugging and independent technical review; use `gpt-6-luna` for lightweight exploration, documentation, assigned focused checks and bounded support. Start with at most **two concurrent subagents**, excluding the principal.
+- Delegate only when useful. Specify the source revision, objective, owned paths/worktree, invariants, permitted checks and expected result. Give minimal sufficient context. Avoid duplicate exploration and conflicting edits; one agent owns a file or interface change at a time.
+- The principal integrates and verifies results. Subagents return changed paths, exact evidence and unresolved risks; they do not spawn further agents or publish/dispatch work unless explicitly assigned. Model choice does not confer permissions or evidence of correctness.
+- Prefer the specialized roles when the installed client exposes them. Otherwise select the explicit model/effort with the same bounded role instructions; do not claim custom-role discovery worked when only model overrides were tested.
+
 ## Autonomous project execution
 
 - User revision 2026-10-11, applicable across all VOLPAROSSA repositories: use independent engineering judgment to make the project work well. Choose implementation details, architecture within the agreed requirements, priorities, parallel work, checks, and commit/push timing without requesting approval for ordinary development steps.

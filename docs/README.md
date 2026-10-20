@@ -37,11 +37,16 @@ or go directly to a topic when you already know what you need.
 
 ### I want to build or contribute
 
-1. Read [Contributing](../CONTRIBUTING.md) and the repository's [engineering instructions](../AGENTS.md).
-2. Follow the [architecture](architecture/ARCHITECTURE.md) and the relevant topic guide below.
-3. Use the [read-only prerequisite checks](development/OPERATIONS.md#read-only-prerequisites), then
+1. Read the repository's [engineering instructions](../AGENTS.md), then the
+   [complete agreed goal](development/GOAL.md). The current milestone is not the full scope.
+2. Read [current implementation status](IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
+   for retained branches, exact revisions, acceptance evidence and unresolved dependencies.
+3. Follow the [architecture](architecture/ARCHITECTURE.md) and relevant topic guide below.
+   Use [Contributing](../CONTRIBUTING.md) and the [Codex handover workflow](development/CODEX_WORKFLOW.md)
+   when preparing scoped work or transferring it to another session.
+4. Use the [read-only prerequisite checks](development/OPERATIONS.md#read-only-prerequisites), then
    the [build instructions](development/OPERATIONS.md#build-and-package).
-4. Choose [focused tests](development/TESTING.md#unprivileged-quality-gate) for your change. Network
+5. Choose [focused tests](development/TESTING.md#unprivileged-quality-gate) for your change. Network
    tests run only in disposable namespaces or the documented VM, never on your active network.
 
 ### I want to evaluate the claims and privacy
@@ -86,6 +91,8 @@ or go directly to a topic when you already know what you need.
 
 ## Operations and project reference
 
+- [Agreed goal](development/GOAL.md): complete preserved objective and later clarifications.
+- [Codex workflow](development/CODEX_WORKFLOW.md): safe resumption, scoped delegation and handover.
 - [Operations](development/OPERATIONS.md): configuration, commands, packaging and removal.
 - [Testing](development/TESTING.md): focused checks, disposable topologies and acceptance requirements.
 - [Implementation status](IMPLEMENTATION_STATUS.md): detailed evidence ledger, including failed trials.
