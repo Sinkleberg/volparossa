@@ -18,8 +18,9 @@ coordination, not the VOLPAROSSA product's decentralized agent scheduler.
    heads/checks before choosing a checkout. Read the affected application's
    instructions and README/status next. Local branches can be older than `main`.
 4. Continue the existing execution plan and useful integrations. Do not restart
-   the project, silently shrink the goal, or begin an organization-wide
-   optimization sweep as part of this handover.
+   the project or silently shrink the goal. The 2026-10-20 follow-up explicitly
+   authorizes organization-wide efficiency and quality work alongside these
+   integrations; it supersedes the handover-only deferral of that work.
 
 Suggested first message:
 
@@ -27,8 +28,9 @@ Suggested first message:
 > sections of docs/IMPLEMENTATION_STATUS.md. Preserve the full goal and all
 > existing work. Recheck the retained branches and original failed evidence,
 > then continue the most useful existing integration. Use task-aware Sol/Luna
-> delegation with at most two subagents. Do not start organization-wide
-> optimization or repeat trials merely because the conversation changed.
+> delegation with at most two subagents. Continue the explicitly authorized
+> organization-wide optimization using measured priorities, without repeating
+> trials merely because the conversation changed.
 
 The goal belongs to the new conversation only after it has been explicitly
 created or selected there. Reuse the complete repository goal, including its
@@ -157,3 +159,27 @@ public VM execution and confidential private execution are different claims.
 Retained local evidence under `.git/ci-evidence/` supplements the linked original
 CI artifacts. If an artifact has expired, report the evidence gap rather than
 reconstructing a successful outcome.
+
+## Efficiency work authorized after the handover
+
+The 2026-10-20 follow-up authorizes cross-repository optimization, while preserving
+all agreed functionality and the retained Storage/compute/application candidates.
+Start with current evidence of repeated cost or a demonstrated correctness issue;
+compare benefit, migration cost, trust impact and reversibility before redesigning.
+Keep a short prioritized record in the existing implementation ledger. Do not
+create competing per-repository plans or move application-specific policy into
+shared core mechanisms merely to reduce code duplication.
+
+Use completed hosted results for the exact source and scope. Cache reusable build
+inputs or checked source-built tools, never successful test outcomes, private
+fixtures, credentials or authorization. Cache misses must use the ordinary pinned
+source build. Keep default-branch cache writes separate from untrusted PR reads.
+Cancel superseded automatic source checks; preserve explicit acceptance runs and
+their cleanup/evidence. Retain comprehensive integration checks, action pins and
+least-privilege permissions. Do not infer runtime speedups from CI savings.
+
+The first live follow-up session independently inspected its own recorded turn
+metadata: principal `gpt-6-astra`/Ultra, `volparossa_implementer`
+`gpt-6.1-sol`/High and `volparossa_support` `gpt-6-luna`/Medium, each child bound
+to that principal. Both custom roles performed real repository/GitHub inspections.
+This verifies this session's delegation, not future account availability.

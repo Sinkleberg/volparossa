@@ -122,3 +122,15 @@ These clarifications supplement the preserved objective; they do not replace it.
   [Weather application scope](../applications/APPLICATIONS.md#weather) and
   [current execution plan](../IMPLEMENTATION_STATUS.md#execution-priorities-and-next-milestones)
   retain their implementation and evidence boundaries.
+
+- Organization-wide efficiency and quality optimization (2026-10-20) is explicitly
+  authorized alongside the complete goal above. Prioritize measured shared
+  bottlenecks and coherent, reversible improvements to development, runtime
+  resources and maintainability across all VOLPAROSSA repositories. Preserve
+  functionality, privacy, interoperability, active integrations and unfinished
+  work. Use Astra/Ultra for principal decisions, bounded Sol/High implementation
+  and review, and Luna/Medium support. Verify actual delegation. Keep development
+  AI tooling outside the product runtime; use standard public hosted runners
+  without enabling paid services or additional paid storage. Performance claims
+  require measured evidence. The [execution plan](../IMPLEMENTATION_STATUS.md#execution-priorities-and-next-milestones)
+  retains the current priorities and acceptance boundaries.

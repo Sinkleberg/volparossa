@@ -927,3 +927,15 @@ The package does not depend on or start the standalone Unbound daemon.
 This table is descriptive rather than a claim that every transitive Rust
 dependency has already been approved. Never replace the native provenance
 record with an unverified version tag or a downloaded executable.
+
+## Development-only audit-tool cache action
+
+Quality uses the separate `restore` and `save` entrypoints of
+[actions/cache v6.1.0](https://github.com/actions/cache/tree/55cc8345863c7cc4c66a329aec7e433d2d1c52a9),
+pinned to `55cc8345863c7cc4c66a329aec7e433d2d1c52a9`. Origin:
+`https://github.com/actions/cache`; license:
+[MIT, unchanged upstream notice](https://github.com/actions/cache/blob/55cc8345863c7cc4c66a329aec7e433d2d1c52a9/LICENSE).
+There are no local upstream patches or vendored action binaries. This is external
+CI tooling, not a VOLPAROSSA runtime dependency. Only this workflow's checked,
+source-built `cargo-deny 0.18.6` and `cargo-audit 0.22.1` are cached; their build
+versions, locked upstream dependencies and audit/license obligations are retained.
