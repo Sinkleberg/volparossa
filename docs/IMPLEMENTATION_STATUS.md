@@ -63,7 +63,11 @@ The new work uses isolated checkouts from live default-branch heads.
   on `65c2af6b` spends 6m27s of 28m57s rebuilding pinned audit tools (22.3%).
   Cache only checked, source-built tools with an exact recipe/platform key,
   trusted-main writes and ordinary source-build fallback. Keep every audit,
-  advisory pin and default/all-feature test. Warm savings remain unmeasured.
+  advisory pin and default/all-feature test. Independent review and 22 inert
+  cache/probe tests pass; hosted acceptance remains pending in
+  [PR289](https://github.com/VOLPAROSSA/volparossa/pull/289). A separate manual,
+  read-only probe measures a fresh-runner warm hit after trusted-main seeding,
+  without repeating workspace compilation. Warm savings remain unmeasured.
 - [ ] Accept superseded-run cancellation in Browser, Mail, Code, Map, Weather
   and Cloud automatic source workflows. Preserve manual evidence runs, original
   triggers, permissions, action pins, checks and application/core compatibility
@@ -78,7 +82,9 @@ The new work uses isolated checkouts from live default-branch heads.
 The next opportunities are deliberately small: measure cold/warm audit-tool reuse;
 then assess lockfile-scoped dependency caching against actual compile/download
 costs. Chat, Image and Citizen lack explicit app source-check workflows in the
-inspected defaults; define meaningful lightweight checks before adding automation.
+inspected defaults. Reviewed additions run their existing synthetic source suites
+on hosted runners; Image's separate real GnuPG snapshot trial stays outside that
+source scope. Acceptance awaits their actual hosted results.
 Avoid a universal reusable workflow across unlike Firefox, Rust, Node and mobile
 builds. Do not cache test outcomes, private fixtures or credentials, enable paid
 services, or duplicate completed hosted computations locally. Storage consumer

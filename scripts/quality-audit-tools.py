@@ -138,13 +138,21 @@ def install(root, expected, exact_hit, run=subprocess.run):
     return outcome + "-source-built", validate(root, expected, trusted=False)
 
 
+def probe(root, expected, exact_hit, run=subprocess.run):
+    # Measurement only: every failure propagates; there is no build/save path.
+    require(exact_hit)
+    size = validate(root, expected)
+    versions(root, run)
+    return "hit", size
+
+
 def output(name, value):
     with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as stream:
         stream.write(name + "=" + str(value) + "\n")
 
 
 def main():
-    require(len(sys.argv) == 2 and sys.argv[1] in {"prepare", "install", "save-check"})
+    require(len(sys.argv) == 2 and sys.argv[1] in {"prepare", "install", "save-check", "probe"})
     require(os.environ.get("GITHUB_ACTIONS") == "true"
             and os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted"
             and os.environ.get("RUNNER_OS") == "Linux" and os.environ.get("RUNNER_ARCH") == "X64")
@@ -166,17 +174,23 @@ def main():
         output("cacheable", "true")
         return
     started = time.monotonic()
-    outcome, size = install(root, expected, os.environ.get("AUDIT_CACHE_EXACT_HIT") == "true")
+    is_probe = sys.argv[1] == "probe"
+    if is_probe:
+        require(os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch" and os.environ["GITHUB_REF"] == "refs/heads/main")
+    operation = probe if is_probe else install
+    outcome, size = operation(root, expected, os.environ.get("AUDIT_CACHE_EXACT_HIT") == "true")
     elapsed = round(time.monotonic() - started, 3)
-    output("source-built", str(outcome != "hit").lower())
-    with Path(os.environ["GITHUB_PATH"]).open("a", encoding="utf-8") as stream:
-        stream.write(str(root / "bin") + "\n")
+    if not is_probe:
+        output("source-built", str(outcome != "hit").lower())
+        with Path(os.environ["GITHUB_PATH"]).open("a", encoding="utf-8") as stream:
+            stream.write(str(root / "bin") + "\n")
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
         stream.write("### Pinned audit-tool cache\n\n"
+                     f"- Scope: {'read-only warm-cache probe; no Quality gates run' if is_probe else 'Quality tool preparation'}.\n"
                      f"- Outcome: `{outcome}`; payload: {size} / {MAX_BYTES} bytes.\n"
                      f"- Validation/source-build time: {elapsed}s (restore time is a separate action step).\n"
                      f"- Exact recipe key: `{key}`.\n"
-                     "- Only successful main pushes may save; all audit and license gates still run.\n")
+                     "- Only successful main Quality runs may publish this cache.\n")
 
 
 if __name__ == "__main__":

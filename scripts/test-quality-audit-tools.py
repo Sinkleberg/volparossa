@@ -174,6 +174,25 @@ class CacheTests(unittest.TestCase):
             candidate[field] = "changed"
             self.assertNotEqual(CACHE.cache_key(candidate), baseline)
 
+    def test_probe_validates_warm_fixture_without_building(self):
+        self.seed()
+        with patch.object(CACHE, "source_build", side_effect=AssertionError("probe must not build")) as build:
+            outcome, size = CACHE.probe(self.root, self.expected, True, self.runner)
+        self.assertEqual(outcome, "hit")
+        self.assertGreater(size, 0)
+        self.assertEqual(len(self.calls), 2)
+        build.assert_not_called()
+
+    def test_probe_miss_and_tamper_fail_without_execution_or_build(self):
+        self.seed()
+        (self.root / "bin/cargo-deny").write_bytes(b"tampered")
+        with patch.object(CACHE, "source_build", side_effect=AssertionError("probe must not build")) as build:
+            for exact_hit in (False, True):
+                with self.assertRaises(ValueError):
+                    CACHE.probe(self.root, self.expected, exact_hit, self.runner)
+        self.assertEqual(self.calls, [])
+        build.assert_not_called()
+
     def test_cli_guards_platform_and_never_publishes_for_pr_or_manual(self):
         self.seed()
         env = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_OS": "Linux",
@@ -211,6 +230,26 @@ class CacheTests(unittest.TestCase):
         summary = records["GITHUB_STEP_SUMMARY"].read_text()
         for marker in ("`hit`", "bytes", "time:", CACHE.cache_key(self.expected)):
             self.assertIn(marker, summary)
+        for path in records.values():
+            path.unlink()
+        env["GITHUB_EVENT_NAME"] = "workflow_dispatch"
+        with patch.dict(os.environ, env), patch.object(CACHE, "recipe", return_value=self.expected), \
+                patch.object(CACHE, "versions"), patch.object(CACHE, "source_build") as build, \
+                patch.object(sys, "argv", ["quality-audit-tools.py", "probe"]):
+            CACHE.main()
+        build.assert_not_called()
+        self.assertFalse(records["GITHUB_OUTPUT"].exists())
+        self.assertFalse(records["GITHUB_PATH"].exists())
+        self.assertIn("no Quality gates run", records["GITHUB_STEP_SUMMARY"].read_text())
+
+    def test_probe_workflow_is_main_manual_only_and_restore_only(self):
+        workflow = WORKFLOW.with_name("quality-audit-cache.yml").read_text()
+        self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'", workflow)
+        for marker in ("timeout-minutes: 5", "runs-on: ubuntu-24.04", "fail-on-cache-miss: true",
+                       "persist-credentials: false", "scripts/quality-audit-tools.py probe"):
+            self.assertIn(marker, workflow)
+        for forbidden in ("actions/cache/save", "restore-keys:", " install", " push:", " pull_request:"):
+            self.assertNotIn(forbidden, workflow)
 
     def test_workflow_uses_only_pinned_restore_save_and_main_only_publication(self):
         workflow = WORKFLOW.read_text()
