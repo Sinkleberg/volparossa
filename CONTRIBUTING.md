@@ -6,10 +6,30 @@ release polish. Start with the [documentation guide](docs/README.md), then read
 [AGENTS.md](AGENTS.md), the [architecture](docs/architecture/ARCHITECTURE.md) and the relevant section of
 [implementation status](docs/IMPLEMENTATION_STATUS.md) before changing code.
 
-For a first contribution, improve an unclear guide, reproduce an existing bounded example,
-or propose a feature with a concrete user outcome and verification plan. Use
-[issues](https://github.com/VOLPAROSSA/volparossa/issues) for non-sensitive questions and bugs;
-follow [SECURITY.md](SECURITY.md) for vulnerabilities.
+This core-specific workflow complements the organization-wide
+[contribution guide](https://github.com/VOLPAROSSA/.github/blob/main/CONTRIBUTING.md),
+[Code of Conduct](https://github.com/VOLPAROSSA/.github/blob/main/CODE_OF_CONDUCT.md),
+[support guide](https://github.com/VOLPAROSSA/.github/blob/main/SUPPORT.md) and
+[accessibility guide](https://github.com/VOLPAROSSA/.github/blob/main/ACCESSIBILITY.md).
+Use [central Discussions](https://github.com/VOLPAROSSA/volparossa/discussions) for general
+or cross-project questions, and core [issues](https://github.com/VOLPAROSSA/volparossa/issues)
+for actionable bugs and scoped work. Follow [SECURITY.md](SECURITY.md) for vulnerabilities.
+
+## First core contribution
+
+1. Choose a small documentation improvement or a reproducible task with a clear outcome.
+   Check the [current status](docs/IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
+   so you do not mistake a failed trial or an unmerged branch for accepted behavior.
+2. Before building, use the [read-only prerequisite check](docs/development/OPERATIONS.md#read-only-prerequisites):
+   `./scripts/check-system.sh`. It inspects the environment without installing packages,
+   creating network fixtures or changing the host configuration.
+3. Follow the existing [build instructions](docs/development/OPERATIONS.md#build-and-package)
+   and select a [focused test](docs/development/TESTING.md#unprivileged-quality-gate) that
+   matches the change. A documentation-only change needs link and claim checks, not a fresh
+   runtime trial. Package installation is a separate, explicit step in the operations guide.
+4. Keep any privileged networking work in the documented disposable namespace or VM
+   topology. Do not test on your active host network. In the pull request, state the exact
+   checks run and leave unverified behavior clearly marked.
 
 ## Ground rules
 

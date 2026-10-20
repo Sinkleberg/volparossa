@@ -18,7 +18,12 @@ comes first.
 [Development status](#development-status) ·
 [Documentation](docs/README.md) ·
 [FAQ](docs/FAQ.md) ·
-[Contribute](CONTRIBUTING.md)
+[Community](docs/community/OVERVIEW.md) ·
+[Support](docs/community/SUPPORTING.md) ·
+[Contribute](CONTRIBUTING.md) ·
+[Code of Conduct](https://github.com/VOLPAROSSA/.github/blob/main/CODE_OF_CONDUCT.md) ·
+[Accessibility](https://github.com/VOLPAROSSA/.github/blob/main/ACCESSIBILITY.md) ·
+[Discussions](https://github.com/VOLPAROSSA/volparossa/discussions)
 
 > **Development preview · Initial core target: Debian 13 amd64 · GPL-3.0-only**
 >
@@ -44,7 +49,7 @@ access and explicitly chosen system-wide operation remain separate permissions.
 
 ## Development status
 
-**Development snapshot: 17 October 2026.** Working milestones exist across all five
+**Development evidence through 20 October 2026.** Working milestones exist across all five
 layers, but they do not yet form a complete, supported service. The distinction matters
 especially for private data and applications that depend on several layers at once.
 
@@ -72,12 +77,16 @@ performance, general coding reliability or confidential execution on other peopl
 
 The next shared dependencies are **private-storage maintenance with Image/Cloud** and
 **protected peer computation**, while preserving the demonstrated coding workflow.
-The [latest Cloud trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38917106698)
-fails during a TLS handshake while publishing data. Its joined repair, repeated restore,
-deletion and provider-cleanup milestone remains open. The
-[public-model guest trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/38917448052)
-reaches package installation but fails before model execution. A public guest trial is
-a prerequisite, not proof of confidential hardware or permission to process private tasks.
+The [ordinary-expiry trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/39081968944)
+fails its required acceptance step. The [earlier Cloud consumer failure](https://github.com/VOLPAROSSA/volparossa/actions/runs/38917106698)
+and unconfirmed remote cleanup remain separate; ordinary expiry has not been established
+as their cause. Joined publication, repair, repeated restore and deletion remain open.
+
+The [latest public-model guest trial](https://github.com/VOLPAROSSA/volparossa/actions/runs/39082065142)
+passes contracts but fails public-model execution. Its retained artifact identifies an
+export inventory pathname rejection, with the exact pathname and failing rule still
+unknown. Public model execution and confidential private workloads remain unproven.
+A public guest trial does not establish confidential hardware or authorize private tasks.
 
 Complete applications, dependable shared reasoning, the full immune system and authorized
 automatic software updates also remain in development. The

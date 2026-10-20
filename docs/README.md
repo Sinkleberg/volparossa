@@ -18,6 +18,7 @@ Technical documents are grouped by subject so the folder itself is easier to bro
 | [network/](network/) | Peer discovery, local links, routing, multipath transports and DNS. |
 | [services/](services/) | Cache, private storage, message custody, cooperative compute and software maintenance. |
 | [applications/](applications/) | Application family and browser-network integration. |
+| [community/](community/) | Project overview for contributors and practical ways to support the work. |
 | [privacy/](privacy/) | Privacy boundaries, threat model and destination policy. |
 | [development/](development/) | Building, operating and testing the project. |
 | [assets/](assets/) | Images used by the documentation. |
@@ -37,16 +38,23 @@ or go directly to a topic when you already know what you need.
 
 ### I want to build or contribute
 
-1. Read the repository's [engineering instructions](../AGENTS.md), then the
+1. Start with the [community overview](community/OVERVIEW.md) and
+   [supporting the project](community/SUPPORTING.md) for contribution paths and current needs.
+   The organization-wide [contribution guide](https://github.com/VOLPAROSSA/.github/blob/main/CONTRIBUTING.md),
+   [Code of Conduct](https://github.com/VOLPAROSSA/.github/blob/main/CODE_OF_CONDUCT.md),
+   [support guide](https://github.com/VOLPAROSSA/.github/blob/main/SUPPORT.md) and
+   [accessibility guide](https://github.com/VOLPAROSSA/.github/blob/main/ACCESSIBILITY.md)
+   apply across repositories.
+2. Read the repository's [engineering instructions](../AGENTS.md), then the
    [complete agreed goal](development/GOAL.md). The current milestone is not the full scope.
-2. Read [current implementation status](IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
+3. Read [current implementation status](IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
    for retained branches, exact revisions, acceptance evidence and unresolved dependencies.
-3. Follow the [architecture](architecture/ARCHITECTURE.md) and relevant topic guide below.
+4. Follow the [architecture](architecture/ARCHITECTURE.md) and relevant topic guide below.
    Use [Contributing](../CONTRIBUTING.md) and the [Codex handover workflow](development/CODEX_WORKFLOW.md)
    when preparing scoped work or transferring it to another session.
-4. Use the [read-only prerequisite checks](development/OPERATIONS.md#read-only-prerequisites), then
+5. Use the [read-only prerequisite checks](development/OPERATIONS.md#read-only-prerequisites), then
    the [build instructions](development/OPERATIONS.md#build-and-package).
-5. Choose [focused tests](development/TESTING.md#unprivileged-quality-gate) for your change. Network
+6. Choose [focused tests](development/TESTING.md#unprivileged-quality-gate) for your change. Network
    tests run only in disposable namespaces or the documented VM, never on your active network.
 
 ### I want to evaluate the claims and privacy
@@ -96,9 +104,12 @@ or go directly to a topic when you already know what you need.
 - [Operations](development/OPERATIONS.md): configuration, commands, packaging and removal.
 - [Testing](development/TESTING.md): focused checks, disposable topologies and acceptance requirements.
 - [Implementation status](IMPLEMENTATION_STATUS.md): detailed evidence ledger, including failed trials.
+- [Public growth readiness](development/PUBLIC_GROWTH_20261020.md): organization audit, verification and sustainable outreach/funding roadmap.
 - [2026-10-20 repository maintenance](development/MAINTENANCE_20261020.md): measured cleanup outcomes and retained recovery state.
 - [Execution plan](IMPLEMENTATION_STATUS.md#execution-priorities-and-next-milestones): next milestones, shared dependencies and current blockers.
 - [Applications](applications/APPLICATIONS.md): boundaries and links for the application repositories.
+- [Community overview](community/OVERVIEW.md): project entry point and contributor routes.
+- [Supporting the project](community/SUPPORTING.md): contributions, funding readiness and partnership boundaries.
 - [Contributing](../CONTRIBUTING.md): how to propose and verify a useful change.
 - [Security policy](../SECURITY.md): private vulnerability reporting.
 - [License](../LICENSE) and [third-party notices](../THIRD_PARTY_LICENSES.md): reuse and provenance.
