@@ -58,10 +58,13 @@ jobs:
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$(dpkg --print-architecture)" = amd64
           # Official Noble security package; signed apt metadata authenticates it.
-          # https://packages.ubuntu.com/noble/amd64/protobuf-compiler
+          # Compiler and library family from Noble security, published 2026-10-20.
+          # https://security.ubuntu.com/ubuntu/dists/noble-security/universe/binary-amd64/Packages.xz
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            protobuf-compiler=3.21.12-8.2ubuntu0.3
+            protobuf-compiler=3.21.12-8.2ubuntu0.4 \
+            libprotoc32t64=3.21.12-8.2ubuntu0.4 \
+            libprotobuf32t64=3.21.12-8.2ubuntu0.4
           test "$(protoc --version)" = 'libprotoc 3.21.12'
 
       - name: Verify original ABCI schemas and inert fixture contracts

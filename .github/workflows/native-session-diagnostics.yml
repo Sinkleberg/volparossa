@@ -118,9 +118,12 @@ jobs:
           test "$GITHUB_ACTIONS" = true
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$(dpkg --print-architecture)" = amd64
+          # Same Noble security compiler/library family as Quality (2026-10-20).
           sudo -n apt-get update
           sudo -n apt-get install --yes --no-install-recommends \
-            protobuf-compiler=3.21.12-8.2ubuntu0.3
+            protobuf-compiler=3.21.12-8.2ubuntu0.4 \
+            libprotoc32t64=3.21.12-8.2ubuntu0.4 \
+            libprotobuf32t64=3.21.12-8.2ubuntu0.4
           test "$(protoc --version)" = 'libprotoc 3.21.12'
 
       - name: Check the closed Python collector contracts
