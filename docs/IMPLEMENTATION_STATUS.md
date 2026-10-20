@@ -8,11 +8,13 @@ detailed evidence ledger, including historical failures—not an installation gu
 
 [Current work](#current-integration-and-active-work) ·
 [Execution plan](#execution-priorities-and-next-milestones) ·
+[Agreed goal](development/GOAL.md) ·
+[Handover workflow](development/CODEX_WORKFLOW.md) ·
 [Earlier milestones](#earlier-milestone-evidence) ·
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-17
+Last updated: 2026-10-20
 
 ## Current integration and active work
 
@@ -33,10 +35,34 @@ The immediate milestones build on the retained candidates and evidence below:
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resolve Cloud publication failures, then complete consumer repair, repeated restoration, deletion and confirmed provider cleanup. | Candidate `acba3244` passes source run `38915098088`; original consumer trial `38917106698` fails Cloud RESERVE at `tls_handshake / handshake_deadline`. This is distinct from earlier actual `38900639690`, which fails Cloud FINALIZE with `helper_kernel` then `helper_cleanup_incomplete`. Consumer remote cleanup and provider usage remain unconfirmed; full acceptance remains open. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Resolve the ordinary-expiry acceptance failure, then complete consumer repair, restoration and deletion. | Source `39074693102` passes on `3ab2f6cb`; fresh-route probe `39080705711` passes on `82a23bdd` with ten deposits/deletions, 40 completed flows, zero provider usage and full cleanup. Ordinary-expiry trial `39081968944` on `b2b9c6b3` fails its required acceptance step. Post-acquire guard `139573f3` passes compile/regression steps but fails lint/formatting in `39082596009`; it is not accepted. Full consumer failure `38917106698`, its unconfirmed remote cleanup and its unknown cause remain separate. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then repair, restore and delete it after provider loss. | PR279 joins upload profile 6 to shared consumer profile 10 on `dd1fd4df`; source run `38903572207` passes. A real upload trial still requires the shared Storage consumer acceptance above, joined cleanup and zero usage at all three providers. Finite authorization, HTTP PUT, enrollment, repeated restore and all-copy deletion remain required; source checks and synthetic-core SDK results do not replace them. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and the native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 keeps that immutable core pin. Core PR277 integrates the native-only composition after Quality and CodeQL pass; this main composition has not had a new model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Complete offline package installation, then execute two public model turns in the immutable guest before joining approved private workloads. | Candidate `315ddb3e` passes source run `38916171428`; original actual `38917448052` passes package planning but fails at `package_install`, before model execution. The exact installation cause is not retained. Earlier actual `38911735085` fails at `package_plan`. Public boot, source checks and PR262 key possession remain distinct from model execution and private-task admission. Production approval, vendor appraisal and confidential hardware remain open. |
+| Protected remote compute — `volparossa`, then Code/Browser | Resolve the guest builder/export blocker, construct the sealed runtime and execute two public model turns before joining approved private workloads. | Actual `39078833292` on `fabfa849` verifies all 199 build and 65 runtime packages, then fails in export. Diagnostic source `39081437862` passes on `3a1a1593`; subsequent actual `39082065142` passes contracts but fails public-model execution. Its job metadata does not identify the builder operation or accept model turns. Model execution, production approval, vendor appraisal and confidential hardware remain open. |
+
+### Retained branches and resumption dependencies
+
+This is a read-only GitHub snapshot from 2026-10-20. No core workflow runs are queued or
+in progress; the trials below are terminal, not work still running in another session.
+Recheck branch heads and results before resuming. These retained worktrees are under
+the primary checkout's `.git/` directory; their changes are not thereby integrated into `main`.
+The [complete goal](development/GOAL.md) remains in scope beyond these immediate blockers.
+
+| Branch and PR | Exact remote head | Dependency and retained outcome |
+| --- | --- | --- |
+| `fix/storage-route-retirement` — [PR275](https://github.com/VOLPAROSSA/volparossa/pull/275) | `3ab2f6cb9476623234191a7b416934960538ef9d` | Accepted source `39074693102`; base for the post-acquire guard. Consumer acceptance remains separate. |
+| `test/storage-real-route-deposit-sequence` — [PR285](https://github.com/VOLPAROSSA/volparossa/pull/285) | `82a23bdd51bd39a4086bf4f8c6ddc2b925533815` | Accepted fresh-route probe `39080705711`; not a full Image/Cloud lifecycle proof. |
+| `test/storage-natural-expiry-sequence` — [PR287](https://github.com/VOLPAROSSA/volparossa/pull/287) | `b2b9c6b3483ba13ad02ee1c1b3b23e1eaf0b8fc9` | Based on earlier report-reader correction `d19f0246`, not accepted final-report correction `82a23bdd`. Trial `39081968944` fails ordinary-expiry acceptance; inspect its original bounded evidence before attributing a cause. |
+| `fix/storage-post-acquire-clock` — [PR288](https://github.com/VOLPAROSSA/volparossa/pull/288) | `139573f351b945c68dc800391ba82befc86f50ef` | Based on `3ab2f6cb`. [Run `39082596009`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39082596009) passes compilation, regression and negative-control steps, then fails lint and formatting. No passing complete source gate or new consumer trial is accepted. |
+| `feature/cloud-upload-tls-v9` — [PR279](https://github.com/VOLPAROSSA/volparossa/pull/279) | `dd1fd4dff55413ade4cfb26ffcb7bf5a9ad26c01` | Source `38903572207` passes. Actual upload requires shared consumer profile 10 acceptance, joined cleanup and zero usage at all three providers. |
+| `feature/protected-resident-model` — [PR276](https://github.com/VOLPAROSSA/volparossa/pull/276) | `3a1a15930fa69b89c9275f980e02eb6b89c94fb7` | Source `39081437862` passes; actual `39082065142` fails public-model execution after contracts pass. Keep resident-task [PR271](https://github.com/VOLPAROSSA/volparossa/pull/271) and immutable-image [PR272](https://github.com/VOLPAROSSA/volparossa/pull/272) prerequisites distinct from model and private-worker acceptance. |
+| `docs/storage-compute-checkpoint-20261018` — [PR286](https://github.com/VOLPAROSSA/volparossa/pull/286) | `65c2af6b5c03a6a1be6ab72859ec10e55d9de9d6` | Documentation snapshot before this handover update; accepted fresh-route and package/export evidence is newer than main's Oct17 ledger. |
+
+The remaining questions are which condition rejects the ordinary-expiry evidence,
+which operation stops the latest public model trial, and whether the full consumers
+can publish, repair, restore and delete with confirmed remote cleanup. Step/job results
+alone do not answer them. Preserve original failed reports while investigating;
+a passing fresh-route probe or a proposed expiry guard does not resolve them.
 
 ### Current Storage upload and public model evidence
 
@@ -44,7 +70,124 @@ These candidates remain separate from core main's accepted native coding backend
 Source checks do not transfer the accepted Code trial to a new binary or establish
 Image/Cloud maintenance, model execution in the immutable guest, or private admission.
 
-#### Latest candidate source acceptance
+#### Latest Storage and model checkpoints
+
+**Ten fresh-route deposits and their complete cleanup are accepted.**
+[Source run `39074693102`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39074693102)
+on `3ab2f6cb9476623234191a7b416934960538ef9d` passes 148 Rust, 296 Python,
+50 Node and 48 normalizer checks, compilation, strict lint, formatting and all
+five host-state comparisons. Its three kernel tests include repeated signed
+RESERVE exchanges through production egress on one reused route; this alone is
+not a deployed WireGuard relay proof.
+
+The separate core-only [probe `39077261472`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39077261472)
+on `028754f891000ae0880ad71bb5b0a2e46715f818` uses real helper-owned relay
+paths. Original sidecars record ten owner-verified deposits, ten deletions,
+40 completed protected flows with zero failures, zero usage at all three
+providers, joined CLI children and complete owner/topology cleanup. The retained
+route, privacy and isolation evidence passes independent reconstruction, and
+guest-root host-state hashes match. The original run nevertheless remains
+failed: report assembly used an object-only reader for the provider-usage array.
+Its artifact digest and ZIP integrity pass; the original artifact SHA-256 is
+`9f0c443fd88fd5c259d26b25f7f3b820bc8caea3753c20482efaa8d244b6e3b7`.
+
+Test-only candidate `d19f0246bf1ee8610e7cbc9bd52bdb973aedd289` reuses the
+existing bounded array reader without changing production code, deadlines or
+substantive validators. Fourteen sequence and 54 surrounding tests pass; the
+new file-backed regression reproduces the exact original error before the fix.
+Original [run `39079108548`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39079108548)
+on that commit repeats all ten deposits/deletions, 40 completed flows with zero
+failures, zero provider usage and complete private/topology cleanup. Combined
+evidence now passes, but the final report validator rejects the unchanged
+initial `NOT_REACHED` blocker. The original run remains failed. Its exact
+artifact digest and ZIP integrity pass; artifact SHA-256 is
+`e89290428060aa0553a8749cbbe5bc6fde07f46d7629bf5812d8a117eb0f19b5`.
+
+Candidate `82a23bdd51bd39a4086bf4f8c6ddc2b925533815` clears that marker
+only after evidence validation succeeds. Fifteen sequence tests pass, including
+real-shell finalization, preserved evidence/cleanup failures and a negative
+control reproducing the old marker error. Original
+[run `39080705711`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39080705711)
+passes on that frozen source: ten owner-verified deposits and deletions, 40
+completed protected flows with zero failures, zero usage at all three providers,
+joined observers/children, removed private fixtures and complete topology
+cleanup. Guest-root host-state hashes match. Independent reconstruction matches
+the unmodified combined evidence and final report; its blocker is null and guest
+exit status is zero. Exact source bindings, the closed 22-file export, artifact
+API digest and ZIP integrity pass. Original artifact SHA-256:
+`65acd1436a71c1d315786cbb2ae9fac60ed632ed3d70d33e02122327382f7138`.
+No earlier report is rewritten.
+
+This fresh-route probe does not resolve the full Image/Cloud failure below. The
+older fixture completed 106 post-reconnect flows across at least 531 seconds
+before starting its consumers. It reused the post-reconnect route and reopened
+provider stores; the application owners were freshly created. Its failing
+consumer has no final failure-to-route-age binding. Ordinary route expiry or
+lifecycle overlap is a coverage gap to test, not an established failure cause.
+The retained fixture, [PR287](https://github.com/VOLPAROSSA/volparossa/pull/287),
+tests natural idle expiry and ordinary route reselection with unchanged owner
+and provider state. It preserves production lifetimes and does not force a
+reconnect. Its [trial `39081968944`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39081968944)
+on `b2b9c6b3483ba13ad02ee1c1b3b23e1eaf0b8fc9` completes the topology command
+but fails the required ordinary-expiry/retained-owner/cleanup acceptance step.
+That step result does not identify which substantive condition failed. Live
+handshake expiry and the full consumer lifecycle remain separate requirements.
+
+**Both package profiles install; the guest builder remains the model blocker.**
+Original [public trial `39075796147`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39075796147)
+on `6d0feec7271cf419d92c8202f6624f7006d4e9be` configures and verifies all
+199 build and 65 runtime packages. Archive/status/audit/trigger checks, policy
+restoration, unmounting and installer process/namespace cleanup pass. It then
+fails at `guest_model_build / guest_unit_failed`; the exact builder substep was
+not retained. Controller VM/tool cleanup, scratch removal, user-manager
+restoration and final source checks pass. Sealed runtime construction, model
+turns and final host route/DNS comparison are not reached. The original trial
+artifact SHA-256 is
+`30c0e386152fcefd71b49238c29cf8e3f5fa10e594f8df89846160e07b35450c`;
+the artifact digest and ZIP integrity were audited.
+
+Diagnostic candidate `fabfa8494585fc4bcd91ec452389ec77c743e81f` retains only
+closed builder-failure evidence after the unit stops and its cgroup is empty.
+It preserves the original error, cleanup obligations, builder commands, package
+and model pins, deadlines and resource limits. [Source `39078193265`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39078193265)
+passes 100 Rust and 370 Python cases, compilation, strict Clippy, an empty
+formatter patch and exact final-source checks. All 356 earlier Python cases
+remain, with 14 diagnostic tests added. Source bindings and original archive
+integrity pass; source artifact SHA-256 is
+`9e54357f98d3da99957ddd3533949daf632af8c1fb38d56bbecc8fe8209051d3`.
+Original [public trial `39078833292`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39078833292)
+on the same commit repeats the passing source gate and both package
+installations, then fails in the builder's **export** phase. The bound builder
+sets that phase after native building, model provisioning and their validation;
+it includes asset export and final source/deadline checks. The exact failing
+operation remains unknown. VM/tool joining, scratch removal, user-manager
+restoration and final source checks pass, but no sealed runtime, model turns or
+final host comparison are accepted. Artifact API digests and all three ZIP
+integrity checks pass; trial artifact SHA-256 is
+`3369301879d00e7f4c10cc93dc07dc28b68b75a658a6a2068e078d51c2772425`.
+The diagnostic change improves failure identification rather than proving a
+builder fix; public execution would not prove confidential private-peer
+execution or hardware attestation.
+
+The subsequent diagnostic candidate `3a1a15930fa69b89c9275f980e02eb6b89c94fb7`
+adds closed export-operation labels while preserving commands, pins, deadlines,
+cleanup and the successful receipt schema. [Source run `39081437862`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39081437862)
+passes 100 Rust and 381 Python cases, compilation, strict lint, an empty formatter
+patch and final-source checks. All earlier test methods remain; 11 diagnostic
+cases are added. The exact source, dependency and fixed-input bindings, artifact
+digest and ZIP integrity pass. Artifact SHA-256:
+`b056c7610888648818d9e30f4dcc6f7b6f9602b76e988999cb1eff7af4030613`.
+This source acceptance does not resolve the original export failure or accept
+model execution.
+
+The subsequent [actual `39082065142`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39082065142)
+uses the same `3a1a1593` source. Its contracts job passes; its public-model job
+fails at the execution step. Source preservation and user-manager restoration
+steps pass. The job result alone does not identify the failing guest operation,
+prove complete host-state restoration or establish model execution. The original
+export failure above remains distinct from this latest trial's unresolved cause.
+
+#### Earlier candidate evidence
 
 **Storage fixture diagnostics pass; consumer acceptance remains open.**
 [Source run `38915098088`](https://github.com/VOLPAROSSA/volparossa/actions/runs/38915098088)
@@ -4593,6 +4736,14 @@ The revised contribution approach uses the original extension's voluntary site
 reporting, not a maintained fork or automatic submission of browsing data.
 Such reports can reveal the reported site's URL; they are not described as
 guaranteed anonymous. Bundling, settings and cooperation tests stay in Browser.
+
+Browser [PR15](https://github.com/VOLPAROSSA/volparossa-browser/pull/15), merged as
+`08bac388a0abfd06426bebe8f6fabd0157d2e709`, preserves separate native proofs for
+delivery to original uBO's asset reader and selection/restart behavior. Their
+original receipts and hashes remain in the
+[Browser filter integration guide](https://github.com/VOLPAROSSA/volparossa-browser/blob/76b37880569d9048cda473b8ba00cc5ae0395a1f/integration/filters/README.md).
+Neither establishes combined authorized broker retrieval, filtering-engine
+consumption or production startup/resume protection.
 
 The new `content filter-snapshot` command reuses the existing protected public-text
 fetch path with an independently selected publisher, name and exact manifest hash.
