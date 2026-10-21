@@ -45,6 +45,70 @@ pub(crate) struct Options {
     /// Without this flag emit the fixed-input policy without connecting.
     #[arg(long)]
     execute: bool,
+    /// Fixed attempt-stage diagnostics for this public fixture only; never raw errors.
+    #[arg(long, requires = "execute")]
+    diagnostic_stages: bool,
+}
+
+#[derive(Clone, Copy)]
+enum Stage {
+    Configuration,
+    Socket,
+    Certificate,
+    Connect,
+    Tls,
+    TlsProfile,
+    Challenge,
+    Grant,
+    Accepted,
+    Turn1Submit,
+    Turn1Admitted,
+    Turn1Result,
+    Turn2Submit,
+    Turn2Admitted,
+    Turn2Result,
+    Close,
+    Closed,
+    Cleanup,
+}
+
+impl Stage {
+    fn marker(self) -> &'static str {
+        match self {
+            Self::Configuration => "configuration",
+            Self::Socket => "socket",
+            Self::Certificate => "certificate",
+            Self::Connect => "connect",
+            Self::Tls => "tls",
+            Self::TlsProfile => "tls_profile",
+            Self::Challenge => "challenge",
+            Self::Grant => "grant",
+            Self::Accepted => "accepted",
+            Self::Turn1Submit => "turn_1_submit",
+            Self::Turn1Admitted => "turn_1_admitted",
+            Self::Turn1Result => "turn_1_result",
+            Self::Turn2Submit => "turn_2_submit",
+            Self::Turn2Admitted => "turn_2_admitted",
+            Self::Turn2Result => "turn_2_result",
+            Self::Close => "close",
+            Self::Closed => "closed",
+            Self::Cleanup => "cleanup",
+        }
+    }
+}
+
+fn observe_stage(enabled: bool, stage: Stage, mut output: impl std::io::Write) {
+    if enabled {
+        // Best effort only: a broken diagnostic sink cannot change protocol or
+        // cleanup behavior. This marks entry, never successful stage completion.
+        let _ = writeln!(output, "VP_PUBLIC_REQUESTER_STAGE_V1 {}", stage.marker());
+    }
+}
+
+fn stage(enabled: bool, value: Stage) {
+    if enabled {
+        observe_stage(true, value, std::io::stderr().lock());
+    }
 }
 
 pub(super) fn inputs() -> Result<[Vec<u8>; 2]> {
@@ -89,6 +153,8 @@ fn client_config(certificate: Vec<u8>) -> Result<(TlsConnector, [u8; 32])> {
 
 pub(in crate::compute) async fn run(options: Options) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(2400);
+    let diagnostics = options.diagnostic_stages && options.execute;
+    stage(diagnostics, Stage::Configuration);
     ensure!(
         !nix::unistd::geteuid().is_root(),
         "compute_unprivileged_user_required"
@@ -106,24 +172,28 @@ pub(in crate::compute) async fn run(options: Options) -> Result<()> {
         println!("{}", policy(&key, workload)?);
         return Ok(());
     }
+    stage(diagnostics, Stage::Socket);
     crate::compute::private_directory(options.socket.parent().context("resident_socket_parent")?)?;
     let info = std::fs::symlink_metadata(&options.socket)?;
     ensure!(
         info.file_type().is_socket() && info.uid() == nix::unistd::geteuid().as_raw(),
         "resident_socket_owner"
     );
+    stage(diagnostics, Stage::Certificate);
     let (connector, spki) = client_config(crate::compute::read_file(&options.certificate, 8192)?)?;
+    stage(diagnostics, Stage::Connect);
     let stream = timeout_at(deadline, UnixStream::connect(&options.socket)).await??;
     ensure!(
         stream.peer_cred()?.uid() == nix::unistd::geteuid().as_raw(),
         "resident_socket_peer"
     );
+    stage(diagnostics, Stage::Tls);
     let tls = timeout_at(
         deadline.min(Instant::now() + Duration::from_secs(30)),
         connector.connect("resident.test".try_into()?, stream),
     )
     .await??;
-    let report = exchange(tls, &key, workload, spki, deadline).await?;
+    let report = exchange(tls, &key, workload, spki, deadline, diagnostics).await?;
     println!("{report}");
     Ok(())
 }
@@ -252,7 +322,9 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
     workload: [u8; 32],
     spki: [u8; 32],
     deadline: Instant,
+    diagnostics: bool,
 ) -> Result<Value> {
+    stage(diagnostics, Stage::TlsProfile);
     ensure!(
         tls.get_ref().1.alpn_protocol() == Some(ALPN)
             && tls.get_ref().1.protocol_version() == Some(rustls::ProtocolVersion::TLSv1_3),
@@ -270,10 +342,13 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
         .1
         .export_keying_material([0; 32], EXPORTER, None)?;
     let admission = deadline.min(Instant::now() + Duration::from_secs(30));
+    stage(diagnostics, Stage::Challenge);
     let challenge = wire::read(&mut tls, admission).await?;
+    stage(diagnostics, Stage::Grant);
     let now_ms = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())?;
     let signed = grant(&challenge, key, workload, spki, exporter, now_ms, deadline)?;
     wire::write(&mut tls, wire::frame(wire::GRANT, 0, signed), admission).await?;
+    stage(diagnostics, Stage::Accepted);
     ensure!(
         expected(&mut tls, wire::ACCEPTED, 0, admission)
             .await?
@@ -284,12 +359,18 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
     let mut results = Vec::with_capacity(2);
     for (index, input) in inputs()?.into_iter().enumerate() {
         let sequence = u32::try_from(index + 1)?;
+        let [submit, admitted, result_stage] = [
+            [Stage::Turn1Submit, Stage::Turn1Admitted, Stage::Turn1Result],
+            [Stage::Turn2Submit, Stage::Turn2Admitted, Stage::Turn2Result],
+        ][index];
+        stage(diagnostics, submit);
         wire::write(
             &mut tls,
             wire::frame(wire::SUBMIT, sequence, input),
             deadline,
         )
         .await?;
+        stage(diagnostics, admitted);
         ensure!(
             expected(&mut tls, wire::ADMITTED, sequence, deadline)
                 .await?
@@ -297,11 +378,15 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
                 .is_empty(),
             "resident_admitted_payload"
         );
+        stage(diagnostics, result_stage);
         let frame = expected(&mut tls, wire::RESULT, sequence, deadline).await?;
         results.push(result(&frame, ["READY", "4"][index])?);
     }
+    stage(diagnostics, Stage::Close);
     wire::write(&mut tls, wire::frame(wire::CLOSE, 3, vec![]), deadline).await?;
+    stage(diagnostics, Stage::Closed);
     let closed = expected(&mut tls, wire::CLOSED, 3, deadline).await?;
+    stage(diagnostics, Stage::Cleanup);
     let cleanup = crate::compute::private_conversation::decode_worker_message(&closed.body)?;
     ensure!(
         cleanup == json!({"version":1,"child_reaped":true,"private_state_removed":true}),

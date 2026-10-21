@@ -63,17 +63,23 @@ def inspected_root(device='/dev/sda1', size=4096, disk_size=16384, partitions=((
 
 
 @contextlib.contextmanager
-def fake_tool(*, join_error=None, returncode=0):
+def fake_tool(*, join_error=None, returncode=0, pipe_bytes=None):
     """Exercise real run bookkeeping without a process, pipe, wait or signal."""
     process = types.SimpleNamespace(pid=313, stdout=mock.Mock(), stderr=mock.Mock(), returncode=returncode)
     events = mock.MagicMock()
     events.__enter__.return_value = events
     events.get_map.return_value = {}
+    if pipe_bytes is not None:
+        events.get_map.side_effect = [{1: True}, {}]
+        events.select.return_value = [(types.SimpleNamespace(fd=10, fileobj=process.stdout), 1),
+                                      (types.SimpleNamespace(fd=11, fileobj=process.stderr), 1)]
     with contextlib.ExitStack() as patches:
         patches.enter_context(mock.patch.object(R.subprocess, 'Popen', return_value=process))
         patches.enter_context(mock.patch.object(R.selectors, 'DefaultSelector', return_value=events))
         patches.enter_context(mock.patch.object(R.os, 'set_blocking'))
         patches.enter_context(mock.patch.object(R.os, 'waitid', return_value=object()))
+        if pipe_bytes is not None:
+            patches.enter_context(mock.patch.object(R.os, 'read', side_effect=pipe_bytes))
         join = patches.enter_context(mock.patch.object(R, 'joined', side_effect=join_error))
         yield process, join
 
@@ -2108,11 +2114,13 @@ class ReceiptAndBindings(Inert):
     def test_inventory_diagnostic_branch_only_adds_exact_source_contract_authority(self):
         import textwrap
         workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
-        self.assertIn('branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021]', workflow)
-        self.assertIn("github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' &&", workflow)
+        self.assertIn('branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021]', workflow)
+        self.assertIn("github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' ||", workflow)
+        self.assertIn("github.ref == 'refs/heads/fix/protected-requester-diagnostic-20261021') &&", workflow)
         self.assertIn("github.event_name == 'push' || inputs.scenario == 'source-contracts'", workflow)
         public = workflow.split('\n  public-model:\n', 1)[1]
         self.assertNotIn('diagnostic/protected-export-inventory', public)
+        self.assertNotIn('fix/protected-requester-diagnostic', public)
         self.assertIn("github.ref == 'refs/heads/feature/protected-resident-model'", public)
         self.assertIn('test "$GITHUB_SHA" = "$EXPECTED_SOURCE"', public)
         self.assertIn('test "$GITHUB_WORKFLOW_SHA" = "$EXPECTED_SOURCE"', public)
@@ -2753,6 +2761,162 @@ class ImageToolCleanup(Inert):
             self.assertEqual(path.read_bytes(), b'inert image')
             self.assertEqual(list(work.iterdir()), [path])
             R.subprocess.Popen.assert_not_called()
+
+
+class RequesterDiagnostics(Inert):
+    def markers(self, count=None):
+        return b''.join(R.REQUESTER_STAGE_PREFIX + value.encode() + b'\n'
+                        for value in R.REQUESTER_STAGES[:count])
+
+    def test_each_valid_prefix_is_only_an_attempt_and_never_acceptance(self):
+        for count, stage in enumerate(R.REQUESTER_STAGES, 1):
+            with self.subTest(count=count):
+                value = R.requester_diagnostic(self.markers(count), 1)
+                self.assertEqual(value['protocol'], dict(
+                    state='complete' if count == len(R.REQUESTER_STAGES) else 'prefix', attempt_stage=stage))
+                self.assertTrue(value['diagnostic_only'])
+                self.assertFalse(value['acceptance_evidence'])
+                self.assertEqual(value['stage_semantics'], 'entered_only')
+                self.assertNotIn('turns', value)
+
+    def test_missing_markers_and_raw_private_errors_are_unavailable(self):
+        for raw in (b'', b'Error: /private/key prompt-canary\n', b'\xff\x00\n', b'x' * 65537):
+            value = R.requester_diagnostic(raw, 1)
+            self.assertEqual(value['protocol'], dict(state='unavailable', attempt_stage=None))
+            self.assertNotIn('private', R.encoded(value).decode())
+            self.assertNotIn('canary', R.encoded(value).decode())
+
+    def test_unknown_order_duplicates_extra_fields_and_cardinality_are_malformed(self):
+        first = self.markers(1)
+        for raw in (R.REQUESTER_STAGE_PREFIX + b'socket\n', first + first,
+                    first + R.REQUESTER_STAGE_PREFIX + b'/private/prompt-canary\n',
+                    first + R.REQUESTER_STAGE_PREFIX + b'socket /private/key\n',
+                    first + R.REQUESTER_STAGE_PREFIX + b'socket\r\n',
+                    self.markers() + first, first + R.REQUESTER_STAGE_PREFIX + b'\n'):
+            with self.subTest(raw=raw):
+                value = R.requester_diagnostic(raw, 1)
+                self.assertEqual(value['protocol'], dict(state='malformed', attempt_stage=None))
+                self.assertNotIn('/private', R.encoded(value).decode())
+
+    def test_truncated_marker_is_distinct_from_a_valid_prefix(self):
+        for raw in (self.markers(1)[:-1], self.markers(1) + R.REQUESTER_STAGE_PREFIX,
+                    self.markers(1) + R.REQUESTER_STAGE_PREFIX + b'sock'):
+            self.assertEqual(R.requester_protocol_stage(raw), dict(state='truncated', attempt_stage=None))
+        self.assertEqual(R.requester_protocol_stage(self.markers(1))['state'], 'prefix')
+
+    def test_closed_diagnostics_separate_exit_signal_timeout_and_forced_cleanup_signal(self):
+        for status, failure, expected in (
+            (0, None, dict(kind='exit', exit_code=0, signal=None)),
+            (1, None, dict(kind='exit', exit_code=1, signal=None)),
+            (-9, None, dict(kind='signal', exit_code=None, signal=9)),
+            (-9, 'command_timeout', dict(kind='timeout', exit_code=None, signal=None)),
+            (-9, 'controller_cancelled', dict(kind='cancelled', exit_code=None, signal=None)),
+            (-9, 'command_output_bound', dict(kind='output_bound', exit_code=None, signal=None)),
+            (True, None, dict(kind='unavailable', exit_code=None, signal=None)),
+            (256, None, dict(kind='unavailable', exit_code=None, signal=None)),
+            (-999, None, dict(kind='unavailable', exit_code=None, signal=None)),
+            (None, '/private/canary', dict(kind='unavailable', exit_code=None, signal=None)),
+        ):
+            self.assertEqual(R.requester_diagnostic(returncode=status, failure=failure)['termination'], expected)
+
+    def test_nonzero_command_retains_original_failure_and_only_projects_safe_stages(self):
+        value = {}
+        raw = self.markers(5) + b'Error: /private/key prompt-canary\n'
+        with fake_tool(returncode=1, pipe_bytes=(b'private-stdout', raw)) as (process, join):
+            with self.assertRaisesRegex(ValueError, '^command_failed$'):
+                R.run(['never-executed'], 200, requester_observation=value)
+        self.assertEqual(value['termination'], dict(kind='exit', exit_code=1, signal=None))
+        self.assertEqual(value['protocol'], dict(state='prefix', attempt_stage='tls'))
+        self.assertNotIn('private', R.encoded(value).decode())
+        join.assert_called_once_with(process)
+        process.stdout.close.assert_called_once()
+        process.stderr.close.assert_called_once()
+
+    def test_signalled_command_retains_command_failed_and_exact_signal(self):
+        value = {}
+        with fake_tool(returncode=-15):
+            with self.assertRaisesRegex(ValueError, '^command_failed$'):
+                R.run(['never-executed'], 200, requester_observation=value)
+        self.assertEqual(value['termination'], dict(kind='signal', exit_code=None, signal=15))
+
+    def test_timeout_retains_original_failure_partial_stage_and_original_join(self):
+        value = {}
+        with fake_tool(returncode=-9, pipe_bytes=(b'', self.markers(5))) as (process, join), \
+                mock.patch.object(R.time, 'monotonic', side_effect=[100, 100, 100, 201]):
+            events = R.selectors.DefaultSelector.return_value
+            events.get_map.side_effect = [{1: True}, {1: True}]
+            with self.assertRaisesRegex(ValueError, '^command_timeout$'):
+                R.run(['never-executed'], 200, cap=100, requester_observation=value)
+        self.assertEqual(value['termination'], dict(kind='timeout', exit_code=None, signal=None))
+        self.assertEqual(value['protocol']['attempt_stage'], 'tls')
+        join.assert_called_once_with(process)
+        process.stdout.close.assert_called_once()
+        process.stderr.close.assert_called_once()
+
+    def test_optional_projection_error_does_not_replace_original_failure(self):
+        value = {}
+        real = R.requester_diagnostic
+        with fake_tool(returncode=1), mock.patch.object(
+                R, 'requester_diagnostic', side_effect=[real(), ValueError('private-canary')]):
+            with self.assertRaisesRegex(ValueError, '^command_failed$'):
+                R.run(['never-executed'], 200, requester_observation=value)
+        self.assertEqual(value, real())
+
+    def test_original_output_bound_still_fails_and_joins_without_exposing_streams(self):
+        value = {}
+        with fake_tool(returncode=-9, pipe_bytes=(b'/private/canary', self.markers(1))) as (process, join):
+            with self.assertRaisesRegex(ValueError, '^command_output_bound$'):
+                R.run(['never-executed'], 200, maximum=4, requester_observation=value)
+        self.assertEqual(value['termination']['kind'], 'output_bound')
+        self.assertNotIn('/private', R.encoded(value).decode())
+        join.assert_called_once_with(process)
+
+    def test_diagnostics_do_not_replace_original_cleanup_failure_or_remove_ledger_entry(self):
+        pending, value = {}, {}
+        token = R.TOOL_PROCESSES.set(pending)
+        error = R.CleanupUnconfirmed('private-canary')
+        try:
+            with fake_tool(join_error=error, returncode=1) as (process, _):
+                with self.assertRaises(R.CleanupUnconfirmed) as caught:
+                    R.run(['never-executed'], 200, requester_observation=value)
+                self.assertIs(caught.exception, error)
+                self.assertEqual(pending, {id(process): process})
+                process.stdout.close.assert_called_once()
+                process.stderr.close.assert_called_once()
+                self.assertFalse(value['acceptance_evidence'])
+        finally:
+            R.TOOL_PROCESSES.reset(token)
+
+    def test_successful_receipt_and_captured_io_are_unchanged(self):
+        value = {}
+        original = requester()
+        raw = R.encoded(original)
+        with fake_tool(pipe_bytes=(raw, self.markers())):
+            result, stderr, status = R.run(['never-executed'], 200, requester_observation=value)
+        self.assertEqual((result, stderr, status), (raw, self.markers(), 0))
+        self.assertEqual(R.requester_record(result, original['workload_sha256']), original)
+        self.assertFalse(value['acceptance_evidence'])
+
+    def test_opt_in_is_only_the_exact_trial_call_and_preserves_original_limits(self):
+        calls = [node for node in ast.walk(ast.parse(SOURCE.read_text()))
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'run'
+                 and any(keyword.arg == 'requester_observation' for keyword in node.keywords)]
+        self.assertEqual(len(calls), 1)
+        source = ast.unparse(calls[0])
+        self.assertIn("'resident-public-trial'", source)
+        self.assertIn("'--execute'", source)
+        self.assertIn("'--diagnostic-stages'", source)
+        self.assertIn('cap=2420', source)
+        self.assertNotIn('check=False', source)
+        run = next(node for node in ast.parse(SOURCE.read_text()).body
+                   if isinstance(node, ast.FunctionDef) and node.name == 'run')
+        self.assertIn('maximum=16 * 1024 ** 2', ast.unparse(run))
+
+    def test_rust_stage_vocabulary_matches_the_closed_controller_vocabulary(self):
+        rust = (R.ROOT / 'crates/volparossa/src/compute/resident_guest/public_trial.rs').read_text()
+        tree = rust[rust.index('impl Stage {'):rust.index('fn observe_stage(')]
+        import re
+        self.assertEqual(tuple(re.findall(r'=> "([a-z0-9_]+)"', tree)), R.REQUESTER_STAGES)
 
 
 class CommandLifecycle(Inert):

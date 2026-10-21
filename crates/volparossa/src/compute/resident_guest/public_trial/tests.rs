@@ -256,7 +256,7 @@ async fn requester_and_guest_complete_one_tls_channel_and_join_the_inert_worker(
         .connect("resident.test".try_into().unwrap(), client_io)
         .await
         .unwrap();
-    let report = exchange(tls, &key(), [7; 32], spki, deadline)
+    let report = exchange(tls, &key(), [7; 32], spki, deadline, false)
         .await
         .unwrap();
     serving.await.unwrap().unwrap();
@@ -265,4 +265,64 @@ async fn requester_and_guest_complete_one_tls_channel_and_join_the_inert_worker(
     assert!(joined.load(Ordering::SeqCst));
     assert_eq!(report["hardware_attestation"], false);
     assert_eq!(report["private_inputs"], false);
+}
+
+#[test]
+fn public_fixture_stage_diagnostics_require_explicit_execution_opt_in() {
+    use clap::Parser as _;
+    #[derive(clap::Parser)]
+    struct Command {
+        #[command(flatten)]
+        options: Options,
+    }
+    let mut args = vec![
+        "requester",
+        "--socket",
+        "/unused/socket",
+        "--certificate",
+        "/unused/cert",
+        "--requester-key",
+        "/unused/key",
+        "--workload-sha256",
+        "unused",
+    ];
+    assert!(
+        !Command::try_parse_from(&args)
+            .unwrap()
+            .options
+            .diagnostic_stages
+    );
+    args.push("--diagnostic-stages");
+    assert!(Command::try_parse_from(&args).is_err());
+    args.push("--execute");
+    assert!(
+        Command::try_parse_from(&args)
+            .unwrap()
+            .options
+            .diagnostic_stages
+    );
+}
+
+#[test]
+fn public_fixture_stage_sink_is_fixed_optional_and_cannot_replace_failure() {
+    struct Broken;
+    impl std::io::Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("private-error-canary"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            panic!("no_extra_flush")
+        }
+    }
+    let mut output = Vec::new();
+    observe_stage(false, Stage::Configuration, &mut output);
+    assert!(output.is_empty());
+    observe_stage(true, Stage::Configuration, &mut output);
+    observe_stage(true, Stage::Turn1Result, &mut output);
+    observe_stage(true, Stage::Turn2Result, &mut output);
+    assert_eq!(
+        output,
+        b"VP_PUBLIC_REQUESTER_STAGE_V1 configuration\nVP_PUBLIC_REQUESTER_STAGE_V1 turn_1_result\nVP_PUBLIC_REQUESTER_STAGE_V1 turn_2_result\n"
+    );
+    observe_stage(true, Stage::Cleanup, Broken);
 }

@@ -53,6 +53,10 @@ ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.
        'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0'}
 CANCELLED = False
 TOOL_PROCESSES = contextvars.ContextVar('resident_model_tool_processes', default=None)
+REQUESTER_STAGE_PREFIX = b'VP_PUBLIC_REQUESTER_STAGE_V1 '
+REQUESTER_STAGES = ('configuration', 'socket', 'certificate', 'connect', 'tls',
+    'tls_profile', 'challenge', 'grant', 'accepted', 'turn_1_submit', 'turn_1_admitted',
+    'turn_1_result', 'turn_2_submit', 'turn_2_admitted', 'turn_2_result', 'close', 'closed', 'cleanup')
 FAILURE_CODES = frozenset(('controller_deadline', 'controller_cancelled', 'command_timeout',
     'command_output_bound', 'command_failed', 'host_memory_headroom', 'host_memory_snapshot', 'qemu_limits',
     'qemu_exited_before_scope', 'scope_start_timeout', 'guest_unit_failed', 'guest_unit_cgroup',
@@ -139,12 +143,54 @@ def joined(process):
         time.sleep(.02)
 
 
-def run(argv, deadline, *, cap=300, maximum=16 * 1024 ** 2, env=None, check=True):
+def requester_protocol_stage(raw):
+    """Only an ordered prefix of fixed attempt markers can enter evidence."""
+    absent = dict(state='unavailable', attempt_stage=None)
+    if type(raw) is not bytes or len(raw) > 65536:
+        return absent
+    seen = []
+    for line in raw.splitlines(keepends=True):
+        if not line.startswith(REQUESTER_STAGE_PREFIX.rstrip()):
+            continue  # Never copy generic errors or arbitrary stderr to evidence.
+        if not line.endswith(b'\n'):
+            return dict(state='truncated', attempt_stage=None)
+        if len(seen) >= len(REQUESTER_STAGES):
+            return dict(state='malformed', attempt_stage=None)
+        expected = REQUESTER_STAGE_PREFIX + REQUESTER_STAGES[len(seen)].encode() + b'\n'
+        if line != expected:
+            return dict(state='malformed', attempt_stage=None)
+        seen.append(REQUESTER_STAGES[len(seen)])
+    if not seen:
+        return absent
+    return dict(state='complete' if len(seen) == len(REQUESTER_STAGES) else 'prefix',
+                attempt_stage=seen[-1])
+
+
+def requester_diagnostic(raw=b'', returncode=None, failure=None):
+    termination = dict(kind='unavailable', exit_code=None, signal=None)
+    if failure in ('command_timeout', 'controller_cancelled', 'command_output_bound'):
+        termination['kind'] = {'command_timeout': 'timeout', 'controller_cancelled': 'cancelled',
+                               'command_output_bound': 'output_bound'}[failure]
+    elif failure is None and type(returncode) is int:
+        if 0 <= returncode <= 255:
+            termination.update(kind='exit', exit_code=returncode)
+        elif 0 < -returncode < signal.NSIG:
+            termination.update(kind='signal', signal=-returncode)
+    return dict(version=1, diagnostic_only=True, acceptance_evidence=False,
+                stage_semantics='entered_only', termination=termination,
+                protocol=requester_protocol_stage(raw))
+
+
+def run(argv, deadline, *, cap=300, maximum=16 * 1024 ** 2, env=None, check=True,
+        requester_observation=None):
+    if requester_observation is not None:
+        requester_observation.update(requester_diagnostic())
     end = time.monotonic() + remaining(deadline, cap)
     process = subprocess.Popen([str(v) for v in argv], stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env or ENV,
         close_fds=True, start_new_session=True)
     stdout, stderr = bytearray(), bytearray()
+    failure = None
     pending = TOOL_PROCESSES.get()
     try:
         if pending is not None:
@@ -167,14 +213,24 @@ def run(argv, deadline, *, cap=300, maximum=16 * 1024 ** 2, env=None, check=True
                 require(not CANCELLED, 'controller_cancelled')
                 require(time.monotonic() < end, 'command_timeout')
                 time.sleep(.02)
+    except BaseException as error:
+        failure = str(error) if type(error) is ValueError else 'unavailable'
+        raise
     finally:
         try:
             joined(process)
             if pending is not None:
                 pending.pop(id(process), None)
         finally:
-            process.stdout.close()
-            process.stderr.close()
+            try:
+                process.stdout.close()
+                process.stderr.close()
+            finally:
+                if requester_observation is not None:
+                    try:
+                        requester_observation.update(requester_diagnostic(bytes(stderr), process.returncode, failure))
+                    except Exception:
+                        pass  # Optional diagnostics cannot replace failure or cleanup.
     require(not check or process.returncode == 0, 'command_failed')
     return bytes(stdout), bytes(stderr), process.returncode
 
@@ -1428,9 +1484,11 @@ def execute_owned(args, pending):
         else:
             raise ValueError('model_ready_timeout')
         report['phase'] = 'two_public_turns'
+        report['requester_diagnostic'] = requester_diagnostic()
         raw, _, _ = run([args.requester, 'compute', 'resident-public-trial', '--socket', channel,
             '--certificate', work / 'server.der', '--requester-key', work / 'requester.seed',
-            '--workload-sha256', closure['staging_receipt']['workload_sha256'], '--execute'], deadline, cap=2420)
+            '--workload-sha256', closure['staging_receipt']['workload_sha256'], '--execute',
+            '--diagnostic-stages'], deadline, cap=2420, requester_observation=report['requester_diagnostic'])
         report['model_result'] = requester_record(raw, closure['staging_receipt']['workload_sha256'])
         write_new(evidence / 'requester.json', encoded(report['model_result']))
         end = time.monotonic() + remaining(deadline, 60)
