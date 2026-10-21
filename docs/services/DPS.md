@@ -113,6 +113,15 @@ app yet; the Python component is not an Android bridge.
 
 ### Quality-only native ABI candidate
 
+Current Map execution checkpoint: independently reviewed
+[PR10 source `3abb91fa`](https://github.com/VOLPAROSSA/volparossa-map/tree/3abb91fa56a5bdf1b27337c689a409986caed793)
+passes source gate `39664119379` with 13 inert tests. Actual hosted trial
+`39664284521` fails its pre-existing KVM-access requirement before acquisition or
+native execution. Eight Android tests and hosted cancellation controls remain
+unrun. A process-scoped disposable-runner access arrangement is under investigation;
+no development-host configuration change or software-emulation fallback is implied.
+The implementation ledger retains exact sources, failure and evidence hashes.
+
 The shared Rust assessor now has a separately testable C ABI candidate. Its
 36-byte response is exactly nine `u32` quality/limitation fields; the canonical
 bare-protobuf request is bounded to 16 KiB. The response contains no coordinates
@@ -136,20 +145,19 @@ bindings and historical failures are in the implementation ledger. The
 earlier combined run `39656846006` failed cargo-deny on a wildcard dependency;
 the corrected exact dependency version is now in the candidate.
 
-The separate unpublished Map candidate lives in
+The separate Map candidate lives in
 `.volparossa-dev/worktrees/map-native-dps-jni-20261021`, based on pinned Map
 source `e8fdcca87575e238894d579797379de9c3516384`. It is a standalone,
 permissionless debug/test path with an app-owned coordinator and C/JNI boundary;
 it does not load the Organic Maps framework or request location. Link the
 standalone native target to the new Rust static library and required Android
 system libraries; do not route it
-through Organic Maps' existing JNI helper or `JNI_OnLoad`. Seven inert tests pass,
+through Organic Maps' existing JNI helper or `JNI_OnLoad`. Thirteen inert tests pass,
 while Android remains unrun. Initial independent review found a SIGTERM
 cleanup bypass, background lifecycle tests that revoke/expire before entering
 background, and missing deterministic coverage of expiry between posting and
-display. These
-must be corrected and reviewed before hosted or Android acceptance. The revised
-candidate adds controls for these cases and awaits independent rereview; the
+display. The revised
+candidate adds controls for these cases and passes independent rereview; the
 implementation ledger records exact source and test boundaries. Preserve
 generation-based revocation, monotonic expiry and joined cancellation; keep all
 work outside the real location helper, GPS listeners and track route. The

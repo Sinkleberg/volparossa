@@ -39,20 +39,30 @@ Latest execution snapshot, 2026-10-21:
 - Main `797f24fdf53ffcc39156bbf59507ef6be40792a4` includes PR311 and PR313.
   Their source Quality/CodeQL checks pass; fetched merge contents and committed
   goal preservation pass. Exact-main Quality `39660547441` and CodeQL
-  `39660546762` remain running.
+  `39660546762` pass.
 - Native DPS ABI [PR314](https://github.com/VOLPAROSSA/volparossa/pull/314),
   source `4d4612200e0a4a46546e0c827a3f3e7f0b73c669`, passes its dedicated
   Rust/C/C++ source and execution gate `39661011331`; combined Quality
-  `39661019902` and CodeQL `39661012097` remain running.
-- The unpublished Map JNI candidate has been corrected after independent
-  lifecycle/cleanup review and is undergoing independent rereview. No Android
-  trial has run; existing Map work remains preserved. Complete review before the
-  hosted native trial.
-- Actual Storage trial `39655116872` remains running on `82dbb237`; preserve it.
-  Actual public-model trial `39654833011` failed on `9a96c128` during socket
+  `39661019902` remains running and CodeQL `39661012097` passes.
+- Map JNI PR10 is published at `3abb91fa56a5bdf1b27337c689a409986caed793`
+  after independent rereview. Source gate `39664119379` passes 13 inert tests.
+  Actual trial `39664284521` fails its pre-existing KVM-access requirement before
+  acquisition or native execution. Investigate process-scoped runner access;
+  Android behavior and cleanup remain unproved.
+- Actual Storage trial `39655116872` fails on `82dbb237` during fragment 3/copy 1
+  APPEND challenge verification. The fixed fragment 2/copy 0 RESERVE observer
+  correctly reports an untargeted failure. All three provider usage observations
+  are unavailable due to a schema incompatibility; remote deletion is unproved.
+  Reader correction PR316 is published at `82ecac2c`, with independent review,
+  16 reader tests and 15 adjacent request-stage tests passing; hosted checks are pending.
+- Actual public-model trial `39654833011` failed on `9a96c128` during socket
   preflight, before TLS/admission. Its audited evidence cannot identify which
-  socket check failed and establishes no completed turn. A bounded, default-off
-  socket diagnostic is being implemented on a separate retained branch.
+  socket check failed and establishes no completed turn. The independently
+  reviewed default-off diagnostic is published as stacked PR315 at `6bac2016`.
+  Hosted source run `39664659492` fails three new socket tests whose parent
+  directories lack private permissions, and the unchanged-source check detects
+  formatter edits. A fixture/format-only correction is in progress; no new
+  actual-model trial is dispatched.
 
 These are execution priorities and evidence boundaries, not a reduced goal.
 The dated records below retain the earlier states and their original evidence.
@@ -220,7 +230,7 @@ The historical retained-branch table below is not a current branch catalogue.
 | Shared Storage consumer acceptance remains failed; latest trial stopped before consumer work | Guard completion PR302 is merged into retained PR288 at `b02f3333d1908aeb14f39134fccd58be7e8391a6`. Source `39614178258` passes all 28 regressions/negative control; actual Image/Cloud profile-10 trial `39618051591` fails at `storage-consumer-publish`, Image fragment 2/copy 0 receipt-read deadline. Consumer remote cleanup/provider usage remain unproven. Base-owner zero-usage and owned-topology cleanup do not prove consumer cleanup. Original Cloud timeout `38917106698` is a distinct failed stage with no established common cause. The corrected phase-one PR310 source and PR311 consumer-harness source gates now pass (details below). Actual profile-10 workflow `39648116178` on PR311 head `065f7abfc8c0e59382b7b0000bece880de9c289e` fails while compiling guest targeted maintenance tests: OOM killed `rustc` before the consumer report gate. No Image/Cloud request, per-copy receipt, read-only final usage snapshot or remote cleanup was reached. The incomplete VM receipt leaves cleanup unverified and host state unknown; this result does not establish a consumer-operation failure or explain `39618051591` / `38917106698`. |
 | Protected model work preserved, [PR307](https://github.com/VOLPAROSSA/volparossa/pull/307) integrated into retained PR276 | Actual `39617784665` on `f571` fails inventory export with `inventory_path_character_or_separator`; no model turn. Public pinned-wheel audit identifies a static incompatibility for `setuptools/script (dev).tmpl`, not proof of the private guest's rejected pathname. PR307 permits literal parentheses only while preserving other path/symlink/hash/authority checks; 104 inert tests and independent review pass. Retained merge `c728ef98e7903d6ae147661ef46200f2316bf88d` has tree `27a882e2702884132b04ef7a20f09f557e26e8a4`. Actual `39624790559` passes contracts and builds/exports assets, then fails `two_public_turns` with generic `command_failed`; no completed verified turn or requester receipt, and partial inference is unknown. Scratch/tool/VM cleanup passes; complete guest-descendant cleanup remains unproved. Bounded requester-stage diagnostics are published as [PR309](https://github.com/VOLPAROSSA/volparossa/pull/309), source `38eba457bfd342d25dc3e9d395d049f757ac75cd`: 176 inert Python tests and independent review pass; hosted source contracts `39635201317` fail strict Clippy on two test-helper item placements; the unchanged helper is moved before statements in follow-up `eb5c200cb8bc4cb5b5e54fe0defaed46df3a038f`, with no assertion or production change. Hosted source contracts `39637747879` now pass on that exact commit: build, strict Clippy, 102 Rust and 405 Python tests. Its independently verified artifact `12364925409` matches API SHA-256 `ab5021fe109de3f9eacf17875543907b5331809b48aded9ccf84e77ea39ebf88`, with empty formatter patch and matching source/final-source receipts. PR309 is integrated into retained PR276 as `b47d80d80c650791a6273c291a99c154536f4dab`, tree `ac2407455aceaf91b58dbc4f460d933d38533c9c`, identical to the tested source. Contracts passed. Exact-source public-model trial `39639094264` is terminal failure: assets were built/exported, but the requester exited naturally with status 1 after the valid stage prefix ending in `turn_1_result`. Source ordering proves that the first `ADMITTED` reply checks returned; the RESULT read/validation boundary remains unresolved. Admission precedes worker startup. There is no requester or verified-turn receipt and `model_execution=false`; do not infer a cause. Model artifact `12367875378` has API-matched SHA-256 `491753ae3c1b24e1652ec562ad23b8c922e71b68c937a2511349b8e9dc99b9cd`; contracts artifact `12363708625` has SHA-256 `2b4f1c98676158de139be62f92db3942a38fe9bd13ff7a256b5205ce57f56d50`; both passed API/ZIP checks and the contracts artifact binds 36 source files. Scratch/tool/VM cleanup is true, while `complete_guest_cleanup=false`, `descendants_joined=null` and `controller_cgroup_cleanup_required=true`, so complete guest cleanup remains unproved. Redundant push-only contracts `39639057778` and `39624751305` remain cancelled. Preserve `.volparossa-dev/worktrees/protected-requester-diagnostic-20261021`; preserve all earlier failed outcomes and do not infer a common cause. |
 | Exact-request Storage diagnostic integrated; consumer proof pending | Preserve `.volparossa-dev/worktrees/storage-request-stage-proof-20261021`, branch `test/storage-request-stage-proof-20261021`, [PR310](https://github.com/VOLPAROSSA/volparossa/pull/310), now merged as `46548baa62f69b499a01d71179bd8958dd95395e`. The default-off schema-three candidate binds one epoch to an exact per-copy archive/provider/operation and separates backend/receipt/worker observations without changing production deadlines, attempts or wire authority. Twenty-two Rust tests are authored; both review fixes and the exact source/workflow scope pass independent re-review. Hosted fixture contracts `39636530467` fail at compile: redundant `Weak` qualification and a legacy test constructor missing `target: None`. Correction `9fa7835fc27ea0df4593d4cb8558ea36291b0dda` fixes both and extends the exact source gate to that adjacent test (17 files total); formatting, constructor audit and 28 inert gate controls pass. Its hosted run `39638200479` also fails compilation because a test glob shadows a production import; no Rust test acceptance is claimed on that source. Prior PR310 head `9666ffb0846e243317f1b4361afce5fe1b19ea05` is superseded by the reviewed candidate `8bd448eb0ec7d94039c12c37b91d7c4b56ab2cc1`, which passes affected-target compilation in hosted run `39639799160`, whose inventory gate fails because the TLS historical group has three ignored MPTCP tests, while Clippy reports two `manual_range_patterns` at `fixture_correlation.rs:416,608`. All 22 new cases have individual passing markers (4 local-control, 12 agent, 1 CLI and 5 content); 159 tests execute and pass. The unchanged-source artifact `12365143579` has API-matched SHA-256 `204957aed89d8c2bf214397e29adadd4f2887e0f26a14fea25c535977f978cbd` and passing ZIP integrity; the full run remains failed. The only three ignored tests are `signed_reserve_survives_tcp_provider_and_proxy_drop_before_outer_finish` and `signed_reserve_rejects_abrupt_outer_drop_after_inner_finish` (both require explicitly hosted disposable net/PID namespaces and genuine Linux MPTCP), plus `three_signed_reserves_use_reusable_production_egress_and_fragmented_hello` (requires the exact hosted disposable content-egress namespace and genuine Linux MPTCP). Commit `6738135e0d4b8f8b4cc9ce303bb461be57bccef0` narrowly replaces the equivalent version patterns and allowlists exactly those three ignored tests in `agent-tls`; no other test group is skipped and no authority is added. Hosted run `39643537177` on exact `6738135e` passes the full schema-two inventory (162 listed, 159 executed, exactly three named/reasoned ignores, all 22 new tests and nine negative parser controls), formatting and unchanged-source checks, but remains failed at strict Clippy: three statement semicolons and a test guard requiring an explicit lexical scope before await. Artifact `12367945045` has API-matched SHA-256 `3abee0e51529457178af8c467f5fedfe65cbc76704127e5cd35766f64595d166` and passing ZIP integrity. Published correction `200870bb620ac9c42ae0b9192e58b03d1a8434e6` adds only the three semicolons and a lexical test-lock scope ending at the original release point; diff SHA-256 `129e757f0da9ef0b4ed2c529fc9fb252815e097e58edf561a94e60239ee4ce05`, scoped formatting and exact static comparison pass. Hosted revalidation `39646267086` passes compilation, disjoint test execution, affected-package Clippy, formatting and unchanged-source checks on `200870bb620ac9c42ae0b9192e58b03d1a8434e6`: 159 tests execute, three exact existing `agent-tls` MPTCP namespace tests are ignored, zero fail, all 22 new cases pass, and nine parser negative controls pass. Artifact `12368680118` matches API SHA-256 `db6e7769305dcdf3636d7f3a9595becfd9ec89bc6bf1bfd5ca3b2d73ad037a86` and passes ZIP integrity. Its 17 source and seven dependency bindings match the tested tree; formatter output is empty. This is source acceptance only; no actual consumer trial is implied. The PR310 phase-one candidate is now combined with current main as merge `4491c700699ce3eb25e63752accd99ce5ea1372e`, tree `639ab3b854837996d3a7895cd71b83928308b102`, parents `200870bb620ac9c42ae0b9192e58b03d1a8434e6` and `e3b78c6376ccfe6ca9a4af1a60ffe65771ab1feb`. Exact-scope comparison confirms all 16 Rust/test files are byte-identical to the passing source, the seven main-added/changed paths match current main, dependencies are unchanged and only the approved workflow-base literal changed. Combined Quality `39648721302`, CodeQL `39648713139` and fixture contracts `39648711002` pass. The exact test merge `679f9b77d36c51c7f6fb3a25690fe3756d1595d8` has the candidate tree; workspace tests report 4,232 passed, zero failed and 12 ignored, standalone Storage groups pass 14/42, and the normal dormant-DPS proof retains its bounded synthetic scope. Fixture contracts report 159 executed, exactly three existing `agent-tls` ignores, all 22 new cases and nine negative controls passing; 17 source/seven dependency bindings match and formatting is unchanged. Artifact `12370265661` has API-matched SHA-256 `7ddd2f3f8ed8ff7799ff3953b07fafbe1b9979ec3026437a1dd6cfbd2c1b08fa` and valid ZIP. Automatic alpha/datapath run `39648721222` was skipped by design. The actual profile-10 trial remains immutable on PR311 source `065f7abfc8c0e59382b7b0000bece880de9c289e`. Stopped-provider read-only usage snapshot passes ten inert tests and independent review; helper SHA-256 `bc84bec2ac82280e9b4d2e7ebc9a44caa1a9f145d78adc16317d7995554df689`. It observes logical usage only, never remote deletion or owner reconciliation. Phase-two consumer wiring is published separately as [PR311](https://github.com/VOLPAROSSA/volparossa/pull/311), source `f21841bcd7e69a0afb11c08dae507415ce8855d3`, in `.volparossa-dev/worktrees/storage-request-stage-consumers-20261021`. Independent implementation, five-file workflow/fixture and final base-merge reviews pass; all 319 inert Python checks pass. Exact-source hosted run `39644086080` passes all 319 Python and 53 pinned Node 24.19.0 tests without skips. Source/final receipts bind all 18 source and eight dependency blobs; artifact `12366836115` matches API SHA-256 `1b7e844c10e600ec3bb8e356d0f4829d18dea96f0ae8669105058f85a9b58cc2` and passes ZIP integrity. This is source/inert acceptance only. Corrected PR311 source `065f7abfc8c0e59382b7b0000bece880de9c289e`, tree `188b63453c6bf1da0400a13abce8639925774df0`, incorporates the PR310 correction and changes only the two approved workflow base literals within its consumer workflow; the other 17 harness/wiring files are unchanged. Exact-source run `39646833973` passes 319 Python tests with no skips and 53 Node 24.19.0 tests (53 passed, zero failed/skipped); all 18 source and eight dependency bindings verify. Artifact `12366644304` matches API SHA-256 `dfc3fd04c5fd2979af46a676e9925fbc9d8ab754fcf961dfb700087eb70a76be` and passes ZIP integrity. Its separate branch-gated fixture-contract job was skipped; no profile-10 trial ran in that source-gate workflow. The actual profile-10 trial `39648116178` for scenario `private-storage-maintenance` failed during guest test compilation before consumer work, as detailed in the later current snapshot; consumer acceptance is not established. The existing status CLI opens SQLite read/write; snapshots must follow provider joins and precede consumer journal/store deletion. No runtime acceptance. |
-| Native DPS quality boundary, implementation active | The separate candidate in `.volparossa-dev/worktrees/dps-native-quality-20261021` uses a 36-byte quality-only C ABI and bounded canonical bare protobuf input. It returns no location data and does not yet integrate native Map, sensors or positioning improvement. Preserve full DPS scope; source checks and independent review remain pending. |
+| Native DPS quality boundary, composition pending | Independently reviewed PR314 source `4d4612200e0a4a46546e0c827a3f3e7f0b73c669` passes dedicated gate `39661011331`: 12 Rust tests, 18 C/18 C++ sanitized cases and 36 Memcheck cases. Combined Quality remains pending. The 36-byte quality-only C ABI uses bounded canonical bare protobuf input, returns no coordinates and grants no sensor or app authority. Map PR10 passes source checks, but its actual trial `39664284521` stops at the KVM-access prerequisite before native execution. Full positioning and navigation remain open. |
 | Other active work | Preserve all retained dependency chains, upload/compute work, original failures and unpublished changes. PR306 is merged into main; its source commit is retained in the fetched PR ref and no checkout was removed. Goal consolidation does not cancel or restart other activities. |
 
 The new consumer artifact `39618051591` has verified SHA-256
@@ -398,16 +408,131 @@ file-manifest SHA-256 is
 full binary diff SHA-256 is
 `bb763822b9ad6f337ded99293c574386a785348c6a3e73a6af8fe99b6d8544da`.
 
+Snapshot refreshed at 2026-10-21 19:50 UTC. The Map candidate passed independent
+rereview and is published as [Map PR10](https://github.com/VOLPAROSSA/volparossa-map/pull/10),
+source `3abb91fa56a5bdf1b27337c689a409986caed793`, tree
+`58fa25a8e89c6d08897d4ba9c06eaf35c66dee85`. Its 19 committed files match the
+reviewed manifest above. Source gate `39664119379` passes all 13 inert tests on
+checkout merge `02857cad235925c8adb7f37c7e708cffba853ce2`, whose tree equals the
+source tree; components run `39664119263` also passes. The original source log
+SHA-256 is `e7eebafbfa270a93836b957b228ed3433dcfc36ca51918a083957f39dc41777e`.
+Reviewed manual trial `39664284521` uses that exact source and fails immediately
+at `PREEXISTING_KVM_ACCESS_REQUIRED`, before tool acquisition, namespace or
+emulator work. It has no artifact; original log SHA-256 is
+`c29da4f2e6334059955b7f516120b986ded64e6f6f53f2de33f2b6697415b533`.
+The closed preflight error does not distinguish absent KVM from inaccessible
+KVM. No Android test, cancellation control or native cleanup is accepted.
+Investigate a bounded process-scoped access arrangement on the disposable runner;
+do not silently switch to software emulation or modify the development host.
+
+Storage actual run `39655116872` on `82dbb2375d77a34fd9a2e45833c861721b50ce03`
+is a preserved failure, with source tree `0fa85f07ed3a7d7376c9ff893e5b276f045fa0d4`.
+Guest provisioning and source/runtime verification completed, and readiness was
+observed after 207 queries without invalid, nonzero or timed-out replies. Unlike
+the prior OOM run, it reaches `storage-consumer-publish`, then fails
+`report-consumer-v10` with `CONSUMER_APPLICATION_FAILED`. The original publish
+receipt identifies fragment **3/copy 1 APPEND**, `agent_ready/agent_rejected`,
+`CONTENT_UNAVAILABLE`, challenge verification under the operation deadline
+(`before_challenge1_to_5s`, `in_challenge90_to_120s`). Local process join is true;
+the challenge's underlying cause remains unknown. The correlation target is
+fragment **2/copy 0 RESERVE**; its target fields are not failed-request evidence:
+`fragment_copy_binding=false`, `record=null`, `untargeted_failure` and
+`causal_attribution=false`. Do not reinterpret it as a failed target reservation
+or infer a common cause with older Image/Cloud failures.
+
+All three post-owner-join provider snapshots, taken before private journal
+removal, report `unavailable/schema` with null usage/lease counts. Those are not
+zero usage or remote-deletion proof. Static inspection and inert SQLite execution
+of exact production DDL establish a reader incompatibility: the helper admits
+only the three base-store tables, while `PrivateStorageProvider::new` adds three
+authorization tables and a deletion trigger. The existing ten reader tests only
+model the base layout. The independently reviewed correction is published as
+[PR316](https://github.com/VOLPAROSSA/volparossa/pull/316), source
+`82ecac2c5646bfc05417e03904c2b2ba9a098eb2`, tree
+`f360fb975a1aeabbbb35468244e09a820f60d9a8`, in
+`.volparossa-dev/worktrees/storage-provider-usage-schema-20261021`, branch
+`fix/storage-provider-usage-schema-20261021`, based on main `797f24fd`. Sixteen
+reader tests and fifteen adjacent tests pass; reinstating the old checker fails
+the positive production-provider regression. Exactly the reader, its tests and
+one workflow test-count numeral change. Reviewed binary diff SHA-256 is
+`5ef82e74b8fe4f49df12f42412178d75eaf29a6cd8f23fe6321b654b76268a0e`.
+The reader strictly admits base or complete provider layouts while preserving
+read-only access, owner locking, bounds and null unavailable results. Migrated-v1
+SQL layouts remain explicitly unsupported; hosted integration checks are pending. This explains the schema
+rejection mechanism, not the APPEND failure. Local coordinator cleanup reports
+zero remaining owned objects and removed fixtures; recorded host observations
+are unchanged. Remote cleanup/provider deletion and complete outer VM teardown
+are not established. Original artifact `12373049409` (79,682 bytes, 80 files)
+matches API/ZIP SHA-256
+`ccf9d17e8cdbc4f0d333c33b9f425547a7cf3fb40e4f9630824f88d5f19c9f41`;
+original log SHA-256 is
+`a83772689fd4a8003b5fd8058482f1c192c99203c2f9c79cc7762d7f0b71c3a5`.
+
+The default-off requester socket diagnostic is published as
+[PR315](https://github.com/VOLPAROSSA/volparossa/pull/315), source
+`6bac20166e88f3d19a11a1755391abc42576a3c2`, tree
+`15c003a1fc059f9624065f838d33fdb63463b51a`, targeting retained PR276 branch
+`feature/protected-resident-model` at `9a96c128`. Exactly five files change.
+The canonical V1 marker has four closed conditions/seven I/O kinds and a 512-byte
+body limit; receipt V3 adds the observation without exposing paths, UIDs or raw
+errors. Classification occurs at the existing socket rejection point without
+another filesystem read. Independent review found and verified correction of
+invalid marker separators; 198 inert controller tests and ten focused checks
+pass. Reviewed diff SHA-256 is
+`67d05ecc7dd9abf62cb94b30cdce21973fac7496f488347bc64c0591e563eb12`.
+Hosted source run `39664659492` is pending with expected inventories of 122 Rust
+and 427 Python tests. Existing RESULT-parser behavior, dependencies, validation,
+error precedence, deadlines, retries and the actual-model job are unchanged.
+The earlier failure remains unexplained; no new actual model trial is dispatched.
+
+At 19:56 UTC exact-main Quality `39660547441` and CodeQL `39660546762` pass on
+`797f24fdf53ffcc39156bbf59507ef6be40792a4`. The Quality log binds this exact
+checkout: 4,232 workspace executions pass, zero fail, 12 are ignored; separate
+Storage suites pass 14/42. The normal dormant-DPS proof records one completed
+synthetic execution, joined socket/fixture cleanup and unchanged bounded host
+observations; hardware positioning and mobile-app authority remain false.
+There are no artifacts; original log SHA-256 is
+`5e49ca17ac3d0c3bed071ae03c4338135cb15a6338bfcdb95ea34b6a0a9142b6`.
+
+PR315 source run `39664659492` is a preserved failure. Its formatter changes two
+Rust files, so tested source is not byte-identical to commit `6bac2016`. All 427
+Python checks pass, compilation and strict Clippy pass on the formatted tree,
+22 grant tests pass, and the guest group has 34 passes/three failures; later Rust
+groups do not establish the complete expected 122-test inventory. The three new
+socket tests reject their non-private fixture parent before reaching the intended
+socket condition. Correct the test setup without relaxing production validation
+or the negative parent cases, and apply the recorded formatter delta. Artifact
+`12376593462` (25,614 bytes) matches API/ZIP SHA-256
+`99a3017dddb4406daf95586eadf5c3ba278c0057af10ff34e2a892c6ae8b991a`;
+original log SHA-256 is
+`d5c36fd3fc80408e36f6e6015ca90c336694e15d5da38bf1163d231584d35f4c`.
+The 3,740-byte formatter patch has SHA-256
+`0531cbdc6ba959c9439999a591cb250832887e092cc1a53d22000cb089f35ad6`.
+This test-fixture failure does not identify the earlier actual socket failure.
+
+Further read-only tracing of Storage trial `39655116872` narrows its APPEND
+attempt to the local 120-second operation-budget timeout before READY, before
+the APPEND is signed. `challenge_read_verify` is the last entered phase after
+selector/grant writes and flushes return; it combines frame reading and decoding/
+verification. The before/in timing buckets measure the whole challenge boundary,
+not just that subphase. Aggregate provider snapshots have no matching request
+binding, so they cannot identify provider closure, grant handling, partial frame
+receipt, transport progress or route retirement as the cause. No runtime change
+is justified yet. A subsequent bounded observation must distinguish challenge
+length/body reads and verification while correlating provider progress; keep the
+original deadline, retries, privacy and acceptance predicates unchanged.
+
 ### Execution priorities and next milestones
 
-Current next actions are to complete the narrow Map JNI review corrections and
-independent rereview while completing the combined hosted checks for
-native ABI composition `4d4612200e0a4a46546e0c827a3f3e7f0b73c669`. Keep its
-permissionless synthetic fixture separate from location sensors and the ordinary
-Map location path. Recheck the live profile-10 Storage and protected-model trial
-states and finish the bounded socket diagnostic before a new model trial; do not
-restart or reinterpret their retained evidence. These steps establish only
-adapter lifecycle and ABI boundaries. The
+Current next actions are to finish the combined checks for native ABI PR314,
+resolve the Map fixture's hosted KVM-access prerequisite, verify the provider
+usage-reader schema correction and finish PR315's source checks before another
+model trial. Diagnose the actual APPEND challenge failure separately from its
+untargeted correlation observer and the usage-reader defect. Keep the
+permissionless Map fixture separate from sensors and the normal location path;
+preserve original failures and require joined cleanup in subsequent actual trials.
+These steps establish only their stated source, adapter lifecycle and ABI
+boundaries. The
 full goal still requires real sensor adapters, frame integrity, fusion, physical
 evaluation and native navigation alongside the other shared core integrations.
 
@@ -453,10 +578,10 @@ remain subsequent acceptance work; this does not demote the shared blockers.
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Integrate the verified route lifecycle dependencies, then complete consumer repair, restoration and deletion. | Ordinary expiry between operations passes in `39611342307` on `6604d813`: 601-second wait, new route, ten deposits/deletions, 40 completed flows, zero provider usage and full cleanup. Post-acquire guard completion `c549cca6` passes all 28 regressions, negative control, lint and format in `39614178258`. Full consumer trial `39618051591` on merged `b02f3333` fails during Image publication (fragment 2/copy 0 RESERVE receipt I/O); consumer remote cleanup and final provider usage remain unconfirmed; these remain retained branches, not main integration. Latest profile-10 run `39648116178` on PR311 source `065f7abfc8c0e59382b7b0000bece880de9c289e` stops at guest targeted-test compilation after global OOM kills `rustc`; no Image/Cloud operation or final read-only usage snapshot is present, and the incomplete receipt marks cleanup/host state unverified. It does not explain the earlier failures. Original failures `39081968944` and `39082596009` remain failed; their narrow follow-ups do not explain full consumer failure `38917106698`, its unconfirmed remote cleanup or unknown cause. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Integrate the verified route lifecycle dependencies, then complete consumer repair, restoration and deletion. | Ordinary expiry between operations passes in `39611342307` on `6604d813`: 601-second wait, new route, ten deposits/deletions, 40 completed flows, zero provider usage and full cleanup. Post-acquire guard completion `c549cca6` passes all 28 regressions, negative control, lint and format in `39614178258`. Full consumer trial `39618051591` on merged `b02f3333` fails during Image publication (fragment 2/copy 0 RESERVE receipt I/O); consumer remote cleanup and final provider usage remain unconfirmed; these remain retained branches, not main integration. Earlier profile-10 run `39648116178` on PR311 source `065f7abfc8c0e59382b7b0000bece880de9c289e` stops at guest targeted-test compilation after global OOM kills `rustc`; no Image/Cloud operation or final read-only usage snapshot is present, and the incomplete receipt marks cleanup/host state unverified. It does not explain the earlier failures. Original failures `39081968944` and `39082596009` remain failed; their narrow follow-ups do not explain full consumer failure `38917106698`, its unconfirmed remote cleanup or unknown cause. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then repair, restore and delete it after provider loss. | PR279 joins upload profile 6 to shared consumer profile 10 on `dd1fd4df`; source run `38903572207` passes. A real upload trial still requires the shared Storage consumer acceptance above, joined cleanup and zero usage at all three providers. Finite authorization, HTTP PUT, enrollment, repeated restore and all-copy deletion remain required; source checks and synthetic-core SDK results do not replace them. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and the native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 keeps that immutable core pin. Core PR277 integrates the native-only composition after Quality and CodeQL pass; this main composition has not had a new model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Resolve the guest builder/export blocker, construct the sealed runtime and execute two public model turns before joining approved private workloads. | Actual `39078833292` on `fabfa849` verifies all 199 build and 65 runtime packages, then fails in export. Actual `39082065142` on `3a1a1593` identifies an inventory pathname rejection; the exact pathname and rule remain unknown. Preflight diagnostic `5a8763fa` passes 100 Rust and 388 Python source tests, strict lint and formatting in `39613633602`. Explicit public-model trial `39617784665` on `f571e17c` fails inventory path validation. PR307 corrects a verified pinned-wheel filename incompatibility. Actual trials `39624790559` and `39639094264` remain failed with distinct, bounded evidence; neither establishes a functional result or complete guest-descendant cleanup. PR312's source-contract run `39650771592` compiled and passed its 117 Rust/417 Python tests but failed strict Clippy on four findings; the reviewed lint correction passes run `39653381316` and is merged into retained PR276 as `9a96c1281e3fa6b5a9e8ad0490c37d5f17cd66bc`; actual public-model trial `39654833011` remains pending. No new actual model trial has been dispatched. Model execution, production approval, vendor appraisal and confidential hardware remain open. |
+| Protected remote compute — `volparossa`, then Code/Browser | Resolve the guest builder/export blocker, construct the sealed runtime and execute two public model turns before joining approved private workloads. | Actual `39078833292` on `fabfa849` verifies all 199 build and 65 runtime packages, then fails in export. Actual `39082065142` on `3a1a1593` identifies an inventory pathname rejection; the exact pathname and rule remain unknown. Preflight diagnostic `5a8763fa` passes 100 Rust and 388 Python source tests, strict lint and formatting in `39613633602`. Explicit public-model trial `39617784665` on `f571e17c` fails inventory path validation. PR307 corrects a verified pinned-wheel filename incompatibility. Actual trials `39624790559` and `39639094264` remain failed with distinct, bounded evidence; neither establishes a functional result or complete guest-descendant cleanup. PR312's source-contract run `39650771592` compiled and passed its 117 Rust/417 Python tests but failed strict Clippy on four findings; the reviewed lint correction passes run `39653381316` and is merged into retained PR276 as `9a96c1281e3fa6b5a9e8ad0490c37d5f17cd66bc`; actual public-model trial `39654833011` fails at socket preflight, with its exact cause unknown. PR315 adds a separately reviewed default-off socket diagnostic; its source gate is pending. No subsequent actual model trial has been dispatched. Model execution, production approval, vendor appraisal and confidential hardware remain open. |
 
 ### Manual topology-run isolation candidate — 2026-10-21
 
