@@ -2,7 +2,7 @@ name: Public resident model integration contracts
 
 on:
   push:
-    branches: [feature/protected-resident-model]
+    branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021]
   workflow_dispatch:
     inputs:
       scenario:
@@ -34,7 +34,11 @@ env:
 
 jobs:
   contracts:
-    if: github.repository == 'VOLPAROSSA/volparossa' && github.ref == 'refs/heads/feature/protected-resident-model'
+    if: >-
+      github.repository == 'VOLPAROSSA/volparossa' &&
+      (github.ref == 'refs/heads/feature/protected-resident-model' ||
+      (github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' &&
+      (github.event_name == 'push' || inputs.scenario == 'source-contracts')))
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -60,6 +64,18 @@ jobs:
           old=tomllib.loads(git('show',base+':Cargo.lock'))
           new=tomllib.loads(pathlib.Path('Cargo.lock').read_text())
           assert [(p['name'],p['version'],p.get('checksum')) for p in old['package']]==[(p['name'],p['version'],p.get('checksum')) for p in new['package']]
+          if os.environ['GITHUB_REF']=='refs/heads/diagnostic/protected-export-inventory-20261021':
+            diagnostic_base='3a1a15930fa69b89c9275f980e02eb6b89c94fb7'
+            subprocess.run(['git','merge-base','--is-ancestor',diagnostic_base,'HEAD'],check=True)
+            diagnostic_allowed={
+              '.github/workflows/protected-resident-model.yml',
+              'tests/integration/protected-resident-model-build.py',
+              'tests/integration/protected-resident-model-workload.py',
+              'tests/integration/test-protected-resident-model-build.py',
+              'tests/integration/test-protected-resident-model-workload.py',
+              'tests/integration/test-protected-resident-model-run.py'}
+            diagnostic_changed=git('diff','--name-only',diagnostic_base,'HEAD').splitlines()
+            assert len(diagnostic_changed)==len(diagnostic_allowed) and set(diagnostic_changed)==diagnostic_allowed
           names=git('diff','--name-only',base,'HEAD').splitlines()
           receipt=dict(version=1,source_commit=os.environ['GITHUB_SHA'],source_tree=git('rev-parse','HEAD^{tree}'),base=base,
             source_blobs={n:git('rev-parse','HEAD:'+n) for n in names},
@@ -137,7 +153,7 @@ jobs:
           python3 -B - <<'PY'
           import pathlib,re
           output=pathlib.Path('resident-model-evidence/workload.log').read_text()
-          assert re.search(r'^Ran 28 tests in ',output,re.M)
+          assert re.search(r'^Ran 30 tests in ',output,re.M)
           assert re.search(r'^OK$',output,re.M) and 'skipped=' not in output
           PY
 
@@ -159,7 +175,7 @@ jobs:
           python3 -B - <<'PY'
           import json,pathlib,re
           root=pathlib.Path('resident-model-evidence'); counts={}
-          expected={'install':58,'assemble':29,'run':160}
+          expected={'install':58,'assemble':29,'run':162}
           for name,count in expected.items():
             raw=(root/('model-'+name+'.log')).read_text()
             tests=re.findall(r'^Ran ([0-9]+) tests? in ',raw,re.M)
@@ -181,7 +197,7 @@ jobs:
           python3 -B - <<'PY'
           import json,pathlib,re
           root=pathlib.Path('resident-model-evidence')
-          counts={'model-initrd':27,'boot-initrd':21,'workload':28,'model-build':39,'model-debian':19}
+          counts={'model-initrd':27,'boot-initrd':21,'workload':30,'model-build':42,'model-debian':19}
           for name,count in counts.items():
             output=(root/(name+'.log')).read_text()
             assert re.search(r'^Ran '+str(count)+r' tests in ',output,re.M)

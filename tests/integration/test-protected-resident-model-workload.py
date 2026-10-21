@@ -174,6 +174,42 @@ class InventoryContracts(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 self.check(value)
 
+    def test_shared_path_classifier_matches_original_predicate_on_bounded_adversarial_cases(self):
+        import re
+        original_pattern = re.compile(r"[A-Za-z0-9_+.,@= -]+(?:/[A-Za-z0-9_+.,@= -]+)*\Z")
+        def original(name):
+            return (type(name) is str and 0 < len(name) <= 240 and original_pattern.fullmatch(name)
+                and all(part not in ('.', '..') for part in name.split('/')))
+        class StringSubclass(str):
+            pass
+        cases = [None, True, 1, 1.0, b'runtime/a', [], {}, Path('runtime/a'), StringSubclass('runtime/a'),
+            '', '.', '..', '...', ' ', 'runtime/a', 'runtime/./a', 'runtime/../a',
+            '/runtime/a', 'runtime//a', 'runtime/a/', 'runtime/a\\b',
+            'runtime/é', 'runtime/雪', 'runtime/\u202e', 'runtime/a\n', 'runtime/a\0',
+            *('a' * count for count in (1, 239, 240, 241, 1024)),
+            *('runtime/' + 'a' * count for count in (231, 232, 233)),
+            *('a/' * count + 'b' for count in (1, 118, 119, 120))]
+        cases.extend(chr(first) + chr(second) for first in range(128) for second in range(128))
+        cases.extend(prefix + chr(code) + suffix for code in range(256)
+            for prefix, suffix in (('', ''), ('runtime/', ''), ('runtime/a', 'b'),
+                ('runtime/', '/b'), ('runtime/a/', '/b')))
+        for name in cases:
+            self.assertEqual(M.path_ok(name), bool(original(name)))
+            self.assertEqual(M.path_rejection(name) is None, bool(original(name)))
+
+    def test_shared_path_classifier_reports_only_the_first_closed_rule(self):
+        cases = ((None, 'inventory_path_type'), ('', 'inventory_path_empty'),
+            ('a' * 241, 'inventory_path_length'),
+            ('runtime/PRIVATE:CANARY', 'inventory_path_character_or_separator'),
+            ('runtime//x', 'inventory_path_character_or_separator'),
+            ('runtime/../x', 'inventory_path_dot_component'),
+            ('./runtime/x', 'inventory_path_dot_component'))
+        for name, expected in cases:
+            self.assertEqual(M.path_rejection(name), expected)
+            self.assertNotIn('PRIVATE', expected)
+        for name in ('runtime/a', 'native-backend/license.txt', 'runtime/a_+.,@= -b', 'a' * 240):
+            self.assertIsNone(M.path_rejection(name))
+
     def test_inventory_counts_sizes_and_lease_collision_bounded(self):
         for attribute, limit in (("MAX_ENTRIES", 2), ("MAX_TOTAL", 1), ("MAX_FILE", 1), ("MAX_INVENTORY", 1)):
             with self.subTest(attribute=attribute), mock.patch.object(M, attribute, limit), self.assertRaises(ValueError):

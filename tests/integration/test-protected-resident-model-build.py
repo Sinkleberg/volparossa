@@ -404,6 +404,57 @@ class BuildAndExportTests(unittest.TestCase):
             self.assertFalse((native / 'ml/venv').exists())
             verify.assert_called_once()
 
+    def test_inventory_preflight_rejects_every_invalid_name_before_hash_or_readlink(self):
+        stager = M.load_module(HERE / 'protected-resident-model-workload.py', 'test_preflight_stager')
+        cases = ((None, 'inventory_path_type'), ('', 'inventory_path_empty'),
+            ('z' * 241, 'inventory_path_length'),
+            ('runtime/zPRIVATE:CANARY', 'inventory_path_character_or_separator'),
+            ('runtime/z/../PRIVATE_CANARY', 'inventory_path_dot_component'))
+        for name, reason in cases:
+            with self.subTest(reason=reason), mock.patch.object(stager, 'scan',
+                    return_value=['runtime/a', name]), mock.patch.object(M, 'file_record') as hashed, \
+                    mock.patch.object(M.os, 'readlink') as linked, self.assertRaises(ValueError) as caught:
+                M.asset_inventory(Path('/never-opened'), 'f' * 40, stager, deadline())
+            self.assertEqual(caught.exception.args, (reason,))
+            self.assertEqual(M.export_failure(caught.exception, 'inventory'), reason)
+            self.assertEqual(M.export_failure(caught.exception, 'metadata'), 'invalid_value')
+            hashed.assert_not_called()
+            linked.assert_not_called()
+            self.assertNotIn('PRIVATE', reason)
+
+    def test_real_name_scan_finds_late_invalid_entry_before_any_inventory_asset_read(self):
+        stager = M.load_module(HERE / 'protected-resident-model-workload.py', 'test_real_preflight_stager')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            put(root / 'runtime/a', b'public valid file')
+            put(root / 'runtime/zPRIVATE:CANARY', b'public invalid pathname fixture')
+            (root / 'runtime/b').symlink_to('a')
+            with mock.patch.object(M, 'file_record') as hashed, mock.patch.object(M.os, 'readlink') as linked, \
+                    self.assertRaisesRegex(ValueError, '^inventory_path_character_or_separator$'):
+                M.asset_inventory(root, 'f' * 40, stager, deadline())
+            hashed.assert_not_called()
+            linked.assert_not_called()
+
+    def test_preflight_preserves_valid_inventory_bytes_and_existing_deadline(self):
+        stager = M.load_module(HERE / 'protected-resident-model-workload.py', 'test_valid_preflight_stager')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            raw = b'public bytes only'
+            put(root / 'runtime/a', raw)
+            (root / 'runtime/python').symlink_to('/usr/bin/python3.13')
+            value = M.asset_inventory(root, 'f' * 40, stager, deadline())
+            expected = dict(version=1, kind='protected-resident-public-workload', public_fixture_only=True,
+                core_source_commit='f' * 40, entries={
+                    'runtime/a': dict(kind='file', bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest(),
+                        executable=False),
+                    'runtime/python': dict(kind='symlink', target='/usr/bin/python3.13')})
+            self.assertEqual(M.encoded(value), M.encoded(expected))
+            with mock.patch.object(stager, 'scan', return_value={'runtime/a'}), \
+                    mock.patch.object(M, 'file_record') as hashed, \
+                    self.assertRaisesRegex(ValueError, '^build_deadline$'):
+                M.asset_inventory(root, 'f' * 40, stager, time.monotonic_ns() - 1)
+            hashed.assert_not_called()
+
     def test_export_rejects_private_unknown_duplicate_or_bad_requester_fields(self):
         for raw in (b'{"requester_key":"a","public_input_sha256":[]}',
                     M.encoded(dict(requester_key='a'*64, public_input_sha256=['b'*64]*2, private_seed='CANARY')),

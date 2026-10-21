@@ -79,9 +79,23 @@ def module(name):
     return value
 
 
+def path_rejection(name):
+    """Return a closed rule only, never the pathname or a pathname fingerprint."""
+    if type(name) is not str:
+        return "inventory_path_type"
+    if not name:
+        return "inventory_path_empty"
+    if len(name) > 240:
+        return "inventory_path_length"
+    if not PATH.fullmatch(name):
+        return "inventory_path_character_or_separator"
+    if any(part in (".", "..") for part in name.split("/")):
+        return "inventory_path_dot_component"
+    return None
+
+
 def path_ok(name):
-    return (type(name) is str and 0 < len(name) <= 240 and PATH.fullmatch(name)
-            and all(part not in (".", "..") for part in name.split("/")))
+    return path_rejection(name) is None
 
 
 def identity(meta):
