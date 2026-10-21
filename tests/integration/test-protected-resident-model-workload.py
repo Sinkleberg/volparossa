@@ -174,7 +174,7 @@ class InventoryContracts(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 self.check(value)
 
-    def test_shared_path_classifier_matches_original_predicate_on_bounded_adversarial_cases(self):
+    def test_shared_path_classifier_changes_only_literal_parentheses_on_bounded_adversarial_cases(self):
         import re
         original_pattern = re.compile(r"[A-Za-z0-9_+.,@= -]+(?:/[A-Za-z0-9_+.,@= -]+)*\Z")
         def original(name):
@@ -194,8 +194,16 @@ class InventoryContracts(unittest.TestCase):
             for prefix, suffix in (('', ''), ('runtime/', ''), ('runtime/a', 'b'),
                 ('runtime/', '/b'), ('runtime/a/', '/b')))
         for name in cases:
-            self.assertEqual(M.path_ok(name), bool(original(name)))
-            self.assertEqual(M.path_rejection(name) is None, bool(original(name)))
+            # Replacing only parentheses with an already-accepted literal proves
+            # the exact character-set extension; all other original rules remain.
+            expected = bool(original(name.replace('(', 'a').replace(')', 'a'))
+                            if type(name) is str else original(name))
+            self.assertEqual(M.path_ok(name), expected)
+            self.assertEqual(M.path_rejection(name) is None, expected)
+            if original(name):
+                self.assertTrue(M.path_ok(name))
+            elif expected:
+                self.assertTrue('(' in name or ')' in name)
 
     def test_shared_path_classifier_reports_only_the_first_closed_rule(self):
         cases = ((None, 'inventory_path_type'), ('', 'inventory_path_empty'),
@@ -260,6 +268,72 @@ class Staging(unittest.TestCase):
                     "production_approval", "guest_key_origin_proven"):
             self.assertIs(result[key], False)
         self.assertNotIn("public fixture key", json.dumps(result))
+
+    def test_pinned_public_parenthesized_filename_and_contained_link_survive_staging(self):
+        # Real member name from pinned setuptools 84; contents are inert public
+        # test bytes, not an installed/imported package or model-execution proof.
+        name = "runtime/lib/python3.13/site-packages/setuptools/script (dev).tmpl"
+        payload = b"public inert setuptools pathname fixture\n"
+        target = "../lib/python3.13/site-packages/setuptools/script (dev).tmpl"
+        self.fixture.put(name, payload)
+        self.fixture.link("runtime/bin/(template)", target)
+        self.fixture.policy()
+        raw = M.encoded(self.fixture.value)
+        checked = M.inventory(raw, hashlib.sha256(raw).hexdigest(), SOURCE)
+        self.assertEqual(checked["entries"][name], record(payload))
+        result = self.fixture.stage()
+        self.assertTrue(result["staged"])
+        self.assertFalse(result["model_execution"])
+        with tarfile.open(self.fixture.output) as archive:
+            member = archive.getmember("opt/volparossa/" + name)
+            self.assertTrue(member.isfile())
+            self.assertEqual((member.uid, member.gid, member.mode, member.size),
+                             (985, 985, 0o600, len(payload)))
+            self.assertEqual(archive.extractfile(member).read(), payload)
+            link = archive.getmember("opt/volparossa/runtime/bin/(template)")
+            self.assertTrue(link.issym())
+            self.assertEqual(link.linkname, target)
+
+    def test_parentheses_do_not_admit_traversal_shell_syntax_controls_or_long_paths(self):
+        for name in ("/runtime/(dev)", "runtime/(dev)/../outside", "runtime/(dev)//x",
+                     "runtime/(dev)/x/", "runtime/$(command)", "runtime/(dev);command",
+                     "runtime/(dev)`command`", "runtime/(dev):command", "runtime/(dev)\\x",
+                     "runtime/(dev)\n", "runtime/(dev)\t", "runtime/(dev)\0", "runtime/(dév)",
+                     "runtime/(雪)", "runtime/(\u202e)", "runtime/(" + "a" * 231 + ")"):
+            changed = copy.deepcopy(self.fixture.value)
+            changed["entries"][name] = record(b"public fixture")
+            raw = M.encoded(changed)
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                M.inventory(raw, hashlib.sha256(raw).hexdigest(), SOURCE)
+        self.assertTrue(M.path_ok("runtime/(" + "a" * 230 + ")"))  # 240 chars.
+        for target in ("../../../outside (dev)", "/outside (dev)", "$(command)", "(missing)"):
+            changed = copy.deepcopy(self.fixture.value)
+            changed["entries"]["runtime/bin/(template)"] = dict(kind="symlink", target=target)
+            raw = M.encoded(changed)
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                M.inventory(raw, hashlib.sha256(raw).hexdigest(), SOURCE)
+
+    def test_parenthesized_file_cannot_bypass_no_follow_digest_or_size_checks(self):
+        name = "runtime/lib/python3.13/site-packages/setuptools/script (dev).tmpl"
+        self.fixture.put(name, b"public original bytes")
+        self.fixture.policy()
+        path = self.fixture.assets / name
+        path.write_bytes(b"public modified bytes")
+        with self.assertRaisesRegex(ValueError, "asset_digest"):
+            self.fixture.stage()
+        self.assertFalse(self.fixture.output.exists())
+        self.fixture.put(name, b"public original bytes")
+        path.write_bytes(b"longer public original bytes")
+        with self.assertRaisesRegex(ValueError, "asset_file_bound"):
+            self.fixture.stage()
+        self.assertFalse(self.fixture.output.exists())
+        self.fixture.put(name, b"public original bytes")
+        moved = self.fixture.base / "owner-setuptools"
+        path.parent.rename(moved)
+        path.parent.symlink_to(moved, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "asset_inventory_exact"):
+            self.fixture.stage()
+        self.assertFalse(self.fixture.output.exists())
 
     def test_guest_metadata_fixed_paths_lease_and_no_volatile_work_contents(self):
         self.fixture.stage()

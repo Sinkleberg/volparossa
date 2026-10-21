@@ -34,7 +34,9 @@ MAX_DOCUMENT = 65536
 UID = GID = 985
 SHA = re.compile(r"[0-9a-f]{64}\Z")
 SOURCE = re.compile(r"[0-9a-f]{40}\Z")
-PATH = re.compile(r"[A-Za-z0-9_+.,@= -]+(?:/[A-Za-z0-9_+.,@= -]+)*\Z")
+# Literal parentheses occur in pinned public wheel members. Paths remain data:
+# no-follow filesystem operands, JSON-quoted guestfish operands and tar names.
+PATH = re.compile(r"[A-Za-z0-9_+.,@= ()-]+(?:/[A-Za-z0-9_+.,@= ()-]+)*\Z")
 WRAPPERS = ("CMakeLists.txt", "adapter.h", "adapter.cpp", "bounded-tensor-validation.patch",
             "output-constraint.h", "output-constraint.cpp", "session-state.h", "q1-aligned-load.patch")
 FLAT = {"volparossa", "public-policy.json", "server.der", "server-key.der"}
