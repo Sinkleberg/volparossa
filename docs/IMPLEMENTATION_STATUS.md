@@ -14,11 +14,11 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-21
+Last updated: 2026-10-22
 
 ## Current integration and active work
 
-### Current resumption checkpoint — 2026-10-21
+### Current resumption checkpoint — 2026-10-22
 
 The complete [agreed goal](development/GOAL.md), every prior amendment and the
 [permanent joined DPS requirements](development/DPS_REQUIREMENTS.md) remain in
@@ -34,7 +34,122 @@ UI text. The user applied its exact three paragraphs to the existing active
 goal; independent readback confirmed exact equality and active status. No
 temporary attachment or previous conversation is required.
 
-Latest execution snapshot, 2026-10-21 21:32 UTC:
+Latest execution snapshot, 2026-10-21 23:41 UTC:
+
+- Main `9d456d7d6c0f6eca0ea03e75d280e3cbabdbc34a` (tree
+  `b7638c9757787d99f85c71f2a3373118f69fcfb6`) includes documentation PR319.
+  Exact-main Quality `39685018398` and CodeQL `39685018694` pass: workspace
+  4,244/0/12, standalone Storage 14/42, and one normal synthetic dormant-DPS
+  daemon execution with joined shutdown and unchanged bounded host observations.
+  Quality log SHA-256 is
+  `32e4782c026870c68c234ff864c268e71a515a4cadf88cbd6055bfe8454f8665`.
+  The last-modified goal revision remains
+  `4ec0a0a1199ff30be1033165ddf905a6b4952890`; original, pre-DPS amendments,
+  both received DPS payloads and the joined normative addition remain unchanged.
+  The active goal still equals the 1,767-character repository UI text.
+- Core read-stage diagnostics source
+  `54c752607c2340c1b3bd525c986a91c447c81e50` passes source gate
+  `39687575616`: 213 Rust tests, three retained MPTCP ignores, nine parser
+  controls, 283 Python and 55 Node tests, compilation, formatting and strict
+  lint. Consumer composition `f5892185003e04446719c3e65bf9b4835ef4c5c2`
+  passes `39689732732`: 331 Python, 58 core Node and 117 app Node tests, exact
+  source/dependency bindings and complete pinned Image/Cloud manifests.
+  These are source contracts, not a timeout fix or peer runtime acceptance.
+- PR320 combines those sources with main. Its original combined Quality
+  `39689786519` passed strict Clippy but failed one old v8 test that still
+  treated v10 as unsupported; 810 other library tests passed, and later
+  standalone Storage/DPS stages did not run. All four CodeQL analyses in
+  `39689781085` passed. Reviewed test-only correction
+  `c61c291e747765dac6cc93ba50aa016049c43c2b` (tree
+  `49534ec6bfc48f3d49c7158514ac452526077470`) adds a valid v10 round-trip and
+  rejects future v11 while retaining all negative controls. Quality
+  `39693355132` has passed strict Clippy and is running workspace tests; all
+  four CodeQL analyses in `39693350844` pass on this exact corrected source.
+  Committed goal preservation passes on this head;
+  production code and the actual trial's pins are unchanged. Original failed
+  log SHA-256: `5da4e0f6b07e3fc285f0507d28b36e1f43a46d04e98409e56ece95f2ca8418bf`.
+- Original actual Storage trial `39690110300` is still running on exact
+  consumer source `f5892185003e04446719c3e65bf9b4835ef4c5c2`. Its workflow
+  and fixed observer remain unchanged. Earlier `39655116872` remains failed
+  at fragment 3/copy 1 APPEND challenge verification, with consumer usage
+  unavailable under the former schema and no remote-deletion proof. No new
+  runtime outcome or common cause is inferred from source checks.
+- Image PR12 is merged as `78cc1d6cc7012ac64bbd07408990b63ed025d127` (tree
+  `313b9fe9ccfe89dd8e8085492cd01131d88092e0`). Source run `39693379596`
+  passes all 61 Node tests on the exact main/head test composition; fetched
+  main has that same tree. Log SHA-256:
+  `59808fdcbf445a2ee8d1efe3675fdbe596b6afaa143c5b06dba70ec0be846ddb`.
+  Exact-main source run `39693725301` also passes all 61 tests; all three
+  CodeQL analyses in `39693725372` pass. Main source log SHA-256:
+  `f230d0aa43dab9adfb237e1b33b4934b51867d33c602b8de0096b582bd06a78c`.
+  Four explicit deposit selectors authorize exact v7–v10 diagnostics; absent
+  or all-false selectors preserve main behavior, including ignoring unsolicited
+  malformed diagnostics. Process supervision and all 38 original tests remain
+  unchanged. Cloud PR19 source `31b1756a59d77ddda106a17c4cfabb643e360628`
+  is based on main `bdc9c914f4687f25396e23f322d5fa27e183ce8a`; all vendor
+  blobs and provenance match accepted Image. Quality `39694577694` fails five
+  new synthetic-child tests (103 passed, five failed, three skipped); all three
+  CodeQL analyses in `39694575012` pass. The test-fixture failure is under
+  investigation and Cloud is not accepted. Retained maintenance branches and
+  actual fixture pins remain in force and are not replaced by this SDK work.
+- Map PR10 source `b64fba86d56ef1ac9e8d1afe89274c009bb7fffe` (tree
+  `74d8267b8921165474a9cf6d000733a48d896f06`) passes source gate
+  `39690734517` with 89 inert tests and Components `39690735396` with 31.
+  Actual trial `39690910102` is failed, with concrete partial progress: the
+  real private PID-1 reaping control passes, inner emulator/ADB groups drain
+  in order, direct children are reaped and private state is removed. Seven of
+  eight Android instrumentation tests pass, including real Rust/JNI goldens;
+  `actualDebugActivityDisplayRevokeBackgroundAndPermissionBoundary` fails an
+  assertion whose exact line is not retained. Outer groups/state also clean
+  up. IPv6 and firewall configuration are unchanged (firewall counters only),
+  but KVM ctime/mtime differ, leaving host baseline unconfirmed. Original
+  artifact `12388379237` is 97,748 bytes, API/ZIP SHA-256
+  `179a955fc498b474a7f0f5c552caabe6630f34dd808cc226d2bc3f8ae4530c57`.
+  A pinned AndroidX test dependency declares `REORDER_TASKS`, conflicting with
+  the fixture's zero-permission assertion. Reviewed correction
+  `f3296c21f9787cb760e561954652158c7b21601d` (tree
+  `0002fa35860355a41541aa4563870909b03e7a5e`) removes only that inherited
+  test permission and adds a closed exact-message observation. Source gate
+  `39694301016` passes 93 inert tests and Components `39694300657` passes 31
+  on the exact base/head composition. All eight runtime tests and KVM/cleanup
+  guards are unchanged. Original actual trial `39694570310` is running on this
+  source. Separate branch `diagnostic/kvm-metadata-control-20261022` is being
+  prepared from this source for a bounded query-only versus empty-VM control;
+  it must stop before SDK acquisition and retain strict baseline failure on any
+  change. No control outcome or timestamp normalization is accepted. The
+  permission finding does not locate the historical assertion or explain KVM
+  timestamps. Full native acceptance, physical
+  positioning, navigation and GNSS-integrity improvement remain open.
+- Model PR322 is merged only into retained PR276 as
+  `ae4c80f4553df36e8200f6b85942cae23107ac0c`, with the exact accepted
+  source tree `04d88ed770a7ab2029fd1d78d4dcd5be98330461`. Source gate
+  `39689408781` passes 133 Rust and 437 Python tests and strict checks.
+  Manual attempt `39690619275` then failed stale branch-dependent inventory
+  assertions: 131 Rust and 208 controller tests passed, two startup tests were
+  omitted by that branch condition, and the actual model job was skipped.
+  PR323 source `fac29210327740c482ba3afd9439bade56e1249c` corrects only
+  workflow inventory and one regression test; source run `39693126324`
+  passes all 133 Rust/438 Python cases, strict lint and unchanged-source
+  checks. All 41 source, ten scoped and five dependency blobs match committed
+  source. Artifact `12389802614` is 36,341 bytes, API/ZIP SHA-256
+  `ceb660c97f2d84f7b7880f95eef7a564c89b6579b28da59572b13cecc087237c`.
+  PR323 is merged into retained PR276 as
+  `8b37a08bcf64a8d6e34932f0d0f4ee75082c813e`, with the exact tested tree
+  `e642416de57a1acef4aa9d91163761ffddb9d646`. Actual-job authority, source
+  guards and all 208 existing controller tests/helpers are unchanged. Original
+  public-model trial `39694353519` is running on this merge; redundant push
+  source run `39694250778` is cancelled, without cancelling an actual trial.
+  Previous real trial `39679679524` remains failed at first RESULT with stdout closed,
+  pre-cleanup exit 1/signal 0 and generic Bubblewrap classification. No model
+  turn or underlying cause is established. Narrow native-child and outer VM
+  cleanup pass; whole guest-descendant cleanup remains unconfirmed. Retained
+  Storage ancestry must still be isolated before main integration.
+
+Recheck live state before resuming these runs; a dated running entry is not
+permission to restart a trial. The following snapshot and later historical
+sections preserve their original outcomes and do not supersede this checkpoint.
+
+Earlier execution snapshot, 2026-10-21 21:32 UTC:
 
 - Main code revision `0f15a349d3fe34131a806241c3efcb7c8a1cdb8d` (tree
   `985b9d834381701f19d05ae4c0a2a4e6353fe782`) includes PR316; Quality
@@ -618,16 +733,18 @@ hosted evidence. No new KVM, namespace, cancellation or Android trial has run.
 
 ### Execution priorities and next milestones
 
-Current next actions are to finish the Storage read-stage source gate, diagnose
-the actual APPEND challenge failure independently of the former observer/schema
-defect, and improve protected-model failure-stage evidence without treating a
-diagnostic as a fix. For Map, retain the offline-loopback correction as a narrow
-source change and keep IPv6 baseline uncertainty, Android JNI/runtime execution,
-permissions and hardware positioning open. Require joined cleanup and bounded
-host-state evidence in any subsequent actual trial. These steps establish only
-their stated source, adapter lifecycle and ABI boundaries. The full goal still
-requires real sensor adapters, frame integrity, fusion, physical evaluation and
-native navigation alongside the other shared core integrations.
+Current next actions are to finish PR320's combined verification, consume the
+original Storage trial's result, and integrate the accepted opt-in SDK into Cloud
+without changing default behavior or importing unfinished maintenance work.
+Consume the original model trial after the accepted CI inventory correction;
+bounded failure labels do not fix Bubblewrap or establish inference. For Map, preserve
+the seven passing actual Android tests and proven process cleanup, resolve the
+remaining Activity/permission boundary, and investigate KVM timestamp changes
+without weakening the baseline guard or attributing earlier failures to the new
+evidence. Require all eight tests and complete cleanup/host acceptance before
+native integration. The full goal still requires real sensor adapters, frame
+integrity, fusion, physical evaluation and native navigation alongside the other
+shared core integrations; partial synthetic JNI success does not satisfy them.
 
 The shared cache and actual Weather delivery into Drizz.li and Overmorrow are
 integrated. The installed Android app now also passes on-demand core delivery,
