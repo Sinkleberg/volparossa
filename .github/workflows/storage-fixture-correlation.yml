@@ -333,7 +333,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      CONSUMER_SOURCE_BASE: 6738135e0d4b8f8b4cc9ce303bb461be57bccef0
+      CONSUMER_SOURCE_BASE: 200870bb620ac9c42ae0b9192e58b03d1a8434e6
     steps:
       - name: Check out the exact consumer harness candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -368,7 +368,7 @@ jobs:
           def git(*args):
               return subprocess.check_output(['git', *args], text=True).strip()
           base = os.environ['CONSUMER_SOURCE_BASE']
-          assert base == '6738135e0d4b8f8b4cc9ce303bb461be57bccef0'
+          assert base == '200870bb620ac9c42ae0b9192e58b03d1a8434e6'
           assert re.fullmatch('[0-9a-f]{40}', os.environ['GITHUB_SHA'])
           allowed = {
               '.github/workflows/storage-fixture-correlation.yml',
