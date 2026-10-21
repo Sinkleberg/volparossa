@@ -30,6 +30,17 @@ Unix socket authorizes local administrative callers; it is not yet a per-app
 least-authority location broker. Untrusted mobile apps must not receive that
 administrative socket as a shortcut to location access.
 
+A bounded hosted runtime proof now exercises one normal launch of the dormant
+daemon, framed status and a synthetic DPS request, joined shutdown, and removal
+of its owned socket and fixture. Quality `39630688730` and CodeQL `39630681739`
+pass on PR305 source `350a013de73334b2deb18843057cb964101989d7`; the temporary PR test
+merge against main has an identical tree to that source. The closed receipt reports only synthetic
+DPS activity and unchanged bounded host observations. This does not grant apps
+location access or establish app-owned permissions, active-participation
+behavior, restart/crash recovery, complete namespace cleanup, sensor acquisition,
+fusion or physical accuracy. The administrative socket remains unsuitable for
+untrusted apps.
+
 The local-control envelope remains version 2; DPS schema version 1 uses request
 field 64 and response field 64. Allocation was checked against main and all 23
 open PR heads on 2026-10-21. The retained Storage integration already uses request
@@ -154,7 +165,11 @@ continuation. They do not displace existing critical integrations.
 1. Verify the bounded stateless API, strict rejection, explicit uncertainty,
    conflicting/correlated claims, version compatibility and content-free errors.
    Exercise real local-control framing and the production connection handler on a
-   disposable runner; test complete daemon startup/socket ownership separately.
+   disposable runner. The exact-source hosted normal-daemon test also passes for
+   one dormant launch, synthetic request, joined normal shutdown and owned
+   socket/fixture removal; see the implementation ledger for run and receipt
+   hashes. This bounded proof does not establish complete daemon lifecycle or
+   app-facing location authority.
 2. Join Map through a bounded app-owned adapter and demonstrate displayed quality,
    consent revocation, expiry and safe unavailability with synthetic fixtures.
    Label this as adapter evidence, not native sensor/navigation acceptance.
