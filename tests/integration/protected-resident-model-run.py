@@ -219,6 +219,8 @@ REQUESTER_IO_KINDS = ('none', 'not_found', 'permission_denied', 'unexpected_eof'
     'interrupted', 'invalid_data', 'other')
 REQUESTER_STDERR_CLASSES = ('none', 'bubblewrap', 'user_namespace', 'proc_mount', 'exec_denied',
     'python_startup', 'other')
+REQUESTER_BUBBLEWRAP_STAGES = ('bubblewrap_namespace_setup', 'bubblewrap_root_setup',
+    'bubblewrap_source_setup', 'bubblewrap_destination_setup', 'bubblewrap_bind_mount')
 FAILURE_CODES = frozenset(('controller_deadline', 'controller_cancelled', 'command_timeout',
     'command_output_bound', 'command_failed', 'host_memory_headroom', 'host_memory_snapshot', 'qemu_limits',
     'qemu_exited_before_scope', 'scope_start_timeout', 'guest_unit_failed', 'guest_unit_cgroup',
@@ -342,7 +344,7 @@ def requester_failure_detail(value):
         # This extension requires the matching updated Rust fixture validator.
         if all(value[key] is None for key in ('exit_code', 'signal', 'stderr_class')):
             return True
-        if type(value['stderr_class']) is not str or value['stderr_class'] not in REQUESTER_STDERR_CLASSES:
+        if type(value['stderr_class']) is not str or value['stderr_class'] not in (*REQUESTER_STDERR_CLASSES, *REQUESTER_BUBBLEWRAP_STAGES):
             return False
         if value['exit_code'] is None and value['signal'] is None:
             return True
@@ -351,7 +353,9 @@ def requester_failure_detail(value):
     exit_code, sig = value['exit_code'], value['signal']
     return (type(exit_code) is int and type(sig) is int and
             ((0 <= exit_code <= 255 and sig == 0) or (exit_code == -1 and 1 <= sig <= 64)) and
-            type(value['stderr_class']) is str and value['stderr_class'] in REQUESTER_STDERR_CLASSES)
+            type(value['stderr_class']) is str and value['stderr_class'] in
+            ((*REQUESTER_STDERR_CLASSES, *REQUESTER_BUBBLEWRAP_STAGES)
+             if value['code'] == 'compute_native_session_stdout_closed' else REQUESTER_STDERR_CLASSES))
 
 
 def requester_result_failure(raw, protocol):

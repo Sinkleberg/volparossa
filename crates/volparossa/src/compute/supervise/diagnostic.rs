@@ -304,6 +304,21 @@ pub(super) struct Detail {
 }
 
 impl Detail {
+    // Only the sealed public-fixture accessor uses this copy. Ordinary Detail
+    // serialization, StartupClass and StartupFailure remain unchanged.
+    pub(super) fn with_public_bubblewrap_stage(
+        mut self,
+        stage: Option<super::BubblewrapStage>,
+    ) -> Self {
+        if let Some(stage) = stage.filter(|_| {
+            self.code == "compute_native_session_stdout_closed"
+                && self.stderr_class == Some("bubblewrap")
+        }) {
+            self.stderr_class = Some(stage.label());
+        }
+        self
+    }
+
     pub(super) fn with_native_stdout_close(
         mut self,
         status_before_cleanup: Option<std::process::ExitStatus>,
@@ -380,6 +395,16 @@ pub(in crate::compute) fn public_fixture_detail(value: &Value) -> bool {
         ]
         .contains(&class)
     });
+    let public_stage = value["stderr_class"].as_str().is_some_and(|class| {
+        [
+            "bubblewrap_namespace_setup",
+            "bubblewrap_root_setup",
+            "bubblewrap_source_setup",
+            "bubblewrap_destination_setup",
+            "bubblewrap_bind_mount",
+        ]
+        .contains(&class)
+    });
     let no_exit = value["exit_code"].is_null() && value["signal"].is_null();
     known
         && io
@@ -388,7 +413,7 @@ pub(in crate::compute) fn public_fixture_detail(value: &Value) -> bool {
         } else if code == "compute_native_session_stdout_closed" {
             // Old all-null messages remain exact. New observations require the
             // updated Rust/controller readers; older readers reject this shape.
-            no_status || (stderr_class && (no_exit || status))
+            no_status || ((stderr_class || public_stage) && (no_exit || status))
         } else {
             no_status
         }

@@ -2,7 +2,7 @@ name: Public resident model integration contracts
 
 on:
   push:
-    branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021, fix/protected-native-exit-observation-20261021]
+    branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021, fix/protected-native-exit-observation-20261021, fix/protected-bwrap-stage-20261022]
   workflow_dispatch:
     inputs:
       scenario:
@@ -41,7 +41,8 @@ jobs:
       github.ref == 'refs/heads/fix/protected-requester-diagnostic-20261021' ||
       github.ref == 'refs/heads/fix/protected-result-failure-20261021' ||
       github.ref == 'refs/heads/fix/protected-socket-diagnostic-20261021' ||
-      github.ref == 'refs/heads/fix/protected-native-exit-observation-20261021') &&
+      github.ref == 'refs/heads/fix/protected-native-exit-observation-20261021' ||
+      github.ref == 'refs/heads/fix/protected-bwrap-stage-20261022') &&
       (github.event_name == 'push' || inputs.scenario == 'source-contracts')))
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -171,6 +172,39 @@ jobs:
               status_semantics='observed_before_native_session_cleanup',
               stderr_semantics='bounded_existing_drain_classification',
               eof_matrix='legacy_null_or_class_with_optional_precleanup_status_v1')
+          bwrap_stage_scope=None
+          if os.environ['GITHUB_REF']=='refs/heads/fix/protected-bwrap-stage-20261022':
+            bwrap_base='3fceb0f82716a4ee10d1b9d11c7d5011fec31179'
+            subprocess.run(['git','merge-base','--is-ancestor',bwrap_base,'HEAD'],check=True)
+            bwrap_allowed={
+              '.github/workflows/protected-resident-model.yml',
+              'THIRD_PARTY_LICENSES.md',
+              'crates/volparossa/src/compute/supervise.rs',
+              'crates/volparossa/src/compute/supervise/diagnostic.rs',
+              'crates/volparossa/src/compute/supervise/native_session.rs',
+              'crates/volparossa/src/compute/supervise/native_session/worker.rs',
+              'crates/volparossa/src/compute/supervise/native_session/tests.rs',
+              'crates/volparossa/src/compute/resident_guest/tests.rs',
+              'tests/integration/protected-resident-model-run.py',
+              'tests/integration/test-protected-resident-model-run.py'}
+            changed=git('diff','--name-only',bwrap_base,'HEAD').splitlines()
+            assert len(changed)==len(bwrap_allowed)==10 and set(changed)==bwrap_allowed
+            dependencies=('Cargo.lock','Cargo.toml','rust-toolchain.toml',
+              'crates/volparossa/Cargo.toml','crates/volparossa-content/Cargo.toml')
+            for name in dependencies:
+              assert git('rev-parse','HEAD:'+name)==git('rev-parse',bwrap_base+':'+name)
+            workflow='.github/workflows/protected-resident-model.yml'
+            old=subprocess.check_output(['git','show',bwrap_base+':'+workflow])
+            new=pathlib.Path(workflow).read_bytes()
+            actual=b'\n  public-model:\n'
+            assert new.split(actual,1)[1]==old.split(actual,1)[1]
+            bwrap_stage_scope=dict(base_commit=bwrap_base,
+              source_blobs={name:git('rev-parse','HEAD:'+name) for name in sorted(bwrap_allowed)},
+              dependency_blobs={name:git('rev-parse','HEAD:'+name) for name in dependencies},
+              actual_job_sha256=hashlib.sha256(actual+new.split(actual,1)[1]).hexdigest(),
+              diagnostic_only=True,actual_model_execution=False,
+              default_diagnostic_encoding_unchanged=True,
+              stderr_semantics='closed_family_of_existing_first_bounded_prefix_not_runtime_cause')
           names=git('diff','--name-only',base,'HEAD').splitlines()
           receipt=dict(version=1,source_commit=os.environ['GITHUB_SHA'],source_tree=git('rev-parse','HEAD^{tree}'),base=base,
             source_blobs={n:git('rev-parse','HEAD:'+n) for n in names},
@@ -183,6 +217,8 @@ jobs:
             receipt['socket_diagnostic_scope']=socket_diagnostic_scope
           if native_exit_scope is not None:
             receipt['native_exit_scope']=native_exit_scope
+          if bwrap_stage_scope is not None:
+            receipt['bwrap_stage_scope']=bwrap_stage_scope
           pathlib.Path('resident-model-evidence/source.json').write_text(json.dumps(receipt,sort_keys=True)+'\n')
           PY
 
@@ -265,17 +301,22 @@ jobs:
           run_group guest volparossa compute::resident_guest::
           run_group resident volparossa compute::supervise::native_session::
           run_group local volparossa compute::private_serve::tests::
+          if test "$GITHUB_REF" = refs/heads/fix/protected-bwrap-stage-20261022; then
+            run_group startup volparossa compute::supervise::tests::public_bubblewrap_stage
+          fi
           python3 -B - <<'PY'
-          import json,pathlib,re
+          import json,os,pathlib,re
           root=pathlib.Path('resident-model-evidence'); groups={}; all_names=[]
-          for label in ('grant','guest','resident','local'):
+          bwrap=os.environ['GITHUB_REF']=='refs/heads/fix/protected-bwrap-stage-20261022'
+          labels=('grant','guest','resident','local','startup') if bwrap else ('grant','guest','resident','local')
+          for label in labels:
             names=re.findall(r'^(.+): test$',(root/(label+'-inventory.log')).read_text(),re.M)
             output=(root/(label+'-test.log')).read_text()
             assert names and len(names)==len(set(names))
             for name in names: assert len(re.findall(r'^test '+re.escape(name)+r' \.\.\. ok$',output,re.M))==1
             assert f'{len(names)} passed; 0 failed; 0 ignored;' in output
             groups[label]=len(names); all_names.extend(names)
-          assert groups==dict(grant=22,guest=37,resident=39,local=30)
+          assert groups==(dict(grant=22,guest=38,resident=41,local=30,startup=2) if bwrap else dict(grant=22,guest=37,resident=39,local=30))
           assert len(all_names)==len(set(all_names))
           socket_tests={
             'socket_preflight_accepts_owned_socket_without_an_observation',
@@ -292,6 +333,14 @@ jobs:
             'tests::stdout_close_observation_preserves_primary_error_and_other_failure_shapes',
             'tests::stdout_close_detail_accepts_only_legacy_null_or_closed_observation_matrix'}
           assert {'compute::supervise::native_session::'+name for name in native_exit_tests} <= set(all_names)
+          if bwrap:
+            required={
+              'compute::supervise::tests::public_bubblewrap_stage_matches_source_prefix_families_only',
+              'compute::supervise::tests::public_bubblewrap_stage_uses_existing_fragmented_prefix_without_changing_default_failure',
+              'compute::supervise::native_session::worker::tests::stdout_eof_carries_only_closed_public_bubblewrap_stage_after_join',
+              'compute::supervise::native_session::tests::public_bubblewrap_stages_preserve_ordinary_detail_and_require_stdout_close',
+              'compute::resident_guest::tests::public_bubblewrap_stage_frame_roundtrip_requires_exact_cleanup_and_scope'}
+            assert required<=set(all_names) and sum(groups.values())==133
           (root/'tests.json').write_text(json.dumps(dict(version=1,counts=groups,test_names=sorted(all_names),model_execution=False,guest_boot=False,private_peer_admission=False),sort_keys=True)+'\n')
           PY
 
@@ -329,9 +378,9 @@ jobs:
               2>&1 | tee "resident-model-evidence/model-$component.log"
           done
           python3 -B - <<'PY'
-          import json,pathlib,re
+          import json,os,pathlib,re
           root=pathlib.Path('resident-model-evidence'); counts={}
-          expected={'install':58,'assemble':29,'run':204}
+          expected={'install':58,'assemble':29,'run':208 if os.environ['GITHUB_REF']=='refs/heads/fix/protected-bwrap-stage-20261022' else 204}
           for name,count in expected.items():
             raw=(root/('model-'+name+'.log')).read_text()
             tests=re.findall(r'^Ran ([0-9]+) tests? in ',raw,re.M)

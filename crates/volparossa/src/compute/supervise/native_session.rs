@@ -49,6 +49,7 @@ pub(in crate::compute) enum Event {
 struct Failure {
     cause: anyhow::Error,
     diagnostic: super::diagnostic::Detail,
+    public_bubblewrap_stage: Option<super::BubblewrapStage>,
 }
 
 impl Failure {
@@ -57,11 +58,16 @@ impl Failure {
     // deliberately not exposed through Error::source or public wire messages.
     fn after_cleanup(cause: anyhow::Error) -> Self {
         let diagnostic = super::diagnostic::native_session_detail(&cause);
-        Self { cause, diagnostic }
+        Self {
+            cause,
+            diagnostic,
+            public_bubblewrap_stage: None,
+        }
     }
 
     fn with_close_observation(mut self, observation: Option<worker::CloseObservation>) -> Self {
         if let Some(observation) = observation {
+            self.public_bubblewrap_stage = observation.public_bubblewrap_stage;
             self.diagnostic = self.diagnostic.with_native_stdout_close(
                 observation.status_before_cleanup,
                 observation.stderr_class,
@@ -87,7 +93,12 @@ pub(super) fn diagnostic(error: &anyhow::Error) -> Option<super::diagnostic::Det
 
 /// Public-fixture projection only. Ordinary errors cannot assert completed cleanup.
 pub(in crate::compute) fn public_fixture_failure(error: &anyhow::Error) -> Option<Value> {
-    diagnostic(error).and_then(|detail| serde_json::to_value(detail).ok())
+    error.downcast_ref::<Failure>().and_then(|failure| {
+        let detail = failure
+            .diagnostic
+            .with_public_bubblewrap_stage(failure.public_bubblewrap_stage);
+        serde_json::to_value(detail).ok()
+    })
 }
 
 // Fabricated owner result for injected-worker protocol tests only. This helper
