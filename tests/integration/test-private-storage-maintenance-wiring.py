@@ -26,6 +26,7 @@ FIXTURE = runpy.run_path(str(HERE / ('test-' + SCENARIO + '-smoke.py')))
 DIAGNOSTICS = runpy.run_path(str(HERE / 'test-private-storage-fragments-wiring.py'))['diagnostics']
 CORRELATION = runpy.run_path(str(HERE / 'storage-fixture-correlation-sampler.py'))
 ACQUIRE = runpy.run_path(str(HERE / 'storage-acquire-diagnostic.py'))
+USAGE = runpy.run_path(str(HERE / 'storage-consumer-provider-usage.py'))
 
 
 def correlation_fixture(home, roots):
@@ -42,6 +43,16 @@ def acquire_fixture(home, roots):
     helper.write_bytes((HERE / helper.name).read_bytes())
     data = ACQUIRE['encoded'](ACQUIRE['empty']('absent'))
     for root in roots: (root / ACQUIRE['NAME']).write_bytes(data)
+
+
+def usage_fixture(home, roots):
+    helper = home / 'source/tests/integration/storage-consumer-provider-usage.py'
+    helper.parent.mkdir(parents=True, exist_ok=True)
+    helper.write_bytes((HERE / helper.name).read_bytes())
+    data = USAGE['encoded'](USAGE['report']([USAGE['empty'](role) for role in USAGE['ROLES']]))
+    for root in roots:
+        path = root / USAGE['NAME']
+        path.write_bytes(data); path.chmod(0o600)
 
 
 def retained_private_fixture(root, pending=True):
@@ -133,6 +144,7 @@ class Wiring(unittest.TestCase):
         names = ('private-storage-maintenance-smoke.sh', 'private-storage-maintenance-smoke.py',
             'private-storage-log-sampler.py', 'content-provider-readiness.py', 'storage-provider-activity-sampler.py',
             'storage-fixture-correlation-sampler.py', 'storage-acquire-diagnostic.py',
+            'storage-provider-usage-snapshot.py', 'storage-consumer-provider-usage.py',
             'storage-consumer-maintenance-smoke.sh', 'storage-consumer-maintenance-smoke.py',
             'storage-consumer-maintenance.mjs', 'storage-consumer-maintenance-pins.json', 'storage-consumer-maintenance-pins-v2.json',
             'storage-consumer-maintenance-pins-v3.json', 'storage-consumer-maintenance-pins-v4.json',
@@ -286,6 +298,7 @@ private_storage_fragments_run() {
                 (published / name).write_text('{}')
             correlation_fixture(home, (published,))
             acquire_fixture(home, (published,))
+            usage_fixture(home, (published,))
             for name in ('maintenance-owner-lifecycle.private', 'lifecycle-result.json',
                     'identity.key', 'enrollment.json', 'checkpoint.json', 'logs-client.txt',
                     'private-storage-maintenance-selection-route-diagnostic.json',
@@ -318,6 +331,7 @@ private_storage_fragments_run() {
                 (root / 'consumer-binding.json').write_text('PRIVATE_MUST_NOT_EXPORT')
             correlation_fixture(home, (published, work))
             acquire_fixture(home, (published, work))
+            usage_fixture(home, (published, work))
             distinct = 'storage-consumer-finish.json'
             (work / distinct).write_text('{"passed":false}\n')
             archive = diagnostics['collect'](home, opt, 'a' * 40, SCENARIO, 124,
