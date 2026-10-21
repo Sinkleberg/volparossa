@@ -20,3 +20,9 @@ client supports editing that field. Do not mark the project complete or recreate
 it just to change this pointer. On 2026-10-21, the session's goal tools exposed
 status updates, not an objective-text edit; publication of this file does not claim that
 the UI field was changed. Future conversations can use the text above directly.
+
+The user subsequently applied this text to the existing active goal on
+2026-10-21. Reading that goal confirmed exact equality with the three paragraphs
+above and an unchanged active status. This verifies that session's UI pointer;
+future sessions must still inspect their own active goal. No goal was completed,
+recreated or reduced to transfer the objective.

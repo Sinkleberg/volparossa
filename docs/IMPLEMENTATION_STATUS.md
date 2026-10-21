@@ -24,31 +24,34 @@ The complete [agreed goal](development/GOAL.md), every prior amendment and the
 [permanent joined DPS requirements](development/DPS_REQUIREMENTS.md) remain in
 force. [Goal verification](development/GOAL_VERIFICATION.md) records the unchanged
 original and pre-DPS bytes, both received DPS payloads and the unique normative
-Map continuation. PR308 is integrated at
-`87f460eee4978286c5434ab22497f19b2f5a34ea`; verification passes on its fetched
-committed blobs and on a document snapshot without Git history or attachments.
-Main Quality `39628501519` and CodeQL `39628507344` also pass on that exact
-consolidation revision; committed preservation was rechecked after both runs.
+Map continuation. Consolidation PR308 is merged at
+`87f460eee4978286c5434ab22497f19b2f5a34ea`; the fetched committed blobs and an
+exported document snapshot without Git history or attachments both pass. Main Quality
+`39628501519` and all four CodeQL analyses in `39628507344` also pass on that
+exact revision. Committed-blob preservation was checked again after these runs.
 [PURSUING_GOAL.md](development/PURSUING_GOAL.md) supplies durable
-UI text; no temporary attachment or previous conversation is required.
+UI text. The user applied its exact three paragraphs to the existing active
+goal; independent readback confirmed exact equality and active status. No
+temporary attachment or previous conversation is required.
 
 This checkpoint supersedes older **planning statements**, not historical evidence
-or the full goal. Snapshot checked at 2026-10-21 16:40 UTC against main
-`87f460eee4978286c5434ab22497f19b2f5a34ea` and temporary PR305 test merge
-`d7434fec56849638ff0ccabc10c93fa48f72c219`; the fetched test-merge tree
-`afff7cdffabf08c9da10cc3a99d545191aa7b059` is identical to the tested PR305
-source tree and the diff is empty. Recheck live state before acting.
+or the full goal. Snapshot checked at 2026-10-21 17:42 UTC against main
+`9c02e93d5ddabf77f86e15fbf0404bbae4282496`. Its fetched tree
+`eb1da1fbee871f17552e5b8e2e0e27a816da5e21` equals PR305 final head
+`72b5eb81bd03cb075662ed8f311133d400ad391c`; committed goal preservation
+passes. Main Quality `39637135731` and CodeQL `39637135888` both pass on exact
+main. Recheck live state before acting.
 The historical retained-branch table below is not a current branch catalogue.
 
 | Integration | Accepted evidence, retained work and next action |
 | --- | --- |
 | DPS core, PR299 merged | Source `4e673a5a5a9b0c3ad08325999496b72461ba301a` and main `2d0e08716374e75b646cc2cb4c6f81ab89d3d013` have identical tree `25b19c648520d42b4305ea81eba33145e16cdbc9`. Quality `39616727891` and CodeQL `39616721234` pass, including 18 DPS library/framed-handler regressions. Envelope 2 / DPS schema 1 uses request/response field 64, preserving Storage's 46–49 / 34–37. No sensor/fusion/native-navigation acceptance follows. |
-| Real dormant-daemon DPS proof, [PR305](https://github.com/VOLPAROSSA/volparossa/pull/305) retained | Original head `2fe12925af3d89144290c2def8efc3a14c230345` still retains failed Quality `39623500798` (`completed_daemon_executions=0`, nested `exact_child_execution`, cause unavailable) and passing CodeQL `39623497152`. Corrected source `350a013de73334b2deb18843057cb964101989d7` passes actual normal dormant-daemon proof in Quality [run `39630688730`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39630688730) and CodeQL [run `39630681739`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39630681739). Temporary PR test merge `d7434fec56849638ff0ccabc10c93fa48f72c219` has tested tree `afff7cdffabf08c9da10cc3a99d545191aa7b059`; the fetched test-merge diff is empty. The closed receipt accepts one completed daemon execution, completed child stage, joined normal shutdown and socket/fixture removal, synthetic DPS only, and unchanged bounded host observations. It does not accept restart/crash recovery, active participation, mobile-app permission authority, sensor/fusion/accuracy or complete namespace cleanup. The conditional gate-forwarding defect remains unproved as the cause of the original failure. |
+| Real dormant-daemon DPS proof, [PR305](https://github.com/VOLPAROSSA/volparossa/pull/305) merged | Original head `2fe12925af3d89144290c2def8efc3a14c230345` still retains failed Quality `39623500798` (`completed_daemon_executions=0`, nested `exact_child_execution`, cause unavailable) and passing CodeQL `39623497152`. Corrected source `350a013de73334b2deb18843057cb964101989d7` passes actual normal dormant-daemon proof in Quality [run `39630688730`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39630688730) and CodeQL [run `39630681739`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39630681739). Temporary PR test merge `d7434fec56849638ff0ccabc10c93fa48f72c219` has tested tree `afff7cdffabf08c9da10cc3a99d545191aa7b059`; the fetched test-merge diff is empty. The closed receipt accepts one completed daemon execution, completed child stage, joined normal shutdown and socket/fixture removal, synthetic DPS only, and unchanged bounded host observations. It does not accept restart/crash recovery, active participation, mobile-app permission authority, sensor/fusion/accuracy or complete namespace cleanup. The conditional gate-forwarding defect remains unproved as the cause of the original failure. PR305 final head `72b5eb81bd03cb075662ed8f311133d400ad391c` is merged as main `9c02e93d5ddabf77f86e15fbf0404bbae4282496`; exact-main Quality `39637135731` and CodeQL `39637135888` both pass. Redundant PR-head Quality `39636954154` and CodeQL `39636945564` are terminal cancelled. |
 | Map contract integrated, native adapter pending | Map PR7 and PR8 are merged; PR8 merge `c1c8cf6cd5d280d58986cda599dda59be282b5d3` binds core field 64. Components/source `39619657619` and CodeQL `39619656198` pass. These are documentation/source checks. Preserve unpublished `feature/native-traffic-lifecycle` at `ca7a4e59a057743f1903132588b6232bec0f6ea6`; actual native DPS permissions/location/navigation remain open. |
-| Storage/DPS composition, [PR304](https://github.com/VOLPAROSSA/volparossa/pull/304) retained | Published head `f10c4524f8b03b2779ce1deb8d744488a481e1fb` joins the retained Storage closure, DPS and full goal; its earlier Quality `39618989902` failed function length and `39622382568` failed three large-future test calls, while CodeQL `39622384569` passed. The independently reviewed three-call `Box::pin` correction `5a661318` clears strict Clippy in `39629355283`, which then fails one stale schema-v9 assertion after 806 CLI tests passed; CodeQL `39629348947` passes on that prior source. New source `bae45ace7c40825ebc0c2e3035771ed27a801785` changes only the invalid test version from supported 9 to unsupported 10, preserving positive v9 coverage and v8/v9 fragment-join rejection; it preserves the full goal. Quality `39633963133` is pending and CodeQL `39633956727` needs recheck on the new head. Preserve `.volparossa-dev/worktrees/storage-dps-20261021`; no main Storage integration is claimed. |
+| Storage/DPS composition, [PR304](https://github.com/VOLPAROSSA/volparossa/pull/304) retained | Published head `f10c4524f8b03b2779ce1deb8d744488a481e1fb` joins the retained Storage closure, DPS and full goal; its earlier Quality `39618989902` failed function length and `39622382568` failed three large-future test calls, while CodeQL `39622384569` passed. The independently reviewed three-call `Box::pin` correction `5a661318` clears strict Clippy in `39629355283`, which then fails one stale schema-v9 assertion after 806 CLI tests passed; CodeQL `39629348947` passes on that prior source. New source `bae45ace7c40825ebc0c2e3035771ed27a801785` changes only the invalid test version from supported 9 to unsupported 10, preserving positive v9 coverage and v8/v9 fragment-join rejection; it preserves the full goal. Baseline Quality `39633963133` and CodeQL `39633956727` pass on this source: the hosted test merge `ff100da53d77ee6989078fd37cb3737b61d01f1f` has the exact source tree `5acec5079649705b94ba9f054a063690de11db51`; workspace tests report 4,203 passed, zero failed and 11 ignored, with separate Storage outcome/wire suites passing 14/37 and the inert harness passing 211 checks. Combined source `aa876ea25832efc1cda797b2e4c6be992ed15d14` incorporates main `9c02e93d` and passes Quality `39639849031` plus CodeQL `39639840728`. Actual hosted merge `286cca0ef6c39aaab0be98d7b2ff173c3179daf1` has the identical tree `2db691eec7a6b712b7c576d01df2409a2d25b1ad`. Strict Clippy passes; workspace summaries report 4,210 passed, zero failed and 12 ignored executions; standalone Storage outcome/wire groups pass 14/37. The non-mutating harness succeeds with 211 counted tests and one skipped. The mandatory normal dormant-DPS proof passes with one completed execution, joined shutdown/socket/fixture removal and unchanged bounded before/after host observations; synthetic inputs establish no hardware or app-permission claim. Original hosted log SHA-256 is `75b63ea54841ef6b1a76fe72e54b87ceff023294986001b775523eb9a56e8624`; the run published no artifact. Subsequent checkpoint edits change documentation only. Preserve `.volparossa-dev/worktrees/storage-dps-20261021`; no main Storage integration or consumer acceptance is claimed. |
 | Shared Storage consumer acceptance remains failed | Guard completion PR302 is merged into retained PR288 at `b02f3333d1908aeb14f39134fccd58be7e8391a6`. Source `39614178258` passes all 28 regressions/negative control; the new actual Image/Cloud profile-10 trial `39618051591` fails at `storage-consumer-publish`, Image fragment 2/copy 0 receipt-read deadline. Consumer remote cleanup/provider usage remain unproven. Base-owner zero-usage and owned-topology cleanup do not prove consumer cleanup. Original Cloud timeout `38917106698` is a distinct failed stage with no established common cause. Next diagnostic must bind the failed request to receipt stages and final reconciliation without changing production deadlines. |
-| Protected model work preserved, [PR307](https://github.com/VOLPAROSSA/volparossa/pull/307) integrated into retained PR276 | Actual `39617784665` on `f571` fails inventory export with `inventory_path_character_or_separator`; no model turn. Public pinned-wheel audit identifies a static incompatibility for `setuptools/script (dev).tmpl`, not proof of the private guest's rejected pathname. PR307 permits literal parentheses only while preserving other path/symlink/hash/authority checks; 104 inert tests and independent review pass. Retained merge `c728ef98e7903d6ae147661ef46200f2316bf88d` has tree `27a882e2702884132b04ef7a20f09f557e26e8a4`. Actual `39624790559` passes contracts and builds/exports assets, then fails `two_public_turns` with generic `command_failed`; no completed verified turn or requester receipt, and partial inference is unknown. Scratch/tool/VM cleanup passes; complete guest-descendant cleanup remains unproved. Bounded requester-stage diagnostics are published as [PR309](https://github.com/VOLPAROSSA/volparossa/pull/309), source `38eba457bfd342d25dc3e9d395d049f757ac75cd`: 176 inert Python tests and independent review pass; hosted source contracts `39635201317` fail strict Clippy on two test-helper item placements; the bounded test-only correction is in progress. Preserve `.volparossa-dev/worktrees/protected-requester-diagnostic-20261021`. Redundant push-contract run `39624751305` is terminal cancelled. |
-| Exact-request Storage diagnostic, implementation active | Preserve `.volparossa-dev/worktrees/storage-request-stage-proof-20261021`, branch `test/storage-request-stage-proof-20261021`, now [PR310](https://github.com/VOLPAROSSA/volparossa/pull/310) at `9666ffb0846e243317f1b4361afce5fe1b19ea05` over reviewed base `bae45ace`. The default-off schema-three candidate binds one epoch to an exact per-copy archive/provider/operation and separates backend/receipt/worker observations without changing production deadlines, attempts or wire authority. Twenty-two Rust tests are authored; both review fixes and the exact source/workflow scope pass independent re-review. Hosted fixture contracts `39636530467` are running. A separate stopped-provider read-only usage snapshot has nine initial inert tests; independent review found a blocking FIFO open and invalid-row aggregate acceptance, both assigned for correction before harness wiring. It records only logical usage and never proves remote deletion or owner reconciliation. Unknown/capacity-lost/ambiguous observations remain unavailable. No runtime acceptance. The existing status CLI opens SQLite read/write; any snapshot must occur after provider processes join and before consumer journals/stores are removed. |
+| Protected model work preserved, [PR307](https://github.com/VOLPAROSSA/volparossa/pull/307) integrated into retained PR276 | Actual `39617784665` on `f571` fails inventory export with `inventory_path_character_or_separator`; no model turn. Public pinned-wheel audit identifies a static incompatibility for `setuptools/script (dev).tmpl`, not proof of the private guest's rejected pathname. PR307 permits literal parentheses only while preserving other path/symlink/hash/authority checks; 104 inert tests and independent review pass. Retained merge `c728ef98e7903d6ae147661ef46200f2316bf88d` has tree `27a882e2702884132b04ef7a20f09f557e26e8a4`. Actual `39624790559` passes contracts and builds/exports assets, then fails `two_public_turns` with generic `command_failed`; no completed verified turn or requester receipt, and partial inference is unknown. Scratch/tool/VM cleanup passes; complete guest-descendant cleanup remains unproved. Bounded requester-stage diagnostics are published as [PR309](https://github.com/VOLPAROSSA/volparossa/pull/309), source `38eba457bfd342d25dc3e9d395d049f757ac75cd`: 176 inert Python tests and independent review pass; hosted source contracts `39635201317` fail strict Clippy on two test-helper item placements; the unchanged helper is moved before statements in follow-up `eb5c200cb8bc4cb5b5e54fe0defaed46df3a038f`, with no assertion or production change. Hosted source contracts `39637747879` now pass on that exact commit: build, strict Clippy, 102 Rust and 405 Python tests. Its independently verified artifact `12364925409` matches API SHA-256 `ab5021fe109de3f9eacf17875543907b5331809b48aded9ccf84e77ea39ebf88`, with empty formatter patch and matching source/final-source receipts. PR309 is integrated into retained PR276 as `b47d80d80c650791a6273c291a99c154536f4dab`, tree `ac2407455aceaf91b58dbc4f460d933d38533c9c`, identical to the tested source. Contracts passed and exact-source public-model trial `39639094264` remains in progress; there is no model result yet. Redundant push-only contracts `39639057778` are terminal cancelled. The previous failed result remains failed. Preserve `.volparossa-dev/worktrees/protected-requester-diagnostic-20261021`. Redundant push-contract run `39624751305` is terminal cancelled. |
+| Exact-request Storage diagnostic, implementation active | Preserve `.volparossa-dev/worktrees/storage-request-stage-proof-20261021`, branch `test/storage-request-stage-proof-20261021`, [PR310](https://github.com/VOLPAROSSA/volparossa/pull/310). The default-off schema-three candidate binds one epoch to an exact per-copy archive/provider/operation and separates backend/receipt/worker observations without changing production deadlines, attempts or wire authority. Twenty-two Rust tests are authored; both review fixes and the exact source/workflow scope pass independent re-review. Hosted fixture contracts `39636530467` fail at compile: redundant `Weak` qualification and a legacy test constructor missing `target: None`. Correction `9fa7835fc27ea0df4593d4cb8558ea36291b0dda` fixes both and extends the exact source gate to that adjacent test (17 files total); formatting, constructor audit and 28 inert gate controls pass. Its hosted run `39638200479` also fails compilation because a test glob shadows a production import; no Rust test acceptance is claimed on that source. Prior PR310 head `9666ffb0846e243317f1b4361afce5fe1b19ea05` is superseded by the reviewed candidate `8bd448eb0ec7d94039c12c37b91d7c4b56ab2cc1`, which passes affected-target compilation in hosted run `39639799160`, whose inventory gate fails because the TLS historical group has three ignored MPTCP tests, while Clippy reports two `manual_range_patterns` at `fixture_correlation.rs:416,608`. All 22 new cases have individual passing markers (4 local-control, 12 agent, 1 CLI and 5 content); 159 tests execute and pass. The unchanged-source artifact `12365143579` has API-matched SHA-256 `204957aed89d8c2bf214397e29adadd4f2887e0f26a14fea25c535977f978cbd` and passing ZIP integrity; the full run remains failed. The only three ignored tests are `signed_reserve_survives_tcp_provider_and_proxy_drop_before_outer_finish` and `signed_reserve_rejects_abrupt_outer_drop_after_inner_finish` (both require explicitly hosted disposable net/PID namespaces and genuine Linux MPTCP), plus `three_signed_reserves_use_reusable_production_egress_and_fragmented_hello` (requires the exact hosted disposable content-egress namespace and genuine Linux MPTCP). Commit `6738135e0d4b8f8b4cc9ce303bb461be57bccef0` narrowly replaces the equivalent version patterns and allowlists exactly those three ignored tests in `agent-tls`; no other test group is skipped and no authority is added. Hosted run `39643537177` on exact `6738135e` passes the full schema-two inventory (162 listed, 159 executed, exactly three named/reasoned ignores, all 22 new tests and nine negative parser controls), formatting and unchanged-source checks, but remains failed at strict Clippy: three statement semicolons and a test guard requiring an explicit lexical scope before await. Artifact `12367945045` has API-matched SHA-256 `3abee0e51529457178af8c467f5fedfe65cbc76704127e5cd35766f64595d166` and passing ZIP integrity. Published correction `200870bb620ac9c42ae0b9192e58b03d1a8434e6` adds only the three semicolons and a lexical test-lock scope ending at the original release point; diff SHA-256 `129e757f0da9ef0b4ed2c529fc9fb252815e097e58edf561a94e60239ee4ce05`, scoped formatting and exact static comparison pass. Hosted revalidation is pending; no actual consumer trial is accepted. Stopped-provider read-only usage snapshot passes ten inert tests and independent review; helper SHA-256 `bc84bec2ac82280e9b4d2e7ebc9a44caa1a9f145d78adc16317d7995554df689`. It observes logical usage only, never remote deletion or owner reconciliation. Phase-two consumer wiring is published separately as [PR311](https://github.com/VOLPAROSSA/volparossa/pull/311), source `f21841bcd7e69a0afb11c08dae507415ce8855d3`, in `.volparossa-dev/worktrees/storage-request-stage-consumers-20261021`. Independent implementation, five-file workflow/fixture and final base-merge reviews pass; all 319 inert Python checks pass. Exact-source hosted run `39644086080` passes all 319 Python and 53 pinned Node 24.19.0 tests without skips. Source/final receipts bind all 18 source and eight dependency blobs; artifact `12366836115` matches API SHA-256 `1b7e844c10e600ec3bb8e356d0f4829d18dea96f0ae8669105058f85a9b58cc2` and passes ZIP integrity. This is source/inert acceptance only; the runtime job was skipped and the actual profile-10 trial remains pending the corrected phase-one source gate. The existing status CLI opens SQLite read/write; snapshots must follow provider joins and precede consumer journal/store deletion. No runtime acceptance. |
 | Other active work | Preserve all retained dependency chains, upload/compute work, original failures and unpublished changes. Open PR306 is separate workflow work; coordinate ownership before editing or integrating it. Goal consolidation does not cancel or restart these activities. |
 
 The new consumer artifact `39618051591` has verified SHA-256
@@ -94,6 +97,26 @@ order or change count. Develop core functions with their actual consumers.
 The milestone summaries below retain earlier evidence; the current resumption
 checkpoint above supplies subsequent integration heads and trial outcomes:
 
+The isolated `integration/storage-dps-20261021` candidate composes DPS source
+`4e673a5a` with the verified Storage route lifecycle at `b02f3333` (the latter
+has the identical tree to tested `c549cca6`). It retains both services and their
+wire assignments. Quality `39618989902` on composition source
+`8cef16679a4f5330e346ce8b19fa4e2fbbade757` passes dependency, fuzz and license
+checks, then fails strict Clippy because `validate_response` reaches 101 lines
+against its 100-line limit. The correction extracts the existing peer-list
+validation verbatim, preserving bounds, error order and wire behavior without a
+lint suppression. The original run remains failed; combined regression and main
+integration remain pending on corrected source. CodeQL `39618986037` passes
+all four analyses on the original composition; this does not clear its Clippy
+failure or accept the correction. Corrected source `4e1b73c5` passes CodeQL
+`39622384569`, but Quality `39622382568` then fails strict Clippy on three
+16,864-byte futures in the maintenance-expiry tests. The follow-up boxes only
+those three existing awaited test helpers, preserving their ordering, assertions,
+deadlines and production code. Formatting and exact-replacement checks pass;
+combined hosted regression remains required. Both failed Quality runs retain
+their original outcomes. The original candidate branches remain available. Separate exact-source trials below continue without making this
+larger composition a prerequisite for new runtime evidence.
+
 The 2026-10-21 [DPS extension](development/DPS_REQUIREMENTS.md) adds reusable
 positioning and integrity assessment alongside these integrations. Its first
 bounded local service slice tests a shared architectural boundary without needing
@@ -104,10 +127,10 @@ remain subsequent acceptance work; this does not demote the shared blockers.
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
 | Native Overmorrow — `volparossa`, `volparossa-weather` | Preserve actual app-triggered core delivery and verify expiry behavior with real products. | Actual `38717988016` passes on exact core `aac5be7f` / Weather `3b90442a`: initial cold peer retrieval, two cache-backed refreshes, joined native tables, background/resume and cleanup. Source Quality `38714089083` and CodeQL `38714082172` pass. Actual expiry, physical devices, iOS and the complete service remain open. |
-| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Integrate the verified route lifecycle dependencies, then complete consumer repair, restoration and deletion. | Ordinary expiry between operations passes in `39611342307` on `6604d813`: 601-second wait, new route, ten deposits/deletions, 40 completed flows, zero provider usage and full cleanup. PR302's post-acquire guard is merged as `b02f3333` (same tree as tested `c549cca6`); all 28 regressions, negative control, lint and format pass in `39614178258`, without establishing full consumer acceptance. Full consumer trial `39618051591` on exact `b02f3333` is pending. Original failures `39081968944` and `39082596009` remain failed; narrow follow-ups do not explain full consumer failure `38917106698`, its unconfirmed remote cleanup or unknown cause. |
+| Persistent private storage maintenance — `volparossa`, then Image/Cloud | Integrate the verified route lifecycle dependencies, then complete consumer repair, restoration and deletion. | Ordinary expiry between operations passes in `39611342307` on `6604d813`: 601-second wait, new route, ten deposits/deletions, 40 completed flows, zero provider usage and full cleanup. Post-acquire guard completion `c549cca6` passes all 28 regressions, negative control, lint and format in `39614178258`. Full consumer trial `39618051591` on merged `b02f3333` fails during Image publication (fragment 2/copy 0 RESERVE receipt I/O); consumer remote cleanup and final provider usage remain unconfirmed; these remain retained branches, not main integration. Original failures `39081968944` and `39082596009` remain failed; their narrow follow-ups do not explain full consumer failure `38917106698`, its unconfirmed remote cleanup or unknown cause. |
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then repair, restore and delete it after provider loss. | PR279 joins upload profile 6 to shared consumer profile 10 on `dd1fd4df`; source run `38903572207` passes. A real upload trial still requires the shared Storage consumer acceptance above, joined cleanup and zero usage at all three providers. Finite authorization, HTTP PUT, enrollment, repeated restore and all-copy deletion remain required; source checks and synthetic-core SDK results do not replace them. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and the native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 keeps that immutable core pin. Core PR277 integrates the native-only composition after Quality and CodeQL pass; this main composition has not had a new model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
-| Protected remote compute — `volparossa`, then Code/Browser | Resolve the guest builder/export blocker, construct the sealed runtime and execute two public model turns before joining approved private workloads. | Actual `39078833292` on `fabfa849` verifies all 199 build and 65 runtime packages, then fails in export. Actual `39082065142` on `3a1a1593` identifies an inventory pathname rejection; the exact pathname and rule remain unknown. PR301 merges the source-only preflight diagnostic as `111d78e2`; PR303 merges the hosted Protobuf setup correction as `f571e17c`. Explicit public-model trial `39617784665` on `f571e17c` fails with `guest_unit_failed` during `guest_model_build`; the source contracts passed, but no model execution was accepted. Production approval, vendor appraisal and confidential hardware remain open. |
+| Protected remote compute — `volparossa`, then Code/Browser | Resolve the guest builder/export blocker, construct the sealed runtime and execute two public model turns before joining approved private workloads. | Actual `39078833292` on `fabfa849` verifies all 199 build and 65 runtime packages, then fails in export. Actual `39082065142` on `3a1a1593` identifies an inventory pathname rejection; the exact pathname and rule remain unknown. Preflight diagnostic `5a8763fa` passes 100 Rust and 388 Python source tests, strict lint and formatting in `39613633602`. Explicit public-model trial `39617784665` on `f571e17c` fails inventory path validation. PR307 corrects a verified pinned-wheel filename incompatibility; new exact-source trial `39624790559` on `c728ef98` is pending. Model execution, production approval, vendor appraisal and confidential hardware remain open. |
 
 ### Decentralized positioning system — 2026-10-21
 
@@ -280,12 +303,42 @@ is not integrated into main: Quality `39618989902` fails strict Clippy at
 is 101/100 lines; CodeQL `39618986037` passes on that superseded source. The
 corrected PR304 source `4e1b73c502f63c19f6bf7391e6331a36a82cbc93` extracts the
 peer-list validation verbatim, preserving bounds and error ordering. Its
-Quality `39622382568` and CodeQL `39622384569` checks are pending. The exact-source
-Image/Cloud consumer run `39618051591` on `b02f3333` remains in its topology step.
+Quality `39622382568` subsequently failed three large test futures; CodeQL
+`39622384569` passed. The exact-source Image/Cloud consumer run `39618051591`
+on `b02f3333` subsequently failed as detailed below.
 Public-model trial `39617784665` on `f571e17c` fails at guest model build
 (`guest_unit_failed`); its contracts job passed, but no model execution was
 accepted. These source corrections do not claim consumer acceptance or model
 execution.
+
+### Full Storage consumer follow-up — 2026-10-21
+
+Actual run `39618051591` on exact `b02f3333d1908aeb14f39134fccd58be7e8391a6`
+fails with topology/guest exit 1 and schema-9 phase `storage-consumer-publish`,
+`CONSUMER_APPLICATION_FAILED`. The enclosing topology job step's successful
+shell conclusion is not runtime acceptance; the required acceptance step fails
+on the retained exit code before invoking the report validator. The unchanged
+profile-10 consumers and Node pin remain bound to the dispatched source.
+
+The new application failure is Image fragment 2/copy 0 RESERVE, receipt I/O.
+It differs from original `38917106698`'s Cloud failure; neither outcome explains
+the other's cause. Request correlation is incomplete, without fragment/copy
+binding or causal attribution. A receipt-read timeout in agent diagnostics
+cannot be assigned to the failed application request from this artifact.
+Image publish cleanup reports complete and its process is joined, but overall
+consumer remote cleanup and final provider usage remain unconfirmed. Base
+maintenance's three zero-usage records are not final consumer-usage evidence.
+Owned topology cleanup reports complete with zero owned resources; guest-root
+host observations match before/after. These cleanup scopes remain separate.
+
+Original artifact `12356616432`, 79,372 bytes, SHA-256
+`058403a82d99576cd620f7713e6ba8813969f8f86e0eb78ec828b73d270ec9c5`, matches
+its hosted digest and ZIP integrity passes. Original log archive SHA-256 is
+`247b75ca5dbbb8d9b12974a1e0339e67dd0b4d7435323711f43d648528fffee0`.
+The artifact/logs remain under `.git/ci-evidence/storage-consumers-39618051591/`.
+The source-level post-acquire guard remains separately verified; this trial
+neither accepts full consumer maintenance nor proves that guard fixed the
+historical runtime failure. No deadline or retry budget is extended.
 
 ### Storage route-selection diagnostic — 2026-10-21
 
@@ -344,6 +397,18 @@ The runner setup also reuses main's available Protobuf `.4` family below.
 Worktree: `.volparossa-dev/worktrees/storage-post-acquire-completion-20261021`.
 No expiry/consumer success follows from this style completion.
 
+PR302 is merged into retained PR288 as
+`b02f3333d1908aeb14f39134fccd58be7e8391a6`; its tree
+`87362c0ddec67fadfecb1c53d9d52fbb30f40f99` is identical to tested `c549cca6`.
+Independent review verifies original artifact digests, source/dependency blobs,
+all named tests and exact negative-control reconstruction. The next complete
+[Image/Cloud maintenance trial `39618051591`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39618051591)
+is dispatched on `b02f3333`, using the existing `private-storage-maintenance`
+scenario and unchanged consumer profile 10, Image `1e812ec6` and Cloud `35598609`.
+The original finite authority, repair/restoration/deletion, zero provider usage,
+joined cleanup and `report-consumer-v10` requirements remain mandatory.
+Its outcome is pending; original consumer failure `38917106698` remains failed.
+
 ### Protected model inventory preflight — 2026-10-21
 
 The retained `39082065142` artifact identifies inventory pathname rejection after
@@ -375,27 +440,50 @@ final-source preservation. The artifact's SHA-256 is
 ZIP integrity and both source receipts pass, all recorded source blobs match
 the commit, and the formatter patch is empty. These are source contracts,
 not a guest boot or public-model execution result.
-PR301 leaves the public-model workflow job unchanged. PR303 subsequently
-updates its hosted Protobuf tool installation to the reviewed Ubuntu package
-family `3.21.12-8.2ubuntu0.4`, with hosted/amd64 and compiler-version checks.
-All other job steps and the product/model dependency pins remain unchanged. The resulting exact-source trial
-[39617784665](https://github.com/VOLPAROSSA/volparossa/actions/runs/39617784665)
-on `f571e17cad9ad619f6e440190c247418b7a9797d` fails during `guest_model_build`:
-the guest unit exits 1 while builder export reports operation `inventory`,
-reason `inventory_path_character_or_separator`. This matches the broad
-pathname-rejection class in original run `39082065142`, but neither run exports
-the offending pathname or identifies the exact rejected byte. The public-model
-artifact SHA-256 is
-`7111131420f9d4f70ebbbdc0b7945eedf25ca9eccf2b67cf9e2d3ede504d419f`, matching
-the hosted artifact API digest; ZIP CRC/integrity passes. It contains only
-`result.json`, `install-build.json` and `install-runtime.json`. The bounded
-result reports builder scratch removal and complete guest cleanup unconfirmed,
-while outer `scratch_removed`, `tool_cleanup_confirmed` and `vm_cleanup_confirmed`
-are true and `scratch_cleanup_failure` is null. The offending name and complete cleanup within the guest before VM teardown
-remain unproven; the confirmed outer cleanup is a separate boundary. No model execution was accepted;
-confidential hardware and private-peer acceptance remain unresolved. Retained
-artifact and extracted bounded reports are under
-`.git/ci-evidence/protected-model-39617784665/`.
+PR301 merges into retained PR276 as `111d78e292ec1508cefe2f4f5cc8174d71bbb14a`,
+with the identical tested tree `7c63c60b4bb3a358283dfe138a50de3c86786d03`.
+The public-model workflow job was byte-identical in that diagnostic change.
+The separately reviewed [PR303](https://github.com/VOLPAROSSA/volparossa/pull/303)
+then corrects only that job's unavailable `.3` hosted Protobuf pin to the same
+reviewed `.4` compiler/library family, adding the same architecture/version
+assertions. All other job bytes, contracts, model pins and authority remain
+unchanged. Merge `f571e17cad9ad619f6e440190c247418b7a9797d` has the identical
+tree to reviewed `02fbdd14`.
+
+The earlier audit of 27 source/pin-derived filenames found no rejection and
+had not covered installed-wheel members. Actual public-model
+[trial `39617784665`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39617784665)
+on `f571e17c` passes source contracts, then fails `guest_model_build` with
+`guest_unit_failed`: export `inventory`, `inventory_path_character_or_separator`.
+Artifact SHA-256 `7111131420f9d4f70ebbbdc0b7945eedf25ca9eccf2b67cf9e2d3ede504d419f`
+matches its hosted digest and ZIP integrity passes. Outer scratch/tool/VM cleanup
+is confirmed; full cleanup within the guest before teardown remains unconfirmed.
+
+The subsequent size/SHA-verified audit of all 39 pinned wheels (253,241,299 bytes)
+finds one incompatible regular member: `setuptools/script (dev).tmpl`, in the
+setuptools 84.0.0 wheel pinned by
+`51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670`. PR307 allows
+only literal parentheses while preserving all path/containment/digest checks,
+original names, contents, notices and pins. Its 104 inert tests and independent
+review pass; a baseline negative control rejects the actual 218-byte member,
+while corrected staging preserves its exact bytes. This is a demonstrated
+static compatibility defect, not identification of the private guest offender.
+Source `f3cf52d17241237924752ae7469b889d5c183ab8` is merged as
+`c728ef98e7903d6ae147661ef46200f2316bf88d`, with identical tree
+`27a882e2702884132b04ef7a20f09f557e26e8a4`. New public-model run `39624790559`
+binds that exact source and runs mandatory source contracts before the trial.
+Redundant push-only source run `39624751305` is cancelled, not accepted evidence.
+That newer trial subsequently fails at `two_public_turns`, as recorded in the
+current checkpoint. The original private pathname/cause, accepted model execution,
+confidential hardware and private-peer acceptance remain unresolved.
+
+For the earlier `39617784665` failure, the artifact contains only
+`result.json`, `install-build.json` and `install-runtime.json`. Builder scratch
+removal and complete guest cleanup are unconfirmed, while outer
+`scratch_removed`, `tool_cleanup_confirmed` and `vm_cleanup_confirmed` are true
+and `scratch_cleanup_failure` is null. Retained bounded reports are under
+`.git/ci-evidence/protected-model-39617784665/`; this outer cleanup does not
+prove cleanup within the guest before teardown.
 Worktree: `.volparossa-dev/worktrees/protected-export-inventory-20261021`.
 
 ### Organization-wide maintenance — 2026-10-20
@@ -8793,6 +8881,15 @@ Python-version-sensitive source-contract test by comparing the unchanged guest f
 exact source instead of an AST printer hash; its five source/code-scanning checks pass.
 Neither change is relabelled as a new inference trial. Model-driven coding and protected
 private peer execution remain incomplete.
+
+### Retained Storage integration history
+
+The [verbatim retained branch ledger](STORAGE_BRANCH_HISTORY_20261018.md)
+preserves the 18 October Storage/consumer history, including original failed
+runs, exact source and archive hashes, and superseded intermediate checkpoints.
+Its historical execution priorities do not replace the current plan above.
+Integration preserves every source hash and GitHub evidence link from both
+parent ledgers across this ledger and that explicitly dated archive.
 
 ## Earlier milestone evidence
 

@@ -118,6 +118,7 @@ fn dps_request_and_quality_response_roundtrip_in_existing_control_envelope() {
         request_id: vec![9; 16],
         result: ControlResult::Ok as i32,
         diagnostic_code: "DPS_ASSESSED".into(),
+        private_storage_remote_detail: None,
         payload: Some(Payload::DpsAssessment(quality)),
     };
     assert_eq!(
@@ -568,6 +569,7 @@ fn dps_untrusted_quality_cannot_omit_limits_or_contradict_input_metadata_and_age
             request_id: vec![9; 16],
             result: ControlResult::Ok as i32,
             diagnostic_code: "DPS_ASSESSED".into(),
+            private_storage_remote_detail: None,
             payload: Some(Payload::DpsAssessment(bad)),
         };
         assert!(encode_response(&response).is_err());
