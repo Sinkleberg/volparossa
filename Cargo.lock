@@ -5059,6 +5059,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "volparossa-dps-ffi"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "volparossa-local-control",
+]
+
+[[package]]
 name = "volparossa-exit"
 version = "0.1.0"
 dependencies = [
