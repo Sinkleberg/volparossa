@@ -7,7 +7,9 @@ applications and new research projects to its shared capabilities. They are
 **development integrations and research**, not released products. Each repository records its
 own current implementation and evidence; this page explains the scope and major boundaries.
 
-The [complete agreed goal](../development/GOAL.md) preserves the application requirements;
+The [complete agreed goal](../development/GOAL.md) preserves the full application scope;
+the [joined DPS requirements](../development/DPS_REQUIREMENTS.md) preserve the
+permanent cross-application positioning scope;
 the [core implementation ledger](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
 records shared dependencies and exact acceptance evidence. Follow each application's linked
 repository for its own implementation status rather than treating this overview as another ledger.
@@ -95,12 +97,15 @@ Signed traffic-snapshot validation exists; live aggregation and mobile display r
 Sharing congestion should not expose individual journeys or complete location histories.
 Licenses, freshness and uncertainty remain relevant even when data comes from nearby peers.
 
-The agreed [DPS extension](../services/DPS.md) adds an alternative or complementary
-core location source, including investigation of weak-GNSS, tunnel/indoor and
+The [joined DPS requirements](../development/DPS_REQUIREMENTS.md) define the
+permanent application scope; the [DPS service design](../services/DPS.md) records
+implementation and acceptance choices. Together they cover alternative or
+complementary location sources, including weak-GNSS, tunnel/indoor and
 manipulated-GNSS scenarios. Keep offline navigation, visible uncertainty and
 application permission boundaries. Native integration and actual positioning
 improvement remain unverified; journeys and movement histories are not shared
-automatically.
+automatically. No application depends on a chat attachment or conversation history
+for these requirements.
 
 ## Weather
 

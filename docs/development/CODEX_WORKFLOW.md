@@ -1,42 +1,46 @@
 # Codex development and conversation handover
 
-Resume from the repositories, not from a previous chat transcript. The
-[complete goal](GOAL.md) defines scope; the
-[implementation ledger](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
-defines current progress and dependencies. This workflow describes development
-coordination, not the VOLPAROSSA product's decentralized agent scheduler.
+Resume from durable repository sources, not a previous chat transcript or
+attachment. [AGENTS.md](../../AGENTS.md) contains engineering and host-safety
+rules; the [complete goal](GOAL.md), including its amendments, defines full
+project scope; [DPS_REQUIREMENTS.md](DPS_REQUIREMENTS.md) is the permanent joined
+normative DPS scope; and the [implementation ledger](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
+defines current evidence and execution priorities. The
+[DPS_GOAL_20261021 archive](DPS_GOAL_20261021.md) preserves original received
+bytes for provenance only, while [services/DPS.md](../services/DPS.md) records
+design and acceptance choices without limiting scope. This workflow describes
+engineering coordination, not the VOLPAROSSA product's decentralized agent scheduler.
 
 ## Start a fresh conversation
 
 1. Open the core checkout and select **GPT-6 Astra / Ultra** manually in Codex.
    Restart or reload the extension first if it was open during a configuration change.
    A saved default does not change the model of an existing conversation.
-2. Read [AGENTS.md](../../AGENTS.md), [GOAL.md](GOAL.md), and the ledger's
-   current-work and retained-branches sections. Follow the relevant technical
-   links; do not load the entire historical ledger into every subagent.
+2. Read [AGENTS.md](../../AGENTS.md), the complete [GOAL.md](GOAL.md),
+   [DPS_REQUIREMENTS.md](DPS_REQUIREMENTS.md), and the ledger's current-work and
+   retained-branches sections. Review [GOAL_VERIFICATION.md](GOAL_VERIFICATION.md)
+   and run the inert [goal preservation verifier](../../scripts/verify-goal-preservation.py)
+   as documented there. Follow relevant technical links; do not load the entire
+   historical ledger into every subagent.
 3. Inspect `git status --short --branch`, `git worktree list` and current remote
    heads/checks before choosing a checkout. Read the affected application's
    instructions and README/status next. Local branches can be older than `main`.
-4. Continue the existing execution plan and useful integrations. Do not restart
-   the project or silently shrink the goal. The 2026-10-20 follow-up explicitly
+4. Inspect the active Codex goal. In a new conversation with no active goal,
+   manually select or create it using the exact copyable
+   UI text in [PURSUING_GOAL.md](PURSUING_GOAL.md). Do not mark an unfinished
+   project complete, restart it, or create a replacement merely to transfer
+   conversations. Preserve active work and continue the existing execution plan;
+   do not silently shrink the goal. The 2026-10-20 follow-up explicitly
    authorizes organization-wide efficiency and quality work alongside these
    integrations; it supersedes the handover-only deferral of that work.
 
-Suggested first message:
-
-> Continue VOLPAROSSA from AGENTS.md, docs/development/GOAL.md and the current
-> sections of docs/IMPLEMENTATION_STATUS.md. Preserve the full goal and all
-> existing work. Recheck the retained branches and original failed evidence,
-> then continue the most useful existing integration. Use task-aware Sol/Luna
-> delegation with at most two subagents. Continue the explicitly authorized
-> organization-wide optimization using measured priorities, without repeating
-> trials merely because the conversation changed.
-
-The goal belongs to the new conversation only after it has been explicitly
-created or selected there. Reuse the complete repository goal, including its
-separately identified clarifications; do not mark the unfinished project complete
-to transfer conversations. The previous conversation's automatic continuation
-should not be left running against the same worktrees.
+Use the exact first-message text in [PURSUING_GOAL.md](PURSUING_GOAL.md); do not
+depend on a previous transcript or attachment for requirements. Preserve the
+complete repository goal, all clarifications and active branches. Recheck the
+live worktree and ongoing tasks; coordinate ownership before using an active
+checkout, and preserve useful work when recovering or isolating branches. This
+handover does not call for Codex configuration changes, software installation
+or permission expansion.
 
 ## Delegate by task and ownership
 

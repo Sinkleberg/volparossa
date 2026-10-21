@@ -4,6 +4,12 @@ This guide targets Debian 13 (Trixie) amd64 with systemd, nftables, kernel WireG
 MPTCP. It is not a release announcement. Do not enable services or route sensitive traffic until
 the relevant checks in [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) are complete.
 
+Setup, build, package, installation and operational examples below require an
+approved disposable development environment. They are reference commands, not
+authorization to modify the development host, its active configuration, or
+services. Read-only prerequisite checks may run separately; any host-changing
+operation requires its own explicit authority.
+
 The original v1 datapaths and A01--A15 passed together on the unchanged `482e33d0` build in
 [the retained Debian 13 KVM run](https://github.com/VOLPAROSSA/volparossa/actions/runs/34047766913).
 That functional checkpoint does not certify an arbitrary host installation, every later extension,
