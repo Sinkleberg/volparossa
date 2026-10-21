@@ -301,14 +301,11 @@ jobs:
           run_group guest volparossa compute::resident_guest::
           run_group resident volparossa compute::supervise::native_session::
           run_group local volparossa compute::private_serve::tests::
-          if test "$GITHUB_REF" = refs/heads/fix/protected-bwrap-stage-20261022; then
-            run_group startup volparossa compute::supervise::tests::public_bubblewrap_stage
-          fi
+          run_group startup volparossa compute::supervise::tests::public_bubblewrap_stage
           python3 -B - <<'PY'
-          import json,os,pathlib,re
+          import json,pathlib,re
           root=pathlib.Path('resident-model-evidence'); groups={}; all_names=[]
-          bwrap=os.environ['GITHUB_REF']=='refs/heads/fix/protected-bwrap-stage-20261022'
-          labels=('grant','guest','resident','local','startup') if bwrap else ('grant','guest','resident','local')
+          labels=('grant','guest','resident','local','startup')
           for label in labels:
             names=re.findall(r'^(.+): test$',(root/(label+'-inventory.log')).read_text(),re.M)
             output=(root/(label+'-test.log')).read_text()
@@ -316,7 +313,7 @@ jobs:
             for name in names: assert len(re.findall(r'^test '+re.escape(name)+r' \.\.\. ok$',output,re.M))==1
             assert f'{len(names)} passed; 0 failed; 0 ignored;' in output
             groups[label]=len(names); all_names.extend(names)
-          assert groups==(dict(grant=22,guest=38,resident=41,local=30,startup=2) if bwrap else dict(grant=22,guest=37,resident=39,local=30))
+          assert groups==dict(grant=22,guest=38,resident=41,local=30,startup=2)
           assert len(all_names)==len(set(all_names))
           socket_tests={
             'socket_preflight_accepts_owned_socket_without_an_observation',
@@ -333,14 +330,13 @@ jobs:
             'tests::stdout_close_observation_preserves_primary_error_and_other_failure_shapes',
             'tests::stdout_close_detail_accepts_only_legacy_null_or_closed_observation_matrix'}
           assert {'compute::supervise::native_session::'+name for name in native_exit_tests} <= set(all_names)
-          if bwrap:
-            required={
-              'compute::supervise::tests::public_bubblewrap_stage_matches_source_prefix_families_only',
-              'compute::supervise::tests::public_bubblewrap_stage_uses_existing_fragmented_prefix_without_changing_default_failure',
-              'compute::supervise::native_session::worker::tests::stdout_eof_carries_only_closed_public_bubblewrap_stage_after_join',
-              'compute::supervise::native_session::tests::public_bubblewrap_stages_preserve_ordinary_detail_and_require_stdout_close',
-              'compute::resident_guest::tests::public_bubblewrap_stage_frame_roundtrip_requires_exact_cleanup_and_scope'}
-            assert required<=set(all_names) and sum(groups.values())==133
+          required={
+            'compute::supervise::tests::public_bubblewrap_stage_matches_source_prefix_families_only',
+            'compute::supervise::tests::public_bubblewrap_stage_uses_existing_fragmented_prefix_without_changing_default_failure',
+            'compute::supervise::native_session::worker::tests::stdout_eof_carries_only_closed_public_bubblewrap_stage_after_join',
+            'compute::supervise::native_session::tests::public_bubblewrap_stages_preserve_ordinary_detail_and_require_stdout_close',
+            'compute::resident_guest::tests::public_bubblewrap_stage_frame_roundtrip_requires_exact_cleanup_and_scope'}
+          assert required<=set(all_names) and sum(groups.values())==133
           (root/'tests.json').write_text(json.dumps(dict(version=1,counts=groups,test_names=sorted(all_names),model_execution=False,guest_boot=False,private_peer_admission=False),sort_keys=True)+'\n')
           PY
 
@@ -378,9 +374,9 @@ jobs:
               2>&1 | tee "resident-model-evidence/model-$component.log"
           done
           python3 -B - <<'PY'
-          import json,os,pathlib,re
+          import json,pathlib,re
           root=pathlib.Path('resident-model-evidence'); counts={}
-          expected={'install':58,'assemble':29,'run':208 if os.environ['GITHUB_REF']=='refs/heads/fix/protected-bwrap-stage-20261022' else 204}
+          expected={'install':58,'assemble':29,'run':209}
           for name,count in expected.items():
             raw=(root/('model-'+name+'.log')).read_text()
             tests=re.findall(r'^Ran ([0-9]+) tests? in ',raw,re.M)
