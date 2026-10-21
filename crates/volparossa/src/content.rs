@@ -23,6 +23,7 @@ mod browser_download;
 mod custody;
 mod filter_serve;
 mod filter_snapshot;
+mod fixture_correlation;
 mod handoff;
 mod https_download;
 mod mailbox;
@@ -32,6 +33,7 @@ pub(crate) mod policy_bundle;
 pub(crate) mod policy_decision;
 pub(crate) mod policy_exchange;
 mod private_message;
+mod provider_activity;
 pub(crate) use private_message::Unlock as IdentityUnlock;
 pub(crate) mod public_text;
 mod retain;
@@ -92,6 +94,10 @@ pub(crate) enum Command {
     Stop,
     /// Inspect explicit content service and the current route's control Relay; no network I/O.
     Status,
+    /// Read finite local provider activity; no peer queries or storage acceptance claims.
+    ProviderActivity,
+    /// Private development-fixture correlation; bounded JSON input on stdin only.
+    FixtureCorrelation,
 }
 
 #[derive(Debug, Args)]
@@ -580,6 +586,8 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
                 super::control::request(socket, Operation::ContentStatus(Empty {})).await?,
             );
         }
+        Command::ProviderActivity => return provider_activity::run(socket).await,
+        Command::FixtureCorrelation => return fixture_correlation::run(socket).await,
     };
     println!("{}", serde_json::to_string(&report)?);
     Ok(())
@@ -1983,6 +1991,7 @@ mod contribution_tests {
             request_id: request.request_id.clone(),
             result: ControlResult::Ok as i32,
             diagnostic_code: diagnostic.into(),
+            private_storage_remote_detail: None,
             payload: Some(payload),
         };
         write_response(

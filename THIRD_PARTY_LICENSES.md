@@ -304,6 +304,25 @@ The guest reuses the separately pinned Firefox ESR 140.16.0 runtime from
 Neither successful source compilation nor verified browser staging establishes
 that the UI has retrieved a file from protected peers; that requires the joined trial.
 
+## Explicit Image and Cloud maintenance trial
+
+The consumer continuation of `private-storage-maintenance` separately pins
+VOLPAROSSA Image `aade424c3e96d0934edbddf31d2434757aa08564` and VOLPAROSSA Cloud
+`9cb94fbb83e9f503ff5a66d43ed814f556d4a3af`. Each staged source file's length and
+SHA-256 are recorded in `tests/integration/storage-consumer-maintenance-pins.json`.
+Original GPL-3.0-only licenses and the Cloud vendor provenance are retained;
+the shared Image adapter, snapshot helper and license must match byte for byte.
+These are additional trial pins, not replacements for earlier consumer trials.
+
+The explicit guest-only provisioner reuses verified Node 24.19.0: the official
+Linux x64 archive is 31,633,904 bytes with SHA-256
+`14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647`.
+The unchanged runtime LICENSE contains its bundled third-party notices.
+Debian GnuPG and tar package versions and executable hashes are retained in the
+provision receipt. No npm install, SDK/browser build, application server or
+development-host installation is performed by this profile. Verified staging
+does not itself prove peer storage, repair or application restoration.
+
 ## Explicit development ML inputs
 
 The disposable native-coding CI build uses a separately licensed AppArmor policy,
