@@ -669,3 +669,31 @@ async fn pending_protocol_abort_keeps_tls_open_and_cannot_emit_native_failure() 
     assert_eq!(error.to_string(), "compute_native_session_execution_failed");
     assert!(fixture.joined.load(Ordering::SeqCst));
 }
+
+#[test]
+fn public_bubblewrap_stage_frame_roundtrip_requires_exact_cleanup_and_scope() {
+    // Wire-contract fixture only; this fabricates no runtime cleanup evidence.
+    for class in [
+        "bubblewrap_namespace_setup",
+        "bubblewrap_root_setup",
+        "bubblewrap_source_setup",
+        "bubblewrap_destination_setup",
+        "bubblewrap_bind_mount",
+    ] {
+        let detail = json!({"code":"compute_native_session_stdout_closed","io_kind":"none",
+            "exit_code":1,"signal":0,"stderr_class":class});
+        let frame = wire::failure(1, &detail).unwrap();
+        let body = wire::failure_body(&frame, 1).unwrap();
+        assert_eq!(body["detail"], detail);
+        let mut invalid = body.clone();
+        invalid["cleanup"]["child_reaped"] = false.into();
+        let changed = wire::frame(wire::FAILURE, 1, serde_json::to_vec(&invalid).unwrap());
+        assert!(wire::failure_body(&changed, 1).is_err());
+        let mut wrong = detail.clone();
+        wrong["code"] = "startup_missing_result".into();
+        assert!(wire::failure(1, &wrong).is_err());
+        let mut private = detail.clone();
+        private["stderr_class"] = format!("{class} PRIVATE_CANARY").into();
+        assert!(wire::failure(1, &private).is_err());
+    }
+}

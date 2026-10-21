@@ -2114,12 +2114,13 @@ class ReceiptAndBindings(Inert):
     def test_inventory_diagnostic_branch_only_adds_exact_source_contract_authority(self):
         import textwrap
         workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
-        self.assertIn('branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021, fix/protected-native-exit-observation-20261021]', workflow)
+        self.assertIn('branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021, fix/protected-native-exit-observation-20261021, fix/protected-bwrap-stage-20261022]', workflow)
         self.assertIn("github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' ||", workflow)
         self.assertIn("github.ref == 'refs/heads/fix/protected-requester-diagnostic-20261021' ||", workflow)
         self.assertIn("github.ref == 'refs/heads/fix/protected-result-failure-20261021' ||", workflow)
         self.assertIn("github.ref == 'refs/heads/fix/protected-socket-diagnostic-20261021' ||", workflow)
-        self.assertIn("github.ref == 'refs/heads/fix/protected-native-exit-observation-20261021') &&", workflow)
+        self.assertIn("github.ref == 'refs/heads/fix/protected-native-exit-observation-20261021' ||", workflow)
+        self.assertIn("github.ref == 'refs/heads/fix/protected-bwrap-stage-20261022') &&", workflow)
         self.assertIn("github.event_name == 'push' || inputs.scenario == 'source-contracts'", workflow)
         public = workflow.split('\n  public-model:\n', 1)[1]
         self.assertNotIn('diagnostic/protected-export-inventory', public)
@@ -2127,6 +2128,7 @@ class ReceiptAndBindings(Inert):
         self.assertNotIn('fix/protected-result-failure', public)
         self.assertNotIn('fix/protected-socket-diagnostic', public)
         self.assertNotIn('fix/protected-native-exit-observation', public)
+        self.assertNotIn('fix/protected-bwrap-stage', public)
         self.assertIn("github.ref == 'refs/heads/feature/protected-resident-model'", public)
         self.assertIn('test "$GITHUB_SHA" = "$EXPECTED_SOURCE"', public)
         self.assertIn('test "$GITHUB_WORKFLOW_SHA" = "$EXPECTED_SOURCE"', public)
@@ -2155,6 +2157,49 @@ class ReceiptAndBindings(Inert):
                 self.assertEqual(namespace['diagnostic_allowed'], approved)
             git.assert_called_once_with('diff', '--name-only', base, 'HEAD')
             command.assert_called_once_with(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
+
+    def test_bubblewrap_stage_source_gate_preserves_actual_job_and_exact_scope(self):
+        import textwrap
+        workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
+        code = textwrap.dedent(workflow.split("python3 -B - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
+        branch = 'refs/heads/fix/protected-bwrap-stage-20261022'
+        gate = next(node for node in ast.parse(code).body
+                    if isinstance(node, ast.If) and repr(branch) in ast.unparse(node.test))
+        compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-bwrap-stage-gate', 'exec')
+        approved = {'.github/workflows/protected-resident-model.yml', 'THIRD_PARTY_LICENSES.md',
+            'crates/volparossa/src/compute/supervise.rs',
+            'crates/volparossa/src/compute/supervise/diagnostic.rs',
+            'crates/volparossa/src/compute/supervise/native_session.rs',
+            'crates/volparossa/src/compute/supervise/native_session/worker.rs',
+            'crates/volparossa/src/compute/supervise/native_session/tests.rs',
+            'crates/volparossa/src/compute/resident_guest/tests.rs',
+            'tests/integration/protected-resident-model-run.py',
+            'tests/integration/test-protected-resident-model-run.py'}
+        base = '3fceb0f82716a4ee10d1b9d11c7d5011fec31179'
+        old = b'contracts: old\n  public-model:\n    unchanged actual job\n'
+        for change in ('valid', 'missing', 'extra', 'duplicate', 'dependency', 'ancestry', 'actual-job'):
+            changed = sorted(approved)
+            if change == 'missing': changed.pop()
+            if change == 'extra': changed.append('crates/volparossa/src/main.rs')
+            if change == 'duplicate': changed.append(changed[0])
+            def git(*args):
+                if args[0] == 'diff': return '\n'.join(changed)
+                if change == 'dependency' and args == ('rev-parse', base + ':Cargo.lock'): return 'b' * 40
+                return 'a' * 40
+            command = mock.Mock(side_effect=AssertionError('ancestry') if change == 'ancestry' else None)
+            new = old.replace(b'contracts: old', b'contracts: new')
+            if change == 'actual-job': new += b'    changed actual authority\n'
+            namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}), git=git,
+                hashlib=hashlib, subprocess=types.SimpleNamespace(run=command, check_output=lambda _: old),
+                pathlib=types.SimpleNamespace(Path=lambda _: types.SimpleNamespace(read_bytes=lambda: new)))
+            if change == 'valid':
+                exec(compiled, namespace)
+                self.assertEqual(namespace['bwrap_allowed'], approved)
+                self.assertFalse(namespace['bwrap_stage_scope']['actual_model_execution'])
+                self.assertTrue(namespace['bwrap_stage_scope']['default_diagnostic_encoding_unchanged'])
+            else:
+                with self.assertRaises(AssertionError):
+                    exec(compiled, namespace)
 
     def test_result_failure_source_gate_requires_exact_paths_dependencies_and_ancestry(self):
         import textwrap
@@ -3175,6 +3220,48 @@ class RequesterResultFailure(Inert):
             for exit_code, sig in ((None, None), (0, 0), (23, 0), (255, 0), (-1, 9), (-1, 64)):
                 detail.update(exit_code=exit_code, signal=sig, stderr_class=category)
                 self.assertTrue(R.requester_failure_detail(detail))
+
+    def test_public_bubblewrap_stages_roundtrip_only_with_original_confirmed_cleanup(self):
+        for stage in R.REQUESTER_BUBBLEWRAP_STAGES:
+            for exit_code, sig in ((None, None), (1, 0), (-1, 9)):
+                observation = self.observation('guest_failure')
+                observation['guest']['detail'].update(code='compute_native_session_stdout_closed',
+                    exit_code=exit_code, signal=sig, stderr_class=stage)
+                value = R.requester_diagnostic(self.raw(observation), 1)
+                self.assertEqual(value['result_failure'], dict(state='observed', observation=observation))
+                self.assertFalse(value['acceptance_evidence'])
+                observation['guest']['cleanup']['child_reaped'] = False
+                self.assertEqual(R.requester_diagnostic(self.raw(observation), 1)['result_failure']['state'], 'malformed')
+        original = dict(code='compute_native_session_stdout_closed', io_kind='none',
+            exit_code=1, signal=0, stderr_class='bubblewrap')
+        self.assertTrue(R.requester_failure_detail(original))
+        self.assertEqual(R.encoded(original), b'{"code":"compute_native_session_stdout_closed","exit_code":1,"io_kind":"none","signal":0,"stderr_class":"bubblewrap"}\n')
+
+    def test_public_bubblewrap_stages_reject_wrong_codes_private_suffixes_and_partial_status(self):
+        for stage in R.REQUESTER_BUBBLEWRAP_STAGES:
+            for code in R.REQUESTER_NATIVE_CODES - {'compute_native_session_stdout_closed'}:
+                value = dict(code=code, io_kind='none', exit_code=1, signal=0, stderr_class=stage)
+                self.assertFalse(R.requester_failure_detail(value))
+            for replacement in (stage + ' PRIVATE_CANARY /private/input', True, 1, None):
+                observation = self.observation('guest_failure')
+                observation['guest']['detail'].update(code='compute_native_session_stdout_closed',
+                    exit_code=1, signal=0, stderr_class=replacement)
+                result = R.requester_diagnostic(self.raw(observation), 1)
+                self.assertEqual(result['result_failure']['state'], 'malformed')
+                self.assertNotIn('PRIVATE_CANARY', R.encoded(result).decode())
+            for exit_code, sig in ((None, 0), (1, None), (True, 0), (1, True)):
+                value = dict(code='compute_native_session_stdout_closed', io_kind='none',
+                    exit_code=exit_code, signal=sig, stderr_class=stage)
+                self.assertFalse(R.requester_failure_detail(value))
+
+    def test_public_bubblewrap_vocabulary_matches_inspected_rust_projection(self):
+        import re
+        path = R.ROOT / 'crates/volparossa/src/compute/supervise.rs'
+        source = path.read_text()
+        labels = source[source.index('impl BubblewrapStage {'):source.index('fn public_bubblewrap_stage(')]
+        self.assertEqual(tuple(re.findall(r'=> "([a-z0-9_]+)"', labels)), R.REQUESTER_BUBBLEWRAP_STAGES)
+        self.assertEqual(len(R.REQUESTER_BUBBLEWRAP_STAGES), 5)
+        self.assertTrue(set(R.REQUESTER_BUBBLEWRAP_STAGES).isdisjoint(R.REQUESTER_STDERR_CLASSES))
 
     def test_stdout_eof_rejects_partial_status_unknown_classes_and_boolean_aliases(self):
         detail = dict(code='compute_native_session_stdout_closed', io_kind='none',

@@ -500,6 +500,25 @@ tools as separate executables, not vendored copies. The sandbox argument vector 
 source; [upstream Bubblewrap](https://github.com/containers/bubblewrap) explicitly makes its
 security policy the caller's responsibility. No development-host package installation occurs.
 
+For the optional public-fixture startup stage classifier, the inspected source is
+[Bubblewrap v0.12.0](https://github.com/containers/bubblewrap/tree/2a76602a8c71f36c1527cf9fc3417d9149822e0c),
+commit `2a76602a8c71f36c1527cf9fc3417d9149822e0c` (annotated tag object
+`014a04330642e5c870418beb621532cb896e0002`). The inspected `bubblewrap.c` is
+SPDX `LGPL-2.0-or-later`, SHA-256
+`3f17ee26057cae9d660801ca8d9ba84722f1bafdcd072d5151ee1c64eeeb15f4`.
+It byte-matches the orig source for Debian `0.12.0-1~deb13u1` in the existing model lock.
+[Debian's source declaration](https://security.debian.org/pool/main/b/bubblewrap/bubblewrap_0.12.0-1~deb13u1.dsc)
+records `bubblewrap_0.12.0.orig.tar.xz`, 126452 bytes, SHA-256
+`9760d007363e3abba7c747489910f9f82d9fca53ba3bd3282e396fa3c97a3314`, and
+`bubblewrap_0.12.0-1~deb13u1.debian.tar.xz`, 13728 bytes, SHA-256
+`7b54f121aebf5d4b38360ea728274c26fa471582bc3e6658379b679ecd8b5a2f`.
+Both archives were checked against that declaration. Its sole patch changes the
+namespace-permission explanatory suffix; the classifier's stable prefix is unchanged.
+The source diagnostic emitters are `bubblewrap.c`, `utils.c` and `bind-mount.c`.
+Only closed source-family labels are projected: no upstream code is imported,
+no original license/notice is changed, and matching a prefix proves neither the
+actual failing branch nor its errno, timing or underlying cause.
+
 ## Native MPQUIC audit state
 
 The native MPQUIC input was audited through 2026-08-14. Every upstream

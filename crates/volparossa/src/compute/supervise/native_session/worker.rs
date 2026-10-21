@@ -77,6 +77,7 @@ pub(super) struct Live {
 pub(super) struct CloseObservation {
     pub(super) status_before_cleanup: Option<ExitStatus>,
     pub(super) stderr_class: &'static str,
+    pub(super) public_bubblewrap_stage: Option<supervisor::BubblewrapStage>,
 }
 
 fn clock_ticks() -> Result<u64> {
@@ -381,6 +382,7 @@ impl Live {
         Ok(CloseObservation {
             status_before_cleanup,
             stderr_class: diagnostics.class.label(),
+            public_bubblewrap_stage: diagnostics.public_bubblewrap_stage,
         })
     }
 }
@@ -464,6 +466,25 @@ mod tests {
         let observation = live.close().await.unwrap();
         assert_eq!(observation.status_before_cleanup.unwrap().code(), Some(23));
         assert_eq!(observation.stderr_class, "python_startup");
+    }
+
+    #[tokio::test]
+    async fn stdout_eof_carries_only_closed_public_bubblewrap_stage_after_join() {
+        let process = child(
+            "import sys;sys.stdin.buffer.read(1);sys.stderr.write(\"bwrap: Can't open source PRIVATE_CANARY /private/input\\n\");sys.stderr.flush();sys.exit(23)",
+        );
+        let mut live = Live::own(process, clock_ticks().unwrap());
+        live.stdin.as_mut().unwrap().write_all(b"x").await.unwrap();
+        assert!(live.stdout.next().await.is_err());
+        assert_eq!(live.child.wait().await.unwrap().code(), Some(23));
+        let observation = live.close().await.unwrap();
+        assert_eq!(observation.status_before_cleanup.unwrap().code(), Some(23));
+        assert_eq!(observation.stderr_class, "bubblewrap");
+        assert_eq!(
+            observation.public_bubblewrap_stage,
+            Some(supervisor::BubblewrapStage::SourceSetup)
+        );
+        assert!(!format!("{observation:?}").contains("PRIVATE_CANARY"));
     }
 
     #[tokio::test]

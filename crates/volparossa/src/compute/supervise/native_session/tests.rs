@@ -83,6 +83,7 @@ fn closed_projected_failure_is_accepted_by_both_collector_versions() {
             worker::CloseObservation {
                 status_before_cleanup: None,
                 stderr_class: "none",
+                public_bubblewrap_stage: None,
             },
         )));
         let record = json!({"version":1,"phase":"task",
@@ -255,6 +256,7 @@ fn stdout_close_observation_preserves_primary_error_and_other_failure_shapes() {
         worker::CloseObservation {
             status_before_cleanup: Some(std::process::ExitStatus::from_raw(23 << 8)),
             stderr_class: "python_startup",
+            public_bubblewrap_stage: None,
         },
     )));
     let value = public_fixture_failure(&error).unwrap();
@@ -284,6 +286,7 @@ fn stdout_close_observation_preserves_primary_error_and_other_failure_shapes() {
             worker::CloseObservation {
                 status_before_cleanup: Some(std::process::ExitStatus::from_raw(libc::SIGKILL)),
                 stderr_class: "other",
+                public_bubblewrap_stage: None,
             },
         )));
         assert_eq!(diagnostic(&error), Some(before));
@@ -395,4 +398,70 @@ async fn real_private_root_is_removed_before_failed_owner_projection_exists() {
     assert!(super::super::diagnostic::public_fixture_detail(&detail));
     assert!(!detail.to_string().contains("PRIVATE_CANARY"));
     assert!(!detail.to_string().contains("PRIVATE_REQUEST_CANARY"));
+}
+
+#[test]
+fn public_bubblewrap_stages_preserve_ordinary_detail_and_require_stdout_close() {
+    use super::super::{BubblewrapStage, diagnostic::public_fixture_detail};
+    use std::os::unix::process::ExitStatusExt as _;
+
+    for stage in [
+        BubblewrapStage::NamespaceSetup,
+        BubblewrapStage::RootSetup,
+        BubblewrapStage::SourceSetup,
+        BubblewrapStage::DestinationSetup,
+        BubblewrapStage::BindMount,
+    ] {
+        let cause = anyhow::anyhow!("PRIVATE_CANARY /private/input")
+            .context("compute_native_session_stdout_closed");
+        assert!(public_fixture_failure(&cause).is_none());
+        let error = anyhow::Error::new(Failure::after_cleanup(cause).with_close_observation(Some(
+            worker::CloseObservation {
+                status_before_cleanup: Some(std::process::ExitStatus::from_raw(256)),
+                stderr_class: "bubblewrap",
+                public_bubblewrap_stage: Some(stage),
+            },
+        )));
+        let ordinary = serde_json::to_value(diagnostic(&error).unwrap()).unwrap();
+        assert_eq!(
+            ordinary,
+            json!({"code":"compute_native_session_stdout_closed","io_kind":"none",
+                "exit_code":1,"signal":0,"stderr_class":"bubblewrap"})
+        );
+        let public = public_fixture_failure(&error).unwrap();
+        let mut expected = ordinary.clone();
+        expected["stderr_class"] = stage.label().into();
+        assert_eq!(public, expected);
+        assert!(public_fixture_detail(&public));
+        assert_eq!(cleanup(&error), Some(cleanup_record()));
+        assert_eq!(error.chain().count(), 1);
+        assert!(!public.to_string().contains("PRIVATE_CANARY"));
+        assert!(!public.to_string().contains("/private"));
+        for code in [
+            "startup_missing_result",
+            "compute_memory_budget",
+            "NATIVE_DECODE_FAILED",
+        ] {
+            let mut invalid = public.clone();
+            invalid["code"] = code.into();
+            assert!(!public_fixture_detail(&invalid));
+        }
+        let before = super::super::diagnostic::native_session_detail(&anyhow::anyhow!(
+            "compute_memory_budget"
+        ));
+        assert_eq!(before.with_public_bubblewrap_stage(Some(stage)), before);
+        let eof = super::super::diagnostic::native_session_detail(&anyhow::anyhow!(
+            "compute_native_session_stdout_closed"
+        ));
+        let non_bwrap = eof.with_native_stdout_close(None, "other");
+        assert_eq!(
+            non_bwrap.with_public_bubblewrap_stage(Some(stage)),
+            non_bwrap
+        );
+        assert_eq!(
+            eof.with_native_stdout_close(None, "bubblewrap")
+                .with_public_bubblewrap_stage(None),
+            eof.with_native_stdout_close(None, "bubblewrap")
+        );
+    }
 }
