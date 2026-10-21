@@ -88,8 +88,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: alpha-production-helper-topology-${{ github.ref }}-${{ inputs.scenario || 'datapath' }}
-  cancel-in-progress: true
+  group: alpha-production-helper-topology-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}-${{ inputs.scenario || 'datapath' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 defaults:
   run:
