@@ -36,19 +36,22 @@ temporary attachment or previous conversation is required.
 
 Latest execution snapshot, 2026-10-21:
 
-- Main `797f24fdf53ffcc39156bbf59507ef6be40792a4` includes PR311 and PR313.
-  Their source Quality/CodeQL checks pass; fetched merge contents and committed
-  goal preservation pass. Exact-main Quality `39660547441` and CodeQL
-  `39660546762` pass.
+- Main `5eda71f05e25d962ab7f3ad59247a87c5e8d99fd` includes PR311, PR313 and
+  PR314. Its tree exactly equals accepted PR314 source `4d461220`; fetched
+  contents and committed goal preservation pass. Exact-main checks for earlier
+  `797f24fd` pass; recheck the new main's automatic runs separately.
 - Native DPS ABI [PR314](https://github.com/VOLPAROSSA/volparossa/pull/314),
   source `4d4612200e0a4a46546e0c827a3f3e7f0b73c669`, passes its dedicated
-  Rust/C/C++ source and execution gate `39661011331`; combined Quality
-  `39661019902` remains running and CodeQL `39661012097` passes.
+  Rust/C/C++ source and execution gate `39661011331`, combined Quality
+  `39661019902` and CodeQL `39661012097`, and is merged. The CodeQL null-output
+  thread was resolved with independent evidence of an unreachable dereference;
+  no validation was relaxed.
 - Map JNI PR10 is published at `3abb91fa56a5bdf1b27337c689a409986caed793`
   after independent rereview. Source gate `39664119379` passes 13 inert tests.
   Actual trial `39664284521` fails its pre-existing KVM-access requirement before
-  acquisition or native execution. Investigate process-scoped runner access;
-  Android behavior and cleanup remain unproved.
+  acquisition or native execution. A four-file process-scoped KVM correction is
+  frozen with 26 inert tests passing and independent review underway; Android
+  behavior and cleanup remain unproved.
 - Actual Storage trial `39655116872` fails on `82dbb237` during fragment 3/copy 1
   APPEND challenge verification. The fixed fragment 2/copy 0 RESERVE observer
   correctly reports an untargeted failure. All three provider usage observations
@@ -58,11 +61,11 @@ Latest execution snapshot, 2026-10-21:
 - Actual public-model trial `39654833011` failed on `9a96c128` during socket
   preflight, before TLS/admission. Its audited evidence cannot identify which
   socket check failed and establishes no completed turn. The independently
-  reviewed default-off diagnostic is published as stacked PR315 at `6bac2016`.
-  Hosted source run `39664659492` fails three new socket tests whose parent
-  directories lack private permissions, and the unchanged-source check detects
-  formatter edits. A fixture/format-only correction is in progress; no new
-  actual-model trial is dispatched.
+  reviewed default-off diagnostic's corrected source `f04a0b6f` passes all
+  122 Rust/427 Python source checks in `39666368770`. PR315 is merged only into
+  retained PR276 as `fd1018ed`, with the identical accepted tree. Explicit public
+  model trial `39667787022` is dispatched on that revision; no new actual
+  runtime acceptance is claimed.
 
 These are execution priorities and evidence boundaries, not a reduced goal.
 The dated records below retain the earlier states and their original evidence.
@@ -522,12 +525,63 @@ is justified yet. A subsequent bounded observation must distinguish challenge
 length/body reads and verification while correlating provider progress; keep the
 original deadline, retries, privacy and acceptance predicates unchanged.
 
+Later integration checkpoint, 2026-10-21: PR314 is merged as main
+`5eda71f05e25d962ab7f3ad59247a87c5e8d99fd`. Its fetched tree
+`bac45917af63e152ddb232a885446cb7221c84bb` exactly equals accepted source `4d461220`,
+with an empty source-to-merge diff and passing committed goal preservation.
+Combined Quality `39661019902` binds test merge
+`5abaa4a59725be833f3d1f8bb9f62128ebdabaf1` to that same tree: 4,244 workspace
+executions pass, zero fail, 12 are ignored; standalone Storage groups pass 14/42,
+three namespace proof reports pass, and the inert harness has one skip. Original
+Quality log SHA-256 is
+`3d575591336681ec85d836a2848a0957f4e344a63911b2727b4ad04b359d69da`;
+there is no artifact. The normal dormant-DPS receipt retains its synthetic-only,
+joined-shutdown and bounded unchanged-host scope. CodeQL `39661012097` passes.
+GitHub initially blocked merge on its null-output review thread. Independent
+review confirms that the reported `ptr::null_mut()` test value returns
+`InvalidArgument` before input dereference or output write. The
+[resolved thread](https://github.com/VOLPAROSSA/volparossa/pull/314#discussion_r4341406375)
+records the exact source and runtime negative controls. No guard or repository
+rule was bypassed; caller-owned allocation/lifetime obligations remain.
+
+Corrected PR315 source `f04a0b6fed896a48a9ab4a93faa22f74ae3c24e3`, tree
+`e2773d6f4119ba00bcada8d9100fafc4b6712cec`, passes exact-source contracts
+`39666368770`: all 122 Rust tests (22/37/30/33) and 427 named Python checks,
+compilation and strict lint. All 39 source blobs, including the workflow, and
+five scoped dependency blobs match; final tracked source is unchanged and
+formatter output is empty. Artifact `12378341328` (33,769 bytes) matches API/ZIP
+SHA-256 `8b0a94fa310783d3f5f923d8e7e4eb48fdd08af6fc2cf182280271e2bd68c2cd`;
+original log SHA-256 is
+`02701fea852f2a3162d72f4b38937f3cf7b9077608a9dade03f70e1b52fe6340`.
+The source run skips actual model execution. PR315 is merged only into retained
+PR276 as `fd1018edc8ebeb225e9d36dcb188b067f7b5a4a9`, with the same exact tree.
+The clean `.git/codex-protected-resident-model` checkout was fast-forwarded;
+unfinished model ancestry remains separate from main. Explicit public trial
+`39667787022` is dispatched with that exact expected source and repeats its own
+source gate before model work. Redundant automatic source-only run `39667722251`
+was requested cancelled after the identical-source manual run was accepted;
+no earlier actual trial or unrelated integration was cancelled. Retain both run
+identities and verify their terminal states. Actual model acceptance is pending.
+
+The four-file Map KVM correction is frozen above published source `3abb91fa`,
+with 26 inert tests passing and independent review underway. Binary diff SHA-256
+is `bd746d346a107128780a6cc3931c9ed3188d55cee874057ab3a285df7be521bc`;
+canonical four-file manifest SHA-256 is
+`4765dd984b377e25155190acf10a19ef28f530617faa9e552bfc490d3487b0e2`.
+It uses fixed privileged launch phases followed by permanent nonroot credential
+drop: only probe/emulator receive the existing device-matching KVM group;
+public/offline builds have empty supplementary groups. Parent credentials and
+device permissions/ACLs/accounts/services are not modified. Early bounded
+receipts cover preflight failures; the KVM probe FD is not transferred. Privileged
+input/receipt FDs, lifecycle ownership and phase cleanup require review and actual
+hosted evidence. No new KVM, namespace, cancellation or Android trial has run.
+
 ### Execution priorities and next milestones
 
-Current next actions are to finish the combined checks for native ABI PR314,
-resolve the Map fixture's hosted KVM-access prerequisite, verify the provider
-usage-reader schema correction and finish PR315's source checks before another
-model trial. Diagnose the actual APPEND challenge failure separately from its
+Current next actions are to complete independent review and hosted verification
+of the Map fixture's process-scoped KVM access, verify and integrate the provider
+usage-reader schema correction, and observe exact-source public-model trial
+`39667787022`. Diagnose the actual APPEND challenge failure separately from its
 untargeted correlation observer and the usage-reader defect. Keep the
 permissionless Map fixture separate from sensors and the normal location path;
 preserve original failures and require joined cleanup in subsequent actual trials.

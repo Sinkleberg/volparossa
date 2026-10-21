@@ -111,7 +111,7 @@ use a separate coordinator and stay outside both that helper and the GPS/track
 forwarding path. No Rust linkage or DPS coordinator exists in the pinned native
 app yet; the Python component is not an Android bridge.
 
-### Quality-only native ABI candidate
+### Quality-only native ABI
 
 Current Map execution checkpoint: independently reviewed
 [PR10 source `3abb91fa`](https://github.com/VOLPAROSSA/volparossa-map/tree/3abb91fa56a5bdf1b27337c689a409986caed793)
@@ -122,7 +122,9 @@ unrun. A process-scoped disposable-runner access arrangement is under investigat
 no development-host configuration change or software-emulation fallback is implied.
 The implementation ledger retains exact sources, failure and evidence hashes.
 
-The shared Rust assessor now has a separately testable C ABI candidate. Its
+The shared Rust assessor now has a separately testable C ABI integrated through
+PR314 as main `5eda71f05e25d962ab7f3ad59247a87c5e8d99fd`, with the exact
+accepted source tree `bac45917af63e152ddb232a885446cb7221c84bb`. Its
 36-byte response is exactly nine `u32` quality/limitation fields; the canonical
 bare-protobuf request is bounded to 16 KiB. The response contains no coordinates
 or fix; the library acquires no sensors, keeps no history and accesses no
@@ -140,7 +142,9 @@ Valgrind cases. The Rust library was not itself sanitizer-instrumented. Artifact
 `f246d0481ee3f83950134ce4da76bdb0be698529a87886873d02024f5076b0a4`.
 Corrected main composition `4d4612200e0a4a46546e0c827a3f3e7f0b73c669` has
 passed independent exact-scope review and the same dedicated native checks in
-`39661011331`. Its combined workspace checks remain pending; current artifact
+`39661011331`. Combined Quality `39661019902` and CodeQL `39661012097` pass;
+the former records 4,244 passed workspace executions, zero failures and 12 ignores.
+Current artifact
 bindings and historical failures are in the implementation ledger. The
 earlier combined run `39656846006` failed cargo-deny on a wildcard dependency;
 the corrected exact dependency version is now in the candidate.
