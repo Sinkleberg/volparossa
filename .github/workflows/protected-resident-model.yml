@@ -2,7 +2,7 @@ name: Public resident model integration contracts
 
 on:
   push:
-    branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021]
+    branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021]
   workflow_dispatch:
     inputs:
       scenario:
@@ -39,7 +39,8 @@ jobs:
       (github.ref == 'refs/heads/feature/protected-resident-model' ||
       ((github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' ||
       github.ref == 'refs/heads/fix/protected-requester-diagnostic-20261021' ||
-      github.ref == 'refs/heads/fix/protected-result-failure-20261021') &&
+      github.ref == 'refs/heads/fix/protected-result-failure-20261021' ||
+      github.ref == 'refs/heads/fix/protected-socket-diagnostic-20261021') &&
       (github.event_name == 'push' || inputs.scenario == 'source-contracts')))
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -124,6 +125,26 @@ jobs:
               source_blobs={name:git('rev-parse','HEAD:'+name) for name in sorted(failure_allowed)},
               dependency_blobs={name:git('rev-parse','HEAD:'+name) for name in dependencies},
               diagnostic_only=True,actual_model_execution=False)
+          socket_diagnostic_scope=None
+          if os.environ['GITHUB_REF']=='refs/heads/fix/protected-socket-diagnostic-20261021':
+            socket_base='9a96c1281e3fa6b5a9e8ad0490c37d5f17cd66bc'
+            subprocess.run(['git','merge-base','--is-ancestor',socket_base,'HEAD'],check=True)
+            socket_allowed={
+              '.github/workflows/protected-resident-model.yml',
+              'crates/volparossa/src/compute/resident_guest/public_trial.rs',
+              'crates/volparossa/src/compute/resident_guest/public_trial/tests.rs',
+              'tests/integration/protected-resident-model-run.py',
+              'tests/integration/test-protected-resident-model-run.py'}
+            socket_changed=git('diff','--name-only',socket_base,'HEAD').splitlines()
+            assert len(socket_changed)==len(socket_allowed) and set(socket_changed)==socket_allowed
+            dependencies=('Cargo.lock','Cargo.toml','rust-toolchain.toml',
+              'crates/volparossa/Cargo.toml','crates/volparossa-content/Cargo.toml')
+            for name in dependencies:
+              assert git('rev-parse','HEAD:'+name)==git('rev-parse',socket_base+':'+name)
+            socket_diagnostic_scope=dict(base_commit=socket_base,
+              source_blobs={name:git('rev-parse','HEAD:'+name) for name in sorted(socket_allowed)},
+              dependency_blobs={name:git('rev-parse','HEAD:'+name) for name in dependencies},
+              diagnostic_only=True,actual_model_execution=False)
           names=git('diff','--name-only',base,'HEAD').splitlines()
           receipt=dict(version=1,source_commit=os.environ['GITHUB_SHA'],source_tree=git('rev-parse','HEAD^{tree}'),base=base,
             source_blobs={n:git('rev-parse','HEAD:'+n) for n in names},
@@ -132,6 +153,8 @@ jobs:
             receipt['requester_diagnostic_scope']=requester_scope
           if result_failure_scope is not None:
             receipt['result_failure_scope']=result_failure_scope
+          if socket_diagnostic_scope is not None:
+            receipt['socket_diagnostic_scope']=socket_diagnostic_scope
           pathlib.Path('resident-model-evidence/source.json').write_text(json.dumps(receipt,sort_keys=True)+'\n')
           PY
 
@@ -194,8 +217,15 @@ jobs:
             for name in names: assert len(re.findall(r'^test '+re.escape(name)+r' \.\.\. ok$',output,re.M))==1
             assert f'{len(names)} passed; 0 failed; 0 ignored;' in output
             groups[label]=len(names); all_names.extend(names)
-          assert groups==dict(grant=22,guest=32,resident=33,local=30)
+          assert groups==dict(grant=22,guest=37,resident=33,local=30)
           assert len(all_names)==len(set(all_names))
+          socket_tests={
+            'socket_preflight_accepts_owned_socket_without_an_observation',
+            'socket_preflight_preserves_exact_parent_validation_rejections',
+            'socket_preflight_distinguishes_metadata_type_and_owner_without_following_links',
+            'socket_diagnostic_io_kinds_are_closed_and_never_include_raw_errors',
+            'socket_diagnostic_is_optional_and_cannot_replace_the_original_error'}
+          assert {'compute::resident_guest::public_trial::tests::'+name for name in socket_tests} <= set(all_names)
           (root/'tests.json').write_text(json.dumps(dict(version=1,counts=groups,test_names=sorted(all_names),model_execution=False,guest_boot=False,private_peer_admission=False),sort_keys=True)+'\n')
           PY
 
@@ -235,7 +265,7 @@ jobs:
           python3 -B - <<'PY'
           import json,pathlib,re
           root=pathlib.Path('resident-model-evidence'); counts={}
-          expected={'install':58,'assemble':29,'run':188}
+          expected={'install':58,'assemble':29,'run':198}
           for name,count in expected.items():
             raw=(root/('model-'+name+'.log')).read_text()
             tests=re.findall(r'^Ran ([0-9]+) tests? in ',raw,re.M)
