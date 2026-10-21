@@ -211,6 +211,10 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
             .await;
         }
     };
+    run_local(command)
+}
+
+fn run_local(command: LocalCommand) -> Result<()> {
     match command {
         LocalCommand::Init {
             store,
