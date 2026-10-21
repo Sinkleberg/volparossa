@@ -2111,6 +2111,62 @@ class BuilderDiagnostic(Inert):
 
 
 class ReceiptAndBindings(Inert):
+    def test_current_inventories_match_both_source_refs_without_expanding_execution_authority(self):
+        import re
+        import textwrap
+        workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
+        rust_step = workflow.split('      - name: Test grants TLS lifecycle and unchanged native supervision\n', 1)[1].split('      - name: Lint affected code\n', 1)[0]
+        self.assertNotIn('GITHUB_REF', rust_step)
+        self.assertIn('          run_group startup volparossa compute::supervise::tests::public_bubblewrap_stage\n', rust_step)
+        def python_tree(step):
+            return ast.parse(textwrap.dedent(step.split("python3 -B - <<'PY'\n", 1)[1].split('\n          PY', 1)[0]))
+        rust = python_tree(rust_step)
+        labels = next(n for n in rust.body if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and n.targets[0].id == 'labels')
+        group_guard = next(n for n in rust.body if isinstance(n, ast.Assert) and isinstance(n.test, ast.Compare)
+                           and isinstance(n.test.left, ast.Name) and n.test.left.id == 'groups')
+        rust_gate = compile(ast.Module(body=[labels, group_guard], type_ignores=[]), 'inert-current-rust-inventory', 'exec')
+        controller_step = workflow.split('      - name: Offline installer immutable assembly and controller contracts\n', 1)[1]
+        controller = python_tree(controller_step)
+        expected = next(n for n in controller.body if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and n.targets[0].id == 'expected')
+        count_loop = next(n for n in controller.body if isinstance(n, ast.For))
+        controller_gate = compile(ast.Module(body=[expected, count_loop], type_ignores=[]), 'inert-current-python-inventory', 'exec')
+        class Logs:
+            def __init__(self, count): self.count = count
+            def __truediv__(self, name):
+                count = {'model-install.log': 58, 'model-assemble.log': 29, 'model-run.log': self.count}[name]
+                return types.SimpleNamespace(read_text=lambda: f'Ran {count} tests in 0.1s\n\nOK\n')
+        def authority(job):
+            condition = workflow.split('\n  ' + job + ':\n', 1)[1].split('    if: >-\n', 1)[1].split('\n    runs-on:', 1)[0]
+            expression = ' '.join(condition.splitlines()).replace('&&', ' and ').replace('||', ' or ').strip()
+            return compile(expression, 'inert-workflow-authority', 'eval')
+        contracts, public = authority('contracts'), authority('public-model')
+        groups = dict(grant=22, guest=38, resident=41, local=30, startup=2)
+        for branch in ('refs/heads/fix/protected-bwrap-stage-20261022', 'refs/heads/feature/protected-resident-model'):
+            namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}), groups=groups)
+            exec(rust_gate, namespace)
+            self.assertEqual(namespace['labels'], ('grant', 'guest', 'resident', 'local', 'startup'))
+            self.assertEqual(sum(groups.values()), 133)
+            for stale in (dict(grant=22, guest=37, resident=39, local=30), dict(grant=22, guest=38, resident=41, local=30)):
+                with self.assertRaises(AssertionError): exec(rust_gate, dict(namespace, groups=stale))
+            for count in (209, 208, 204):
+                current = dict(os=namespace['os'], root=Logs(count), re=re, counts={})
+                if count == 209:
+                    exec(controller_gate, current)
+                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=209))
+                else:
+                    with self.assertRaises(AssertionError): exec(controller_gate, current)
+            for event, scenario in (('push', 'source-contracts'), ('workflow_dispatch', 'source-contracts'), ('workflow_dispatch', 'public-model')):
+                context = dict(github=types.SimpleNamespace(repository='VOLPAROSSA/volparossa', ref=branch, event_name=event),
+                               inputs=types.SimpleNamespace(scenario=scenario))
+                retained = branch == 'refs/heads/feature/protected-resident-model'
+                self.assertEqual(eval(contracts, context), retained or scenario == 'source-contracts')
+                self.assertEqual(eval(public, context), retained and event == 'workflow_dispatch' and scenario == 'public-model')
+        for repository, branch in (('VOLPAROSSA/volparossa', 'refs/heads/not-authorized'),
+                                   ('unapproved/repository', 'refs/heads/feature/protected-resident-model')):
+            context = dict(github=types.SimpleNamespace(repository=repository, ref=branch, event_name='workflow_dispatch'),
+                           inputs=types.SimpleNamespace(scenario='public-model'))
+            self.assertFalse(eval(contracts, context)); self.assertFalse(eval(public, context))
+
     def test_inventory_diagnostic_branch_only_adds_exact_source_contract_authority(self):
         import textwrap
         workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
