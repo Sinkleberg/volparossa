@@ -541,15 +541,21 @@ mod tests {
             #[prost(bool, tag = "4")]
             include_flow_acquire_detail: bool,
         }
-        let old = Previous { provider_key: public_key(), grant: vec![1; 128],
-            maintenance_turn: Vec::new(), include_flow_acquire_detail: true };
+        let old = Previous {
+            provider_key: public_key(),
+            grant: vec![1; 128],
+            maintenance_turn: Vec::new(),
+            include_flow_acquire_detail: true,
+        };
         let bytes = old.encode_to_vec();
         let mut value = PrivateStorageRemoteRequest::decode(bytes.as_slice()).unwrap();
         assert!(!value.include_challenge_read_detail);
         assert_eq!(value.encode_to_vec(), bytes);
         value.include_challenge_read_detail = true;
         value.validate().unwrap();
-        assert_eq!(Previous::decode(value.encode_to_vec().as_slice()).unwrap(), old);
+        assert_eq!(
+            Previous::decode(value.encode_to_vec().as_slice()).unwrap(),
+            old
+        );
     }
-
 }

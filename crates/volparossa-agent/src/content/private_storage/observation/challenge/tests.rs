@@ -13,11 +13,13 @@ async fn challenge_read_opt_in_retains_original_deadline_and_freezes_only_observ
         let observation = Observation::default().with_challenge_read(enabled);
         let started = Instant::now();
         let operation = observation.budget(Deadline::Operation, Duration::from_secs(120), async {
-            observation.boundary(Stage::Challenge, async {
-                observation.phase(WirePhase::ChallengeReadVerify);
-                observation.read_step(ReadStep::BodyRead);
-                pending::<Result<(), ContentError>>().await
-            }).await
+            observation
+                .boundary(Stage::Challenge, async {
+                    observation.phase(WirePhase::ChallengeReadVerify);
+                    observation.read_step(ReadStep::BodyRead);
+                    pending::<Result<(), ContentError>>().await
+                })
+                .await
         });
         advance(Duration::from_secs(3)).await;
         assert!(matches!(operation.await, Err(ContentError::Unavailable)));
@@ -32,7 +34,9 @@ async fn challenge_read_opt_in_retains_original_deadline_and_freezes_only_observ
             assert_eq!(read.step, Step::BodyRead as i32);
             assert!(read.returned_outcome.is_none());
         }
-        observation.read_failure(volparossa_content::private_storage::wire::begin_observation::ReadFailure::IoOther);
+        observation.read_failure(
+            volparossa_content::private_storage::wire::begin_observation::ReadFailure::IoOther,
+        );
         assert_eq!(observation.detail().unwrap(), detail);
         observation.reset();
         assert!(observation.detail().is_none());
@@ -43,16 +47,25 @@ async fn challenge_read_opt_in_retains_original_deadline_and_freezes_only_observ
 async fn challenge_read_records_only_a_returned_wire_error_within_read_verify() {
     let observation = Observation::default().with_challenge_read(true);
     observation.challenge.start_operation(Instant::now());
-    let result = observation.boundary(Stage::Challenge, async {
-        observation.phase(WirePhase::ChallengeReadVerify);
-        observation.read_step(volparossa_content::private_storage::wire::begin_observation::ReadStep::LengthRead);
-        observation.read_failure(volparossa_content::private_storage::wire::begin_observation::ReadFailure::IoEof);
-        Err::<(), _>(ContentError::Unavailable)
-    }).await;
+    let result = observation
+        .boundary(Stage::Challenge, async {
+            observation.phase(WirePhase::ChallengeReadVerify);
+            observation.read_step(
+                volparossa_content::private_storage::wire::begin_observation::ReadStep::LengthRead,
+            );
+            observation.read_failure(
+                volparossa_content::private_storage::wire::begin_observation::ReadFailure::IoEof,
+            );
+            Err::<(), _>(ContentError::Unavailable)
+        })
+        .await;
     assert!(result.is_err());
     let detail = observation.detail().unwrap();
     assert_eq!(detail.deadline_scope, Deadline::None as i32);
-    assert_eq!(detail.challenge.unwrap().read.unwrap().returned_outcome, Some(Outcome::IoEof as i32));
+    assert_eq!(
+        detail.challenge.unwrap().read.unwrap().returned_outcome,
+        Some(Outcome::IoEof as i32)
+    );
     observation.boundary(Stage::Challenge, async {
         observation.phase(WirePhase::ChallengeReadVerify);
         observation.read_step(volparossa_content::private_storage::wire::begin_observation::ReadStep::Verification);

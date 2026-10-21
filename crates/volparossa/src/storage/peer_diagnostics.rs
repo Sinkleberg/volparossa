@@ -16,12 +16,12 @@ use volparossa_local_control::{
 
 use super::outcome::{AgentOutcome, AppendOutcome};
 
+#[path = "peer_challenge_read.rs"]
+mod challenge_read;
 #[path = "peer_flow_acquire.rs"]
 mod flow_acquire;
 #[path = "peer_tls_close.rs"]
 mod tls_close;
-#[path = "peer_challenge_read.rs"]
-mod challenge_read;
 
 const MAX_FAILURES: usize = 8;
 

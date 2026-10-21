@@ -14,11 +14,22 @@ fn sample() -> serde_json::Value {
 #[test]
 fn challenge_read_v10_roundtrips_finite_matrix_and_retains_fragment_copy_operation() {
     for step in ["length_read", "body_read", "verification"] {
-        for outcome in [None, Some("io_eof"), Some("io_other"), Some("invalid"), Some("verification_rejected"), Some("wire_timeout")] {
+        for outcome in [
+            None,
+            Some("io_eof"),
+            Some("io_other"),
+            Some("invalid"),
+            Some("verification_rejected"),
+            Some("wire_timeout"),
+        ] {
             let mut value = sample();
-            value["failures"][0]["agent_detail"]["challenge"]["read"] = serde_json::json!({"step":step,"returned_outcome":outcome});
+            value["failures"][0]["agent_detail"]["challenge"]["read"] =
+                serde_json::json!({"step":step,"returned_outcome":outcome});
             let expected = match (step, outcome) {
-                ("length_read" | "body_read", None | Some("io_eof" | "io_other" | "wire_timeout"))
+                (
+                    "length_read" | "body_read",
+                    None | Some("io_eof" | "io_other" | "wire_timeout"),
+                )
                 | ("length_read" | "verification", Some("invalid"))
                 | ("verification", None | Some("verification_rejected")) => true,
                 _ => false,
@@ -39,9 +50,11 @@ fn challenge_read_v10_rejects_legacy_reinterpretation_unknown_fields_and_wrong_p
         value["version"] = version.into();
         assert!(serde_json::from_value::<Diagnostics>(value).is_err());
     }
-    for read in [serde_json::json!({"step":"private-canary","returned_outcome":null}),
+    for read in [
+        serde_json::json!({"step":"private-canary","returned_outcome":null}),
         serde_json::json!({"step":"body_read"}),
-        serde_json::json!({"step":"body_read","returned_outcome":null,"raw":"private-canary"})] {
+        serde_json::json!({"step":"body_read","returned_outcome":null,"raw":"private-canary"}),
+    ] {
         let mut value = sample();
         value["failures"][0]["agent_detail"]["challenge"]["read"] = read;
         assert!(serde_json::from_value::<Diagnostics>(value).is_err());
@@ -58,19 +71,44 @@ async fn challenge_read_v10_is_explicit_scoped_and_mixed_cli_flags_reject_before
         assert!(challenge_read_enabled());
         assert!(flow_acquire_enabled() && tls_close_enabled() && append_timing_enabled());
         assert_eq!(Diagnostics::default().version, 10);
-    }).await;
+    })
+    .await;
     assert!(!challenge_read_enabled());
     assert_eq!(Diagnostics::default().version, 6);
     for group in ["replicas", "fragments"] {
-        let cli = crate::Cli::try_parse_from(["volparossa", "storage", group,
-            "--challenge-read-diagnostics-v10", "status", "--state", "/not-opened"]).unwrap();
-        let crate::CliCommand::Storage { command } = cli.command else { panic!() };
+        let cli = crate::Cli::try_parse_from([
+            "volparossa",
+            "storage",
+            group,
+            "--challenge-read-diagnostics-v10",
+            "status",
+            "--state",
+            "/not-opened",
+        ])
+        .unwrap();
+        let crate::CliCommand::Storage { command } = cli.command else {
+            panic!()
+        };
         assert!(command.validate_diagnostics().is_ok());
-        for old in ["--append-diagnostics-v7", "--flow-acquire-diagnostics-v8", "--tls-close-diagnostics-v9"] {
-            let parsed = crate::Cli::try_parse_from(["volparossa", "storage", group, old,
-                "status", "--state", "/not-opened", "--challenge-read-diagnostics-v10"]);
+        for old in [
+            "--append-diagnostics-v7",
+            "--flow-acquire-diagnostics-v8",
+            "--tls-close-diagnostics-v9",
+        ] {
+            let parsed = crate::Cli::try_parse_from([
+                "volparossa",
+                "storage",
+                group,
+                old,
+                "status",
+                "--state",
+                "/not-opened",
+                "--challenge-read-diagnostics-v10",
+            ]);
             if let Ok(cli) = parsed {
-                let crate::CliCommand::Storage { command } = cli.command else { panic!() };
+                let crate::CliCommand::Storage { command } = cli.command else {
+                    panic!()
+                };
                 assert!(command.validate_diagnostics().is_err());
             }
         }

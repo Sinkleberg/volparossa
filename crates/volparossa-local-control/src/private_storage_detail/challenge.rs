@@ -135,7 +135,11 @@ pub struct PrivateStorageChallengeReadDetail {
     #[prost(enumeration = "PrivateStorageChallengeReadStep", tag = "1")]
     pub step: i32,
     /// Absent means only that no returned wire outcome was observed.
-    #[prost(enumeration = "PrivateStorageChallengeReadOutcome", optional, tag = "2")]
+    #[prost(
+        enumeration = "PrivateStorageChallengeReadOutcome",
+        optional,
+        tag = "2"
+    )]
     pub returned_outcome: Option<i32>,
 }
 

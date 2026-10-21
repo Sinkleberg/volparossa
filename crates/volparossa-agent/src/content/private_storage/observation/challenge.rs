@@ -6,8 +6,7 @@ use tokio::time::Instant;
 use volparossa_local_control::{
     PrivateStorageChallengeDetail, PrivateStorageChallengePhase as Phase,
     PrivateStorageChallengeReadDetail, PrivateStorageChallengeReadOutcome as Outcome,
-    PrivateStorageChallengeReadStep as Step,
-    PrivateStorageElapsedBucket as Bucket,
+    PrivateStorageChallengeReadStep as Step, PrivateStorageElapsedBucket as Bucket,
 };
 
 #[derive(Default)]
@@ -35,7 +34,9 @@ impl Progress {
         if let Ok(mut state) = self.0.lock() {
             if state.phase == Some(Phase::ChallengeReadVerify)
                 && state.failed_at.is_none()
-                && state.read.is_none_or(|read| read.returned_outcome.is_none())
+                && state
+                    .read
+                    .is_none_or(|read| read.returned_outcome.is_none())
             {
                 state.read = Some(PrivateStorageChallengeReadDetail {
                     step: step as i32,

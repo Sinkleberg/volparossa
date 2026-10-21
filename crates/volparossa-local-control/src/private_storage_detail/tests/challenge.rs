@@ -11,29 +11,55 @@ fn challenge_read_absence_preserves_old_challenge_bytes_and_unknown_field_compat
         #[prost(int32, tag = "3")]
         in_challenge: i32,
     }
-    let old = Previous { phase: 3, before_challenge: 2, in_challenge: 7 };
+    let old = Previous {
+        phase: 3,
+        before_challenge: 2,
+        in_challenge: 7,
+    };
     let bytes = old.encode_to_vec();
     let mut value = PrivateStorageChallengeDetail::decode(bytes.as_slice()).unwrap();
     assert!(value.read.is_none());
     assert_eq!(value.encode_to_vec(), bytes);
-    value.read = Some(PrivateStorageChallengeReadDetail { step: 1, returned_outcome: None });
-    assert_eq!(Previous::decode(value.encode_to_vec().as_slice()).unwrap(), old);
+    value.read = Some(PrivateStorageChallengeReadDetail {
+        step: 1,
+        returned_outcome: None,
+    });
+    assert_eq!(
+        Previous::decode(value.encode_to_vec().as_slice()).unwrap(),
+        old
+    );
 }
 
 #[test]
 fn challenge_read_accepts_only_read_phase_known_steps_and_returned_error_matrix() {
     for phase in 1..=3 {
         for step in -1..=4 {
-            for outcome in [None, Some(0), Some(1), Some(2), Some(3), Some(4), Some(5), Some(6)] {
+            for outcome in [
+                None,
+                Some(0),
+                Some(1),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+            ] {
                 let value = PrivateStorageChallengeDetail {
-                    phase, before_challenge: 2, in_challenge: 7,
-                    read: Some(PrivateStorageChallengeReadDetail { step, returned_outcome: outcome }),
+                    phase,
+                    before_challenge: 2,
+                    in_challenge: 7,
+                    read: Some(PrivateStorageChallengeReadDetail {
+                        step,
+                        returned_outcome: outcome,
+                    }),
                 };
-                let expected = phase == 3 && match (step, outcome) {
-                    (1 | 2, None | Some(1 | 2 | 5)) | (1 | 3, Some(3))
-                    | (3, None | Some(4)) => true,
-                    _ => false,
-                };
+                let expected = phase == 3
+                    && match (step, outcome) {
+                        (1 | 2, None | Some(1 | 2 | 5))
+                        | (1 | 3, Some(3))
+                        | (3, None | Some(4)) => true,
+                        _ => false,
+                    };
                 assert_eq!(value.validate().is_ok(), expected);
             }
         }
