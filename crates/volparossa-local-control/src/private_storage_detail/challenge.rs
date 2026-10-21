@@ -66,7 +66,7 @@ pub struct PrivateStorageChallengeDetail {
     /// Elapsed time within that challenge boundary when failure was observed.
     #[prost(enumeration = "PrivateStorageElapsedBucket", tag = "3")]
     pub in_challenge: i32,
-    /// Opt-in frame-read detail, only within the existing ChallengeReadVerify phase.
+    /// Opt-in frame-read detail, only within the existing `ChallengeReadVerify` phase.
     #[prost(message, optional, tag = "4")]
     pub read: Option<PrivateStorageChallengeReadDetail>,
 }
@@ -116,7 +116,7 @@ pub enum PrivateStorageChallengeReadStep {
 pub enum PrivateStorageChallengeReadOutcome {
     /// Reserved and rejected; absence means no returned wire outcome observed.
     Unobserved = 0,
-    /// The original read returned UnexpectedEof.
+    /// The original read returned `UnexpectedEof`.
     IoEof = 1,
     /// Another original I/O error returned.
     IoOther = 2,

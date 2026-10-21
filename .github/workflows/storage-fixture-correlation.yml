@@ -122,13 +122,14 @@ jobs:
                   'crates/volparossa/src/storage/peer_challenge_read_tests.rs',
                   'crates/volparossa/src/storage/peer_diagnostics.rs',
                   'crates/volparossa/src/storage/peer_diagnostics_tests.rs',
+                  'crates/volparossa/src/storage/peer_tls_close_tests.rs',
                   'crates/volparossa/src/storage/peer_transfer.rs',
                   'tests/integration/storage-consumer-maintenance-smoke.py',
                   'tests/integration/storage-consumer-maintenance.mjs',
                   'tests/integration/test-storage-consumer-maintenance-smoke.py',
                   'tests/integration/test-storage-consumer-maintenance.mjs',
               }
-              assert len(allowed) == 28 and set(changed) == allowed
+              assert len(allowed) == 29 and set(changed) == allowed
           dependencies = ('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
               'crates/volparossa-agent/Cargo.toml',
               'crates/volparossa-content/Cargo.toml',

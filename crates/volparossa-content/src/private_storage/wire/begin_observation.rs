@@ -25,7 +25,7 @@ pub enum ReadStep {
 /// Only errors actually returned by the original wire exchange.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReadFailure {
-    /// UnexpectedEof from the original read.
+    /// `UnexpectedEof` from the original read.
     IoEof,
     /// Another returned I/O error.
     IoOther,
