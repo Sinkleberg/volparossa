@@ -46,7 +46,8 @@ or go directly to a topic when you already know what you need.
    [accessibility guide](https://github.com/VOLPAROSSA/.github/blob/main/ACCESSIBILITY.md)
    apply across repositories.
 2. Read the repository's [engineering instructions](../AGENTS.md), then the
-   [complete agreed goal](development/GOAL.md). The current milestone is not the full scope.
+   [complete agreed goal](development/GOAL.md) and permanent
+   [joined DPS requirements](development/DPS_REQUIREMENTS.md). The current milestone is not the full scope.
 3. Read [current implementation status](IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
    for retained branches, exact revisions, acceptance evidence and unresolved dependencies.
 4. Follow the [architecture](architecture/ARCHITECTURE.md) and relevant topic guide below.
@@ -101,6 +102,11 @@ or go directly to a topic when you already know what you need.
 ## Operations and project reference
 
 - [Agreed goal](development/GOAL.md): complete preserved objective and later clarifications.
+- [DPS requirements](development/DPS_REQUIREMENTS.md): complete joined and permanent normative positioning scope.
+- [DPS source archive](development/DPS_GOAL_20261021.md): byte-preserved provenance only; not the current normative requirements file.
+- [Fresh-session prompt](development/PURSUING_GOAL.md): exact copyable UI text for continuing the complete goal.
+- [Goal verification](development/GOAL_VERIFICATION.md): preservation hashes, traceability and inert verification method.
+- [Goal preservation verifier](../scripts/verify-goal-preservation.py): standard-library-only integrity check.
 - [Codex workflow](development/CODEX_WORKFLOW.md): safe resumption, scoped delegation and handover.
 - [Operations](development/OPERATIONS.md): configuration, commands, packaging and removal.
 - [Testing](development/TESTING.md): focused checks, disposable topologies and acceptance requirements.

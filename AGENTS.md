@@ -8,6 +8,8 @@ These instructions apply to the entire repository and must remain in force in fu
 - Use `docs/IMPLEMENTATION_STATUS.md` for the current execution plan, retained branches, dependencies and evidence. Then read only the relevant topic documents and the affected application's own instructions/status. `docs/README.md` is the index.
 - Follow `docs/development/CODEX_WORKFLOW.md` for conversation handover, delegation and checkout recovery. Recheck live branch/run state; a prior conversation or an old “running” entry is not current evidence.
 
+- The permanent DPS addition is `docs/development/DPS_REQUIREMENTS.md`, incorporated by `GOAL.md`. Use `docs/development/PURSUING_GOAL.md` for durable UI text and `docs/development/GOAL_VERIFICATION.md` for preservation checks. Archived attachment references are provenance, not dependencies. Requirements, engineering rules and current implementation evidence have distinct roles; a milestone does not reduce agreed scope.
+
 ## Task-aware multi-agent development
 
 - User revision 2026-10-20: keep the manually selected Astra Ultra principal responsible for architecture, coordination, consequential decisions and integration. Autonomously delegate suitable bounded work; do not routinely consume principal context on implementation or support work Sol or Luna can reliably complete.
