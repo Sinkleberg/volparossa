@@ -2249,6 +2249,9 @@ elif [ "$scenario" = browser-network ]; then
 fi
 guest_phase build
 if [ "$scenario" = private-storage-maintenance ]; then
+    # Reduce test compiler/linker memory pressure in the single-job 4-GiB guest.
+    # Reuse these profiles for the following binaries without changing assertions.
+    export CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0
     guest_phase storage-maintenance-targeted-tests
     # Both the actual cargo exit and bounded executed-test output must pass.
     # A stale libtest filter otherwise exits successfully with zero tests.

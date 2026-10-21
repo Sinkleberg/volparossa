@@ -425,7 +425,7 @@ jobs:
               'storage-consumer-maintenance-smoke': 54,
               'storage-consumer-maintenance-shell': 9,
               'private-storage-maintenance-smoke': 85,
-              'private-storage-maintenance-wiring': 41,
+              'private-storage-maintenance-wiring': 42,
               'storage-consumer-maintenance-evidence': 31,
               'alpha-vm-diagnostics': 10,
               'storage-consumer-maintenance-provision': 14,
@@ -458,7 +458,7 @@ jobs:
               receipt = json.loads((root / (name + '.json')).read_text())
               assert receipt['tests'] == expected
               print(name + ': ' + str(expected) + ' passed; no skips', flush=True)
-          assert len(groups) == 11 and sum(groups.values()) == 319
+          assert len(groups) == 11 and sum(groups.values()) == 320
           (root / 'python-tests.json').write_text(json.dumps(dict(group_counts=groups,
               unique_tests=sum(groups.values()), actual_consumer_acceptance=False), sort_keys=True) + '\n')
           PY
@@ -557,8 +557,8 @@ jobs:
           assert all(name.startswith('storage-consumer-contract-evidence/') for name in untracked)
           python = json.loads((root / 'python-tests.json').read_text())
           node = json.loads((root / 'node-tests.json').read_text())
-          assert python['unique_tests'] == 319 and node['tests'] == 53 and node['node_version'] == '24.19.0'
-          receipt = dict(source, python_tests=319, node_tests=53, node_version=node['node_version'],
+          assert python['unique_tests'] == 320 and node['tests'] == 53 and node['node_version'] == '24.19.0'
+          receipt = dict(source, python_tests=320, node_tests=53, node_version=node['node_version'],
               completed=True, actual_consumer_acceptance=False, causal_attribution=False)
           (root / 'final.json').write_text(json.dumps(receipt, sort_keys=True) + '\n')
           PY
