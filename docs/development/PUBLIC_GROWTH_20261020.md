@@ -131,3 +131,45 @@ Research partnerships and company/equity routes need further prerequisites.
   recorded provenance. No unsupported settings endpoint was used.
 - A broader screen-reader/device audit and independent contributor trial remain
   useful follow-up work. Do not report either as completed from static checks.
+
+## Public-facing messaging implementation — 21 October 2026
+
+The follow-up implements visitor-facing copy in the organization profile, existing
+website, core README and all ten application READMEs. Broad network aspirations
+now lead into recognizable tasks: getting a forecast, working on code, keeping
+files and photographs, delivering messages and examining a public proposal.
+The shared core's value is explained as reusable services and a way for one
+contribution to benefit several integrations. Each application has its own
+reason to participate, with upstream identity and technical documentation retained.
+
+These are arguments for the project and its development, not new capability
+claims. Modest-device access and server-independent services remain aims; private
+peer computation, complete storage maintenance and other unfinished work remain
+explicit. Weather's stale Android wording is corrected to the existing exact-build
+emulator result, with real-product expiry and physical-device support still open.
+No energy, cost, coverage, privacy or adoption guarantee is introduced.
+
+| Public entry point | Reviewable change |
+| --- | --- |
+| [Organization profile](https://github.com/VOLPAROSSA) | [.github PR11](https://github.com/VOLPAROSSA/.github/pull/11) |
+| [Existing website](https://volparossa.org/) | [Pages-source PR2](https://github.com/VOLPAROSSA/volparossa.github.io/pull/2) |
+| [Core README](../../README.md) | This repository's scoped public-messaging change |
+| Browser | [PR19](https://github.com/VOLPAROSSA/volparossa-browser/pull/19) |
+| Chat | [PR6](https://github.com/VOLPAROSSA/volparossa-chat/pull/6) |
+| Mail | [PR5](https://github.com/VOLPAROSSA/volparossa-mail/pull/5) |
+| Code | [PR21](https://github.com/VOLPAROSSA/volparossa-code/pull/21) |
+| Cloud | [PR18](https://github.com/VOLPAROSSA/volparossa-cloud/pull/18) |
+| Image | [PR10](https://github.com/VOLPAROSSA/volparossa-image/pull/10) |
+| Map | [PR6](https://github.com/VOLPAROSSA/volparossa-map/pull/6) |
+| Weather | [PR27](https://github.com/VOLPAROSSA/volparossa-weather/pull/27) |
+| Bank | [PR9](https://github.com/VOLPAROSSA/volparossa-bank/pull/9) |
+| Citizen | [PR4](https://github.com/VOLPAROSSA/volparossa-citizen/pull/4) |
+
+Documentation targets/anchors and whitespace checks pass. Independent review
+found no unsupported current-capability claims. The website checker and Firefox
+153.5 checks pass at 320/390/760/1024/1440 CSS pixels, with loaded images, no
+horizontal overflow, working keyboard skip/focus and 200% text at 390 pixels.
+Artwork, CSS, hosting and DNS are unchanged. These checks cover presentation,
+not full accessibility conformance or renewed runtime acceptance. The linked PRs
+hold source revisions and integration status. Original successes and failures
+remain attached to their historical builds.

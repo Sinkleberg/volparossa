@@ -14,7 +14,7 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-20
+Last updated: 2026-10-21
 
 ## Current integration and active work
 
@@ -61,6 +61,12 @@ covers the live public-repository/Pages audit, shared community guidance, websit
 evidence-oriented introductions, funding research and approval-dependent outreach.
 It does not change runtime acceptance, the preserved goal or retained candidates.
 Original passing and failed trial results remain bound to their exact source.
+
+The 21 October follow-up implements clearer benefits and contribution arguments
+in the organization profile, website, core and ten application READMEs. The
+[implementation record](development/PUBLIC_GROWTH_20261020.md#public-facing-messaging-implementation--21-october-2026)
+links the scoped PRs and documentation/browser checks. This changes public
+explanations, not product functionality or the technical priorities above.
 
 ### Organization-wide efficiency work — 2026-10-20
 

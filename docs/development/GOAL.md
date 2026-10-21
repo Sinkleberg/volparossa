@@ -144,3 +144,12 @@ These clarifications supplement the preserved objective; they do not replace it.
   alter DNS/hosting or submit financial/legal commitments. Respect funder-specific
   AI policies. The [public-growth record](PUBLIC_GROWTH_20261020.md) preserves the
   audit, priorities, verification, remaining opportunities and roadmap.
+
+- Public messaging implementation (2026-10-21) explicitly authorizes visitor-facing
+  improvements to the organization profile, existing website, core README and
+  relevant application READMEs, with reviewable PRs, appropriate checks, permitted
+  integration and verification of published content. Translate architecture into
+  useful human benefits while preserving the complete goal, identity, attribution
+  and evidence boundaries. This supersedes the previous milestone's publication
+  hold for these scoped changes. Unrelated outreach, funding applications,
+  financial commitments and account changes still require separate authorization.

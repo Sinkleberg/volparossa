@@ -2,15 +2,26 @@
 
 # Project VOLPAROSSA
 
-**DICN — Decentralized Intelligent Cooperative Network**
+**Useful digital tools, built on resources we share.**
 
-A participant-operated network for **protected connections, shared content, private storage
-and cooperative AI**. Instead of treating these as separate services, VOLPAROSSA is building
-one reusable core that applications can share.
+Keeping in touch, looking after your files and getting help from AI often means relying on
+separate services—or running their backends yourself. VOLPAROSSA is building a shared,
+participant-operated foundation for open-source applications: **connectivity, reusable content,
+private storage and cooperative computation**, with one core coordinating the work.
 
-The ambition goes beyond a VPN: people contribute the connectivity, storage and computation
-they can spare, and benefit from the network they build together. The device owner's activity
-comes first.
+The goal is practical choice: familiar applications supported by infrastructure people can
+inspect, contribute to and help improve. A modest device should be an entry point to shared
+capabilities. Making that useful, dependable and safe is the engineering work ahead.
+
+One concrete result: [installed Overmorrow Android retrieved real forecasts through peers](https://github.com/VOLPAROSSA/volparossa/actions/runs/38717988016)
+in an emulator, then refreshed from cache. The broader network and application family remain
+in development; there is no supported end-user release.
+
+[**See what works**](#development-status) ·
+[**Build an integration**](#developing-volparossa) ·
+[**Support the shared work**](docs/community/SUPPORTING.md)
+
+The architecture is a **DICN — Decentralized Intelligent Cooperative Network**.
 
 [Explore the layers](#five-layers-in-one-network) ·
 [Applications](#one-core-multiple-applications) ·
@@ -34,13 +45,22 @@ comes first.
 
 ## Why a DICN
 
-- **Decentralized:** participants run the same node software. Discovery contacts are
-  replaceable peers, not central authorities.
-- **Intelligent:** the aim is for agents across participating devices to divide tasks,
-  combine their results and learn together. Measured outcomes guide improvements to
-  shared models and to the way agents coordinate their work.
-- **Cooperative:** participants give as well as take, according to available capabilities.
-  Shared resources must respect foreground activity and resource budgets.
+- **Give applications a shared foundation.** A messaging app, a photo library and a coding
+  assistant need different features, but can reuse connectivity, storage and task coordination.
+  The aim is to let an improvement to a shared service benefit several integrations instead
+  of rebuilding the same infrastructure for each one.
+- **Make more possible from a modest device.** Shared models and suitable work on other
+  participants' devices could extend what one device can do. Useful quality, latency and
+  resource cost still need measurement; confidential execution of private tasks on peers
+  remains unfinished.
+- **Make control inspectable.** Open code, scoped application permissions and explicit
+  relay/exit boundaries give contributors concrete behavior to examine and challenge.
+  Replaceable discovery contacts are introductions, not central authorities. These choices
+  do not create an unconditional privacy or availability guarantee.
+- **Share responsibilities as well as benefits.** Joining is voluntary. Production consumers
+  contribute nonzero relay capacity, plus exit service when they have an independent Internet
+  uplink. Resource budgets must give the owner's activity priority. Sponsorship is separate
+  from these contribution duties.
 
 One compatible background core should serve several applications without duplicating the
 network. Closing a frontend should not end the node's accepted responsibilities. Application
@@ -444,6 +464,13 @@ Network experiments belong in disposable namespaces or the documented VM topolog
 Want to help? Improve a guide, reproduce a bounded example, report a bug with its revision,
 or propose a usable feature slice. Read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 Report sensitive vulnerabilities through [SECURITY.md](SECURITY.md), not a public issue.
+
+For **application developers**, the opportunity is a reusable service boundary to integrate
+with. For **researchers**, it is a set of explicit privacy, discovery and recovery assumptions
+to test against recorded results. For **prospective supporters**, the next shared Storage
+and protected-compute work can advance several applications; the
+[support guide](docs/community/SUPPORTING.md) explains the priorities without promising
+finished services or delivery dates. GitHub Sponsors remains pending.
 
 ## Boundaries and license
 
