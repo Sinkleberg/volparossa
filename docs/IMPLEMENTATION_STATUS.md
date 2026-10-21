@@ -34,8 +34,15 @@ The immediate milestones build on the retained candidates and evidence below:
 The isolated `integration/storage-dps-20261021` candidate composes DPS source
 `4e673a5a` with the verified Storage route lifecycle at `b02f3333` (the latter
 has the identical tree to tested `c549cca6`). It retains both services and their
-wire assignments; its combined compilation, regression and main integration
-remain pending. The original candidate branches and historical failures remain
+wire assignments. Quality `39618989902` on composition source
+`8cef16679a4f5330e346ce8b19fa4e2fbbade757` passes dependency, fuzz and license
+checks, then fails strict Clippy because `validate_response` reaches 101 lines
+against its 100-line limit. The correction extracts the existing peer-list
+validation verbatim, preserving bounds, error order and wire behavior without a
+lint suppression. The original run remains failed; combined regression and main
+integration remain pending on corrected source. CodeQL `39618986037` passes
+all four analyses on the original composition; this does not clear its Clippy
+failure or accept the correction. The original candidate branches and historical failures remain
 available. Separate exact-source trials below continue without making this
 larger composition a prerequisite for new runtime evidence.
 

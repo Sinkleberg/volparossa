@@ -911,17 +911,7 @@ fn validate_response(response: &ControlResponse) -> Result<(), ControlProtocolEr
         control_response::Payload::ContentProviderActivity(snapshot) => {
             validate_provider_activity_response(response, snapshot)?;
         }
-        control_response::Payload::Peers(list) => {
-            list_len(list.peers.len())?;
-            for peer in &list.peers {
-                peer_id(&peer.peer_id)?;
-                Reachability::try_from(peer.reachability)
-                    .map_err(|_| ControlProtocolError::Invalid("reachability"))?;
-                if peer.role_bits & !0b111 != 0 {
-                    return Err(ControlProtocolError::Invalid("peer role bits"));
-                }
-            }
-        }
+        control_response::Payload::Peers(list) => validate_peer_list(list)?,
         control_response::Payload::Paths(list) => {
             list_len(list.paths.len())?;
             for path in &list.paths {
@@ -994,6 +984,19 @@ fn validate_response(response: &ControlResponse) -> Result<(), ControlProtocolEr
         control_response::Payload::Ack(_)
         | control_response::Payload::Status(_)
         | control_response::Payload::Roles(_) => {}
+    }
+    Ok(())
+}
+
+fn validate_peer_list(list: &PeerList) -> Result<(), ControlProtocolError> {
+    list_len(list.peers.len())?;
+    for peer in &list.peers {
+        peer_id(&peer.peer_id)?;
+        Reachability::try_from(peer.reachability)
+            .map_err(|_| ControlProtocolError::Invalid("reachability"))?;
+        if peer.role_bits & !0b111 != 0 {
+            return Err(ControlProtocolError::Invalid("peer role bits"));
+        }
     }
     Ok(())
 }
