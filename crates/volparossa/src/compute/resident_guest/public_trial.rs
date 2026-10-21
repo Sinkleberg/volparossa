@@ -137,7 +137,10 @@ enum SocketIoKind {
 }
 
 fn socket_io_kind(error: &anyhow::Error) -> SocketIoKind {
-    match error.downcast_ref::<std::io::Error>().map(std::io::Error::kind) {
+    match error
+        .downcast_ref::<std::io::Error>()
+        .map(std::io::Error::kind)
+    {
         None => SocketIoKind::None,
         Some(std::io::ErrorKind::NotFound) => SocketIoKind::NotFound,
         Some(std::io::ErrorKind::PermissionDenied) => SocketIoKind::PermissionDenied,

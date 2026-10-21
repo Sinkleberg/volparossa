@@ -498,10 +498,22 @@ fn socket_observation(
     (result, observations)
 }
 
+fn private_socket_directory() -> tempfile::TempDir {
+    use std::os::unix::fs::PermissionsExt as _;
+    let directory = tempfile::tempdir().unwrap();
+    // These fixtures must satisfy the real validator independently of umask.
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    directory
+}
+
 #[test]
 fn socket_preflight_accepts_owned_socket_without_an_observation() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().canonicalize().unwrap().join("channel.sock");
+    let directory = private_socket_directory();
+    let path = directory
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("channel.sock");
     let _listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
     let (result, observations) = socket_observation(&path, nix::unistd::geteuid().as_raw());
     result.unwrap();
@@ -539,8 +551,10 @@ fn socket_preflight_preserves_exact_parent_validation_rejections() {
         (alias.join("nested"), "compute_directory_symlink"),
     ] {
         let original = crate::compute::private_directory(&parent).unwrap_err();
-        let (result, observations) =
-            socket_observation(&parent.join("channel.sock"), nix::unistd::geteuid().as_raw());
+        let (result, observations) = socket_observation(
+            &parent.join("channel.sock"),
+            nix::unistd::geteuid().as_raw(),
+        );
         let error = result.unwrap_err();
         assert_eq!(error.to_string(), expected);
         assert_eq!(error.to_string(), original.to_string());
@@ -551,8 +565,10 @@ fn socket_preflight_preserves_exact_parent_validation_rejections() {
     }
     for mode in [0o755, 0o770, 0o600] {
         std::fs::set_permissions(&private, std::fs::Permissions::from_mode(mode)).unwrap();
-        let (result, observations) =
-            socket_observation(&private.join("channel.sock"), nix::unistd::geteuid().as_raw());
+        let (result, observations) = socket_observation(
+            &private.join("channel.sock"),
+            nix::unistd::geteuid().as_raw(),
+        );
         assert_eq!(
             result.unwrap_err().to_string(),
             "compute_directory_not_private"
@@ -568,7 +584,7 @@ fn socket_preflight_preserves_exact_parent_validation_rejections() {
 #[test]
 fn socket_preflight_distinguishes_metadata_type_and_owner_without_following_links() {
     use std::os::unix::fs::symlink;
-    let directory = tempfile::tempdir().unwrap();
+    let directory = private_socket_directory();
     let root = directory.path().canonicalize().unwrap();
     let owner = nix::unistd::geteuid().as_raw();
     let socket = root.join("channel.sock");
@@ -667,12 +683,16 @@ fn socket_diagnostic_is_optional_and_cannot_replace_the_original_error() {
     assert!(output.is_empty());
     observe_socket_failure(true, SocketCondition::NotSocket, &error, &mut output);
     assert_eq!(output, b"VP_PUBLIC_REQUESTER_SOCKET_FAILURE_V1 {\"condition\":\"not_socket\",\"io_kind\":\"none\",\"version\":1}\n");
-    let directory = tempfile::tempdir().unwrap();
+    let directory = private_socket_directory();
     let path = directory.path().canonicalize().unwrap().join("file");
     std::fs::write(&path, b"PRIVATE_CANARY").unwrap();
-    let error = socket_preflight(&path, nix::unistd::geteuid().as_raw(), |condition, error| {
-        observe_socket_failure(true, condition, error, Broken);
-    })
+    let error = socket_preflight(
+        &path,
+        nix::unistd::geteuid().as_raw(),
+        |condition, error| {
+            observe_socket_failure(true, condition, error, Broken);
+        },
+    )
     .unwrap_err();
     assert_eq!(error.to_string(), "resident_socket_owner");
 }
