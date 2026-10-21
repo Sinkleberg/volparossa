@@ -113,18 +113,41 @@ app yet; the Python component is not an Android bridge.
 
 ### Quality-only native ABI
 
-Current Map execution checkpoint: independently reviewed
-[PR10 source `3abb91fa`](https://github.com/VOLPAROSSA/volparossa-map/tree/3abb91fa56a5bdf1b27337c689a409986caed793)
-passes source gate `39664119379` with 13 inert tests. Actual hosted trial
-`39664284521` fails its pre-existing KVM-access requirement before acquisition or
-native execution. Eight Android tests and hosted cancellation controls remain
-unrun. A process-scoped disposable-runner access arrangement is under investigation;
-no development-host configuration change or software-emulation fallback is implied.
-The implementation ledger retains exact sources, failure and evidence hashes.
+#### Historical Map checkpoint
 
-The shared Rust assessor now has a separately testable C ABI integrated through
-PR314 as main `5eda71f05e25d962ab7f3ad59247a87c5e8d99fd`, with the exact
-accepted source tree `bac45917af63e152ddb232a885446cb7221c84bb`. Its
+This is the dated checkpoint recorded when PR10 was at source
+[`3abb91fa`](https://github.com/VOLPAROSSA/volparossa-map/tree/3abb91fa56a5bdf1b27337c689a409986caed793).
+It passed source gate `39664119379` with 13 inert tests. Actual hosted trial
+`39664284521` failed its pre-existing KVM-access requirement before acquisition or
+native execution. This historical result is superseded as the current source
+checkpoint below; the failure remains part of the evidence record.
+
+#### Current Map checkpoint — 2026-10-21
+
+PR10's current published source is
+[`02cf65b9`](https://github.com/VOLPAROSSA/volparossa-map/commit/02cf65b9cea0fd9a09e51f434d8b55deccb40fb7),
+tree `5d5bbafa9a659ff81a046870b4f46af9cee3d7bd`. The independently reviewed
+change enables loopback in the verified private offline-build phase and adds inert checks;
+source gate `39678152908` passes 56 tests and Components `39678152985` passes 31.
+Actual run `39679300414` is in progress on this exact source. Previous actual
+trial `39676098216` completed public acquisition and build, then failed the
+isolated offline stage at `LOCAL_ADDRESS_SELECTION`. KVM probe API 12 and the
+public native build are separately evidenced; Android JNI/runtime execution is
+unproved. Its process groups drained and state was removed, but the IPv6 raw
+state hash differed, so the host baseline is unconfirmed. This correction does
+not normalize IPv6 or establish the cause of that IPv6 discrepancy. The earlier
+`3abb91fa` KVM-access failure, `4e165e6e` offline-build failure, `33c80178`
+firewall raw-hash failure, `c479fbd2` unexplained baseline and earlier KVM
+probe remain historical and are not generalized to the new source. No native
+Android execution, sensor access, positioning or accuracy is established.
+See the [implementation ledger's current snapshot](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
+for shared-core and current trial status.
+
+The shared Rust assessor has a separately testable C ABI. PR314 source
+`4d4612200e0a4a46546e0c827a3f3e7f0b73c669` has accepted tree
+`bac45917af63e152ddb232a885446cb7221c84bb`; that source is integrated on main
+`0f15a349d3fe34131a806241c3efcb7c8a1cdb8d`, whose tree is
+`985b9d834381701f19d05ae4c0a2a4e6353fe782`. Its
 36-byte response is exactly nine `u32` quality/limitation fields; the canonical
 bare-protobuf request is bounded to 16 KiB. The response contains no coordinates
 or fix; the library acquires no sensors, keeps no history and accesses no

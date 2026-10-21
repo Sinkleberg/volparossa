@@ -34,38 +34,78 @@ UI text. The user applied its exact three paragraphs to the existing active
 goal; independent readback confirmed exact equality and active status. No
 temporary attachment or previous conversation is required.
 
-Latest execution snapshot, 2026-10-21:
+Latest execution snapshot, 2026-10-21 21:32 UTC:
 
-- Main `5eda71f05e25d962ab7f3ad59247a87c5e8d99fd` includes PR311, PR313 and
-  PR314. Its tree exactly equals accepted PR314 source `4d461220`; fetched
-  contents and committed goal preservation pass. Exact-main checks for earlier
-  `797f24fd` pass; recheck the new main's automatic runs separately.
-- Native DPS ABI [PR314](https://github.com/VOLPAROSSA/volparossa/pull/314),
-  source `4d4612200e0a4a46546e0c827a3f3e7f0b73c669`, passes its dedicated
-  Rust/C/C++ source and execution gate `39661011331`, combined Quality
-  `39661019902` and CodeQL `39661012097`, and is merged. The CodeQL null-output
-  thread was resolved with independent evidence of an unreachable dereference;
-  no validation was relaxed.
-- Map JNI PR10 is published at `3abb91fa56a5bdf1b27337c689a409986caed793`
-  after independent rereview. Source gate `39664119379` passes 13 inert tests.
-  Actual trial `39664284521` fails its pre-existing KVM-access requirement before
-  acquisition or native execution. A four-file process-scoped KVM correction is
-  frozen with 26 inert tests passing and independent review underway; Android
-  behavior and cleanup remain unproved.
-- Actual Storage trial `39655116872` fails on `82dbb237` during fragment 3/copy 1
-  APPEND challenge verification. The fixed fragment 2/copy 0 RESERVE observer
-  correctly reports an untargeted failure. All three provider usage observations
-  are unavailable due to a schema incompatibility; remote deletion is unproved.
-  Reader correction PR316 is published at `82ecac2c`, with independent review,
-  16 reader tests and 15 adjacent request-stage tests passing; hosted checks are pending.
-- Actual public-model trial `39654833011` failed on `9a96c128` during socket
-  preflight, before TLS/admission. Its audited evidence cannot identify which
-  socket check failed and establishes no completed turn. The independently
-  reviewed default-off diagnostic's corrected source `f04a0b6f` passes all
-  122 Rust/427 Python source checks in `39666368770`. PR315 is merged only into
-  retained PR276 as `fd1018ed`, with the identical accepted tree. Explicit public
-  model trial `39667787022` is dispatched on that revision; no new actual
-  runtime acceptance is claimed.
+- Main code revision `0f15a349d3fe34131a806241c3efcb7c8a1cdb8d` (tree
+  `985b9d834381701f19d05ae4c0a2a4e6353fe782`) includes PR316; Quality
+  `39669308163` and CodeQL `39669307384` pass on exact main. Workspace tests
+  report 4,244 passed, 0 failed, 12 ignored; standalone Storage checks report
+  14/42. The normal dormant-DPS receipt records one completed synthetic daemon
+  execution, joined normal socket/fixture removal and unchanged bounded host
+  observations. It proves no app authority, sensor access or positioning.
+  Quality log SHA-256: `ee248589e104628d88c7e56b010c9ee21af86e8d457c609f8f340524adcdd38d`.
+- PR317's two-document update is merged on main as
+  `a9e05732577b718c966882dc8fb6a34c4e0820fb`, tree
+  `79902ec0f3e4cb04e46e63ab25538b7187f03611`; its fetched tree matches the
+  tested composition. Exact-main Quality `39674219207` and CodeQL `39674219517`
+  pass: 4,244/0/12 workspace results, Storage 14/42 and one bounded normal
+  synthetic-DPS execution with joined shutdown and unchanged bounded host
+  observations; four CodeQL analyses also pass. Quality log SHA-256:
+  `af5e8bc5234c10edddc9830ae99117a38bb2bddd5680a88598d35821e4e27af7`.
+  Goal preservation
+  passes: the original 26,125-byte goal
+  (`2bebaf9e27860115e64f5b93f50cc1e5bc17d34b22c45fe83106d200b86b54c7`)
+  and normative DPS addition (14,640 bytes,
+  `38449f84a75d2a8d15c87e014d7e2e70b638380b73fc3a3f54fb92913569a142`) remain
+  unchanged, as does the last-modified goal revision
+  `4ec0a0a1199ff30be1033165ddf905a6b4952890`. The exact 1,767-byte active UI
+  text remains in force.
+- The shared DPS C ABI is on main through PR314. Its canonical request is capped
+  at 16 KiB and its 36-byte response carries nine quality/limitation `u32`s,
+  with no coordinates. It is privacy/quality plumbing only: no sensors, history,
+  app-facing authority, estimator or physical-positioning evidence.
+- Map PR10's latest published source is
+  `02cf65b9cea0fd9a09e51f434d8b55deccb40fb7` (tree
+  `5d5bbafa9a659ff81a046870b4f46af9cee3d7bd`); source gate `39678152908` passes
+  56 inert tests and Components `39678152985` passes 31. Actual run
+  `39679300414` is in progress on this exact source. Earlier trial
+  `39676098216` reached successful public acquisition/build, then failed the
+  isolated offline stage at `LOCAL_ADDRESS_SELECTION`; its groups drained and
+  state was removed, but an IPv6 raw-state hash differed, leaving host baseline
+  unconfirmed. KVM probe API 12 and public native build are separately evidenced;
+  Android JNI/runtime execution remains unproved. The loopback predicate change
+  does not normalize IPv6 or explain the previous IPv6 baseline discrepancy.
+- Actual Storage run `39655116872` remains failed during fragment 3/copy 1 APPEND
+  challenge verification. Its consumer usage snapshots were unavailable under
+  the earlier schema and it provides no remote-deletion proof. PR316 fixes the
+  reader/schema boundary only. The new read-stage source `f8e10e7a1ac85a99d875836a3e906f105b454c8c`
+  (`fix/storage-challenge-read-20261021`) failed source run `39676743423` after
+  compilation/formatting: 212 of 216 Rust inventory cases passed, one historical
+  CLI-close assertion failed and three MPTCP tests were ignored; all 15 groups
+  ran. Its nine new reader tests and 283 Python/55 Node tests passed, but parser
+  controls and aggregate tests did not run. Reviewed four-file correction
+  `57312f0d1ccef705f38b15d08fb4f6d75efb4724` (tree
+  `ba496ac62116504056c3337c4a27f2771ee51f3a`) distinguishes missing-read rejection
+  from `read:null` and updates the version fixture; source run `39679433912` was
+  still running at this snapshot. Opt-in Image/Cloud v10 drafts remain
+  unaccepted, with provenance/pins and Node checks pending; no consumer timeout
+  fix or runtime acceptance is claimed.
+- Actual public-model run `39667787022` failed after the requester admitted the
+  request: the fixture worker reported stdout closed, with exit/signal/stderr
+  unknown. The narrow child was reaped and state removed, but complete guest
+  descendant cleanup was not proven. Its default-off diagnostic correction is
+  published as source `c2243341bbf81142d1f53d76c54c9050a9bb693a`, which passes source run
+  `39678433632`: 128 Rust and 433 Python tests, strict Clippy, formatting and
+  unchanged-source checks. Artifact `12383196339` is 34,635 bytes (API/ZIP
+  SHA-256 `70910d4fb855cb6c113e9ee59d6d5c4d7c263ca1315818e21de432ae67558af2`);
+  log SHA-256 is `c4cb5b217a59655bbe811e7911177ec57b4d33fc41d0c037929a39a5ee11599e`.
+  This only validates the failure diagnostic. Its predecessor `39677654559`
+  failed formatting after 433 Python tests; Rust tests and a model did not run.
+  PR318 is merged only into retained PR276 as
+  `3fceb0f82716a4ee10d1b9d11c7d5011fec31179`; its fetched tree
+  `f518b56c1500f9ea3b5c0623fe9d57c13eb5cd39` equals the accepted source.
+  Explicit public-model trial `39679679524` is dispatched on that exact merge.
+  No model fix or completed turn is established.
 
 These are execution priorities and evidence boundaries, not a reduced goal.
 The dated records below retain the earlier states and their original evidence.
@@ -578,17 +618,16 @@ hosted evidence. No new KVM, namespace, cancellation or Android trial has run.
 
 ### Execution priorities and next milestones
 
-Current next actions are to complete independent review and hosted verification
-of the Map fixture's process-scoped KVM access, verify and integrate the provider
-usage-reader schema correction, and observe exact-source public-model trial
-`39667787022`. Diagnose the actual APPEND challenge failure separately from its
-untargeted correlation observer and the usage-reader defect. Keep the
-permissionless Map fixture separate from sensors and the normal location path;
-preserve original failures and require joined cleanup in subsequent actual trials.
-These steps establish only their stated source, adapter lifecycle and ABI
-boundaries. The
-full goal still requires real sensor adapters, frame integrity, fusion, physical
-evaluation and native navigation alongside the other shared core integrations.
+Current next actions are to finish the Storage read-stage source gate, diagnose
+the actual APPEND challenge failure independently of the former observer/schema
+defect, and improve protected-model failure-stage evidence without treating a
+diagnostic as a fix. For Map, retain the offline-loopback correction as a narrow
+source change and keep IPv6 baseline uncertainty, Android JNI/runtime execution,
+permissions and hardware positioning open. Require joined cleanup and bounded
+host-state evidence in any subsequent actual trial. These steps establish only
+their stated source, adapter lifecycle and ABI boundaries. The full goal still
+requires real sensor adapters, frame integrity, fusion, physical evaluation and
+native navigation alongside the other shared core integrations.
 
 The shared cache and actual Weather delivery into Drizz.li and Overmorrow are
 integrated. The installed Android app now also passes on-demand core delivery,
