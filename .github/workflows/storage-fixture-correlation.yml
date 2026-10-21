@@ -200,28 +200,96 @@ jobs:
           }
           if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-request-stage-proof-20261021':
               groups['content-request'] = 'volparossa-content'
-          all_names, counts = [], {}
+          # Retain these exact opt-in kernel tests in the inventory, separately
+          # from executed contracts. This job does not supply their namespaces.
+          tls_prefix = 'content::tls::tests::'
+          tls_isolation = 'requires explicit hosted disposable net/PID namespaces and genuine Linux MPTCP'
+          tls_egress_isolation = 'requires exact hosted disposable content-egress namespace and genuine Linux MPTCP'
+          tls_ignored = {
+              tls_prefix + 'kernel_close::signed_reserve_rejects_abrupt_outer_drop_after_inner_finish': tls_isolation,
+              tls_prefix + 'kernel_close::signed_reserve_survives_tcp_provider_and_proxy_drop_before_outer_finish': tls_isolation,
+              tls_prefix + 'kernel_close::repeated_egress::three_signed_reserves_use_reusable_production_egress_and_fragmented_hello': tls_egress_isolation,
+          }
+          tls_names = set(tls_ignored) | {
+              tls_prefix + 'provider_tls_has_visible_policy_sni_and_fresh_client_identity_each_session',
+              tls_prefix + 'provider_tls_rejects_wrong_server_peer_pin_and_wrong_signed_sni',
+              tls_prefix + 'provider_tls_transfers_exact_registered_chunks_with_independent_publisher',
+          }
+
+          def verify_group(group, inventory, output):
+              names = re.findall(r'^([^\n]+): test$', inventory, re.M)
+              assert 1 <= len(names) <= 512 and len(names) == len(set(names)), group
+              ignored = tls_ignored if group == 'agent-tls' else {}
+              if group == 'agent-tls':
+                  assert set(names) == tls_names and len(names) == 6, group
+              expected = {name: 'ignored, ' + ignored[name] if name in ignored else 'ok' for name in names}
+              observations = re.findall(r'^test ([^\n]+) \.\.\. ([^\n]+)$', output, re.M)
+              assert sorted(observations) == sorted(expected.items()), group
+              passed = len(names) - len(ignored)
+              results = re.findall(r'^test result: ok\. (\d+) passed; 0 failed; (\d+) ignored; 0 measured; \d+ filtered out;', output, re.M)
+              assert results == [(str(passed), str(len(ignored)))], group
+              return names, [name for name in names if name not in ignored], ignored
+
+          def parser_controls(inventory, output):
+              ignored_name = sorted(tls_ignored)[0]
+              passed_name = sorted(tls_names - set(tls_ignored))[0]
+              ignored_line = 'test ' + ignored_name + ' ... ignored, ' + tls_ignored[ignored_name] + '\n'
+              passed_line = 'test ' + passed_name + ' ... ok\n'
+              assert output.count(ignored_line) == output.count(passed_line) == 1
+              cases = {
+                  'wrong_skip': ('agent-tls', inventory, output.replace(ignored_line,
+                      ignored_line.replace(ignored_name, 'unlisted::ignored_test'))),
+                  'missing_skip': ('agent-tls', inventory, output.replace(ignored_line, '')),
+                  'additional_skip': ('agent-tls', inventory, output.replace(passed_line,
+                      'test ' + passed_name + ' ... ignored, unlisted reason\n')),
+                  'reason_mismatch': ('agent-tls', inventory, output.replace(ignored_line,
+                      ignored_line.replace(tls_ignored[ignored_name], 'unlisted reason'))),
+                  'duplicate_skip': ('agent-tls', inventory, output + ignored_line),
+                  'duplicate_pass': ('agent-tls', inventory, output + passed_line),
+                  'failed_test': ('agent-tls', inventory, output.replace(passed_line,
+                      'test ' + passed_name + ' ... FAILED\n')),
+                  'missing_inventory': ('agent-tls', inventory.replace(ignored_name + ': test\n', ''), output),
+                  'skip_other_group': ('wire-new', 'baseline::case: test\n',
+                      'test baseline::case ... ignored, unlisted reason\n'
+                      'test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out;\n'),
+              }
+              for label, args in cases.items():
+                  try:
+                      verify_group(*args)
+                  except AssertionError:
+                      continue
+                  raise AssertionError('parser accepted ' + label)
+              return sorted(cases)
+
+          all_names, executed_names, ignored_names, counts = [], [], [], {}
+          executed_counts, ignored_counts = {}, {}
           new_counts = {}
+          controls = []
           for group, package in groups.items():
               inventory = (root / (group + '-inventory.log')).read_text()
               output = (root / (group + '-test.log')).read_text()
-              names = re.findall(r'^([^\n]+): test$', inventory, re.M)
-              assert 1 <= len(names) <= 512 and len(names) == len(set(names)), group
-              results = re.findall(r'^test result: ok\. (\d+) passed; 0 failed; 0 ignored; 0 measured; \d+ filtered out;', output, re.M)
-              assert results == [str(len(names))], group
-              for name in names:
-                  assert len(re.findall(r'^test ' + re.escape(name) + r' \.\.\. ok$', output, re.M)) == 1
+              names, passed, ignored = verify_group(group, inventory, output)
+              if group == 'agent-tls':
+                  controls = parser_controls(inventory, output)
               counts[group] = len(names)
+              executed_counts[group], ignored_counts[group] = len(passed), len(ignored)
               new_counts[group] = sum(name.rsplit('::', 1)[-1].startswith(
                   ('fixture_v3_', 'fixture_request_')) for name in names)
               all_names.extend(package + ':' + name for name in names)
+              executed_names.extend(package + ':' + name for name in passed)
+              ignored_names.extend(dict(package=package, test_name=name, reason=reason)
+                  for name, reason in sorted(ignored.items()))
           assert len(all_names) == len(set(all_names)), 'overlapping test groups'
           if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-request-stage-proof-20261021':
               expected_new = {'wire-new': 4, 'agent-new': 12, 'cli-new': 1,
                   'content-request': 5}
               assert {group: count for group, count in new_counts.items() if count} == expected_new
               assert sum(new_counts.values()) == 22
-          receipt = dict(schema=1, unique_tests=len(all_names), group_counts=counts,
+          assert len(ignored_names) == 3 and len(executed_names) + len(ignored_names) == len(all_names)
+          receipt = dict(schema=2, unique_tests=len(all_names), group_counts=counts,
+              executed_tests=len(executed_names), executed_group_counts=executed_counts,
+              ignored_group_counts=ignored_counts, ignored_tests=ignored_names,
+              executed_test_names=sorted(executed_names), parser_negative_controls=controls,
               test_names=sorted(all_names), live_consumer_acceptance=False, causal_attribution=False)
           (root / 'tests.json').write_text(json.dumps(receipt, sort_keys=True) + '\n')
           PY

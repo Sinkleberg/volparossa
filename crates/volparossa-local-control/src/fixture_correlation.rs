@@ -413,7 +413,7 @@ impl StorageFixtureCorrelationRequest {
     /// # Errors
     /// Returns a fixed error without reflecting any private input.
     pub fn validate(&self) -> Result<(), ControlProtocolError> {
-        if !matches!(self.version, 1 | 2 | 3)
+        if !matches!(self.version, 1..=3)
             || self.epoch.len() != 16
             || self.encoded_len() > MAX_FIXTURE_MESSAGE
         {
@@ -605,7 +605,7 @@ impl StorageFixtureCorrelationResponse {
     pub fn validate(&self) -> Result<(), ControlProtocolError> {
         use StorageFixtureCorrelationState as State;
 
-        if !matches!(self.version, 1 | 2 | 3)
+        if !matches!(self.version, 1..=3)
             || self.records.len() > MAX_FIXTURE_RECORDS
             || self.encoded_len() > MAX_FIXTURE_MESSAGE
         {
