@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use std::{
     os::unix::fs::{FileTypeExt as _, MetadataExt as _},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -111,6 +111,92 @@ fn stage(enabled: bool, value: Stage) {
     }
 }
 
+// Failed preflight only, at the original rejection point. Neither this marker
+// nor its enclosing stage establishes a connection, native execution or cleanup.
+const MAX_SOCKET_DIAGNOSTIC: usize = 512;
+
+#[derive(Clone, Copy, Debug, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum SocketCondition {
+    ParentValidation,
+    SocketMetadata,
+    NotSocket,
+    OwnerMismatch,
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum SocketIoKind {
+    None,
+    NotFound,
+    PermissionDenied,
+    Interrupted,
+    InvalidInput,
+    InvalidData,
+    Other,
+}
+
+fn socket_io_kind(error: &anyhow::Error) -> SocketIoKind {
+    match error.downcast_ref::<std::io::Error>().map(std::io::Error::kind) {
+        None => SocketIoKind::None,
+        Some(std::io::ErrorKind::NotFound) => SocketIoKind::NotFound,
+        Some(std::io::ErrorKind::PermissionDenied) => SocketIoKind::PermissionDenied,
+        Some(std::io::ErrorKind::Interrupted) => SocketIoKind::Interrupted,
+        Some(std::io::ErrorKind::InvalidInput) => SocketIoKind::InvalidInput,
+        Some(std::io::ErrorKind::InvalidData) => SocketIoKind::InvalidData,
+        Some(_) => SocketIoKind::Other,
+    }
+}
+
+fn observe_socket_failure(
+    enabled: bool,
+    condition: SocketCondition,
+    error: &anyhow::Error,
+    mut output: impl std::io::Write,
+) {
+    if enabled {
+        let value = json!({"version":1,"condition":condition,"io_kind":socket_io_kind(error)});
+        let body = value.to_string();
+        if body.len() <= MAX_SOCKET_DIAGNOSTIC {
+            let _ = writeln!(output, "VP_PUBLIC_REQUESTER_SOCKET_FAILURE_V1 {body}");
+        }
+    }
+}
+
+fn socket_preflight(
+    socket: &Path,
+    owner: u32,
+    mut observe: impl FnMut(SocketCondition, &anyhow::Error),
+) -> Result<()> {
+    let parent = socket.parent().context("resident_socket_parent");
+    let parent = parent.inspect_err(|error| observe(SocketCondition::ParentValidation, error))?;
+    crate::compute::private_directory(parent)
+        .inspect_err(|error| observe(SocketCondition::ParentValidation, error))?;
+    let info = std::fs::symlink_metadata(socket)
+        .map_err(anyhow::Error::from)
+        .inspect_err(|error| observe(SocketCondition::SocketMetadata, error))?;
+    // Keep the original combined guard and its error. The observation uses the
+    // same metadata, without another filesystem read or a weaker owner check.
+    socket_metadata(&info, owner).inspect_err(|error| {
+        observe(
+            if info.file_type().is_socket() {
+                SocketCondition::OwnerMismatch
+            } else {
+                SocketCondition::NotSocket
+            },
+            error,
+        );
+    })
+}
+
+fn socket_metadata(info: &std::fs::Metadata, owner: u32) -> Result<()> {
+    ensure!(
+        info.file_type().is_socket() && info.uid() == owner,
+        "resident_socket_owner"
+    );
+    Ok(())
+}
+
 pub(super) fn inputs() -> Result<[Vec<u8>; 2]> {
     let turn = |question| {
         serde_json::to_vec(&json!({
@@ -173,12 +259,15 @@ pub(in crate::compute) async fn run(options: Options) -> Result<()> {
         return Ok(());
     }
     stage(diagnostics, Stage::Socket);
-    crate::compute::private_directory(options.socket.parent().context("resident_socket_parent")?)?;
-    let info = std::fs::symlink_metadata(&options.socket)?;
-    ensure!(
-        info.file_type().is_socket() && info.uid() == nix::unistd::geteuid().as_raw(),
-        "resident_socket_owner"
-    );
+    socket_preflight(
+        &options.socket,
+        nix::unistd::geteuid().as_raw(),
+        |condition, error| {
+            if diagnostics {
+                observe_socket_failure(true, condition, error, std::io::stderr().lock());
+            }
+        },
+    )?;
     stage(diagnostics, Stage::Certificate);
     let (connector, spki) = client_config(crate::compute::read_file(&options.certificate, 8192)?)?;
     stage(diagnostics, Stage::Connect);

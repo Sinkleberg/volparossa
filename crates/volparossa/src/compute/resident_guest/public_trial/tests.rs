@@ -486,3 +486,193 @@ fn result_diagnostic_export_is_optional_bounded_and_sink_errors_are_ignored() {
     assert_eq!(output, b"VP_PUBLIC_REQUESTER_FAILURE_V1 {\"category\":\"read_eof\",\"guest\":null,\"turn\":1,\"version\":1}\n");
     observe_result_failure(true, 1, ResultFailure::ReadEof, None, Broken);
 }
+
+fn socket_observation(
+    path: &Path,
+    owner: u32,
+) -> (Result<()>, Vec<(SocketCondition, SocketIoKind)>) {
+    let mut observations = Vec::new();
+    let result = socket_preflight(path, owner, |condition, error| {
+        observations.push((condition, socket_io_kind(error)));
+    });
+    (result, observations)
+}
+
+#[test]
+fn socket_preflight_accepts_owned_socket_without_an_observation() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().canonicalize().unwrap().join("channel.sock");
+    let _listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let (result, observations) = socket_observation(&path, nix::unistd::geteuid().as_raw());
+    result.unwrap();
+    assert!(observations.is_empty());
+}
+
+#[test]
+fn socket_preflight_preserves_exact_parent_validation_rejections() {
+    use std::os::unix::fs::{PermissionsExt as _, symlink};
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    let (result, observations) =
+        socket_observation(Path::new("/"), nix::unistd::geteuid().as_raw());
+    assert_eq!(result.unwrap_err().to_string(), "resident_socket_parent");
+    assert_eq!(
+        observations,
+        vec![(SocketCondition::ParentValidation, SocketIoKind::None)]
+    );
+    let private = root.join("private");
+    std::fs::create_dir(&private).unwrap();
+    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let alias = root.join("alias");
+    symlink(&private, &alias).unwrap();
+    // A symlink ancestor reaches the canonical-path guard after valid metadata.
+    let nested = private.join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    std::fs::set_permissions(&nested, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let file = root.join("file");
+    std::fs::write(&file, b"PRIVATE_CANARY").unwrap();
+    for (parent, expected) in [
+        (PathBuf::from("relative"), "compute_path_absolute"),
+        (root.join("missing"), "compute_directory_missing"),
+        (file, "compute_directory_not_private"),
+        (alias.clone(), "compute_directory_not_private"),
+        (alias.join("nested"), "compute_directory_symlink"),
+    ] {
+        let original = crate::compute::private_directory(&parent).unwrap_err();
+        let (result, observations) =
+            socket_observation(&parent.join("channel.sock"), nix::unistd::geteuid().as_raw());
+        let error = result.unwrap_err();
+        assert_eq!(error.to_string(), expected);
+        assert_eq!(error.to_string(), original.to_string());
+        assert_eq!(
+            observations,
+            vec![(SocketCondition::ParentValidation, socket_io_kind(&original))]
+        );
+    }
+    for mode in [0o755, 0o770, 0o600] {
+        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(mode)).unwrap();
+        let (result, observations) =
+            socket_observation(&private.join("channel.sock"), nix::unistd::geteuid().as_raw());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "compute_directory_not_private"
+        );
+        assert_eq!(
+            observations,
+            vec![(SocketCondition::ParentValidation, SocketIoKind::None)]
+        );
+    }
+    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+#[test]
+fn socket_preflight_distinguishes_metadata_type_and_owner_without_following_links() {
+    use std::os::unix::fs::symlink;
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    let owner = nix::unistd::geteuid().as_raw();
+    let socket = root.join("channel.sock");
+    let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let file = root.join("file");
+    std::fs::write(&file, b"PRIVATE_CANARY").unwrap();
+    let alias = root.join("alias");
+    symlink(&socket, &alias).unwrap();
+    for (path, uid, condition, io, expected) in [
+        (
+            root.join("missing"),
+            owner,
+            SocketCondition::SocketMetadata,
+            SocketIoKind::NotFound,
+            None,
+        ),
+        (
+            file,
+            owner,
+            SocketCondition::NotSocket,
+            SocketIoKind::None,
+            Some("resident_socket_owner"),
+        ),
+        (
+            alias,
+            owner,
+            SocketCondition::NotSocket,
+            SocketIoKind::None,
+            Some("resident_socket_owner"),
+        ),
+        (
+            socket,
+            owner ^ 1,
+            SocketCondition::OwnerMismatch,
+            SocketIoKind::None,
+            Some("resident_socket_owner"),
+        ),
+    ] {
+        let (result, observations) = socket_observation(&path, uid);
+        let error = result.unwrap_err();
+        if let Some(expected) = expected {
+            assert_eq!(error.to_string(), expected);
+        } else {
+            assert_eq!(
+                error.downcast_ref::<std::io::Error>().unwrap().kind(),
+                std::io::ErrorKind::NotFound
+            );
+        }
+        assert_eq!(observations, vec![(condition, io)]);
+    }
+}
+
+#[test]
+fn socket_diagnostic_io_kinds_are_closed_and_never_include_raw_errors() {
+    for (kind, expected) in [
+        (std::io::ErrorKind::NotFound, SocketIoKind::NotFound),
+        (
+            std::io::ErrorKind::PermissionDenied,
+            SocketIoKind::PermissionDenied,
+        ),
+        (std::io::ErrorKind::Interrupted, SocketIoKind::Interrupted),
+        (std::io::ErrorKind::InvalidInput, SocketIoKind::InvalidInput),
+        (std::io::ErrorKind::InvalidData, SocketIoKind::InvalidData),
+        (std::io::ErrorKind::BrokenPipe, SocketIoKind::Other),
+    ] {
+        let error = anyhow::Error::from(std::io::Error::new(kind, "PRIVATE_CANARY"))
+            .context("/private/path-canary");
+        assert_eq!(socket_io_kind(&error), expected);
+        let mut output = Vec::new();
+        observe_socket_failure(true, SocketCondition::SocketMetadata, &error, &mut output);
+        assert!(output.len() <= MAX_SOCKET_DIAGNOSTIC);
+        let output = String::from_utf8(output).unwrap();
+        assert!(!output.contains("CANARY"));
+        assert!(!output.contains("/private"));
+    }
+    assert_eq!(
+        socket_io_kind(&anyhow::anyhow!("PRIVATE_CANARY")),
+        SocketIoKind::None
+    );
+}
+
+#[test]
+fn socket_diagnostic_is_optional_and_cannot_replace_the_original_error() {
+    struct Broken;
+    impl std::io::Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("PRIVATE_CANARY"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            panic!("no_extra_flush")
+        }
+    }
+    let error = anyhow::anyhow!("resident_socket_owner");
+    let mut output = Vec::new();
+    observe_socket_failure(false, SocketCondition::NotSocket, &error, &mut output);
+    assert!(output.is_empty());
+    observe_socket_failure(true, SocketCondition::NotSocket, &error, &mut output);
+    assert_eq!(output, b"VP_PUBLIC_REQUESTER_SOCKET_FAILURE_V1 {\"condition\":\"not_socket\",\"io_kind\":\"none\",\"version\":1}\n");
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().canonicalize().unwrap().join("file");
+    std::fs::write(&path, b"PRIVATE_CANARY").unwrap();
+    let error = socket_preflight(&path, nix::unistd::geteuid().as_raw(), |condition, error| {
+        observe_socket_failure(true, condition, error, Broken);
+    })
+    .unwrap_err();
+    assert_eq!(error.to_string(), "resident_socket_owner");
+}

@@ -2114,15 +2114,17 @@ class ReceiptAndBindings(Inert):
     def test_inventory_diagnostic_branch_only_adds_exact_source_contract_authority(self):
         import textwrap
         workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
-        self.assertIn('branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021]', workflow)
+        self.assertIn('branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021]', workflow)
         self.assertIn("github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' ||", workflow)
         self.assertIn("github.ref == 'refs/heads/fix/protected-requester-diagnostic-20261021' ||", workflow)
-        self.assertIn("github.ref == 'refs/heads/fix/protected-result-failure-20261021') &&", workflow)
+        self.assertIn("github.ref == 'refs/heads/fix/protected-result-failure-20261021' ||", workflow)
+        self.assertIn("github.ref == 'refs/heads/fix/protected-socket-diagnostic-20261021') &&", workflow)
         self.assertIn("github.event_name == 'push' || inputs.scenario == 'source-contracts'", workflow)
         public = workflow.split('\n  public-model:\n', 1)[1]
         self.assertNotIn('diagnostic/protected-export-inventory', public)
         self.assertNotIn('fix/protected-requester-diagnostic', public)
         self.assertNotIn('fix/protected-result-failure', public)
+        self.assertNotIn('fix/protected-socket-diagnostic', public)
         self.assertIn("github.ref == 'refs/heads/feature/protected-resident-model'", public)
         self.assertIn('test "$GITHUB_SHA" = "$EXPECTED_SOURCE"', public)
         self.assertIn('test "$GITHUB_WORKFLOW_SHA" = "$EXPECTED_SOURCE"', public)
@@ -2187,6 +2189,43 @@ class ReceiptAndBindings(Inert):
             if change == 'valid':
                 exec(compiled, namespace)
                 receipt = namespace['result_failure_scope']
+                self.assertEqual(set(receipt['source_blobs']), approved)
+                self.assertEqual(len(receipt['dependency_blobs']), 5)
+                self.assertTrue(receipt['diagnostic_only'])
+                self.assertFalse(receipt['actual_model_execution'])
+            else:
+                with self.assertRaises(AssertionError): exec(compiled, namespace)
+            command.assert_called_once_with(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
+
+    def test_socket_source_gate_requires_exact_paths_dependencies_and_ancestry(self):
+        import textwrap
+        workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
+        code = textwrap.dedent(workflow.split("python3 -B - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
+        branch = 'refs/heads/fix/protected-socket-diagnostic-20261021'
+        gate = next(node for node in ast.parse(code).body
+                    if isinstance(node, ast.If) and repr(branch) in ast.unparse(node.test))
+        compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-socket-gate', 'exec')
+        approved = {'.github/workflows/protected-resident-model.yml',
+            'crates/volparossa/src/compute/resident_guest/public_trial.rs',
+            'crates/volparossa/src/compute/resident_guest/public_trial/tests.rs',
+            'tests/integration/protected-resident-model-run.py',
+            'tests/integration/test-protected-resident-model-run.py'}
+        base = '9a96c1281e3fa6b5a9e8ad0490c37d5f17cd66bc'
+        for change in ('valid', 'missing', 'extra', 'duplicate', 'dependency', 'ancestry'):
+            changed = sorted(approved)
+            if change == 'missing': changed.pop()
+            if change == 'extra': changed.append('crates/volparossa/src/main.rs')
+            if change == 'duplicate': changed.append(changed[0])
+            def git(*args):
+                if args[0] == 'diff': return '\n'.join(changed)
+                if change == 'dependency' and args == ('rev-parse', base + ':Cargo.lock'): return 'b' * 40
+                return 'a' * 40
+            command = mock.Mock(side_effect=AssertionError('ancestry') if change == 'ancestry' else None)
+            namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}),
+                             subprocess=types.SimpleNamespace(run=command), git=git)
+            if change == 'valid':
+                exec(compiled, namespace)
+                receipt = namespace['socket_diagnostic_scope']
                 self.assertEqual(set(receipt['source_blobs']), approved)
                 self.assertEqual(len(receipt['dependency_blobs']), 5)
                 self.assertTrue(receipt['diagnostic_only'])
@@ -3102,6 +3141,133 @@ class RequesterResultFailure(Inert):
         snake = lambda value: re.sub(r'(?<!^)(?=[A-Z])', '_', value).lower()
         self.assertEqual(tuple(map(snake, variants)), R.REQUESTER_RESULT_CATEGORIES)
 
+
+
+class RequesterSocketFailure(Inert):
+    markers = RequesterDiagnostics.markers
+
+    def observation(self, condition='parent_validation', io_kind='none'):
+        return dict(version=1, condition=condition, io_kind=io_kind)
+
+    def marker(self, observation):
+        return R.REQUESTER_SOCKET_PREFIX + R.encoded(observation)
+
+    def raw(self, observation):
+        return self.markers(2) + self.marker(observation)
+
+    def test_closed_conditions_and_io_kinds_are_only_failure_observations(self):
+        for condition in R.REQUESTER_SOCKET_CONDITIONS:
+            for io_kind in R.REQUESTER_SOCKET_IO_KINDS:
+                value = self.observation(condition, io_kind)
+                report = R.requester_diagnostic(self.raw(value), 1)
+                valid = ((condition != 'socket_metadata' or io_kind != 'none') and
+                         (condition not in ('not_socket', 'owner_mismatch') or io_kind == 'none'))
+                self.assertEqual(report['socket_failure'], dict(
+                    state='observed' if valid else 'malformed', observation=value if valid else None))
+                self.assertEqual(report['version'], 3)
+                self.assertFalse(report['acceptance_evidence'])
+                self.assertTrue(report['diagnostic_only'])
+                self.assertEqual(report['stage_semantics'], 'entered_only')
+                self.assertEqual(report['result_failure'], dict(state='unavailable', observation=None))
+                self.assertNotIn('cleanup', report)
+
+    def test_missing_marker_raw_errors_or_input_over_bound_remain_unavailable(self):
+        for raw in (b'', self.markers(2), b'Error: /private/PRIVATE_CANARY\n', b'x' * 65537, None):
+            report = R.requester_diagnostic(raw, 1)
+            self.assertEqual(report['socket_failure'], dict(state='unavailable', observation=None))
+            self.assertNotIn('PRIVATE_CANARY', R.encoded(report).decode())
+
+    def test_exact_socket_stage_order_and_no_later_stage_are_required(self):
+        marker = self.marker(self.observation())
+        invalid = [marker, marker + self.markers(2), self.markers(1) + marker,
+                   self.markers(2) + marker + self.markers(1)]
+        invalid.extend(self.markers(count) + marker for count in range(3, len(R.REQUESTER_STAGES) + 1))
+        for raw in invalid:
+            report = R.requester_diagnostic(raw, 1)
+            self.assertEqual(report['socket_failure'], dict(state='malformed', observation=None))
+
+    def test_duplicates_truncation_noncanonical_json_and_budget_are_rejected(self):
+        value = self.observation()
+        marker = self.marker(value)
+        invalid = [(self.raw(value) + marker, 'malformed'), (self.raw(value)[:-1], 'truncated'),
+                   (self.markers(2) + R.REQUESTER_SOCKET_PREFIX + b'x' * 513 + b'\n', 'malformed'),
+                   (self.markers(2) + R.REQUESTER_SOCKET_PREFIX + b' ' + R.encoded(value), 'malformed'),
+                   (self.markers(2) + marker.replace(b'\n', b'\r\n'), 'malformed'),
+                   (self.markers(2) + marker.replace(b'{', b'{"version":1,', 1), 'malformed'),
+                   (self.markers(2) + R.REQUESTER_SOCKET_PREFIX.rstrip() + R.encoded(value), 'malformed')]
+        invalid.extend((self.markers(2) + R.REQUESTER_SOCKET_PREFIX.rstrip() + separator + R.encoded(value),
+                        'malformed') for separator in (b'x', b'\t', b'\x00'))
+        for raw, state in invalid:
+            self.assertEqual(R.requester_diagnostic(raw, 1)['socket_failure'],
+                             dict(state=state, observation=None))
+
+    def test_missing_extra_unknown_wrong_type_and_sequence_fields_never_export_canaries(self):
+        variants = [dict(self.observation(), **{key: value}) for key, value in (
+            ('version', True), ('version', 0), ('version', 2), ('version', '1'),
+            ('condition', 'parent_validation PRIVATE_CANARY'), ('condition', None), ('condition', {}),
+            ('io_kind', 'PRIVATE_CANARY'), ('io_kind', None), ('io_kind', True),
+            ('turn', 1), ('sequence', 0), ('extra', '/private/PRIVATE_CANARY'))]
+        variants.extend({key: value for key, value in self.observation().items() if key != missing}
+                        for missing in self.observation())
+        for value in variants:
+            report = R.requester_diagnostic(self.raw(value), 1)
+            self.assertEqual(report['socket_failure'], dict(state='malformed', observation=None))
+            self.assertNotIn('PRIVATE_CANARY', R.encoded(report).decode())
+            self.assertNotIn('/private', R.encoded(report).decode())
+
+    def test_result_marker_is_not_reinterpreted_as_socket_or_native_failure(self):
+        result = RequesterResultFailure()
+        value = result.observation('guest_failure')
+        raw = result.raw(value)
+        report = R.requester_diagnostic(raw, 1)
+        self.assertEqual(report['socket_failure'], dict(state='unavailable', observation=None))
+        self.assertEqual(report['result_failure'], dict(state='observed', observation=value))
+        for extra in (result.marker(value), R.REQUESTER_FAILURE_PREFIX + b'PRIVATE_CANARY\n'):
+            report = R.requester_diagnostic(self.raw(self.observation()) + extra, 1)
+            self.assertEqual(report['socket_failure'], dict(state='malformed', observation=None))
+            self.assertNotIn('PRIVATE_CANARY', R.encoded(report).decode())
+
+    def test_original_command_failure_and_cleanup_precedence_are_preserved(self):
+        value, observation = {}, self.observation('socket_metadata', 'permission_denied')
+        with fake_tool(returncode=1, pipe_bytes=(b'PRIVATE_CANARY', self.raw(observation))) as (process, join):
+            with self.assertRaisesRegex(ValueError, '^command_failed$'):
+                R.run(['never-executed'], 200, requester_observation=value)
+        self.assertEqual(value['socket_failure']['observation'], observation)
+        self.assertEqual(value['termination']['exit_code'], 1)
+        self.assertNotIn('PRIVATE_CANARY', R.encoded(value).decode())
+        join.assert_called_once_with(process)
+        error = R.CleanupUnconfirmed('PRIVATE_CANARY')
+        with fake_tool(join_error=error, returncode=1, pipe_bytes=(b'', self.raw(observation))):
+            with self.assertRaises(R.CleanupUnconfirmed) as caught:
+                R.run(['never-executed'], 200, requester_observation={})
+        self.assertIs(caught.exception, error)
+
+    def test_successful_request_and_existing_v2_fields_keep_their_original_meaning(self):
+        value = {}
+        original = requester()
+        raw = R.encoded(original)
+        with fake_tool(pipe_bytes=(raw, self.markers())):
+            output, stderr, status = R.run(['never-executed'], 200, requester_observation=value)
+        self.assertEqual((output, stderr, status), (raw, self.markers(), 0))
+        self.assertEqual(R.requester_record(output, original['workload_sha256']), original)
+        expected_v2 = dict(version=2, diagnostic_only=True, acceptance_evidence=False,
+            stage_semantics='entered_only', termination=dict(kind='exit', exit_code=0, signal=None),
+            protocol=dict(state='complete', attempt_stage='cleanup'),
+            result_failure=dict(state='unavailable', observation=None))
+        self.assertEqual(value, dict(expected_v2, version=3,
+                                    socket_failure=dict(state='unavailable', observation=None)))
+
+    def test_rust_socket_vocabulary_and_body_bound_match_controller(self):
+        import re
+        rust = (R.ROOT / 'crates/volparossa/src/compute/resident_guest/public_trial.rs').read_text()
+        for name, expected in (('SocketCondition', R.REQUESTER_SOCKET_CONDITIONS),
+                               ('SocketIoKind', R.REQUESTER_SOCKET_IO_KINDS)):
+            body = rust.split('enum ' + name + ' {')[1].split('}', 1)[0]
+            variants = re.findall(r'\b([A-Z][A-Za-z0-9]+)\s*[,\n]', body)
+            snake = lambda value: re.sub(r'(?<!^)(?=[A-Z])', '_', value).lower()
+            self.assertEqual(tuple(map(snake, variants)), expected)
+        self.assertIn('const MAX_SOCKET_DIAGNOSTIC: usize = %d;' % R.REQUESTER_SOCKET_MAX_BODY, rust)
+        self.assertIn(R.REQUESTER_SOCKET_PREFIX.decode().rstrip(), rust)
 
 
 class CommandLifecycle(Inert):

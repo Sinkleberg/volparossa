@@ -58,6 +58,11 @@ REQUESTER_STAGES = ('configuration', 'socket', 'certificate', 'connect', 'tls',
     'tls_profile', 'challenge', 'grant', 'accepted', 'turn_1_submit', 'turn_1_admitted',
     'turn_1_result', 'turn_2_submit', 'turn_2_admitted', 'turn_2_result', 'close', 'closed', 'cleanup')
 REQUESTER_FAILURE_PREFIX = b'VP_PUBLIC_REQUESTER_FAILURE_V1 '
+REQUESTER_SOCKET_PREFIX = b'VP_PUBLIC_REQUESTER_SOCKET_FAILURE_V1 '
+REQUESTER_SOCKET_MAX_BODY = 512
+REQUESTER_SOCKET_CONDITIONS = ('parent_validation', 'socket_metadata', 'not_socket', 'owner_mismatch')
+REQUESTER_SOCKET_IO_KINDS = ('none', 'not_found', 'permission_denied', 'interrupted',
+                           'invalid_input', 'invalid_data', 'other')
 REQUESTER_RESULT_CATEGORIES = ('read_deadline', 'read_bound', 'read_frame', 'read_eof', 'read_io',
     'read_other', 'reply_order', 'failure_frame', 'guest_failure', 'result_json', 'result_completion',
     'result_profile', 'result_output', 'result_answer', 'result_tokens', 'result_cleanup')
@@ -388,6 +393,47 @@ def requester_result_failure(raw, protocol):
         return dict(state='malformed', observation=None)
 
 
+def requester_socket_failure(raw, protocol):
+    """Closed failure projection; never a socket/native/cleanup success receipt."""
+    absent = dict(state='unavailable', observation=None)
+    if type(raw) is not bytes or len(raw) > 65536:
+        return absent
+    lines = raw.splitlines(keepends=True)
+    markers = [line for line in lines if line.startswith(REQUESTER_SOCKET_PREFIX.rstrip())]
+    if not markers:
+        return absent
+    if len(markers) != 1:
+        return dict(state='malformed', observation=None)
+    line = markers[0]
+    if not line.startswith(REQUESTER_SOCKET_PREFIX):
+        return dict(state='malformed', observation=None)
+    if not line.endswith(b'\n'):
+        return dict(state='truncated', observation=None)
+    if len(line) > len(REQUESTER_SOCKET_PREFIX) + REQUESTER_SOCKET_MAX_BODY + 1:
+        return dict(state='malformed', observation=None)
+    try:
+        payload = line[len(REQUESTER_SOCKET_PREFIX):-1]
+        value = json.loads(payload)
+        require(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode() == payload,
+                'diagnostic_encoding')
+        require(type(value) is dict and set(value) == {'version', 'condition', 'io_kind'}, 'diagnostic_schema')
+        require(type(value['version']) is int and value['version'] == 1 and
+                type(value['condition']) is str and value['condition'] in REQUESTER_SOCKET_CONDITIONS and
+                type(value['io_kind']) is str and value['io_kind'] in REQUESTER_SOCKET_IO_KINDS,
+                'diagnostic_schema')
+        require((value['condition'] != 'socket_metadata' or value['io_kind'] != 'none') and
+                (value['condition'] not in ('not_socket', 'owner_mismatch') or value['io_kind'] == 'none'),
+                'diagnostic_io_kind')
+        require(protocol == dict(state='prefix', attempt_stage='socket'), 'diagnostic_order')
+        stage_line = REQUESTER_STAGE_PREFIX + b'socket\n'
+        require(raw.find(stage_line) < raw.find(line) and
+                not any(item.startswith(REQUESTER_FAILURE_PREFIX.rstrip()) for item in lines),
+                'diagnostic_order')
+        return dict(state='observed', observation=value)
+    except (ValueError, TypeError, KeyError, UnicodeError, RecursionError, OverflowError):
+        return dict(state='malformed', observation=None)
+
+
 def requester_diagnostic(raw=b'', returncode=None, failure=None):
     termination = dict(kind='unavailable', exit_code=None, signal=None)
     if failure in ('command_timeout', 'controller_cancelled', 'command_output_bound'):
@@ -399,9 +445,12 @@ def requester_diagnostic(raw=b'', returncode=None, failure=None):
         elif 0 < -returncode < signal.NSIG:
             termination.update(kind='signal', signal=-returncode)
     protocol = requester_protocol_stage(raw)
-    return dict(version=2, diagnostic_only=True, acceptance_evidence=False,
+    # Version three adds socket_failure. Existing version-two receipts and the
+    # result-failure V1 marker retain their original meaning and field schema.
+    return dict(version=3, diagnostic_only=True, acceptance_evidence=False,
                 stage_semantics='entered_only', termination=termination, protocol=protocol,
-                result_failure=requester_result_failure(raw, protocol))
+                result_failure=requester_result_failure(raw, protocol),
+                socket_failure=requester_socket_failure(raw, protocol))
 
 
 def run(argv, deadline, *, cap=300, maximum=16 * 1024 ** 2, env=None, check=True,
