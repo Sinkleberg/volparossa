@@ -75,10 +75,16 @@ fn closed_projected_failure_is_accepted_by_both_collector_versions() {
         anyhow::anyhow!("PRIVATE_CANARY /private/prompt").context("compute_memory_budget"),
         super::super::diagnostic::native_worker_failure(&worker, "PRIVATE_REQUEST_CANARY").unwrap(),
         anyhow::anyhow!("PRIVATE_CANARY /private/prompt"),
+        anyhow::anyhow!("compute_native_session_stdout_closed"),
     ];
     let mut log = tempfile::NamedTempFile::new().unwrap();
     for cause in errors {
-        let error = anyhow::Error::new(Failure::after_cleanup(cause));
+        let error = anyhow::Error::new(Failure::after_cleanup(cause).with_close_observation(Some(
+            worker::CloseObservation {
+                status_before_cleanup: None,
+                stderr_class: "none",
+            },
+        )));
         let record = json!({"version":1,"phase":"task",
             "detail":super::super::diagnostic::describe(&error)});
         let raw = serde_json::to_string(&record).unwrap();
@@ -99,8 +105,9 @@ for enabled in (False, True):
     value = fixture['service_diagnostic'](Path(sys.argv[2]), memory_enabled=enabled)
     expected = dict(version=2 if enabled else 1, truncated=False, unrecognized_record=False,
         events=[dict(version=1, phase='task', detail=dict(code=code, io_kind='none',
-            exit_code=None, signal=None, stderr_class=None)) for code in
-            ('compute_memory_budget', 'NATIVE_SAMPLE_FAILED', 'unclassified')])
+            exit_code=None, signal=None,
+            stderr_class='none' if code == 'compute_native_session_stdout_closed' else None)) for code in
+            ('compute_memory_budget', 'NATIVE_SAMPLE_FAILED', 'unclassified', 'compute_native_session_stdout_closed')])
     if enabled:
         expected['memory'] = []
     assert value == expected
@@ -236,6 +243,116 @@ fn fixture_detail_requires_exact_enums_and_real_startup_status_shape() {
     value["stderr_class"] = json!("none");
     value["extra"] = json!("PRIVATE_CANARY");
     assert!(!public_fixture_detail(&value));
+}
+
+#[test]
+fn stdout_close_observation_preserves_primary_error_and_other_failure_shapes() {
+    use std::os::unix::process::ExitStatusExt as _;
+
+    let eof = anyhow::anyhow!("PRIVATE_CANARY /private/prompt")
+        .context("compute_native_session_stdout_closed");
+    let error = anyhow::Error::new(Failure::after_cleanup(eof).with_close_observation(Some(
+        worker::CloseObservation {
+            status_before_cleanup: Some(std::process::ExitStatus::from_raw(23 << 8)),
+            stderr_class: "python_startup",
+        },
+    )));
+    let value = public_fixture_failure(&error).unwrap();
+    assert_eq!(
+        value,
+        json!({"code":"compute_native_session_stdout_closed","io_kind":"none",
+            "exit_code":23,"signal":0,"stderr_class":"python_startup"})
+    );
+    assert!(super::super::diagnostic::public_fixture_detail(&value));
+    assert_eq!(cleanup(&error), Some(cleanup_record()));
+    assert_eq!(error.chain().count(), 1);
+    assert!(!value.to_string().contains("PRIVATE_CANARY"));
+    let causes = [
+        anyhow::Error::new(super::super::ExecutionDeadline),
+        anyhow::anyhow!("compute_owner_busy"),
+        super::super::diagnostic::native_worker_failure(
+            &json!({"version":1,"id":"test","kind":"result",
+                "status":"error","code":"NATIVE_DECODE_FAILED"}),
+            "test",
+        )
+        .unwrap(),
+    ];
+    for cause in causes {
+        let is_deadline = cause.is::<super::super::ExecutionDeadline>();
+        let before = super::super::diagnostic::native_session_detail(&cause);
+        let error = anyhow::Error::new(Failure::after_cleanup(cause).with_close_observation(Some(
+            worker::CloseObservation {
+                status_before_cleanup: Some(std::process::ExitStatus::from_raw(libc::SIGKILL)),
+                stderr_class: "other",
+            },
+        )));
+        assert_eq!(diagnostic(&error), Some(before));
+        assert_eq!(execution_deadline(&error), is_deadline);
+        assert!(super::super::adapter_violation(&error).is_none());
+    }
+}
+
+#[test]
+fn stdout_close_detail_accepts_only_legacy_null_or_closed_observation_matrix() {
+    use super::super::diagnostic::public_fixture_detail;
+
+    let mut value = json!({"code":"compute_native_session_stdout_closed","io_kind":"none",
+        "exit_code":null,"signal":null,"stderr_class":null});
+    let legacy = serde_json::to_vec(&value).unwrap();
+    assert!(public_fixture_detail(&value));
+    for class in [
+        "none",
+        "bubblewrap",
+        "user_namespace",
+        "proc_mount",
+        "exec_denied",
+        "python_startup",
+        "other",
+    ] {
+        value["stderr_class"] = json!(class);
+        for (exit, signal) in [
+            (Value::Null, Value::Null),
+            (json!(0), json!(0)),
+            (json!(255), json!(0)),
+            (json!(-1), json!(9)),
+        ] {
+            value["exit_code"] = exit;
+            value["signal"] = signal;
+            assert!(public_fixture_detail(&value));
+        }
+    }
+    for (exit, signal) in [
+        (Value::Null, json!(0)),
+        (json!(0), Value::Null),
+        (json!(-1), json!(0)),
+        (json!(0), json!(9)),
+        (json!(true), json!(0)),
+        (json!(-1), json!(true)),
+        (json!(-1), json!(65)),
+    ] {
+        value["exit_code"] = exit;
+        value["signal"] = signal;
+        assert!(!public_fixture_detail(&value));
+    }
+    value["exit_code"] = json!(0);
+    value["signal"] = json!(0);
+    for class in [
+        Value::Null,
+        json!(false),
+        json!("python_startup PRIVATE_CANARY"),
+    ] {
+        value["stderr_class"] = class;
+        assert!(!public_fixture_detail(&value));
+    }
+    value["stderr_class"] = json!("none");
+    value["code"] = json!("NATIVE_DECODE_FAILED");
+    assert!(!public_fixture_detail(&value));
+    let error =
+        public_fixture_test_failure(anyhow::anyhow!("compute_native_session_stdout_closed"));
+    assert_eq!(
+        serde_json::to_vec(&public_fixture_failure(&error).unwrap()).unwrap(),
+        legacy
+    );
 }
 
 #[tokio::test]

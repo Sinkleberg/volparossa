@@ -303,6 +303,27 @@ pub(super) struct Detail {
     stderr_class: Option<&'static str>,
 }
 
+impl Detail {
+    pub(super) fn with_native_stdout_close(
+        mut self,
+        status_before_cleanup: Option<std::process::ExitStatus>,
+        stderr_class: &'static str,
+    ) -> Self {
+        use std::os::unix::process::ExitStatusExt as _;
+
+        // Preserve the primary failure and every other code's existing shape.
+        // These are observations, not successful execution or causal attribution.
+        if self.code == "compute_native_session_stdout_closed" {
+            if let Some(status) = status_before_cleanup {
+                self.exit_code = Some(status.code().unwrap_or(-1));
+                self.signal = Some(status.signal().unwrap_or(0));
+            }
+            self.stderr_class = Some(stderr_class);
+        }
+        self
+    }
+}
+
 /// Exact closed vocabulary shared by the public-fixture writer and reader.
 /// This validates a projection, never constructs cleanup or execution authority.
 pub(in crate::compute) fn public_fixture_detail(value: &Value) -> bool {
@@ -341,30 +362,33 @@ pub(in crate::compute) fn public_fixture_detail(value: &Value) -> bool {
     let no_status = value["exit_code"].is_null()
         && value["signal"].is_null()
         && value["stderr_class"].is_null();
-    let startup_status = code == "startup_missing_result"
-        && value["exit_code"]
-            .as_i64()
-            .zip(value["signal"].as_i64())
-            .is_some_and(|(exit, signal)| {
-                ((0..=255).contains(&exit) && signal == 0)
-                    || (exit == -1 && (1..=64).contains(&signal))
-            })
-        && value["stderr_class"].as_str().is_some_and(|class| {
-            [
-                "none",
-                "bubblewrap",
-                "user_namespace",
-                "proc_mount",
-                "exec_denied",
-                "python_startup",
-                "other",
-            ]
-            .contains(&class)
+    let status = value["exit_code"]
+        .as_i64()
+        .zip(value["signal"].as_i64())
+        .is_some_and(|(exit, signal)| {
+            ((0..=255).contains(&exit) && signal == 0) || (exit == -1 && (1..=64).contains(&signal))
         });
+    let stderr_class = value["stderr_class"].as_str().is_some_and(|class| {
+        [
+            "none",
+            "bubblewrap",
+            "user_namespace",
+            "proc_mount",
+            "exec_denied",
+            "python_startup",
+            "other",
+        ]
+        .contains(&class)
+    });
+    let no_exit = value["exit_code"].is_null() && value["signal"].is_null();
     known
         && io
         && if code == "startup_missing_result" {
-            startup_status
+            status && stderr_class
+        } else if code == "compute_native_session_stdout_closed" {
+            // Old all-null messages remain exact. New observations require the
+            // updated Rust/controller readers; older readers reject this shape.
+            no_status || (stderr_class && (no_exit || status))
         } else {
             no_status
         }
