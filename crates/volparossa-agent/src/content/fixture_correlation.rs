@@ -703,16 +703,16 @@ impl Guard {
             }
             match phase {
                 Wire::RemoteRequestWrite if record.request.write_started.is_none() => {
-                    record.request.write_started = Some(now)
+                    record.request.write_started = Some(now);
                 }
                 Wire::RemoteReceiptRead if record.request.receipt_started.is_none() => {
-                    record.request.receipt_started = Some(now)
+                    record.request.receipt_started = Some(now);
                 }
                 Wire::RemoteReceiptVerify
                     if record.request.receipt_started.is_some()
                         && record.request.receipt_ended.is_none() =>
                 {
-                    record.request.receipt_ended = Some(now)
+                    record.request.receipt_ended = Some(now);
                 }
                 _ => {}
             }
