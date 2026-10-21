@@ -34,6 +34,29 @@ UI text. The user applied its exact three paragraphs to the existing active
 goal; independent readback confirmed exact equality and active status. No
 temporary attachment or previous conversation is required.
 
+Latest execution snapshot, 2026-10-21:
+
+- Main `797f24fdf53ffcc39156bbf59507ef6be40792a4` includes PR311 and PR313.
+  Their source Quality/CodeQL checks pass; fetched merge contents and committed
+  goal preservation pass. Exact-main Quality `39660547441` and CodeQL
+  `39660546762` remain running.
+- Native DPS ABI [PR314](https://github.com/VOLPAROSSA/volparossa/pull/314),
+  source `4d4612200e0a4a46546e0c827a3f3e7f0b73c669`, passes its dedicated
+  Rust/C/C++ source and execution gate `39661011331`; combined Quality
+  `39661019902` and CodeQL `39661012097` remain running.
+- The unpublished Map JNI candidate has been corrected after independent
+  lifecycle/cleanup review and is undergoing independent rereview. No Android
+  trial has run; existing Map work remains preserved. Complete review before the
+  hosted native trial.
+- Actual Storage trial `39655116872` remains running on `82dbb237`; preserve it.
+  Actual public-model trial `39654833011` failed on `9a96c128` during socket
+  preflight, before TLS/admission. Its audited evidence cannot identify which
+  socket check failed and establishes no completed turn. A bounded, default-off
+  socket diagnostic is being implemented on a separate retained branch.
+
+These are execution priorities and evidence boundaries, not a reduced goal.
+The dated records below retain the earlier states and their original evidence.
+
 This checkpoint supersedes older **planning statements**, not historical evidence
 or the full goal. Snapshot checked at 2026-10-21 17:42 UTC against main
 `9c02e93d5ddabf77f86e15fbf0404bbae4282496`. Its fetched tree
@@ -234,7 +257,159 @@ Preserve all retained failures and pursue native positioning, fusion and integri
 alongside shared core/application dependencies. Priority chooses sequence, never
 deletes agreed functionality or replaces full alpha acceptance.
 
+Snapshot refreshed at 2026-10-21 19:27 UTC. PR311 is merged as
+`ed03efa9c0deefa52791b93c3b5b4ea2792c5147`, with the exact tested tree
+`0fa85f07ed3a7d7376c9ff893e5b276f045fa0d4`. PR313 is merged as main
+`797f24fdf53ffcc39156bbf59507ef6be40792a4`; its tree
+`894567200d302ec7422d2456be6aa7b06d2364ae` differs from PR311 only by the two
+reviewed documentation files. The committed goal verifier passes on this exact
+main revision for full-goal revision
+`4ec0a0a1199ff30be1033165ddf905a6b4952890`, preserving the original 26,125-byte
+payload (SHA-256
+`2bebaf9e27860115e64f5b93f50cc1e5bc17d34b22c45fe83106d200b86b54c7`); the
+active UI text readback is exact. Main Quality `39654117256` and CodeQL
+`39654116272` pass on source `6e30834e6189c19163dcd799c5b4957f3e50ef5e`
+(tree `657da0842d1bcfc4cece18263e7335e4f8ecd76c`): 4,232 workspace test executions
+passed, zero failed, 12 ignored; standalone Storage outcome/wire suites pass
+14/42. Its original Quality log SHA-256 is
+`5c90a7854565e250e3bc79e2bf1b9cb88cfa7afcef4f8b303d376891170b9d2d`.
+PR311 Quality `39654288496` and CodeQL `39654281796` pass on source `82dbb237`;
+the Quality log binds its actual tested merge
+`b98d150b8683b59b99c72e86a454ed8b4e556664`, tree
+`0fa85f07ed3a7d7376c9ff893e5b276f045fa0d4`; its Quality log SHA-256 is
+`624bc5e83f4117c8b860b7bc5e01cd80006302a0254cf8472941d2c891e59b58`.
+PR313 Quality `39655281037` and CodeQL `39655279948` pass on source `208743fa`;
+the Quality log binds its actual tested merge
+`3d8f9832365f69af5fd1eedaa51732e775f843c8`, tree
+`72d39784b4dab4043110fa312aaad7e29d9e38e0`; its source delta from main is the
+two documentation paths, and its Quality log SHA-256 is
+`ef1f7e412cd49dd32351e10288ab4a6ece084305f103ddb871ff477228f8bec5`. Both
+retain the same test totals and normal dormant-daemon receipt: one complete
+synthetic execution, joined shutdown and owned socket/fixture cleanup, with
+bounded host observations unchanged. The inert integration harness reports one
+skip. These composition checks do not establish
+Storage consumer acceptance, native app authority or physical positioning.
+
+The existing profile-10 Storage trial `39655116872` remains bound to PR311
+source `82dbb2375d77a34fd9a2e45833c861721b50ce03`; its live status is still
+running at this snapshot. Protected-model trial
+`39654833011` likewise remains on source `9a96c1281e3fa6b5a9e8ad0490c37d5f17cd66bc`
+and is now terminal failed. Independent artifact audit reports
+`phase=two_public_turns`, `failure=command_failed`, `model_execution=false`.
+Requester diagnostic version 2 reports protocol prefix through `socket`,
+termination exit/1, RESULT failure unavailable and observation null. This marker
+denotes entry into parent-directory validation, socket metadata, type and owner
+checks; the receipt cannot distinguish their failure conditions. Certificate
+loading, connect, TLS, admission and RESULT processing were not reached. No
+native FAILURE frame, worker startup, inference or completed turn is proved.
+The guest readiness marker precedes core execution and is not service readiness.
+Earlier RESULT-stage failures retain their own unresolved cause.
+
+Both original artifacts pass API digest/size, ZIP integrity and all 39 source-blob
+bindings. Model artifact `12374621081` (7,251 bytes) has SHA-256
+`f6050b50c73451a5616d16616e291ca02a102eba9c5a6f79621338c5de9daf58`;
+contracts artifact `12371492245` (33,002 bytes) has SHA-256
+`e2e97955bc2f337975d620b4563f9cd9d3ed77e58aadac3361f04ea1e6308a0b`.
+The contracts passed 117 Rust and 417 Python tests, strict lint, compilation and
+unchanged-source checks. Original model job log SHA-256 is
+`0206dbdd06c4b18b3f22381469c4ba6d84fdf1528493da81a15cabcedc0d9cdf`;
+contracts log SHA-256 is
+`e8ee47a74e197abaf4ec3ffa8e782838ba01c0531f33f8a6c4009f56bba1a6df`;
+result receipt SHA-256 is
+`9bd4b31d7d8836cce22959fc6f48612aadbbdae6d9ebc33a9ef7e117a11e31f3`.
+Outer VM/tool cleanup and scratch removal report true. Builder/installer
+complete-guest-cleanup remains false, descendants-joined null and
+controller-cgroup-cleanup-required true; complete runtime guest-descendant and
+native-session cleanup remain unproved. Raw private paths/errors stay private.
+The isolated `fix/protected-socket-diagnostic-20261021` branch/worktree at
+`.volparossa-dev/worktrees/protected-socket-diagnostic-20261021`, based on `9a96c128`,
+is implementing closed public-fixture socket conditions/I/O kinds, with unchanged
+validations, errors, deadlines and acceptance. It is not committed or dispatched
+at this snapshot; no source change can retrospectively identify the failed check.
+
+Native quality-only ABI source `aae217d3341d50ea3f925ac58059a705ba215f75`
+(tree `388e9a03100a5e2474c55d3d16a2335b6a98f9a7`) passes hosted run
+`39659133028`: 12 Rust tests, 18 C11 and 18 C++17 synthetic caller cases under
+ASan/UBSan, and 36 separate Valgrind cases; the Rust library itself is not
+sanitizer-instrumented. Artifact `12373670287` (9,229 bytes) has API/ZIP
+SHA-256 `f246d0481ee3f83950134ce4da76bdb0be698529a87886873d02024f5076b0a4`;
+original log SHA-256 is
+`e728e85402809f5c0cd950e4bc50d0f542eb09ada6c066f76cd17917b6292faf`. Its
+36-byte C ABI returns only a nine-u32 quality summary; canonical bare protobuf
+input is capped at 16 KiB. It exposes no coordinates, sensors, history, Android
+permission authority or positioning improvement. Earlier ABI source
+`b97a5d1a467270f40ad368b3055cca6de0d6a341`, tree
+`77bc1da4901c60d5559351230b0c982f19c8614d`,
+also passed run `39656839613` (artifact `12371442267`, SHA-256
+`c41691a5bdeef9b6c7aa3bb887d482a7cf64541e4472f3e815a5d263de4dc86b`), log
+SHA-256 `59af1a271813e9ebe15f80ee8a158c4767859d0a3fc5bc9d3b985c45a2e9d869`.
+Combined Quality `39656846006` failed at cargo-deny for a wildcard internal
+dependency before tests; checkout merge
+`e52538e850d000a11722244e0e8b5c564ccb53ff` has that same b97 source tree, and this
+failed run has no artifact. Its log SHA-256 is
+`9e99430c99b664f34e5a6c9feb2564809ea4da3a6668c09d99c8d4c005a159e2`. Corrected
+composition `4d4612200e0a4a46546e0c827a3f3e7f0b73c669` (tree
+`bac45917af63e152ddb232a885446cb7221c84bb`) is published. Independent review
+passed the exact 15-path scope against main `797f24f`; all 14 non-workflow
+candidate paths remain identical to `aae217d`, other main paths are unchanged,
+and only two approved workflow base literals differ. Committed goal preservation
+passes. Dedicated run `39661011331` now passes on this exact composition: all
+15 source/six shared blob bindings and source/workflow/final tree match, 12 Rust
+tests pass, both native caller suites pass 18 cases under ASan/UBSan, and separate
+Memcheck suites pass 36 cases with zero errors. Static-library build, strict
+Clippy and formatting pass. Artifact `12374096078` (9,234 bytes) matches API
+SHA-256 `01ceb0c715afadd164ab3f56b02da56066b5e53c9ec6ed9f12a3d3340ebcba57`
+and ZIP integrity; original log SHA-256 is
+`be837b203da75c9fd36af5a7282d03958179cf7454e068aac27a6d94fff354f2`.
+The Rust sanitizer, Android and physical-positioning limitations remain.
+Combined Quality `39661019902` and CodeQL `39661012097` remain running.
+Superseded aae Quality `39659142645` is cancelled; its CodeQL `39659135740`
+passed. These outcomes do not establish the newer combined result.
+The initial source gate `39656184417` remains a preserved failure at three
+qualification errors before tests; artifact `12372520364` has SHA-256
+`a326669124a0b9707bc3a032ae45a6a10ccc545ebfb97465c8088c3a9755cc53`. The
+correction to source `b97a5d1` removes only those qualification/import issues.
+Neither failure is hidden by the corrected run.
+
+The separate unpublished Map worktree `.volparossa-dev/worktrees/map-native-dps-jni-20261021`
+is preparing an app-owned, permissionless debug-only quality adapter from Map
+repository base `e8fdcca87575e238894d579797379de9c3516384`, using pinned upstream
+Organic Maps `b20d1417eef1e3c63a447ac8658db4307a066024`. Its current
+19-file candidate contains a standalone module, C/JNI bridge and pinned build
+preparation; seven inert tests pass, but Android has not run. Independent review
+identified a SIGTERM cleanup bypass, background tests that revoke/expire before
+backgrounding, and missing post-result/pre-display expiry coverage. The author
+is addressing these findings; no source is committed or dispatched. Keep the
+adapter isolated from the existing location helper, GPS/track forwarding and
+administrative Unix socket. The earlier Map `feature/native-traffic-lifecycle`
+worktree remains unpublished and untouched. Next native acceptance is the
+reviewed synthetic quality fixture, followed by actual Android lifecycle checks;
+neither substitutes for later sensor, frame, fusion or navigation evidence.
+
+At 19:34 UTC the same 19-path Map candidate is frozen for independent rereview
+with core pin `4d4612200e0a4a46546e0c827a3f3e7f0b73c669`. The author reports
+13 passing inert tests (seven preparation/archive controls plus six lifecycle
+shims), a passing source gate and eight unrun Android tests. The revision adds
+catchable-signal ownership and bounded cleanup, fresh-consent background controls
+and deterministic expiry after posting but before UI delivery. Hosted cancellation
+controls are also unrun; their source is not cleanup evidence. Canonical sorted
+file-manifest SHA-256 is
+`31ad6cf9a450e24a664c0d92f129cfe109d0fb53da916fa513a967d5248517a1`;
+full binary diff SHA-256 is
+`bb763822b9ad6f337ded99293c574386a785348c6a3e73a6af8fe99b6d8544da`.
+
 ### Execution priorities and next milestones
+
+Current next actions are to complete the narrow Map JNI review corrections and
+independent rereview while completing the combined hosted checks for
+native ABI composition `4d4612200e0a4a46546e0c827a3f3e7f0b73c669`. Keep its
+permissionless synthetic fixture separate from location sensors and the ordinary
+Map location path. Recheck the live profile-10 Storage and protected-model trial
+states and finish the bounded socket diagnostic before a new model trial; do not
+restart or reinterpret their retained evidence. These steps establish only
+adapter lifecycle and ABI boundaries. The
+full goal still requires real sensor adapters, frame integrity, fusion, physical
+evaluation and native navigation alongside the other shared core integrations.
 
 The shared cache and actual Weather delivery into Drizz.li and Overmorrow are
 integrated. The installed Android app now also passes on-demand core delivery,

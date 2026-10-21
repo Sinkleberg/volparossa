@@ -111,6 +111,51 @@ use a separate coordinator and stay outside both that helper and the GPS/track
 forwarding path. No Rust linkage or DPS coordinator exists in the pinned native
 app yet; the Python component is not an Android bridge.
 
+### Quality-only native ABI candidate
+
+The shared Rust assessor now has a separately testable C ABI candidate. Its
+36-byte response is exactly nine `u32` quality/limitation fields; the canonical
+bare-protobuf request is bounded to 16 KiB. The response contains no coordinates
+or fix; the library acquires no sensors, keeps no history and accesses no
+administrative socket. Keep the Rust assessment as the
+single algorithm implementation; the Map adapter must not introduce a second
+estimator or turn a relative/unavailable assessment into a GPS fix. This narrow
+ABI is privacy/quality plumbing only and proves neither app identity nor location
+authority, Android integration, positioning accuracy or native navigation.
+
+Hosted run `39659133028` passed on ABI source
+`aae217d3341d50ea3f925ac58059a705ba215f75`, with 12 Rust tests, 18 C11 and 18
+C++17 synthetic caller cases under ASan/UBSan, and 36 separate full-library
+Valgrind cases. The Rust library was not itself sanitizer-instrumented. Artifact
+`12373670287` has verified API/ZIP SHA-256
+`f246d0481ee3f83950134ce4da76bdb0be698529a87886873d02024f5076b0a4`.
+Corrected main composition `4d4612200e0a4a46546e0c827a3f3e7f0b73c669` has
+passed independent exact-scope review and the same dedicated native checks in
+`39661011331`. Its combined workspace checks remain pending; current artifact
+bindings and historical failures are in the implementation ledger. The
+earlier combined run `39656846006` failed cargo-deny on a wildcard dependency;
+the corrected exact dependency version is now in the candidate.
+
+The separate unpublished Map candidate lives in
+`.volparossa-dev/worktrees/map-native-dps-jni-20261021`, based on pinned Map
+source `e8fdcca87575e238894d579797379de9c3516384`. It is a standalone,
+permissionless debug/test path with an app-owned coordinator and C/JNI boundary;
+it does not load the Organic Maps framework or request location. Link the
+standalone native target to the new Rust static library and required Android
+system libraries; do not route it
+through Organic Maps' existing JNI helper or `JNI_OnLoad`. Seven inert tests pass,
+while Android remains unrun. Initial independent review found a SIGTERM
+cleanup bypass, background lifecycle tests that revoke/expire before entering
+background, and missing deterministic coverage of expiry between posting and
+display. These
+must be corrected and reviewed before hosted or Android acceptance. The revised
+candidate adds controls for these cases and awaits independent rereview; the
+implementation ledger records exact source and test boundaries. Preserve
+generation-based revocation, monotonic expiry and joined cancellation; keep all
+work outside the real location helper, GPS listeners and track route. The
+existing JNI lifecycle does not establish OS app identity. No native Map runtime,
+sensor, positioning or accuracy claim follows from source or hosted ABI checks.
+
 Before work and again before publication, check the app-owned consent generation,
 monotonic expiry and active lifecycle. Revocation, disable or backgrounding clears
 selected DPS state and invalidates pending results; an obsolete completion must
