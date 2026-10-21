@@ -67,7 +67,7 @@ jobs:
               return subprocess.check_output(['git', *args], text=True).strip()
           base = os.environ['SOURCE_BASE']
           if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-request-stage-proof-20261021':
-              base = 'bae45ace7c40825ebc0c2e3035771ed27a801785'
+              base = 'e3b78c6376ccfe6ca9a4af1a60ffe65771ab1feb'
               subprocess.run(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
           changed = git('diff', '--name-only', base, 'HEAD').splitlines()
           assert changed and len(changed) == len(set(changed))
@@ -333,7 +333,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      CONSUMER_SOURCE_BASE: 200870bb620ac9c42ae0b9192e58b03d1a8434e6
+      CONSUMER_SOURCE_BASE: 6e30834e6189c19163dcd799c5b4957f3e50ef5e
     steps:
       - name: Check out the exact consumer harness candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -368,7 +368,7 @@ jobs:
           def git(*args):
               return subprocess.check_output(['git', *args], text=True).strip()
           base = os.environ['CONSUMER_SOURCE_BASE']
-          assert base == '200870bb620ac9c42ae0b9192e58b03d1a8434e6'
+          assert base == '6e30834e6189c19163dcd799c5b4957f3e50ef5e'
           assert re.fullmatch('[0-9a-f]{40}', os.environ['GITHUB_SHA'])
           allowed = {
               '.github/workflows/storage-fixture-correlation.yml',

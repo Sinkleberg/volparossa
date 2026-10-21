@@ -118,3 +118,10 @@ and a permitted merge. Verify the fetched final commit with `--git-revision` and
 report its exact SHA; local checks alone do not establish publication. This record
 cannot contain its own commit hash. The active UI field is separate client state;
 this repository change does not claim to have edited that field.
+
+After publication, the user applied the durable text to the existing active
+Pursuing Goal. A subsequent read on 2026-10-21 matched the code block in
+PURSUING_GOAL.md exactly, with the goal still active. This session therefore has
+no remaining temporary-attachment dependency in its active objective. The
+repository remains the portable requirements source; verify client state again
+when resuming in another session.
