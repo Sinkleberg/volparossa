@@ -481,6 +481,9 @@ class BuildAndExportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             original = fixtures.Fixture(directory)
+            parenthesized = 'runtime/lib/python3.13/site-packages/setuptools/script (dev).tmpl'
+            public_template = b'public inert setuptools pathname fixture\n'
+            original.put(parenthesized, public_template)
             native, output, declaration = root / 'native', root / 'output', root / 'fixture'
             (native / 'ml').mkdir(parents=True, mode=0o700)
             output.mkdir(mode=0o700)
@@ -503,6 +506,8 @@ class BuildAndExportTests(unittest.TestCase):
                     time.monotonic() + 30)
             self.assertEqual(staged['workload_sha256'], result['workload_sha256'])
             self.assertTrue((root / 'public-workload.tar').is_file())
+            with fixtures.tarfile.open(root / 'public-workload.tar') as archive:
+                self.assertEqual(archive.extractfile('opt/volparossa/' + parenthesized).read(), public_template)
 
     def test_write_new_never_overwrites(self):
         with tempfile.TemporaryDirectory() as directory:

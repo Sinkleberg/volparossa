@@ -420,8 +420,29 @@ class AssemblyTests(unittest.TestCase):
     def test_connected_export_stager_tar_in_and_final_closure_use_real_validators(self):
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(M, 'MAX_ROOT', 16384):
             fixture = Fixture(directory)
+            name = 'runtime/lib/python3.13/site-packages/setuptools/script (dev).tmpl'
+            payload = b'public inert setuptools pathname fixture\n'
+            fixture.public.put(name, payload)
+            fixture.public.policy()
+            fixture.report['export'].update(inventory_sha256=fixture.public.inventory(),
+                workload_sha256=M.STAGER.workload_sha256(fixture.public.value),
+                asset_files=len(fixture.public.value['entries']),
+                asset_bytes=sum(item.get('bytes', 0) for item in fixture.public.value['entries'].values()))
             exported = fixture.export()
+            metadata_ops = [op for call in fixture.calls if call[-1] == 'model_export_metadata' for op in call[1]]
+            self.assertIn(['lstatns', M.GUEST_OUTPUT + '/assets/' + name], metadata_ops)
+            downloads = [op for call in fixture.calls if call[-1] == 'model_export_assets' for op in call[1]
+                         if op[0] == 'download-offset' and op[1] == M.GUEST_OUTPUT + '/assets/' + name]
+            self.assertEqual(downloads, [['download-offset', M.GUEST_OUTPUT + '/assets/' + name,
+                                         exported['assets'] / name, '0', str(len(payload))]])
+            # Actual controller serialization is quoted guestfish syntax, never
+            # shell interpolation. The callback below remains an inert mock.
+            controller = M.module('protected-resident-model-run')
+            expected = 'download-offset' + ''.join(' ' + M.STAGER.encoded(str(value)).decode().rstrip('\n')
+                                                   for value in downloads[0][1:]) + '\n'
+            self.assertTrue(controller.fish_script(downloads).decode().endswith(expected))
             result = fixture.assemble(exported)
+            self.assertEqual((fixture.guest / ('opt/volparossa/' + name)).read_bytes(), payload)
             self.assertEqual(result['root_tree'].joinpath(M.BOOT.ENTRY.lstrip('/')).read_bytes(), M.BOOT.entrypoint())
             self.assertEqual(result['kernel'].read_bytes(), b'public kernel, never executed')
             self.assertEqual(result['original_initrd'].read_bytes(), b'public original initrd')

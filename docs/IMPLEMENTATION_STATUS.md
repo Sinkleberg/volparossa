@@ -49,6 +49,40 @@ the merged binary has not been rerun through the model trial.
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted bounded coding lifecycle with native editor operation and protected remote execution. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 and native-only core PR277 are merged. Code retains its immutable core dependency; source acceptance of the new core composition is not a repeat model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
 | Protected remote compute — `volparossa`, then Code/Browser | Complete immutable asset export, then join an authorized guest, resident coding worker and guest-terminated TLS 1.3 session. | Original actual `39078833292` on `fabfa849` again verifies 199 build and 65 runtime packages. Its closed builder receipt reaches `export`, after native build/provision validation, but does not identify which export or final recheck failed. VM/tool joining and scratch removal pass. The candidate adds bounded export-operation labels, not a demonstrated fix. Completed asset export, runtime boot, two turns, protected execution and production approval remain open. Integrate resident-only work separately from inherited unfinished Storage code; suitable confidential-computing hardware remains unavailable. |
 
+### Public model inventory compatibility — 2026-10-21
+
+This retained compute branch preserves the earlier trials below. Main's ledger
+remains the current cross-repository plan, including the separate DPS extension
+and active Storage integration; this correction does not replace that goal.
+
+Original `39082065142` on `3a1a1593` remains failed at export inventory validation.
+The preflight diagnostic and hosted Protobuf setup corrections are merged through
+PR301/PR303 into `f571e17cad9ad619f6e440190c247418b7a9797d`. Its actual public-model
+run `39617784665` passes source contracts, then fails `guest_model_build` with
+`guest_unit_failed`: export operation `inventory`, closed reason
+`inventory_path_character_or_separator`. Artifact SHA-256
+`7111131420f9d4f70ebbbdc0b7945eedf25ca9eccf2b67cf9e2d3ede504d419f` matches the
+hosted digest and ZIP integrity passes. Outer scratch/tool/VM cleanup is confirmed;
+complete cleanup within the guest before VM teardown remains unconfirmed.
+
+A separate inert audit verifies all 39 pinned public wheels, 253,241,299 bytes,
+against their original size/SHA-256 pins. One regular member fails the current
+path predicate: `setuptools/script (dev).tmpl` in setuptools 84.0.0, wheel SHA-256
+`51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670`. Its purelib
+mapping can place the file in the exported runtime. This establishes a concrete
+compatibility defect; the actual rejected guest pathname remains undisclosed.
+
+The correction accepts literal parentheses in bounded relative paths. Original
+names, contents, dependency pins and notices stay unchanged. No-follow opens,
+relative-path and symlink containment, digest/size checks, archive scope and
+fixed JSON-quoted guestfish operations retain their existing checks. Inert tests
+exercise this filename through export, staging and mocked guest assembly, plus
+rejection of traversal, command-substitution tokens, controls, long paths and
+altered contents.
+The workload suite has 33 tests; builder and assembly retain 42 and 29 tests.
+Hosted source checks and a new exact-source public-model execution remain required.
+No model turn, confidential execution or private-peer acceptance is established.
+
 ### Public resident model integration candidate
 
 The next candidate adds a guest-side `compute resident-guest` command. It accepts
