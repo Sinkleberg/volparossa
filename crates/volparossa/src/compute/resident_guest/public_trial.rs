@@ -310,7 +310,7 @@ fn observe_result_failure(
     enabled: bool,
     sequence: u32,
     category: ResultFailure,
-    guest: Option<Value>,
+    guest: Option<&Value>,
     mut output: impl std::io::Write,
 ) {
     if enabled && (1..=2).contains(&sequence) {
@@ -321,7 +321,7 @@ fn observe_result_failure(
     }
 }
 
-fn result_failure(enabled: bool, sequence: u32, category: ResultFailure, guest: Option<Value>) {
+fn result_failure(enabled: bool, sequence: u32, category: ResultFailure, guest: Option<&Value>) {
     if enabled {
         observe_result_failure(true, sequence, category, guest, std::io::stderr().lock());
     }
@@ -348,9 +348,8 @@ async fn turn_result<S: AsyncRead + Unpin>(
     deadline: Instant,
     diagnostics: bool,
 ) -> Result<wire::Frame> {
-    let frame = wire::read(stream, deadline).await.map_err(|error| {
-        result_failure(diagnostics, sequence, read_failure(&error), None);
-        error
+    let frame = wire::read(stream, deadline).await.inspect_err(|error| {
+        result_failure(diagnostics, sequence, read_failure(error), None);
     })?;
     if frame.kind == wire::FAILURE {
         match wire::failure_body(&frame, sequence) {
@@ -358,7 +357,7 @@ async fn turn_result<S: AsyncRead + Unpin>(
                 diagnostics,
                 sequence,
                 ResultFailure::GuestFailure,
-                Some(value),
+                Some(&value),
             ),
             Err(_) => result_failure(diagnostics, sequence, ResultFailure::FailureFrame, None),
         }
@@ -489,13 +488,12 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
         );
         stage(diagnostics, result_stage);
         let frame = turn_result(&mut tls, sequence, deadline, diagnostics).await?;
-        let value = result(&frame, ["READY", "4"][index]).map_err(|error| {
+        let value = result(&frame, ["READY", "4"][index]).inspect_err(|error| {
             let category = error
                 .downcast_ref::<ResultFailure>()
                 .copied()
                 .unwrap_or(ResultFailure::ResultJson);
             result_failure(diagnostics, sequence, category, None);
-            error
         })?;
         results.push(value);
     }

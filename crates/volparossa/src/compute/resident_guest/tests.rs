@@ -594,10 +594,10 @@ async fn failed_diagnostic_sink_or_unsealed_error_cannot_replace_owner_error() {
 fn terminal_failure_schema_is_closed_canonical_and_turn_bound() {
     let detail = json!({"code":"NATIVE_MODEL_LOAD_FAILED","io_kind":"none",
         "exit_code":null,"signal":null,"stderr_class":null});
-    let frame = wire::failure(1, detail.clone()).unwrap();
+    let frame = wire::failure(1, &detail).unwrap();
     assert!(wire::failure_body(&frame, 1).is_ok());
-    assert!(wire::failure(0, detail.clone()).is_err());
-    assert!(wire::failure(3, detail).is_err());
+    assert!(wire::failure(0, &detail).is_err());
+    assert!(wire::failure(3, &detail).is_err());
     assert!(wire::failure_body(&frame, 2).is_err());
     for (path, replacement) in [
         (vec!["version"], json!(2)),

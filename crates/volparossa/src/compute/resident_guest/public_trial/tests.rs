@@ -449,7 +449,7 @@ async fn first_result_reader_distinguishes_eof_bound_frame_and_deadline() {
 async fn terminal_frame_old_reader_rejects_and_new_reader_validates_before_failure() {
     let detail = json!({"code":"NATIVE_MODEL_LOAD_FAILED","io_kind":"none",
         "exit_code":null,"signal":null,"stderr_class":null});
-    let frame = wire::failure(1, detail).unwrap();
+    let frame = wire::failure(1, &detail).unwrap();
     for (sequence, old) in [(1, true), (1, false), (2, false)] {
         let (mut writer, mut reader) = tokio::io::duplex(2048);
         let stop = Instant::now() + Duration::from_secs(5);

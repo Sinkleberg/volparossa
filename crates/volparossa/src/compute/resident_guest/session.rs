@@ -155,7 +155,7 @@ pub(super) async fn observe_native_failure(
     deadline: tokio::time::Instant,
 ) {
     if let Some(detail) = native_session::public_fixture_failure(error) {
-        if let Ok(frame) = wire::failure(sequence, detail) {
+        if let Ok(frame) = wire::failure(sequence, &detail) {
             // No fresh execution budget, retry, or error-precedence change.
             let _ = wire::write(writer, frame, deadline).await;
         }

@@ -36,7 +36,7 @@ impl std::fmt::Display for ReadFailure {
 }
 impl std::error::Error for ReadFailure {}
 
-pub(super) fn failure(sequence: u32, detail: serde_json::Value) -> Result<Frame> {
+pub(super) fn failure(sequence: u32, detail: &serde_json::Value) -> Result<Frame> {
     let body = serde_json::to_vec(&serde_json::json!({"version":1,
         "scope":"public_fixture_native_session","detail":detail,
         "cleanup":{"version":1,"child_reaped":true,"private_state_removed":true}}))?;
