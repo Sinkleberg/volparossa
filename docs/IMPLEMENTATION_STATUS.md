@@ -97,6 +97,31 @@ privacy boundary, five-layer integration and measurement requirement.
   do not substitute for its still-required hosted daemon execution. Restart,
   crash recovery, active participation and mobile application authority remain
   outside this first normal-lifecycle proof.
+
+  Original [Quality `39623500798`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39623500798)
+  on PR305 head `2fe12925af3d89144290c2def8efc3a14c230345` passes strict Clippy
+  and workspace tests, then fails the required daemon proof. Its closed receipt
+  reports zero completed daemon executions and `exact_child_execution`; private
+  child output was suppressed, so the observed cause remains unknown. Host-state
+  observations match, but full namespace cleanup is not proven. CodeQL
+  `39623497152` passes. The failed result remains failed.
+
+  Source inspection identifies a conditional test-fixture defect: the namespace
+  harness's sudo fallback can reset the three explicit hosted opt-in variables.
+  The bounded correction passes only those fixed, already-validated gates as
+  arguments to `/usr/bin/env` after the unchanged namespace/privilege gate,
+  followed by the exact current test executable. No global sudo configuration,
+  arbitrary environment preservation or production code changes are introduced.
+  This is a demonstrated conditional incompatibility, not proof of the original
+  run's cause. Closed child-stage and exact-daemon cleanup enums distinguish
+  future failures without exporting logs, coordinates, credentials or paths.
+  Missing, malformed or contradictory reports still fail; completion still
+  requires exactly one child test, one actual daemon execution, joined normal
+  shutdown, removed sockets/fixture and unchanged host-state observations.
+  A failure-joined report establishes only the exact child's wait, never global
+  namespace cleanup. Thirty-six inert validator transcripts, environment-loss
+  controls, formatting and whitespace checks pass. Four new Rust regressions
+  and the real daemon proof still require hosted execution.
 - [ ] Join Map with explicit quality/unavailability and application permissions;
   verify native location handling and actual navigation separately.
   Map PR8, from `3bcfa76c64c86b108ee3a1becd86fb36ff69509d`, is merged at

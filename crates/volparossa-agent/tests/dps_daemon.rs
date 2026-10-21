@@ -6,6 +6,7 @@
 mod host_state;
 
 use std::{
+    cell::Cell,
     fs,
     os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
@@ -38,19 +39,59 @@ const TEST: &str = "dps_daemon_startup_socket_request_and_joined_cleanup";
 const MARKER: &str = "VOLPAROSSA_HANDOFF_TEST_PARENT_NETNS";
 const COMPLETE: &str = "DPS_DAEMON_CHILD_COMPLETE_V1";
 const RECEIPT: &str = "DPS_DAEMON_HOST_PROOF ";
+const CHILD_RECEIPT: &str = "DPS_DAEMON_CHILD_RESULT ";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ChildStage {
+    Fixture,
+    Spawn,
+    Readiness,
+    SocketPermissions,
+    DormantRoles,
+    DpsExchange,
+    DpsQuality,
+    Shutdown,
+    SocketCleanup,
+    FixtureCleanup,
+    Complete,
+}
+
+// Only the exact daemon child and this fixture; no namespace-wide cleanup inference.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DaemonCleanup {
+    NotStarted,
+    Unconfirmed,
+    FailureJoined,
+    JoinedButCleanupUnconfirmed,
+    NormalJoinedSocketAndFixtureRemoved,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ChildReport {
+    version: u8,
+    success: bool,
+    stage: ChildStage,
+    daemon_cleanup: DaemonCleanup,
+}
+
+struct Progress {
+    stage: Cell<ChildStage>,
+    cleanup: Cell<DaemonCleanup>,
+}
 
 #[test]
 #[ignore = "requires explicit disposable GitHub-hosted daemon proof"]
 fn dps_daemon_startup_socket_request_and_joined_cleanup() {
-    assert_eq!(
-        std::env::var("VOLPAROSSA_REQUIRE_DPS_DAEMON_PROOF").as_deref(),
-        Ok("1")
-    );
-    assert_eq!(std::env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
-    assert_eq!(
-        std::env::var("RUNNER_ENVIRONMENT").as_deref(),
-        Ok("github-hosted")
-    );
+    let gates = [
+        "VOLPAROSSA_REQUIRE_DPS_DAEMON_PROOF",
+        "GITHUB_ACTIONS",
+        "RUNNER_ENVIRONMENT",
+    ]
+    .map(|key| std::env::var(key).ok());
+    assert!(hosted_authority(gates.each_ref().map(Option::as_deref)));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -60,16 +101,31 @@ fn dps_daemon_startup_socket_request_and_joined_cleanup() {
             fs::read_link("/proc/self/ns/net").unwrap().as_os_str(),
             parent
         );
-        let result = runtime.block_on(daemon_scenario());
-        assert!(
-            result.is_ok(),
-            "{}",
-            result.err().unwrap_or("daemon_failure")
+        let progress = Progress {
+            stage: Cell::new(ChildStage::Fixture),
+            cleanup: Cell::new(DaemonCleanup::NotStarted),
+        };
+        let result = runtime.block_on(daemon_scenario(&progress));
+        let report = ChildReport {
+            version: 1,
+            success: result.is_ok(),
+            stage: progress.stage.get(),
+            daemon_cleanup: progress.cleanup.get(),
+        };
+        // The parent publishes only this typed report, never captured child logs.
+        println!(
+            "\n{CHILD_RECEIPT}{}",
+            serde_json::to_string(&report).unwrap()
         );
+        assert!(result.is_ok(), "daemon_scenario_failed");
         println!("\n{COMPLETE}");
     } else {
         runtime.block_on(hosted_scenario());
     }
+}
+
+fn hosted_authority(gates: [Option<&str>; 3]) -> bool {
+    gates == [Some("1"), Some("true"), Some("github-hosted")]
 }
 
 async fn hosted_scenario() {
@@ -91,12 +147,13 @@ async fn hosted_scenario() {
         ),
         _ => (false, false, false, false, false),
     };
-    let success = proof.is_ok() && routes && dns && firewall && sysctls && namespace;
+    let child_completed = proof.as_ref().is_ok_and(|report| report.success);
+    let success = child_completed && routes && dns && firewall && sysctls && namespace;
     let status = if before.is_err() {
         "before_capture_failed"
     } else if after.is_err() {
         "after_capture_failed"
-    } else if proof.is_err() {
+    } else if !child_completed {
         "daemon_proof_failed"
     } else if !success {
         "host_configuration_changed"
@@ -109,7 +166,9 @@ async fn hosted_scenario() {
         "before_captured": before.is_ok(), "after_captured": after.is_ok(),
         "routes_unchanged": routes, "dns_unchanged": dns, "firewall_unchanged": firewall,
         "sysctls_unchanged": sysctls, "parent_namespace_unchanged": namespace,
-        "completed_daemon_executions": u8::from(proof.is_ok()),
+        "completed_daemon_executions": u8::from(child_completed),
+        "child_stage": proof.as_ref().ok().map(|report| report.stage),
+        "daemon_cleanup": proof.as_ref().ok().map(|report| report.daemon_cleanup),
         "synthetic_dps_only": true, "hardware_positioning_proven": false,
         "mobile_app_authority_proven": false,
     });
@@ -117,30 +176,64 @@ async fn hosted_scenario() {
     assert!(success, "{status}");
 }
 
-async fn namespace_proof() -> Result<(), &'static str> {
+async fn namespace_proof() -> Result<ChildReport, &'static str> {
     let executable = std::env::current_exe().map_err(|_| "test_executable")?;
     let runner = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/run-isolated-test.sh");
+    let mut command = namespace_command(&runner, &executable);
+    let (success, output) = host_state::capture_command(&mut command, 135).await?;
+    parse_child_output(success, &output)
+}
+
+fn namespace_command(runner: &Path, executable: &Path) -> Command {
     let mut command = Command::new(runner);
-    command.arg("--command").arg(executable).args([
+    // Sudo's environment reset must not erase the already validated hosted opt-in.
+    // These fixed arguments reach env only after the unchanged isolation/privilege gate.
+    command.arg("--command").arg("/usr/bin/env").args([
         TEST,
         MARKER,
         "loopback",
+        "VOLPAROSSA_REQUIRE_DPS_DAEMON_PROOF=1",
+        "GITHUB_ACTIONS=true",
+        "RUNNER_ENVIRONMENT=github-hosted",
+    ]);
+    command.arg(executable).args([
         "--ignored",
         "--exact",
         TEST,
         "--nocapture",
         "--test-threads=1",
     ]);
-    let (success, output) = host_state::capture_command(&mut command, 135).await?;
-    let output = std::str::from_utf8(&output).map_err(|_| "child_encoding")?;
+    command
+}
+
+fn parse_child_output(success: bool, output: &[u8]) -> Result<ChildReport, &'static str> {
+    let output = std::str::from_utf8(output).map_err(|_| "child_encoding")?;
+    let reports: Vec<_> = output
+        .lines()
+        .filter_map(|line| line.strip_prefix(CHILD_RECEIPT))
+        .collect();
+    if reports.len() != 1 {
+        return Err("child_report_count");
+    }
+    let report: ChildReport = serde_json::from_str(reports[0]).map_err(|_| "child_report_shape")?;
+    let completed = report.success;
+    let expected_summary = if completed {
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;"
+    } else {
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured;"
+    };
     let summaries: Vec<_> = output
         .lines()
         .filter(|line| line.starts_with("test result:"))
         .collect();
-    if !success
-        || output.lines().filter(|line| *line == COMPLETE).count() != 1
+    if report.version != 1
+        || success != completed
+        || (report.stage == ChildStage::Complete) != completed
+        || (report.daemon_cleanup == DaemonCleanup::NormalJoinedSocketAndFixtureRemoved)
+            != completed
+        || output.lines().filter(|line| *line == COMPLETE).count() != usize::from(completed)
         || summaries.len() != 1
-        || !summaries[0].starts_with("test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;")
+        || !summaries[0].starts_with(expected_summary)
         || output
             .lines()
             .filter(|line| *line == "running 1 test")
@@ -149,7 +242,7 @@ async fn namespace_proof() -> Result<(), &'static str> {
     {
         return Err("exact_child_execution");
     }
-    Ok(())
+    Ok(report)
 }
 
 struct Fixture {
@@ -215,32 +308,43 @@ fn private_file(path: &Path, bytes: &[u8]) -> Result<(), &'static str> {
     file.write_all(bytes).map_err(|_| "fixture_write")
 }
 
-async fn daemon_scenario() -> Result<(), &'static str> {
+async fn daemon_scenario(progress: &Progress) -> Result<(), &'static str> {
     let fixture = Fixture::create()?;
+    progress.stage.set(ChildStage::Spawn);
     let mut child = fixture.command().spawn().map_err(|_| "daemon_spawn")?;
+    progress.cleanup.set(DaemonCleanup::Unconfirmed);
     let result = timeout(
         Duration::from_secs(40),
-        daemon_requests(&fixture, &mut child),
+        daemon_requests(&fixture, &mut child, progress),
     )
     .await;
     // Every request failure still kills and joins this exact child; PID namespace teardown
     // additionally removes descendants if this test itself crashes or reaches its outer bound.
     let outcome = result.unwrap_or(Err("daemon_deadline"));
-    if outcome.is_err() {
+    if outcome.is_err() && progress.cleanup.get() == DaemonCleanup::Unconfirmed {
         let _ = child.start_kill();
         let joined = timeout(Duration::from_secs(5), child.wait()).await;
         if !matches!(joined, Ok(Ok(_))) {
             return Err("failure_cleanup_join");
         }
+        progress.cleanup.set(DaemonCleanup::FailureJoined);
     }
     outcome?;
-    fixture.directory.close().map_err(|_| "fixture_cleanup")
+    progress.stage.set(ChildStage::FixtureCleanup);
+    fixture.directory.close().map_err(|_| "fixture_cleanup")?;
+    progress
+        .cleanup
+        .set(DaemonCleanup::NormalJoinedSocketAndFixtureRemoved);
+    progress.stage.set(ChildStage::Complete);
+    Ok(())
 }
 
 async fn daemon_requests(
     fixture: &Fixture,
     child: &mut tokio::process::Child,
+    progress: &Progress,
 ) -> Result<(), &'static str> {
+    progress.stage.set(ChildStage::Readiness);
     let pid = child.id().ok_or("daemon_pid")?;
     let mut ready = false;
     for _ in 0..100 {
@@ -263,9 +367,12 @@ async fn daemon_requests(
     if !ready {
         return Err("daemon_not_ready");
     }
+    progress.stage.set(ChildStage::SocketPermissions);
     verify_socket(&fixture.socket)?;
     verify_socket(&fixture.socket.with_extension("sock.apps"))?;
+    progress.stage.set(ChildStage::DormantRoles);
     verify_dormant_roles(fixture, pid).await?;
+    progress.stage.set(ChildStage::DpsExchange);
     let mut stream = UnixStream::connect(&fixture.socket)
         .await
         .map_err(|_| "dps_connect")?;
@@ -279,6 +386,7 @@ async fn daemon_requests(
     let Some(Payload::DpsAssessment(quality)) = reply.payload else {
         return Err("dps_payload");
     };
+    progress.stage.set(ChildStage::DpsQuality);
     quality.validate().map_err(|_| "dps_quality_validation")?;
     if quality.dps_version != DPS_SERVICE_VERSION
         || quality.status != AssessmentStatus::SingleClaim as i32
@@ -289,15 +397,20 @@ async fn daemon_requests(
         return Err("dps_quality");
     }
     drop(stream);
+    progress.stage.set(ChildStage::Shutdown);
     let pid = i32::try_from(pid).map_err(|_| "daemon_pid_bound")?;
     kill(Pid::from_raw(pid), Signal::SIGTERM).map_err(|_| "daemon_terminate")?;
     let status = timeout(Duration::from_secs(15), child.wait())
         .await
         .map_err(|_| "daemon_shutdown_deadline")?
         .map_err(|_| "daemon_join")?;
+    progress
+        .cleanup
+        .set(DaemonCleanup::JoinedButCleanupUnconfirmed);
     if !status.success() {
         return Err("daemon_shutdown_status");
     }
+    progress.stage.set(ChildStage::SocketCleanup);
     for path in [&fixture.socket, &fixture.socket.with_extension("sock.apps")] {
         require_absent(path)?;
     }
@@ -407,4 +520,98 @@ fn synthetic_request() -> Result<DpsAssessRequest, &'static str> {
             ..Default::default()
         }],
     })
+}
+
+#[test]
+fn dps_daemon_child_report_requires_exact_execution_and_cleanup() {
+    let report = ChildReport {
+        version: 1,
+        success: true,
+        stage: ChildStage::Complete,
+        daemon_cleanup: DaemonCleanup::NormalJoinedSocketAndFixtureRemoved,
+    };
+    let encoded = serde_json::to_string(&report).unwrap();
+    let output = format!(
+        "running 1 test\n{CHILD_RECEIPT}{encoded}\n{COMPLETE}\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;\n"
+    );
+    assert!(parse_child_output(true, output.as_bytes()).unwrap().success);
+    for invalid in [
+        output.replace(COMPLETE, ""),
+        output.replace(COMPLETE, &format!("{COMPLETE}\n{COMPLETE}")),
+        output.replace("running 1 test", "running 0 tests"),
+        output.replace("1 passed; 0 failed", "0 passed; 0 failed"),
+        output.replace("\"version\":1", "\"version\":2"),
+        output.replace("complete\"", "readiness\""),
+        output.replace("normal_joined_socket_and_fixture_removed", "unconfirmed"),
+        output.replace("\"success\":true", "\"success\":false"),
+        output.replace("\"version\":1", "\"extra\":0,\"version\":1"),
+        output.replace("complete\"", "private_unknown_stage\""),
+        format!("{output}{CHILD_RECEIPT}{encoded}\n"),
+    ] {
+        assert!(parse_child_output(true, invalid.as_bytes()).is_err());
+    }
+    assert!(parse_child_output(false, output.as_bytes()).is_err());
+    assert!(parse_child_output(true, b"running 1 test\n").is_err());
+}
+
+#[test]
+fn dps_daemon_child_failure_reports_closed_stage_without_completion() {
+    let output = format!(
+        "running 1 test\n{CHILD_RECEIPT}{{\"version\":1,\"success\":false,\"stage\":\"readiness\",\"daemon_cleanup\":\"failure_joined\"}}\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured;\n"
+    );
+    let report = parse_child_output(false, output.as_bytes()).unwrap();
+    assert!(!report.success);
+    assert_eq!(report.stage, ChildStage::Readiness);
+    assert_eq!(report.daemon_cleanup, DaemonCleanup::FailureJoined);
+    assert!(parse_child_output(true, output.as_bytes()).is_err());
+    assert!(parse_child_output(false, format!("{output}{COMPLETE}\n").as_bytes()).is_err());
+    assert!(parse_child_output(false, output.replace("readiness", "complete").as_bytes()).is_err());
+}
+
+#[test]
+fn dps_daemon_namespace_command_preserves_only_fixed_hosted_opt_in() {
+    let runner = Path::new("/synthetic/not-executed/isolation-runner");
+    let executable = Path::new("/synthetic/not-executed/test-binary");
+    let command = namespace_command(runner, executable);
+    let command = command.as_std();
+    assert_eq!(command.get_program(), runner.as_os_str());
+    assert_eq!(
+        command.get_args().collect::<Vec<_>>(),
+        [
+            "--command",
+            "/usr/bin/env",
+            TEST,
+            MARKER,
+            "loopback",
+            "VOLPAROSSA_REQUIRE_DPS_DAEMON_PROOF=1",
+            "GITHUB_ACTIONS=true",
+            "RUNNER_ENVIRONMENT=github-hosted",
+            "/synthetic/not-executed/test-binary",
+            "--ignored",
+            "--exact",
+            TEST,
+            "--nocapture",
+            "--test-threads=1",
+        ]
+        .map(std::ffi::OsStr::new)
+    );
+}
+
+#[test]
+fn dps_daemon_missing_or_invalid_parent_gate_is_rejected() {
+    let valid = [Some("1"), Some("true"), Some("github-hosted")];
+    assert!(hosted_authority(valid));
+    for index in 0..valid.len() {
+        for invalid in [
+            None,
+            Some(""),
+            Some("0"),
+            Some("false"),
+            Some("self-hosted"),
+        ] {
+            let mut gates = valid;
+            gates[index] = invalid;
+            assert!(!hosted_authority(gates));
+        }
+    }
 }

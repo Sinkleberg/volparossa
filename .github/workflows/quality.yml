@@ -296,10 +296,19 @@ jobs:
                   before_captured=True, after_captured=True, routes_unchanged=True,
                   dns_unchanged=True, firewall_unchanged=True, sysctls_unchanged=True,
                   parent_namespace_unchanged=True, completed_daemon_executions=1,
+                  child_stage="complete", daemon_cleanup="normal_joined_socket_and_fixture_removed",
                   synthetic_dps_only=True, hardware_positioning_proven=False,
                   mobile_app_authority_proven=False)
               assert type(receipt) is dict and receipt.keys() == expected.keys()
-              assert all(type(receipt[key]) is type(value) for key, value in expected.items())
+              assert all(type(receipt[key]) is type(value) for key, value in expected.items()
+                  if key not in ("child_stage", "daemon_cleanup"))
+              assert receipt["child_stage"] is None or (type(receipt["child_stage"]) is str and
+                  receipt["child_stage"] in ("fixture", "spawn", "readiness", "socket_permissions",
+                      "dormant_roles", "dps_exchange", "dps_quality", "shutdown", "socket_cleanup",
+                      "fixture_cleanup", "complete"))
+              assert receipt["daemon_cleanup"] is None or (type(receipt["daemon_cleanup"]) is str and
+                  receipt["daemon_cleanup"] in ("not_started", "unconfirmed", "failure_joined",
+                      "joined_but_cleanup_unconfirmed", "normal_joined_socket_and_fixture_removed"))
               assert receipt["version"] == 1 and receipt["completed_daemon_executions"] in (0, 1)
               assert receipt["status"] in ("passed", "before_capture_failed",
                   "after_capture_failed", "daemon_proof_failed", "host_configuration_changed")
