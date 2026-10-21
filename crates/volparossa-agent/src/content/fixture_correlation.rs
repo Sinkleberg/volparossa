@@ -5,7 +5,7 @@ pub(super) use io::Observed;
 
 use std::{
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, Weak,
         atomic::{AtomicBool, Ordering::Relaxed},
     },
     time::Duration,
@@ -13,13 +13,19 @@ use std::{
 
 use sha2::{Digest, Sha256};
 use tokio::time::Instant;
-use volparossa_content::provider::activity::{Observer, Stage};
+use volparossa_content::{
+    private_storage::protocol::{StorageOperation, VerifiedStorageRequest},
+    provider::activity::{Observer, RequestStage, Stage, WorkerObserver},
+};
 use volparossa_local_control::{
-    StorageFixtureAcquireSummary, StorageFixtureCorrelationAction as Action,
-    StorageFixtureCorrelationPhase as Phase, StorageFixtureCorrelationRecord as WireRecord,
-    StorageFixtureCorrelationRequest as Request, StorageFixtureCorrelationResponse as Response,
-    StorageFixtureCorrelationRole as Role, StorageFixtureCorrelationState as State,
-    StorageFixtureCorrelationTerminal as Terminal,
+    PrivateStorageElapsedBucket as Bucket, StorageFixtureAcquireSummary,
+    StorageFixtureCorrelationAction as Action, StorageFixtureCorrelationPhase as Phase,
+    StorageFixtureCorrelationRecord as WireRecord, StorageFixtureCorrelationRequest as Request,
+    StorageFixtureCorrelationResponse as Response, StorageFixtureCorrelationRole as Role,
+    StorageFixtureCorrelationState as State, StorageFixtureCorrelationTerminal as Terminal,
+    StorageFixtureOperation as Operation, StorageFixtureProviderStage as ProviderStage,
+    StorageFixtureRequestObservation, StorageFixtureReserveTiming, StorageFixtureTarget,
+    StorageFixtureWorkerState as WorkerState,
 };
 use zeroize::Zeroize;
 
@@ -59,6 +65,7 @@ struct Epoch {
     expires: Instant,
     life: Arc<Life>,
     records: [Option<Record>; CAPACITY],
+    target_scope: Option<[u8; 32]>,
 }
 
 struct Life {
@@ -79,11 +86,103 @@ struct Record {
     bytes: usize,
     flow_acquire: Option<StorageFixtureAcquireSummary>,
     acquire_valid: Arc<AtomicBool>,
+    request_valid: Arc<AtomicBool>,
+    request: RequestRecord,
+}
+
+#[derive(Default)]
+struct RequestRecord {
+    target: Option<[u8; 32]>,
+    digest: Option<[u8; 32]>,
+    verified_digest: Option<[u8; 32]>,
+    operation: i32,
+    provider_stage: i32,
+    worker_state: i32,
+    returned_after_terminal: bool,
+    started: Option<Instant>,
+    deadline: Option<Instant>,
+    write_started: Option<Instant>,
+    receipt_started: Option<Instant>,
+    receipt_ended: Option<Instant>,
+}
+
+impl RequestRecord {
+    fn project(&self, ended: Instant) -> StorageFixtureRequestObservation {
+        let reserve_timing = self.reserve_timing(ended);
+        StorageFixtureRequestObservation {
+            request_digest: self.digest.map(|value| value.to_vec()),
+            operation: self.operation,
+            provider_stage: self.provider_stage,
+            worker_state: self.worker_state,
+            worker_returned_after_terminal: self.returned_after_terminal,
+            reserve_timing,
+        }
+    }
+    fn reserve_timing(&self, ended: Instant) -> Option<StorageFixtureReserveTiming> {
+        if self.operation != Operation::Reserve as i32 {
+            return None;
+        }
+        let started = self.started?;
+        let deadline = self.deadline?;
+        let write = self.write_started?;
+        Some(StorageFixtureReserveTiming {
+            before_request_flush_elapsed: bucket(write.saturating_duration_since(started)),
+            before_request_flush_remaining: bucket(deadline.saturating_duration_since(write)),
+            receipt_wait_elapsed: self.receipt_started.map(|at| {
+                bucket(
+                    self.receipt_ended
+                        .unwrap_or(ended)
+                        .saturating_duration_since(at),
+                )
+            }),
+            receipt_wait_remaining: self
+                .receipt_started
+                .map(|at| bucket(deadline.saturating_duration_since(at))),
+        })
+    }
+}
+
+fn bucket(duration: Duration) -> i32 {
+    (match duration.as_secs() {
+        0 => Bucket::Under1s,
+        1..=4 => Bucket::S1To5,
+        5..=14 => Bucket::S5To15,
+        15..=29 => Bucket::S15To30,
+        30..=59 => Bucket::S30To60,
+        60..=89 => Bucket::S60To90,
+        90..=119 => Bucket::S90To120,
+        _ => Bucket::AtLeast120s,
+    }) as i32
+}
+
+fn operation(value: StorageOperation) -> Operation {
+    match value {
+        StorageOperation::Reserve { .. } => Operation::Reserve,
+        StorageOperation::Append { .. } => Operation::Append,
+        StorageOperation::Progress => Operation::Progress,
+        StorageOperation::Finalize => Operation::Finalize,
+        StorageOperation::ReadRange { .. } => Operation::ReadRange,
+        StorageOperation::Renew { .. } => Operation::Renew,
+        StorageOperation::Delete => Operation::Delete,
+    }
+}
+
+fn target_digest(epoch: &[u8; 16], target: &StorageFixtureTarget) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(b"volparossa-storage-fixture-target-v3\0");
+    hash.update(epoch);
+    hash.update(&target.archive_id);
+    hash.update(&target.provider_key);
+    hash.update(target.operation.to_be_bytes());
+    hash.finalize().into()
 }
 
 impl Drop for Record {
     fn drop(&mut self) {
         self.fingerprint.zeroize();
+        self.request.target.zeroize();
+        self.request.digest.zeroize();
+        self.request.verified_digest.zeroize();
         self.hash = None;
     }
 }
@@ -92,6 +191,7 @@ impl Drop for Epoch {
     fn drop(&mut self) {
         self.life.alive.store(false, Relaxed);
         self.bytes.zeroize();
+        self.target_scope.zeroize();
         // Clearing records also clears every completed fingerprint. Guards retain only
         // slot ownership and liveness, never epoch bytes, a digest or a raw prefix.
         for record in &mut self.records {
@@ -174,7 +274,7 @@ impl Correlation {
         Ok(response)
     }
 
-    fn cleanup_task(self: &Arc<Self>, life: std::sync::Weak<Life>) -> tokio::task::JoinHandle<()> {
+    fn cleanup_task(self: &Arc<Self>, life: Weak<Life>) -> tokio::task::JoinHandle<()> {
         let owner = Arc::downgrade(self);
         // One disposable task, absent when disabled. No identity or stream, and no
         // blocking lock. Erasure occurs on the next successful one-second tick.
@@ -239,6 +339,10 @@ impl Correlation {
                 expires: now + EPOCH_TTL,
                 life,
                 records: std::array::from_fn(|_| None),
+                target_scope: request
+                    .target
+                    .as_ref()
+                    .map(|target| target_digest(&bytes, target)),
             });
             return Ok(empty(State::Armed, request.version));
         }
@@ -252,11 +356,44 @@ impl Correlation {
             bank.epoch = None;
             return Ok(empty(State::Disarmed, request.version));
         }
+        if request.version == 3
+            && action == Action::Clients
+            && request
+                .target
+                .as_ref()
+                .map(|target| target_digest(&bytes, target))
+                != epoch.target_scope
+        {
+            return Err(ContentError::Invalid);
+        }
         let role = if action == Action::Clients {
             Role::Client
         } else {
             Role::Provider
         };
+        Ok(self.snapshot(epoch, request, role, now))
+    }
+
+    fn snapshot(&self, epoch: &Epoch, request: &Request, role: Role, now: Instant) -> Response {
+        let selected_target = request
+            .target
+            .as_ref()
+            .map(|target| target_digest(&epoch.bytes, target));
+        // Verified exclusions are deliberate scope, never complete phase history. Unknown
+        // client attempts might be another attempt on this target: do not guess through them.
+        let unknown_client = role == Role::Client
+            && epoch
+                .records
+                .iter()
+                .flatten()
+                .any(|record| record.role == Role::Client && record.request.target.is_none());
+        if request.version == 3
+            && (epoch.life.incomplete.load(Relaxed)
+                || self.missed_begin.load(Relaxed)
+                || unknown_client)
+        {
+            return unavailable(request.version);
+        }
         let records = epoch
             .records
             .iter()
@@ -264,6 +401,12 @@ impl Correlation {
             .filter_map(|record| {
                 if record.role != role {
                     return None;
+                }
+                if let Some(target) = selected_target {
+                    if !record.request_valid.load(Relaxed) || record.request.target != Some(target)
+                    {
+                        return None;
+                    }
                 }
                 let fingerprint = record
                     .prefix_valid
@@ -285,8 +428,11 @@ impl Correlation {
                     fingerprint: fingerprint.map(|value| value.to_vec()),
                     phase: record.phase as i32,
                     terminal: record.terminal as i32,
+                    request_observation: (request.version == 3
+                        && record.request_valid.load(Relaxed))
+                    .then(|| record.request.project(record.finished.unwrap_or(now))),
                     flow_acquire: record.flow_acquire.filter(|_| {
-                        request.version == 2
+                        request.version >= 2
                             && record.terminal == Terminal::OperationError
                             && record.acquire_valid.load(Relaxed)
                     }),
@@ -300,11 +446,11 @@ impl Correlation {
             records,
         };
         // Unknown internal state can only remove diagnostic availability.
-        Ok(if response.validate_for(request).is_ok() {
+        if response.validate_for(request).is_ok() {
             response
         } else {
             unavailable(request.version)
-        })
+        }
     }
 
     pub(super) fn client(self: &Arc<Self>, uid: u32) -> Guard {
@@ -361,6 +507,7 @@ impl Correlation {
         let prefix_valid = Arc::new(AtomicBool::new(true));
         let prefix_complete = Arc::new(AtomicBool::new(false));
         let acquire_valid = Arc::new(AtomicBool::new(false));
+        let request_valid = Arc::new(AtomicBool::new(true));
         let mut hash = Sha256::new();
         hash.update(DOMAIN);
         hash.update(epoch.bytes);
@@ -381,6 +528,8 @@ impl Correlation {
             bytes: 0,
             flow_acquire: None,
             acquire_valid: Arc::clone(&acquire_valid),
+            request_valid: Arc::clone(&request_valid),
+            request: RequestRecord::default(),
         });
         Guard(Some(Tracking {
             owner: Arc::clone(self),
@@ -391,6 +540,7 @@ impl Correlation {
             token,
             version: epoch.version,
             acquire_valid,
+            request_valid,
             terminal_recorded: AtomicBool::new(false),
         }))
     }
@@ -420,6 +570,7 @@ struct Tracking {
     version: u32,
     acquire_valid: Arc<AtomicBool>,
     terminal_recorded: AtomicBool,
+    request_valid: Arc<AtomicBool>,
     owner: Arc<Correlation>,
     life: Arc<Life>,
     prefix_valid: Arc<AtomicBool>,
@@ -457,6 +608,152 @@ impl Guard {
         true
     }
 
+    pub(super) fn start_operation(&self, started: Option<Instant>, duration: Duration) {
+        if self.0.as_ref().is_none_or(|track| track.version != 3) {
+            return;
+        }
+        self.update(|record| {
+            record.request.started = started;
+            record.request.deadline = started.map(|at| at + duration);
+        });
+    }
+
+    pub(super) fn bind_request(&self, request: &VerifiedStorageRequest, flushed: bool) {
+        let Some(track) = self.0.as_ref().filter(|track| track.version == 3) else {
+            return;
+        };
+        let Ok(mut bank) = track.owner.bank.try_lock() else {
+            track.request_valid.store(false, Relaxed);
+            track.life.incomplete.store(true, Relaxed);
+            return;
+        };
+        bank.expire(Instant::now());
+        let Some(epoch) = &mut bank.epoch else {
+            return;
+        };
+        if !Arc::ptr_eq(&epoch.life, &track.life) || !track.life.alive.load(Relaxed) {
+            return;
+        }
+        let Some(record) = &mut epoch.records[track.index] else {
+            return;
+        };
+        if record.token != track.token || record.finished.is_some() {
+            return;
+        }
+        let target = StorageFixtureTarget {
+            archive_id: request.target().archive_id.to_vec(),
+            provider_key: request.grant().provider_key().as_bytes().to_vec(),
+            operation: operation(request.operation()) as i32,
+        };
+        let target = target_digest(&epoch.bytes, &target);
+        if record
+            .request
+            .target
+            .is_some_and(|previous| previous != target)
+        {
+            track.request_valid.store(false, Relaxed);
+            track.life.incomplete.store(true, Relaxed);
+            return;
+        }
+        if epoch.target_scope != Some(target) {
+            // The verified request proves this connection is deliberately outside this
+            // one target, not lost history. Erase its hashes and invalidate every callback.
+            track.request_valid.store(false, Relaxed);
+            track.prefix_valid.store(false, Relaxed);
+            epoch.records[track.index] = None;
+            return;
+        }
+        record.request.target = Some(target);
+        record.request.operation = operation(request.operation()) as i32;
+        let mut hash = Sha256::new();
+        hash.update(b"volparossa-storage-fixture-request-v3\0");
+        hash.update(epoch.bytes);
+        hash.update(request.id());
+        let digest = hash.finalize().into();
+        if record
+            .request
+            .verified_digest
+            .is_some_and(|previous| previous != digest)
+        {
+            track.request_valid.store(false, Relaxed);
+            track.life.incomplete.store(true, Relaxed);
+            return;
+        }
+        record.request.verified_digest = Some(digest);
+        if record.role == Role::Provider || flushed {
+            record.request.digest = Some(digest);
+        }
+        if record.role == Role::Provider {
+            record.request.provider_stage = ProviderStage::RequestVerified as i32;
+        }
+    }
+
+    pub(super) fn bridge_phase(
+        &self,
+        phase: volparossa_content::private_storage::wire::bridge_observation::Phase,
+    ) {
+        use volparossa_content::private_storage::wire::bridge_observation::Phase as Wire;
+        if self.0.as_ref().is_none_or(|track| track.version != 3) {
+            return;
+        }
+        let now = Instant::now();
+        if !self.update(|record| {
+            if record.request.operation != Operation::Reserve as i32 {
+                return;
+            }
+            match phase {
+                Wire::RemoteRequestWrite if record.request.write_started.is_none() => {
+                    record.request.write_started = Some(now);
+                }
+                Wire::RemoteReceiptRead if record.request.receipt_started.is_none() => {
+                    record.request.receipt_started = Some(now);
+                }
+                Wire::RemoteReceiptVerify
+                    if record.request.receipt_started.is_some()
+                        && record.request.receipt_ended.is_none() =>
+                {
+                    record.request.receipt_ended = Some(now);
+                }
+                _ => {}
+            }
+        }) {
+            if let Some(track) = &self.0 {
+                track.request_valid.store(false, Relaxed);
+            }
+        }
+    }
+
+    fn request_stage(&self, stage: RequestStage) {
+        if self.0.as_ref().is_none_or(|track| track.version != 3) {
+            return;
+        }
+        let stage = match stage {
+            RequestStage::ReceiptWriteEntered => ProviderStage::ReceiptWriteEntered,
+            RequestStage::ReceiptFlushReturned => ProviderStage::ReceiptFlushReturned,
+        } as i32;
+        if !self.update(|record| {
+            record.request.provider_stage = stage;
+        }) {
+            if let Some(track) = &self.0 {
+                track.request_valid.store(false, Relaxed);
+            }
+        }
+    }
+
+    fn worker(&self) -> Option<Arc<dyn WorkerObserver>> {
+        let track = self.0.as_ref().filter(|track| {
+            track.version == 3
+                && track.request_valid.load(Relaxed)
+                && track.life.alive.load(Relaxed)
+        })?;
+        Some(Arc::new(Worker {
+            owner: Arc::downgrade(&track.owner),
+            life: Arc::downgrade(&track.life),
+            index: track.index,
+            token: track.token,
+        }))
+    }
+
     pub(super) fn enter(&self, phase: Phase) {
         self.invalidate_acquire();
         self.update(|record| {
@@ -466,7 +763,7 @@ impl Guard {
     }
 
     pub(super) fn flow_acquire(&self, summary: Option<StorageFixtureAcquireSummary>) {
-        if self.0.as_ref().is_none_or(|track| track.version != 2) {
+        if self.0.as_ref().is_none_or(|track| track.version < 2) {
             return;
         }
         self.invalidate_acquire();
@@ -560,7 +857,89 @@ impl Observer for ProviderObserver<'_> {
             Stage::Closing => Phase::Closing,
         });
     }
+    fn verified_request(&self, request: &VerifiedStorageRequest) {
+        self.fixture.bind_request(request, false);
+    }
+
+    fn request_stage(&self, stage: RequestStage) {
+        self.fixture.request_stage(stage);
+    }
+
+    fn worker(&self) -> Option<Arc<dyn WorkerObserver>> {
+        self.fixture.worker()
+    }
+}
+
+// No strong collector/lifetime reference, target, payload, key or digest survives in the worker.
+struct Worker {
+    owner: Weak<Correlation>,
+    life: Weak<Life>,
+    index: usize,
+    token: u64,
+}
+
+impl Worker {
+    fn update(&self, returned: Option<bool>) {
+        let (Some(owner), Some(life)) = (self.owner.upgrade(), self.life.upgrade()) else {
+            return;
+        };
+        if !life.alive.load(Relaxed) {
+            return;
+        }
+        let Ok(mut bank) = owner.bank.try_lock() else {
+            life.incomplete.store(true, Relaxed);
+            return;
+        };
+        bank.expire(Instant::now());
+        let Some(epoch) = &mut bank.epoch else {
+            return;
+        };
+        if !Arc::ptr_eq(&epoch.life, &life) {
+            return;
+        }
+        let Some(record) = &mut epoch.records[self.index] else {
+            return;
+        };
+        if record.token != self.token || !record.request_valid.load(Relaxed) {
+            return;
+        }
+        let valid = match returned {
+            None => record.request.worker_state == WorkerState::Unobserved as i32,
+            Some(_) => record.request.worker_state == WorkerState::Entered as i32,
+        };
+        if !valid {
+            record.request_valid.store(false, Relaxed);
+            life.incomplete.store(true, Relaxed);
+            return;
+        }
+        record.request.worker_state = match returned {
+            None => WorkerState::Entered,
+            Some(true) => WorkerState::ReturnedOk,
+            Some(false) => WorkerState::ReturnedError,
+        } as i32;
+        if record.finished.is_none() {
+            record.request.provider_stage = if returned.is_none() {
+                ProviderStage::BackendEntered
+            } else {
+                ProviderStage::BackendReturned
+            } as i32;
+        } else if returned.is_some() {
+            record.request.returned_after_terminal = true;
+        }
+    }
+}
+
+impl WorkerObserver for Worker {
+    fn entered(&self) {
+        self.update(None);
+    }
+    fn returned(&self, success: bool) {
+        self.update(Some(success));
+    }
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod request_tests;

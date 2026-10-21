@@ -13,6 +13,7 @@ type Terminal = StorageFixtureCorrelationTerminal;
 
 fn request(action: Action) -> StorageFixtureCorrelationRequest {
     StorageFixtureCorrelationRequest {
+        target: None,
         version: 1,
         action: action as i32,
         epoch: vec![7; 16],
@@ -26,6 +27,7 @@ fn request(action: Action) -> StorageFixtureCorrelationRequest {
 
 fn record() -> StorageFixtureCorrelationRecord {
     StorageFixtureCorrelationRecord {
+        request_observation: None,
         flow_acquire: None,
         role: Role::Client as i32,
         fingerprint: None,
@@ -162,7 +164,7 @@ fn fixture_actions_and_private_argument_bounds_are_closed() {
     ] {
         let valid = request(action);
         valid.validate().unwrap();
-        for version in [0, 3, u32::MAX] {
+        for version in [0, 4, u32::MAX] {
             assert!(
                 StorageFixtureCorrelationRequest {
                     version,
@@ -267,6 +269,7 @@ fn fixture_role_phase_terminal_matrix_is_exact() {
         for phase in 0..=13 {
             for terminal in 0..=7 {
                 let value = StorageFixtureCorrelationRecord {
+                    request_observation: None,
                     flow_acquire: None,
                     role,
                     phase,
@@ -296,6 +299,7 @@ fn fixture_snapshot_is_bounded_and_provider_records_match_lookup() {
     response.records.push(record());
     assert!(response.validate().is_err());
     response.records = vec![StorageFixtureCorrelationRecord {
+        request_observation: None,
         flow_acquire: None,
         role: Role::Provider as i32,
         fingerprint: Some(vec![8; 32]),
@@ -365,7 +369,7 @@ fn fixture_wrong_envelope_unknown_wire_values_and_versions_fail_closed() {
     };
     let error = encode_response(&wrong).unwrap_err().to_string();
     assert!(!error.contains("PRIVATE_CANARY"));
-    for version in [0, 3] {
+    for version in [0, 4] {
         let invalid = envelope(StorageFixtureCorrelationResponse {
             version,
             ..snapshot()
@@ -402,4 +406,182 @@ async fn fixture_frames_reject_truncation_and_oversized_length_before_payload() 
     }
     let oversized = u32::try_from(MAX_CONTROL_FRAME + 1).unwrap().to_be_bytes();
     assert!(read_request(&mut oversized.as_slice()).await.is_err());
+}
+
+fn target() -> StorageFixtureTarget {
+    StorageFixtureTarget {
+        archive_id: vec![31; 32],
+        provider_key: vec![32; 32],
+        operation: StorageFixtureOperation::Reserve as i32,
+    }
+}
+
+fn request_v3(action: Action) -> StorageFixtureCorrelationRequest {
+    StorageFixtureCorrelationRequest {
+        version: 3,
+        target: matches!(action, Action::Arm | Action::Clients).then(target),
+        ..request(action)
+    }
+}
+
+fn snapshot_v3() -> StorageFixtureCorrelationResponse {
+    let mut value = snapshot();
+    value.version = 3;
+    value.records[0].fingerprint = Some(vec![8; 32]);
+    value.records[0].request_observation = Some(StorageFixtureRequestObservation {
+        request_digest: Some(vec![33; 32]),
+        operation: StorageFixtureOperation::Reserve as i32,
+        ..Default::default()
+    });
+    value
+}
+
+#[test]
+fn fixture_v3_private_selector_requires_exact_shape_action_and_version() {
+    for action in [
+        Action::Arm,
+        Action::Clients,
+        Action::Providers,
+        Action::Disarm,
+    ] {
+        let valid = request_v3(action);
+        valid.validate().unwrap();
+        let mut wrong = valid.clone();
+        if matches!(action, Action::Arm | Action::Clients) {
+            wrong.target = None;
+        } else {
+            wrong.target = Some(target());
+        }
+        assert!(wrong.validate().is_err());
+        for version in [1, 2] {
+            let mut legacy = valid.clone();
+            legacy.version = version;
+            assert_eq!(
+                legacy.validate().is_ok(),
+                !matches!(action, Action::Arm | Action::Clients)
+            );
+        }
+    }
+    for length in [0, 31, 33, MAX_FIXTURE_MESSAGE + 1] {
+        for archive in [false, true] {
+            let mut value = request_v3(Action::Clients);
+            let target = value.target.as_mut().unwrap();
+            if archive {
+                target.archive_id.resize(length, 0);
+            } else {
+                target.provider_key.resize(length, 0);
+            }
+            assert!(value.validate().is_err());
+        }
+    }
+    for operation in [0, -1, 8, i32::MAX] {
+        let mut value = request_v3(Action::Clients);
+        value.target.as_mut().unwrap().operation = operation;
+        assert!(value.validate().is_err());
+    }
+}
+
+#[test]
+fn fixture_v3_unique_matching_and_original_envelope_are_required() {
+    let request = request_v3(Action::Clients);
+    let value = snapshot_v3();
+    value.validate_for(&request).unwrap();
+    let wire = envelope(value.clone());
+    assert_eq!(
+        decode_response(&encode_response(&wire).unwrap()).unwrap(),
+        wire
+    );
+    let mut duplicate = value.clone();
+    duplicate.records.push(duplicate.records[0].clone());
+    assert!(duplicate.validate_for(&request).is_err());
+    let mut missing = value.clone();
+    missing.records.clear();
+    assert!(missing.validate_for(&request).is_err());
+    let mut weaker = value.clone();
+    weaker.records[0].fingerprint = None;
+    assert!(weaker.validate_for(&request).is_err());
+    let mut provider = value;
+    provider.records[0].role = Role::Provider as i32;
+    provider.records[0].phase = Phase::StorageOperation as i32;
+    provider.records[0]
+        .request_observation
+        .as_mut()
+        .unwrap()
+        .provider_stage = StorageFixtureProviderStage::RequestVerified as i32;
+    provider
+        .validate_for(&request_v3(Action::Providers))
+        .unwrap();
+    provider.records.push(provider.records[0].clone());
+    assert!(
+        provider
+            .validate_for(&request_v3(Action::Providers))
+            .is_err()
+    );
+}
+
+#[test]
+fn fixture_v3_request_stage_worker_and_timing_contradictions_are_rejected() {
+    let client = snapshot_v3();
+    let detail = client.records[0].request_observation.as_ref().unwrap();
+    for bad in [-1, 8, i32::MAX] {
+        let mut value = detail.clone();
+        value.operation = bad;
+        assert!(value.validate(Role::Client).is_err());
+    }
+    let mut value = detail.clone();
+    value.worker_returned_after_terminal = true;
+    assert!(value.validate(Role::Client).is_err());
+    value = detail.clone();
+    value.request_digest = Some(vec![1; 31]);
+    assert!(value.validate(Role::Client).is_err());
+    value = detail.clone();
+    value.reserve_timing = Some(StorageFixtureReserveTiming {
+        before_request_flush_elapsed: crate::PrivateStorageElapsedBucket::S5To15 as i32,
+        before_request_flush_remaining: crate::PrivateStorageElapsedBucket::Under1s as i32,
+        receipt_wait_elapsed: Some(crate::PrivateStorageElapsedBucket::S30To60 as i32),
+        receipt_wait_remaining: None,
+    });
+    assert!(value.validate(Role::Client).is_err());
+    value
+        .reserve_timing
+        .as_mut()
+        .unwrap()
+        .receipt_wait_remaining = Some(0);
+    assert!(value.validate(Role::Client).is_err());
+    let mut provider = detail.clone();
+    provider.provider_stage = StorageFixtureProviderStage::RequestVerified as i32;
+    provider.validate(Role::Provider).unwrap();
+    provider.request_digest = None;
+    assert!(provider.validate(Role::Provider).is_err());
+    provider.request_digest = detail.request_digest.clone();
+    provider.provider_stage = StorageFixtureProviderStage::BackendReturned as i32;
+    provider.worker_state = StorageFixtureWorkerState::Entered as i32;
+    assert!(provider.validate(Role::Provider).is_err());
+    provider.worker_state = StorageFixtureWorkerState::ReturnedError as i32;
+    provider.validate(Role::Provider).unwrap();
+    provider.provider_stage = StorageFixtureProviderStage::ReceiptWriteEntered as i32;
+    assert!(provider.validate(Role::Provider).is_err());
+}
+
+#[test]
+fn fixture_v3_observed_loss_is_rejected_even_with_an_otherwise_valid_record() {
+    let mut value = snapshot_v3();
+    let selected = request_v3(Action::Clients);
+    value.validate_for(&selected).unwrap();
+    value.incomplete = true;
+    assert!(value.validate().is_err());
+    assert!(value.validate_for(&selected).is_err());
+    let untrusted = envelope(value);
+    assert!(encode_response(&untrusted).is_err());
+    assert!(decode_response(&untrusted.encode_to_vec()).is_err());
+    for version in [1, 2] {
+        let mut legacy = snapshot();
+        legacy.version = version;
+        legacy.incomplete = true;
+        let request = StorageFixtureCorrelationRequest {
+            version,
+            ..request(Action::Clients)
+        };
+        legacy.validate_for(&request).unwrap();
+    }
 }
