@@ -481,7 +481,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      CONSUMER_SOURCE_BASE: ${{ github.ref == 'refs/heads/test/storage-challenge-read-consumers-20261021' && 'bd9fd678271801bcfaf3e83de379eb5f375d9199' || '6e30834e6189c19163dcd799c5b4957f3e50ef5e' }}
+      CONSUMER_SOURCE_BASE: ${{ github.ref == 'refs/heads/test/storage-challenge-read-consumers-20261021' && '54c752607c2340c1b3bd525c986a91c447c81e50' || '6e30834e6189c19163dcd799c5b4957f3e50ef5e' }}
     steps:
       - name: Check out the exact consumer harness candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -520,7 +520,7 @@ jobs:
               return subprocess.check_output(['git', *args], text=True).strip()
           base = os.environ['CONSUMER_SOURCE_BASE']
           read = os.environ['GITHUB_REF'] == 'refs/heads/test/storage-challenge-read-consumers-20261021'
-          assert base == ('bd9fd678271801bcfaf3e83de379eb5f375d9199' if read else '6e30834e6189c19163dcd799c5b4957f3e50ef5e')
+          assert base == ('54c752607c2340c1b3bd525c986a91c447c81e50' if read else '6e30834e6189c19163dcd799c5b4957f3e50ef5e')
           assert re.fullmatch('[0-9a-f]{40}', os.environ['GITHUB_SHA'])
           allowed = {
               '.github/workflows/storage-fixture-correlation.yml',

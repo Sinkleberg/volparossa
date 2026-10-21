@@ -54,12 +54,10 @@ fn challenge_read_accepts_only_read_phase_known_steps_and_returned_error_matrix(
                     }),
                 };
                 let expected = phase == 3
-                    && match (step, outcome) {
-                        (1 | 2, None | Some(1 | 2 | 5))
-                        | (1 | 3, Some(3))
-                        | (3, None | Some(4)) => true,
-                        _ => false,
-                    };
+                    && matches!(
+                        (step, outcome),
+                        (1 | 2, None | Some(1 | 2 | 5)) | (1 | 3, Some(3)) | (3, None | Some(4))
+                    );
                 assert_eq!(value.validate().is_ok(), expected);
             }
         }
