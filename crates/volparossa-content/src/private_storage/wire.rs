@@ -225,6 +225,7 @@ impl StorageService {
             unix_now()?,
         )?;
         observation.verified(request.operation());
+        activity.verified_request(&request);
         activity.enter(Stage::StorageOperation);
         // There is no loop back to this challenge: after this point the connection can
         // authorize exactly this operation once. A fresh connection receives a new nonce.
@@ -242,6 +243,7 @@ impl StorageService {
         let provider = Arc::clone(&self.provider);
         let owned_request = request.clone();
         observation.phase = diagnostic::Phase::Backend;
+        let worker_observer = activity.worker();
         let result = tokio::task::spawn_blocking(move || {
             let _permit = permit;
             let mut provider = provider
@@ -251,9 +253,16 @@ impl StorageService {
                 let category = diagnostic::Category::wire(&error);
                 (error, category)
             })?;
-            provider
+            if let Some(observer) = &worker_observer {
+                observer.entered();
+            }
+            let result = provider
                 .apply(&owned_request, &payload, now)
-                .map_err(|error| (WireError::Store, diagnostic::Category::backend(&error)))
+                .map_err(|error| (WireError::Store, diagnostic::Category::backend(&error)));
+            if let Some(observer) = &worker_observer {
+                observer.returned(result.is_ok());
+            }
+            result
         })
         .await
         .map_err(|_| WireError::Store)?;
@@ -274,7 +283,9 @@ impl StorageService {
             },
         )?;
         validate_range(&request, &receipt, &result.payload)?;
+        activity.request_stage(crate::provider::activity::RequestStage::ReceiptWriteEntered);
         write_frame(stream, &receipt.encode()).await?;
+        activity.request_stage(crate::provider::activity::RequestStage::ReceiptFlushReturned);
         if !result.payload.is_empty() {
             observation.phase = diagnostic::Phase::ResponsePayload;
             write_frame(stream, &result.payload).await?;
@@ -380,8 +391,10 @@ where
         observer.phase(Phase::RemoteRequestVerify);
         let request = signed.verify(grant, challenge, unix_now()?)?;
         validate_append(&request, append_payload)?;
+        observer.verified_request(&request);
         observer.phase(Phase::RemoteRequestWrite);
         write_frame(stream, &signed.encode()).await?;
+        observer.request_flushed(&request);
         if !append_payload.is_empty() {
             observer.phase(Phase::RemotePayloadWrite);
             write_frame(stream, append_payload).await?;

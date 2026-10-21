@@ -5,6 +5,7 @@ const EPOCH: [u8; 16] = [7; 16];
 
 fn request(action: Action) -> Request {
     Request {
+        target: None,
         version: 1,
         action: action as i32,
         epoch: EPOCH.to_vec(),

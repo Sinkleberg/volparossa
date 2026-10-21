@@ -26,6 +26,7 @@ fn snapshot() -> StorageFixtureCorrelationResponse {
         state: State::Observed as i32,
         incomplete: false,
         records: vec![StorageFixtureCorrelationRecord {
+            request_observation: None,
             flow_acquire: None,
             role: Role::Provider as i32,
             fingerprint: Some(vec![0xcd; 32]),
@@ -48,6 +49,7 @@ fn fixture_v2_cli_closed_summary_is_not_a_raw_code_or_provider_match() {
     let mut response = snapshot();
     response.version = 2;
     response.records[0] = StorageFixtureCorrelationRecord {
+        request_observation: None,
         role: Role::Client as i32,
         fingerprint: None,
         phase: Phase::FlowAcquire as i32,
@@ -89,7 +91,7 @@ fn fixture_v2_cli_rejects_downgrade_and_unknown_enum_before_rendering() {
     value["version"] = json!(2);
     let request = parse(&value).unwrap();
     assert!(project(&snapshot(), &request).is_err());
-    value["version"] = json!(3);
+    value["version"] = json!(4);
     assert!(parse(&value).is_err());
     let mut response = snapshot();
     response.version = 2;
@@ -228,6 +230,7 @@ fn fixture_cli_null_client_and_maximum_reply_remain_bounded() {
     let request = parse(&input("clients")).unwrap();
     let mut response = snapshot();
     response.records[0] = StorageFixtureCorrelationRecord {
+        request_observation: None,
         flow_acquire: None,
         role: Role::Client as i32,
         fingerprint: None,
@@ -344,4 +347,54 @@ async fn fixture_cli_socket_roundtrip_rejects_cross_request_and_cross_action_dat
         }
         task.await.unwrap();
     }
+}
+
+#[test]
+fn fixture_v3_cli_keeps_target_private_and_rejects_unknown_request_metadata() {
+    let mut value = input("clients");
+    value["version"] = json!(3);
+    value["target"] = json!({"archive_id": "31".repeat(32), "provider_key": "32".repeat(32), "operation": "reserve"});
+    let request = parse(&value).unwrap();
+    let mut response = snapshot();
+    response.version = 3;
+    response.records[0].role = Role::Client as i32;
+    response.records[0].phase = Phase::ClientExchange as i32;
+    response.records[0].request_observation = Some(StorageFixtureRequestObservation {
+        request_digest: Some(vec![0x33; 32]),
+        operation: StorageFixtureOperation::Reserve as i32,
+        ..Default::default()
+    });
+    let projected = project(&response, &request).unwrap();
+    let encoded = String::from_utf8(render(&projected).unwrap()).unwrap();
+    assert!(!encoded.contains(&"31".repeat(32)));
+    assert!(!encoded.contains(&"32".repeat(32)));
+    assert!(!encoded.contains(&"ab".repeat(16)));
+    assert_eq!(
+        projected["records"][0]["request_observation"]["request_digest"],
+        "33".repeat(32)
+    );
+    assert_eq!(
+        projected["records"][0]["request_observation"]["provider_stage"],
+        "unobserved"
+    );
+    assert_eq!(projected["acceptance_evidence"], false);
+    assert_eq!(projected["target_scoped"], true);
+    assert_eq!(projected["complete_phase_history"], false);
+    for key in ["archive_id", "provider_key", "operation"] {
+        let mut missing = value.clone();
+        missing["target"].as_object_mut().unwrap().remove(key);
+        assert!(parse(&missing).is_err());
+    }
+    value["target"]["extra"] = json!("private-canary");
+    assert!(parse(&value).is_err());
+    value["target"].as_object_mut().unwrap().remove("extra");
+    value["target"]["operation"] = json!("private-canary");
+    let error = parse(&value).unwrap_err().to_string();
+    assert!(!error.contains("private-canary"));
+    response.records[0]
+        .request_observation
+        .as_mut()
+        .unwrap()
+        .provider_stage = 999;
+    assert!(project(&response, &request).is_err());
 }
