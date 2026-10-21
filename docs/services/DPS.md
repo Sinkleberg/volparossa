@@ -55,6 +55,11 @@ labels do not prove physical independence, and agreeing inputs do not establish
 truth. This first slice makes those limitations machine-readable; it does not
 implement the subsequent positioning estimator.
 
+Measurements are not propagated to a common epoch or compensated for motion in
+this slice. Two genuine fixes at different times can therefore conflict during
+movement. A conflict is an input-comparison result, never an attack diagnosis;
+time alignment and motion models remain part of the required estimator work.
+
 The development example uses two synthetic position claims. In an approved
 disposable build environment, run
 `cargo run --locked -p volparossa-local-control --example dps_assess` for the

@@ -83,6 +83,16 @@ privacy boundary, five-layer integration and measurement requirement.
   Hardware accuracy, energy, privacy and manipulation-resilience claims require
   actual evidence; neither contract tests nor synthetic observations establish them.
 
+The first code candidate is [PR299](https://github.com/VOLPAROSSA/volparossa/pull/299),
+initial head `528b01d5d7df0a69e42961f07a5e6ae0383982a8`. Independent review found
+no source blocker; the first hosted [Quality run `39608983858`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39608983858)
+then found a missing exhaustive CLI response arm (`main.rs:667`, Rust E0004).
+The local-control library compiled, but the workspace test gate did not complete.
+The correction explicitly rejects an unsolicited DPS payload in the generic CLI
+renderer without printing location data. This original failed run remains failed;
+the corrected source still needs its own completed hosted checks. Existing Quality
+and CodeQL are reused, rather than adding a second full-build workflow.
+
 No location collection, publication, private-history storage, OS location override
 or development-host network/sensor configuration change is enabled by this work.
 
