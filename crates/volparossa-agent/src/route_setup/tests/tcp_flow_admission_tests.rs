@@ -374,6 +374,17 @@ impl Drop for AcquiredFixtureStream {
     }
 }
 
+fn assert_original_owner_destroyed_once(shared: &FakeShared) {
+    assert_eq!(
+        shared
+            .events()
+            .iter()
+            .filter(|event| *event == "local.destroy")
+            .count(),
+        1
+    );
+}
+
 async fn successful_acquire_case(
     wall_now_ms: u64,
     elapsed: Duration,
@@ -450,9 +461,7 @@ async fn successful_acquire_case(
     assert_eq!(clock_reads.load(Ordering::Relaxed), 1);
     assert_eq!(acquires.load(Ordering::Relaxed), 1);
     if expired {
-        let failure = result
-            .err()
-            .expect("expired successful acquire must be refused");
+        let failure = result.expect_err("expired successful acquire must be refused");
         assert_eq!(failure, original);
         assert_eq!(failure.flow_acquire(), original.flow_acquire());
         assert_eq!(drops.load(Ordering::Relaxed), 1);
@@ -479,14 +488,7 @@ async fn successful_acquire_case(
         let _ = route.teardown().await;
         manager.shutdown().await.expect("fixture cleanup");
     }
-    assert_eq!(
-        shared
-            .events()
-            .iter()
-            .filter(|event| *event == "local.destroy")
-            .count(),
-        1
-    );
+    assert_original_owner_destroyed_once(&shared);
 }
 
 #[tokio::test(start_paused = true)]

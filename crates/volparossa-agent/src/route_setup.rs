@@ -1883,7 +1883,8 @@ impl ClientRouteControl {
                                 _ => None,
                             },
                             |prior| {
-                                let ClientRouteControlState::Established(established) = prior else {
+                                let ClientRouteControlState::Established(established) = prior
+                                else {
                                     unreachable!("expired acquired TCP route owner remains locked")
                                 };
                                 self.start_retirement(established)
@@ -2011,7 +2012,10 @@ impl ClientRouteControl {
             )
             .await?;
         drop(state);
-        Ok((flow.expect("admitted acquired TCP stream"), activation_at_ms))
+        Ok((
+            flow.expect("admitted acquired TCP stream"),
+            activation_at_ms,
+        ))
     }
 
     async fn finish_flow_acquire_failure(
