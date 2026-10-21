@@ -2,7 +2,7 @@ name: Public resident model integration contracts
 
 on:
   push:
-    branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021]
+    branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021, fix/protected-native-exit-observation-20261021]
   workflow_dispatch:
     inputs:
       scenario:
@@ -40,7 +40,8 @@ jobs:
       ((github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' ||
       github.ref == 'refs/heads/fix/protected-requester-diagnostic-20261021' ||
       github.ref == 'refs/heads/fix/protected-result-failure-20261021' ||
-      github.ref == 'refs/heads/fix/protected-socket-diagnostic-20261021') &&
+      github.ref == 'refs/heads/fix/protected-socket-diagnostic-20261021' ||
+      github.ref == 'refs/heads/fix/protected-native-exit-observation-20261021') &&
       (github.event_name == 'push' || inputs.scenario == 'source-contracts')))
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -145,6 +146,31 @@ jobs:
               source_blobs={name:git('rev-parse','HEAD:'+name) for name in sorted(socket_allowed)},
               dependency_blobs={name:git('rev-parse','HEAD:'+name) for name in dependencies},
               diagnostic_only=True,actual_model_execution=False)
+          native_exit_scope=None
+          if os.environ['GITHUB_REF']=='refs/heads/fix/protected-native-exit-observation-20261021':
+            native_exit_base='fd1018edc8ebeb225e9d36dcb188b067f7b5a4a9'
+            subprocess.run(['git','merge-base','--is-ancestor',native_exit_base,'HEAD'],check=True)
+            native_exit_allowed={
+              '.github/workflows/protected-resident-model.yml',
+              'crates/volparossa/src/compute/supervise/native_session.rs',
+              'crates/volparossa/src/compute/supervise/native_session/worker.rs',
+              'crates/volparossa/src/compute/supervise/native_session/tests.rs',
+              'crates/volparossa/src/compute/supervise/diagnostic.rs',
+              'tests/integration/protected-resident-model-run.py',
+              'tests/integration/test-protected-resident-model-run.py'}
+            native_exit_changed=git('diff','--name-only',native_exit_base,'HEAD').splitlines()
+            assert len(native_exit_changed)==len(native_exit_allowed) and set(native_exit_changed)==native_exit_allowed
+            dependencies=('Cargo.lock','Cargo.toml','rust-toolchain.toml',
+              'crates/volparossa/Cargo.toml','crates/volparossa-content/Cargo.toml')
+            for name in dependencies:
+              assert git('rev-parse','HEAD:'+name)==git('rev-parse',native_exit_base+':'+name)
+            native_exit_scope=dict(base_commit=native_exit_base,
+              source_blobs={name:git('rev-parse','HEAD:'+name) for name in sorted(native_exit_allowed)},
+              dependency_blobs={name:git('rev-parse','HEAD:'+name) for name in dependencies},
+              diagnostic_only=True,actual_model_execution=False,
+              status_semantics='observed_before_native_session_cleanup',
+              stderr_semantics='bounded_existing_drain_classification',
+              eof_matrix='legacy_null_or_class_with_optional_precleanup_status_v1')
           names=git('diff','--name-only',base,'HEAD').splitlines()
           receipt=dict(version=1,source_commit=os.environ['GITHUB_SHA'],source_tree=git('rev-parse','HEAD^{tree}'),base=base,
             source_blobs={n:git('rev-parse','HEAD:'+n) for n in names},
@@ -155,6 +181,8 @@ jobs:
             receipt['result_failure_scope']=result_failure_scope
           if socket_diagnostic_scope is not None:
             receipt['socket_diagnostic_scope']=socket_diagnostic_scope
+          if native_exit_scope is not None:
+            receipt['native_exit_scope']=native_exit_scope
           pathlib.Path('resident-model-evidence/source.json').write_text(json.dumps(receipt,sort_keys=True)+'\n')
           PY
 
@@ -173,20 +201,50 @@ jobs:
             libprotobuf32t64=3.21.12-8.2ubuntu0.4
           test "$(protoc --version)" = 'libprotoc 3.21.12'
 
-      - name: Capture formatter patch separately from committed source
+      - name: Check formatting before compilation and retain a correction on failure
         id: format
         run: |
           set -euo pipefail
-          cargo fmt --all
-          git diff --binary -- '*.rs' > resident-model-evidence/format.patch
-          python3 -B - <<'PY'
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code HEAD
+          umask 077
+          record_format() {
+            python3 -B - <<'PYFORMAT'
           import hashlib,json,pathlib,subprocess
           changed=subprocess.check_output(['git','diff','--name-only'],text=True).splitlines()
           assert all(p.endswith('.rs') for p in changed)
           receipt=dict(version=1,formatter_changed_files={p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in changed},
                        tested_source_is_committed=not changed)
           pathlib.Path('resident-model-evidence/format.json').write_text(json.dumps(receipt,sort_keys=True)+'\n')
-          PY
+          PYFORMAT
+          }
+          if cargo fmt --all -- --check > resident-model-evidence/format.log 2>&1; then
+            git diff --exit-code HEAD
+            : > resident-model-evidence/format.patch
+            record_format
+          else
+            restore_source() {
+              git restore --source=HEAD --worktree -- .
+            }
+            trap restore_source EXIT
+            trap 'exit 130' INT
+            trap 'exit 143' TERM
+            if cargo fmt --all > resident-model-evidence/format-write.log 2>&1; then
+              formatter_status=0
+            else
+              formatter_status=$?
+            fi
+            git diff --binary --full-index --no-ext-diff --no-color HEAD -- \
+              > resident-model-evidence/format.patch
+            record_format
+            restore_source
+            trap - EXIT INT TERM
+            git diff --exit-code HEAD
+            printf 'Formatting check failed; correction captured; formatter exit: %s\n' "$formatter_status"
+            exit 1
+          fi
 
       - name: Compile both affected crates
         id: build
@@ -217,7 +275,7 @@ jobs:
             for name in names: assert len(re.findall(r'^test '+re.escape(name)+r' \.\.\. ok$',output,re.M))==1
             assert f'{len(names)} passed; 0 failed; 0 ignored;' in output
             groups[label]=len(names); all_names.extend(names)
-          assert groups==dict(grant=22,guest=37,resident=33,local=30)
+          assert groups==dict(grant=22,guest=37,resident=39,local=30)
           assert len(all_names)==len(set(all_names))
           socket_tests={
             'socket_preflight_accepts_owned_socket_without_an_observation',
@@ -226,6 +284,14 @@ jobs:
             'socket_diagnostic_io_kinds_are_closed_and_never_include_raw_errors',
             'socket_diagnostic_is_optional_and_cannot_replace_the_original_error'}
           assert {'compute::resident_guest::public_trial::tests::'+name for name in socket_tests} <= set(all_names)
+          native_exit_tests={
+            'worker::tests::stdout_eof_retains_precleanup_exit_and_bounded_stderr_class',
+            'worker::tests::stdout_eof_retains_only_a_signal_observed_before_cleanup',
+            'worker::tests::live_child_stdout_eof_never_exports_cleanup_kill_status',
+            'worker::tests::unconfirmed_cleanup_returns_no_terminal_observation',
+            'tests::stdout_close_observation_preserves_primary_error_and_other_failure_shapes',
+            'tests::stdout_close_detail_accepts_only_legacy_null_or_closed_observation_matrix'}
+          assert {'compute::supervise::native_session::'+name for name in native_exit_tests} <= set(all_names)
           (root/'tests.json').write_text(json.dumps(dict(version=1,counts=groups,test_names=sorted(all_names),model_execution=False,guest_boot=False,private_peer_admission=False),sort_keys=True)+'\n')
           PY
 
@@ -265,7 +331,7 @@ jobs:
           python3 -B - <<'PY'
           import json,pathlib,re
           root=pathlib.Path('resident-model-evidence'); counts={}
-          expected={'install':58,'assemble':29,'run':198}
+          expected={'install':58,'assemble':29,'run':204}
           for name,count in expected.items():
             raw=(root/('model-'+name+'.log')).read_text()
             tests=re.findall(r'^Ran ([0-9]+) tests? in ',raw,re.M)

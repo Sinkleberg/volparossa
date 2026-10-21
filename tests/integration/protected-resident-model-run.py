@@ -335,7 +335,18 @@ def requester_failure_detail(value):
         return False
     if type(value['io_kind']) is not str or value['io_kind'] not in REQUESTER_IO_KINDS:
         return False
-    if value['code'] != 'startup_missing_result':
+    if value['code'] == 'compute_native_session_stdout_closed':
+        # All-null is the unchanged older encoding. Present status was observed
+        # before native-session stdin close/cleanup; stderr is the existing
+        # bounded drain classification, not proof of the original failure cause.
+        # This extension requires the matching updated Rust fixture validator.
+        if all(value[key] is None for key in ('exit_code', 'signal', 'stderr_class')):
+            return True
+        if type(value['stderr_class']) is not str or value['stderr_class'] not in REQUESTER_STDERR_CLASSES:
+            return False
+        if value['exit_code'] is None and value['signal'] is None:
+            return True
+    elif value['code'] != 'startup_missing_result':
         return all(value[key] is None for key in ('exit_code', 'signal', 'stderr_class'))
     exit_code, sig = value['exit_code'], value['signal']
     return (type(exit_code) is int and type(sig) is int and

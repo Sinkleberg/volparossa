@@ -59,6 +59,16 @@ impl Failure {
         let diagnostic = super::diagnostic::native_session_detail(&cause);
         Self { cause, diagnostic }
     }
+
+    fn with_close_observation(mut self, observation: Option<worker::CloseObservation>) -> Self {
+        if let Some(observation) = observation {
+            self.diagnostic = self.diagnostic.with_native_stdout_close(
+                observation.status_before_cleanup,
+                observation.stderr_class,
+            );
+        }
+        self
+    }
 }
 
 impl fmt::Display for Failure {
@@ -371,14 +381,18 @@ async fn run_owned(
         budget,
     )
     .await;
-    if let Some(worker) = resident.worker.take() {
+    let observation = if let Some(worker) = resident.worker.take() {
         // This join is mandatory even when the client disconnects or a validator fails.
-        worker.close().await?;
-    }
+        Some(worker.close().await?)
+    } else {
+        None
+    };
     root.close()?;
     let result = result
         .map(|()| cleanup_record())
-        .map_err(|cause| anyhow::Error::new(Failure::after_cleanup(cause)));
+        .map_err(|cause| {
+            anyhow::Error::new(Failure::after_cleanup(cause).with_close_observation(observation))
+        });
     if let Some(hints) = resident.hints.take() {
         hints.finish(&result);
     }
