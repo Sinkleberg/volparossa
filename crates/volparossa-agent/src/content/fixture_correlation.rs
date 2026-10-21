@@ -274,7 +274,7 @@ impl Correlation {
         Ok(response)
     }
 
-    fn cleanup_task(self: &Arc<Self>, life: std::sync::Weak<Life>) -> tokio::task::JoinHandle<()> {
+    fn cleanup_task(self: &Arc<Self>, life: Weak<Life>) -> tokio::task::JoinHandle<()> {
         let owner = Arc::downgrade(self);
         // One disposable task, absent when disabled. No identity or stream, and no
         // blocking lock. Erasure occurs on the next successful one-second tick.
