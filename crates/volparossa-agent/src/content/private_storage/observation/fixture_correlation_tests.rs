@@ -9,6 +9,7 @@ const UID: u32 = 1000;
 
 fn request(action: Action) -> Request {
     Request {
+        target: None,
         version: 1,
         action: action as i32,
         epoch: vec![7; 16],

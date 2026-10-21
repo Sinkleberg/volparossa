@@ -41,7 +41,9 @@ pub use fixture_correlation::{
     StorageFixtureCorrelationPhase, StorageFixtureCorrelationRecord,
     StorageFixtureCorrelationRequest, StorageFixtureCorrelationResponse,
     StorageFixtureCorrelationRole, StorageFixtureCorrelationState,
-    StorageFixtureCorrelationTerminal, StorageFixtureHelperDiagnostic,
+    StorageFixtureCorrelationTerminal, StorageFixtureHelperDiagnostic, StorageFixtureOperation,
+    StorageFixtureProviderStage, StorageFixtureRequestObservation, StorageFixtureReserveTiming,
+    StorageFixtureTarget, StorageFixtureWorkerState,
 };
 pub use mailbox::{MailboxReady, MailboxRemoteRequest, MailboxServeRequest};
 pub use private_storage::{

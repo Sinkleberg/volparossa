@@ -283,6 +283,14 @@ remain subsequent acceptance work; this does not demote the shared blockers.
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and the native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 keeps that immutable core pin. Core PR277 integrates the native-only composition after Quality and CodeQL pass; this main composition has not had a new model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
 | Protected remote compute — `volparossa`, then Code/Browser | Resolve the guest builder/export blocker, construct the sealed runtime and execute two public model turns before joining approved private workloads. | Actual `39078833292` on `fabfa849` verifies all 199 build and 65 runtime packages, then fails in export. Actual `39082065142` on `3a1a1593` identifies an inventory pathname rejection; the exact pathname and rule remain unknown. Preflight diagnostic `5a8763fa` passes 100 Rust and 388 Python source tests, strict lint and formatting in `39613633602`. Explicit public-model trial `39617784665` on `f571e17c` fails inventory path validation. PR307 corrects a verified pinned-wheel filename incompatibility. Actual trials `39624790559` and `39639094264` remain failed with distinct, bounded evidence; neither establishes a functional result or complete guest-descendant cleanup. PR312's source-contract run `39650771592` compiled and passed its 117 Rust/417 Python tests but failed strict Clippy on four findings; the reviewed lint correction passes run `39653381316` and is merged into retained PR276 as `9a96c1281e3fa6b5a9e8ad0490c37d5f17cd66bc`; actual public-model trial `39654833011` remains pending. No new actual model trial has been dispatched. Model execution, production approval, vendor appraisal and confidential hardware remain open. |
 
+### Manual topology-run isolation candidate — 2026-10-21
+
+The Alpha workflow candidate isolates each explicit dispatch by run ID, while
+automatic PR runs still cancel superseded runs for the same ref/scenario.
+Static YAML and grouping checks pass; hosted source verification remains pending.
+No new topology trial was dispatched. This does not establish runtime cleanup
+or additional datapath acceptance.
+
 ### Decentralized positioning system — 2026-10-21
 
 The complete original goal and all existing clarifications remain in force.
