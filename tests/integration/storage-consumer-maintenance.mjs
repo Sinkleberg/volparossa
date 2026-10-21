@@ -127,15 +127,15 @@ function flowAcquire(value) {
 function agentOutcome(value, stage, version = 4, operation = null) {
   if (value === null) return null;
   check(['wire_receipt', 'agent_terminal', 'deadline'].includes(stage)
-    && closedKeys(value, ['status', 'detail', ...([7, 8, 9].includes(version) ? ['append_timing'] : []),
-      ...(version === 9 ? ['tls_close_failure'] : [])])
+    && closedKeys(value, ['status', 'detail', ...([7, 8, 9, 10].includes(version) ? ['append_timing'] : []),
+      ...(version >= 9 ? ['tls_close_failure'] : [])])
     && ['observed', 'missing', 'pending', 'expired', 'query_failed', 'query_timeout'].includes(value.status), 'deposit_diagnostics');
   if (value.status !== 'observed') {
     check(value.detail === null, 'deposit_diagnostics');
-    if ([7, 8, 9].includes(version)) check(value.append_timing === null, 'deposit_diagnostics');
-    if (version === 9) check(value.tls_close_failure === null, 'deposit_diagnostics');
-    return { status: value.status, detail: null, ...([7, 8, 9].includes(version) ? { append_timing: null } : {}),
-      ...(version === 9 ? { tls_close_failure: null } : {}) };
+    if ([7, 8, 9, 10].includes(version)) check(value.append_timing === null, 'deposit_diagnostics');
+    if (version >= 9) check(value.tls_close_failure === null, 'deposit_diagnostics');
+    return { status: value.status, detail: null, ...([7, 8, 9, 10].includes(version) ? { append_timing: null } : {}),
+      ...(version >= 9 ? { tls_close_failure: null } : {}) };
   }
   const d = value.detail;
   check(closedKeys(d, ['phase', 'category', 'deadline_scope']) && OUTCOME_PHASES.includes(d.phase)
@@ -145,7 +145,7 @@ function agentOutcome(value, stage, version = 4, operation = null) {
     && (d.deadline_scope !== 'bridge' || OUTCOME_PHASES.slice(1, 15).includes(d.phase))
     && (d.deadline_scope !== 'remote_wire' || OUTCOME_PHASES.slice(6, 13).includes(d.phase)), 'deposit_diagnostics');
   let timing = null;
-  if ([7, 8, 9].includes(version) && value.append_timing !== null) {
+  if ([7, 8, 9, 10].includes(version) && value.append_timing !== null) {
     const t = value.append_timing;
     check(closedKeys(t, ['before_payload', 'in_payload_write_flush', 'in_receipt_read'])
       && operation === 'append' && ['remote_payload_write', 'remote_receipt_read'].includes(d.phase)
@@ -155,21 +155,21 @@ function agentOutcome(value, stage, version = 4, operation = null) {
     timing = { before_payload: t.before_payload, in_payload_write_flush: t.in_payload_write_flush,
       in_receipt_read: t.in_receipt_read };
   }
-  if (version === 9) {
+  if (version >= 9) {
     check(value.tls_close_failure === null || (
       ['shutdown_io', 'read_io', 'trailing_data', 'internal_deadline'].includes(value.tls_close_failure)
       && d.phase === 'transport_tls_close' && d.category === 'unavailable' && d.deadline_scope === 'none'
       && value.append_timing === null), 'deposit_diagnostics');
   }
   return { status: value.status, detail: { phase: d.phase, category: d.category, deadline_scope: d.deadline_scope },
-    ...([7, 8, 9].includes(version) ? { append_timing: timing } : {}),
-    ...(version === 9 ? { tls_close_failure: value.tls_close_failure } : {}) };
+    ...([7, 8, 9, 10].includes(version) ? { append_timing: timing } : {}),
+    ...(version >= 9 ? { tls_close_failure: value.tls_close_failure } : {}) };
 }
 
 // This proof has exactly four fragments/two initial copies. The bridge already
 // checks general archive geometry; revalidate the narrower exported trial here.
 export function depositDiagnostic(value, version = 1) {
-  check([1, 2, 3, 4, 5, 6, 7, 8, 9].includes(version), 'deposit_diagnostics');
+  check([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(version), 'deposit_diagnostics');
   check(closedKeys(value, ['version', 'failures', 'omitted_failures']) && value.version === version
     && Array.isArray(value.failures) && value.failures.length <= 8 && value.omitted_failures === 0, 'deposit_diagnostics');
   const seen = new Set(), failures = value.failures.map(failure => {
@@ -208,13 +208,14 @@ export function depositDiagnostic(value, version = 1) {
       }
       if (version >= 6) {
         const c = value.challenge;
-        check(c === null || (closedKeys(c, ['phase', 'before_challenge', 'in_challenge'])
+        check(c === null || (closedKeys(c, ['phase', 'before_challenge', 'in_challenge', ...(version === 10 ? ['read'] : [])])
           && CHALLENGE_PHASES.has(c.phase) && ELAPSED_BUCKETS.has(c.before_challenge)
           && ELAPSED_BUCKETS.has(c.in_challenge) && value.stage === 'challenge'
           && value.tls_failure === null && value.stream_failure === null
           && failure.agent_code === 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics');
         detail.challenge = c === null ? null : { phase: c.phase,
-          before_challenge: c.before_challenge, in_challenge: c.in_challenge };
+          before_challenge: c.before_challenge, in_challenge: c.in_challenge,
+          ...(version === 10 ? { read: challengeRead(c.read, c.phase) } : {}) };
       }
       if (version >= 8) {
         const flow = value.flow_acquire;
@@ -232,6 +233,16 @@ export function depositDiagnostic(value, version = 1) {
       ...(version >= 4 ? { agent_outcome: agentOutcome(failure.agent_outcome, failure.stage, version, failure.operation) } : {}) };
   });
   return { version, failures, omitted_failures: 0 };
+}
+
+function challengeRead(value, phase) {
+  if (value === null) return null;
+  check(phase === 'challenge_read_verify' && closedKeys(value, ['step', 'returned_outcome'])
+    && ['length_read', 'body_read', 'verification'].includes(value.step), 'deposit_diagnostics');
+  const allowed = { length_read: ['io_eof', 'io_other', 'invalid', 'wire_timeout'],
+    body_read: ['io_eof', 'io_other', 'wire_timeout'], verification: ['invalid', 'verification_rejected'] };
+  check(value.returned_outcome === null || allowed[value.step].includes(value.returned_outcome), 'deposit_diagnostics');
+  return { step: value.step, returned_outcome: value.returned_outcome };
 }
 class PublishFailure extends Error {
   constructor(observation) {

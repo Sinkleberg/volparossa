@@ -2,11 +2,53 @@ use super::*;
 use crate::private_storage::wire::begin_observation::{Observer, Phase};
 
 #[derive(Default)]
-struct Trace(Mutex<Vec<Phase>>);
+struct Trace(
+    Mutex<Vec<Phase>>,
+    Mutex<Vec<begin_observation::ReadStep>>,
+    Mutex<Vec<begin_observation::ReadFailure>>,
+);
 
 impl Observer for Trace {
     fn phase(&self, phase: Phase) {
         self.0.lock().unwrap().push(phase);
+    }
+    fn read_step(&self, step: begin_observation::ReadStep) {
+        self.1.lock().unwrap().push(step);
+    }
+    fn read_failure(&self, failure: begin_observation::ReadFailure) {
+        self.2.lock().unwrap().push(failure);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn challenge_read_steps_preserve_pending_timeout_eof_invalid_and_verification_errors() {
+    use begin_observation::{ReadFailure as Failure, ReadStep as Step};
+    for (bytes, eof, step, failure) in [
+        (vec![], false, Step::LengthRead, Failure::WireTimeout),
+        (vec![0, 0, 0, 3, 1], false, Step::BodyRead, Failure::WireTimeout),
+        (vec![0, 0], true, Step::LengthRead, Failure::IoEof),
+        (vec![0, 0, 0, 3, 1], true, Step::BodyRead, Failure::IoEof),
+        (vec![0, 0, 0, 0], false, Step::LengthRead, Failure::Invalid),
+        (vec![0, 0, 0, 1, 255], false, Step::Verification, Failure::VerificationRejected),
+    ] {
+        let fixture = Fixture::new();
+        let (mut client, mut server) = tokio::io::duplex(8192);
+        server.write_all(&bytes).await.unwrap();
+        if eof {
+            server.shutdown().await.unwrap();
+        }
+        let trace = Trace::default();
+        let result = begin_observed(&mut client, &fixture.grant, &trace).await;
+        assert!(result.is_err());
+        assert_eq!(trace.1.lock().unwrap().last(), Some(&step));
+        assert_eq!(*trace.2.lock().unwrap(), [failure]);
+        match failure {
+            Failure::WireTimeout => assert!(matches!(result, Err(WireError::Timeout))),
+            Failure::IoEof => assert!(matches!(result, Err(WireError::Io(error)) if error.kind() == std::io::ErrorKind::UnexpectedEof)),
+            Failure::Invalid => assert!(matches!(result, Err(WireError::Invalid))),
+            Failure::VerificationRejected => assert!(matches!(result, Err(WireError::Protocol(_)))),
+            Failure::IoOther => unreachable!(),
+        }
     }
 }
 
@@ -111,6 +153,9 @@ async fn begin_progress_preserves_original_authenticated_exchange_and_receipt() 
     let challenge = begin_observed(&mut client, &fixture.grant, &trace)
         .await
         .unwrap();
+    assert_eq!(*trace.1.lock().unwrap(), [begin_observation::ReadStep::LengthRead,
+        begin_observation::ReadStep::BodyRead, begin_observation::ReadStep::Verification]);
+    assert!(trace.2.lock().unwrap().is_empty());
     assert_eq!(
         *trace.0.lock().unwrap(),
         [
@@ -151,4 +196,5 @@ async fn begin_progress_preserves_io_error_without_exposing_its_text() {
     assert_eq!(phases.last(), Some(&Phase::ChallengeReadVerify));
     assert_eq!(phases.len(), 3);
     assert!(!format!("{phases:?}").contains("private-read-canary"));
+    assert_eq!(*trace.2.lock().unwrap(), [begin_observation::ReadFailure::IoOther]);
 }

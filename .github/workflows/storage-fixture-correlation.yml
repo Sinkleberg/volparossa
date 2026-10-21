@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/storage-fixture-correlation
+      - fix/storage-challenge-read-20261021
       - test/storage-request-stage-proof-20261021
       - test/storage-request-stage-consumers-20261021
   workflow_dispatch:
@@ -29,7 +30,8 @@ jobs:
     name: Opt-in RAM observation, local authority and closed export
     if: >-
       github.repository == 'VOLPAROSSA/volparossa' &&
-      (github.ref == 'refs/heads/fix/storage-fixture-correlation' ||
+      (github.ref == 'refs/heads/fix/storage-challenge-read-20261021' ||
+      github.ref == 'refs/heads/fix/storage-fixture-correlation' ||
       github.ref == 'refs/heads/test/storage-request-stage-proof-20261021')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -49,7 +51,7 @@ jobs:
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$GITHUB_REPOSITORY" = VOLPAROSSA/volparossa
           case "$GITHUB_REF" in
-            refs/heads/fix/storage-fixture-correlation|refs/heads/test/storage-request-stage-proof-20261021) ;;
+            refs/heads/fix/storage-fixture-correlation|refs/heads/test/storage-request-stage-proof-20261021|refs/heads/fix/storage-challenge-read-20261021) ;;
             *) exit 1 ;;
           esac
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
@@ -68,6 +70,9 @@ jobs:
           base = os.environ['SOURCE_BASE']
           if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-request-stage-proof-20261021':
               base = 'e3b78c6376ccfe6ca9a4af1a60ffe65771ab1feb'
+              subprocess.run(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
+          if os.environ['GITHUB_REF'] == 'refs/heads/fix/storage-challenge-read-20261021':
+              base = '0f15a349d3fe34131a806241c3efcb7c8a1cdb8d'
               subprocess.run(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
           changed = git('diff', '--name-only', base, 'HEAD').splitlines()
           assert changed and len(changed) == len(set(changed))
@@ -92,6 +97,38 @@ jobs:
                   'crates/volparossa/src/content/fixture_correlation_tests.rs',
               }
               assert set(changed) == allowed and len(changed) == len(allowed)
+          if os.environ['GITHUB_REF'] == 'refs/heads/fix/storage-challenge-read-20261021':
+              allowed = {
+                  '.github/workflows/storage-fixture-correlation.yml',
+                  'crates/volparossa-agent/src/content/private_storage.rs',
+                  'crates/volparossa-agent/src/content/private_storage/observation.rs',
+                  'crates/volparossa-agent/src/content/private_storage/observation/challenge.rs',
+                  'crates/volparossa-agent/src/content/private_storage/observation/challenge/tests.rs',
+                  'crates/volparossa-agent/src/content/private_storage/tests.rs',
+                  'crates/volparossa-content/src/private_storage/wire.rs',
+                  'crates/volparossa-content/src/private_storage/wire/begin_observation.rs',
+                  'crates/volparossa-content/src/private_storage/wire/tests/begin_observation.rs',
+                  'crates/volparossa-local-control/src/lib.rs',
+                  'crates/volparossa-local-control/src/private_storage.rs',
+                  'crates/volparossa-local-control/src/private_storage_detail.rs',
+                  'crates/volparossa-local-control/src/private_storage_detail/challenge.rs',
+                  'crates/volparossa-local-control/src/private_storage_detail/flow_acquire/tests.rs',
+                  'crates/volparossa-local-control/src/private_storage_detail/tests/challenge.rs',
+                  'crates/volparossa/src/control_tests.rs',
+                  'crates/volparossa/src/storage.rs',
+                  'crates/volparossa/src/storage/peer.rs',
+                  'crates/volparossa/src/storage/peer_challenge_diagnostics_tests.rs',
+                  'crates/volparossa/src/storage/peer_challenge_read.rs',
+                  'crates/volparossa/src/storage/peer_challenge_read_tests.rs',
+                  'crates/volparossa/src/storage/peer_diagnostics.rs',
+                  'crates/volparossa/src/storage/peer_diagnostics_tests.rs',
+                  'crates/volparossa/src/storage/peer_transfer.rs',
+                  'tests/integration/storage-consumer-maintenance-smoke.py',
+                  'tests/integration/storage-consumer-maintenance.mjs',
+                  'tests/integration/test-storage-consumer-maintenance-smoke.py',
+                  'tests/integration/test-storage-consumer-maintenance.mjs',
+              }
+              assert len(allowed) == 28 and set(changed) == allowed
           dependencies = ('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
               'crates/volparossa-agent/Cargo.toml',
               'crates/volparossa-content/Cargo.toml',
@@ -104,7 +141,9 @@ jobs:
               workflow_commit=os.environ['GITHUB_WORKFLOW_SHA'],
               source_blobs={name: git('rev-parse', 'HEAD:' + name) for name in changed},
               dependency_blobs={name: git('rev-parse', 'HEAD:' + name) for name in dependencies},
-              scope='development-only-storage-fixture-correlation-local-contracts',
+              scope=('private-storage-challenge-read-local-contracts'
+                  if os.environ['GITHUB_REF'] == 'refs/heads/fix/storage-challenge-read-20261021' else
+                  'development-only-storage-fixture-correlation-local-contracts'),
               live_consumer_acceptance=False, causal_attribution=False,
               feature_equivalence_to_full_workspace_proven=False)
           pathlib.Path('storage-fixture-evidence/source.json').write_text(json.dumps(receipt, sort_keys=True) + '\n')
@@ -126,6 +165,73 @@ jobs:
           sh -n tests/integration/kvm-alpha-topology.sh
           shellcheck --severity=warning tests/integration/storage-consumer-maintenance-smoke.sh
 
+      - name: Verify pinned profile-10 Node and run the complete inert JavaScript suite
+        if: github.ref == 'refs/heads/fix/storage-challenge-read-20261021'
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ARCH" = X64
+          umask 077
+          node_root=$(mktemp -d "$RUNNER_TEMP/storage-consumer-contract-node.XXXXXXXX")
+          trap 'rm -rf -- "$node_root"' EXIT
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --connect-timeout 20 --max-time 120 --max-filesize 31633904 \
+            https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz \
+            --output "$node_root/node.tar.xz"
+          python3 -B - "$node_root" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import tarfile
+          import sys
+          root = pathlib.Path(sys.argv[1])
+          pin = json.loads(pathlib.Path('tests/integration/storage-consumer-maintenance-pins-v10.json').read_text())['runtime']
+          assert pin['version'] == '24.19.0' and pin['bytes'] == 31633904
+          assert pin['url'] == 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz'
+          assert pin['sha256'] == '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647'
+          archive = root / 'node.tar.xz'
+          assert archive.stat().st_size == pin['bytes']
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == pin['sha256']
+          assert set(pin['files']) == {'bin/node', 'LICENSE'}
+          # Only fixed destinations; archive names are never used as output paths.
+          with tarfile.open(archive, 'r:xz') as bundle:
+              for relative, expected in pin['files'].items():
+                  member = bundle.getmember('node-v24.19.0-linux-x64/' + relative)
+                  assert member.isfile() and not member.mode & 0o6000 and member.size == expected['bytes']
+                  with bundle.extractfile(member) as source:
+                      data = source.read(expected['bytes'] + 1)
+                  assert len(data) == expected['bytes'] and hashlib.sha256(data).hexdigest() == expected['sha256']
+                  destination = root / ('node' if relative == 'bin/node' else 'LICENSE')
+                  with destination.open('xb') as output:
+                      output.write(data)
+                  destination.chmod(0o700 if relative == 'bin/node' else 0o600)
+          PY
+          test "$("$node_root/node" --version)" = v24.19.0
+          timeout --signal=TERM --kill-after=5s 120s \
+            "$node_root/node" --test --test-reporter=tap tests/integration/test-storage-consumer-maintenance.mjs \
+            > storage-fixture-evidence/node-tests.log 2>&1
+          python3 -B - <<'PY'
+          import json
+          import pathlib
+          import re
+          root = pathlib.Path('storage-fixture-evidence')
+          log = root / 'node-tests.log'
+          assert 0 < log.stat().st_size <= 1024 * 1024
+          output = log.read_text()
+          names = re.findall(r'^# Subtest: (.+)$', output, re.M)
+          assert len(names) == len(set(names)) == 55
+          for field, count in dict(tests=55, suites=0, pass_=55, fail=0, cancelled=0, skipped=0, todo=0).items():
+              label = field.rstrip('_')
+              assert re.findall(r'^# ' + label + r' (\d+)$', output, re.M) == [str(count)]
+          assert sum(name.startswith('request-stage ') for name in names) == 3
+          assert sum(name.startswith('challenge-read v10 ') for name in names) == 2
+          (root / 'node-tests.json').write_text(json.dumps(dict(node_version='24.19.0',
+              archive_sha256='14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647',
+              tests=55, test_names=sorted(names), actual_consumer_acceptance=False), sort_keys=True) + '\n')
+          PY
+
       - name: Install the existing pinned Rust toolchain
         id: toolchain
         run: |
@@ -134,6 +240,38 @@ jobs:
           rustup show active-toolchain
           rustc --version --verbose
           cargo --version --verbose
+
+      - name: Check formatting before compilation and retain a correction on failure
+        id: format
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code HEAD
+          umask 077
+          if cargo fmt --all -- --check > storage-fixture-evidence/format.log 2>&1; then
+            git diff --exit-code HEAD
+          else
+            restore_source() {
+              git restore --source=HEAD --worktree -- .
+            }
+            trap restore_source EXIT
+            trap 'exit 130' INT
+            trap 'exit 143' TERM
+            if cargo fmt --all > storage-fixture-evidence/format-write.log 2>&1; then
+              formatter_status=0
+            else
+              formatter_status=$?
+            fi
+            git diff --binary --full-index --no-ext-diff --no-color HEAD -- \
+              > storage-fixture-evidence/format.patch
+            restore_source
+            trap - EXIT INT TERM
+            git diff --exit-code HEAD
+            printf 'Formatting check failed; correction captured; formatter exit: %s\n' "$formatter_status"
+            exit 1
+          fi
 
       - name: Install reviewed Protobuf on the disposable hosted runner
         run: |
@@ -186,6 +324,14 @@ jobs:
           if test "$GITHUB_REF" = refs/heads/test/storage-request-stage-proof-20261021; then
             contract_group content-request volparossa-content fixture_request_
           fi
+          if test "$GITHUB_REF" = refs/heads/fix/storage-challenge-read-20261021; then
+            contract_group wire-challenge volparossa-local-control private_storage_detail::tests::challenge::
+            contract_group wire-storage volparossa-local-control private_storage::tests::
+            contract_group content-challenge volparossa-content private_storage::wire::tests::begin_observation::
+            contract_group cli-challenge volparossa storage::peer::diagnostics::challenge_read_tests::
+            contract_group cli-legacy volparossa storage::peer::diagnostics::tests::
+            contract_group cli-close volparossa storage::peer::diagnostics::tls_close_tests::
+          fi
           python3 -B - <<'PY'
           import json
           import os
@@ -201,6 +347,8 @@ jobs:
           }
           if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-request-stage-proof-20261021':
               groups['content-request'] = 'volparossa-content'
+          if os.environ['GITHUB_REF'] == 'refs/heads/fix/storage-challenge-read-20261021':
+              groups.update({'wire-challenge': 'volparossa-local-control', 'wire-storage': 'volparossa-local-control', 'content-challenge': 'volparossa-content', 'cli-challenge': 'volparossa', 'cli-legacy': 'volparossa', 'cli-close': 'volparossa'})
           # Retain these exact opt-in kernel tests in the inventory, separately
           # from executed contracts. This job does not supply their namespaces.
           tls_prefix = 'content::tls::tests::'
@@ -286,6 +434,9 @@ jobs:
                   'content-request': 5}
               assert {group: count for group, count in new_counts.items() if count} == expected_new
               assert sum(new_counts.values()) == 22
+          if os.environ['GITHUB_REF'] == 'refs/heads/fix/storage-challenge-read-20261021':
+              read_tests = [name for name in executed_names if name.rsplit('::', 1)[-1].startswith('challenge_read_')]
+              assert len(read_tests) == 9, read_tests
           assert len(ignored_names) == 3 and len(executed_names) + len(ignored_names) == len(all_names)
           receipt = dict(schema=2, unique_tests=len(all_names), group_counts=counts,
               executed_tests=len(executed_names), executed_group_counts=executed_counts,
@@ -302,12 +453,6 @@ jobs:
           cargo clippy --locked --offline -p volparossa-local-control \
             -p volparossa-content -p volparossa-agent -p volparossa --all-targets --all-features -- -D warnings \
             2>&1 | tee storage-fixture-evidence/clippy.log
-
-      - name: Check formatting without modifying tested source
-        if: ${{ always() && steps.source.outcome == 'success' && steps.toolchain.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          cargo fmt --all -- --check 2>&1 | tee storage-fixture-evidence/format.log
 
       - name: Recheck source even after failure
         if: always()
@@ -422,7 +567,7 @@ jobs:
               'storage-provider-usage-snapshot': 16,
               'storage-fixture-correlation-sampler': 33,
               'storage-provider-activity-sampler': 17,
-              'storage-consumer-maintenance-smoke': 54,
+              'storage-consumer-maintenance-smoke': 56,
               'storage-consumer-maintenance-shell': 9,
               'private-storage-maintenance-smoke': 85,
               'private-storage-maintenance-wiring': 42,
@@ -458,7 +603,7 @@ jobs:
               receipt = json.loads((root / (name + '.json')).read_text())
               assert receipt['tests'] == expected
               print(name + ': ' + str(expected) + ' passed; no skips', flush=True)
-          assert len(groups) == 11 and sum(groups.values()) == 320
+          assert len(groups) == 11 and sum(groups.values()) == 328
           (root / 'python-tests.json').write_text(json.dumps(dict(group_counts=groups,
               unique_tests=sum(groups.values()), actual_consumer_acceptance=False), sort_keys=True) + '\n')
           PY
@@ -522,14 +667,14 @@ jobs:
           assert 0 < log.stat().st_size <= 1024 * 1024
           output = log.read_text()
           names = re.findall(r'^# Subtest: (.+)$', output, re.M)
-          assert len(names) == len(set(names)) == 53
-          for field, count in dict(tests=53, suites=0, pass_=53, fail=0, cancelled=0, skipped=0, todo=0).items():
+          assert len(names) == len(set(names)) == 55
+          for field, count in dict(tests=55, suites=0, pass_=55, fail=0, cancelled=0, skipped=0, todo=0).items():
               label = field.rstrip('_')
               assert re.findall(r'^# ' + label + r' (\d+)$', output, re.M) == [str(count)]
           assert sum(name.startswith('request-stage ') for name in names) == 3
           (root / 'node-tests.json').write_text(json.dumps(dict(node_version='24.19.0',
               archive_sha256='14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647',
-              tests=53, test_names=sorted(names), actual_consumer_acceptance=False), sort_keys=True) + '\n')
+              tests=55, test_names=sorted(names), actual_consumer_acceptance=False), sort_keys=True) + '\n')
           PY
 
       - name: Bind completed contracts to unchanged exact source
@@ -557,8 +702,8 @@ jobs:
           assert all(name.startswith('storage-consumer-contract-evidence/') for name in untracked)
           python = json.loads((root / 'python-tests.json').read_text())
           node = json.loads((root / 'node-tests.json').read_text())
-          assert python['unique_tests'] == 320 and node['tests'] == 53 and node['node_version'] == '24.19.0'
-          receipt = dict(source, python_tests=320, node_tests=53, node_version=node['node_version'],
+          assert python['unique_tests'] == 328 and node['tests'] == 55 and node['node_version'] == '24.19.0'
+          receipt = dict(source, python_tests=328, node_tests=55, node_version=node['node_version'],
               completed=True, actual_consumer_acceptance=False, causal_attribution=False)
           (root / 'final.json').write_text(json.dumps(receipt, sort_keys=True) + '\n')
           PY

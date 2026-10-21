@@ -1128,3 +1128,37 @@ test('entrypoint preserves actual app APIs, no runtime injection or reenrollment
   assert.doesNotMatch(exercise, /enrollMaintenance|storePrivateFile|\.deposit\(|\.create\(|spawnProcess|openMaintenance:/u);
   assert.doesNotMatch(source, /npm|sudo|execSync|shell: true/u);
 });
+
+
+test('challenge-read v10 preserves attempt binding and whole-challenge buckets with finite returned outcomes', () => {
+  const allowed = { length_read: [null, 'io_eof', 'io_other', 'invalid', 'wire_timeout'],
+    body_read: [null, 'io_eof', 'io_other', 'wire_timeout'], verification: [null, 'invalid', 'verification_rejected'] };
+  for (const step of Object.keys(allowed)) for (const returned_outcome of [null, 'io_eof', 'io_other', 'invalid', 'verification_rejected', 'wire_timeout']) {
+    const d = challengeDiagnostics(); d.version = 10;
+    const f = d.failures[0]; Object.assign(f, { fragment_index: 3, copy_index: 1, operation: 'append' });
+    f.agent_detail.flow_acquire = null;
+    Object.assign(f.agent_detail.challenge, { before_challenge: '1_to_5s', in_challenge: '90_to_120s', read: { step, returned_outcome } });
+    if (allowed[step].includes(returned_outcome)) assert.deepEqual(depositDiagnostic(d, 10), d);
+    else assert.throws(() => depositDiagnostic(d, 10), /deposit_diagnostics/u);
+  }
+});
+
+test('challenge-read v10 rejects legacy reinterpretation, private extras and wrong phase', () => {
+  const make = () => {
+    const d = challengeDiagnostics(); d.version = 10;
+    d.failures[0].agent_detail.flow_acquire = null;
+    d.failures[0].agent_detail.challenge.read = { step: 'body_read', returned_outcome: null };
+    return d;
+  };
+  for (let version = 1; version <= 9; version++) {
+    const d = make(); d.version = version;
+    assert.throws(() => depositDiagnostic(d, version), /deposit_diagnostics/u);
+  }
+  for (const read of [{ step: 'PRIVATE', returned_outcome: null }, { step: 'body_read' },
+    { step: 'body_read', returned_outcome: true }, { step: 'body_read', returned_outcome: null, raw: 'PRIVATE' }]) {
+    const d = make(); d.failures[0].agent_detail.challenge.read = read;
+    assert.throws(() => depositDiagnostic(d, 10), /deposit_diagnostics/u);
+  }
+  const d = make(); d.failures[0].agent_detail.challenge.phase = 'grant_write_flush';
+  assert.throws(() => depositDiagnostic(d, 10), /deposit_diagnostics/u);
+});

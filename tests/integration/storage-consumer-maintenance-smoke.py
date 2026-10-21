@@ -239,15 +239,15 @@ def validate_flow_acquire(value):
 def validate_agent_outcome(value, stage, version=4, operation=None):
     if value is None:
         return
-    keys(value, ('status', 'detail', *(('append_timing',) if version in (7, 8, 9) else ()),
-        *(('tls_close_failure',) if version == 9 else ())))
+    keys(value, ('status', 'detail', *(('append_timing',) if version in (7, 8, 9, 10) else ()),
+        *(('tls_close_failure',) if version >= 9 else ())))
     require(stage in ('wire_receipt', 'agent_terminal', 'deadline')
         and value['status'] in ('observed', 'missing', 'pending', 'expired', 'query_failed', 'query_timeout'), 'deposit_diagnostics')
     if value['status'] != 'observed':
         require(value['detail'] is None, 'deposit_diagnostics')
-        if version in (7, 8, 9):
+        if version in (7, 8, 9, 10):
             require(value['append_timing'] is None, 'deposit_diagnostics')
-        if version == 9:
+        if version >= 9:
             require(value['tls_close_failure'] is None, 'deposit_diagnostics')
         return
     detail = value['detail']
@@ -258,7 +258,7 @@ def validate_agent_outcome(value, stage, version=4, operation=None):
         and ((detail['category'] == 'timeout') == (detail['deadline_scope'] != 'none'))
         and (detail['deadline_scope'] != 'bridge' or detail['phase'] in OUTCOME_PHASES[1:15])
         and (detail['deadline_scope'] != 'remote_wire' or detail['phase'] in OUTCOME_PHASES[6:13]), 'deposit_diagnostics')
-    if version in (7, 8, 9) and value['append_timing'] is not None:
+    if version in (7, 8, 9, 10) and value['append_timing'] is not None:
         timing = value['append_timing']
         keys(timing, ('before_payload', 'in_payload_write_flush', 'in_receipt_read'))
         buckets = ('under_1s', '1_to_5s', '5_to_15s', '15_to_30s',
@@ -267,15 +267,27 @@ def validate_agent_outcome(value, stage, version=4, operation=None):
             and timing['before_payload'] in buckets and timing['in_payload_write_flush'] in buckets
             and (timing['in_receipt_read'] is None if detail['phase'] == 'remote_payload_write'
                 else timing['in_receipt_read'] in buckets), 'deposit_diagnostics')
-    if version == 9:
+    if version >= 9:
         require(value['tls_close_failure'] is None or (
             value['tls_close_failure'] in ('shutdown_io', 'read_io', 'trailing_data', 'internal_deadline')
             and detail['phase'] == 'transport_tls_close' and detail['category'] == 'unavailable'
             and detail['deadline_scope'] == 'none' and value['append_timing'] is None), 'deposit_diagnostics')
 
 
+def validate_challenge_read(value, phase):
+    if value is None:
+        return
+    keys(value, ('step', 'returned_outcome'))
+    allowed = {'length_read': ('io_eof', 'io_other', 'invalid', 'wire_timeout'),
+        'body_read': ('io_eof', 'io_other', 'wire_timeout'),
+        'verification': ('invalid', 'verification_rejected')}
+    require(phase == 'challenge_read_verify' and type(value['step']) is str and value['step'] in allowed
+        and (value['returned_outcome'] is None or (type(value['returned_outcome']) is str
+            and value['returned_outcome'] in allowed[value['step']])), 'deposit_diagnostics')
+
+
 def validate_deposit_diagnostics(value, version=1):
-    require(type(version) is int and version in (1, 2, 3, 4, 5, 6, 7, 8, 9), 'deposit_diagnostics')
+    require(type(version) is int and version in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10), 'deposit_diagnostics')
     keys(value, ('version', 'failures', 'omitted_failures'))
     require(type(value['version']) is int and value['version'] == version
         and type(value['omitted_failures']) is int and value['omitted_failures'] == 0
@@ -319,7 +331,7 @@ def validate_deposit_diagnostics(value, version=1):
                     'deposit_diagnostics')
             if version >= 6 and detail['challenge'] is not None:
                 challenge = detail['challenge']
-                keys(challenge, ('phase', 'before_challenge', 'in_challenge'))
+                keys(challenge, ('phase', 'before_challenge', 'in_challenge', *(('read',) if version == 10 else ())))
                 buckets = ('under_1s', '1_to_5s', '5_to_15s', '15_to_30s',
                     '30_to_60s', '60_to_90s', '90_to_120s', 'at_least_120s')
                 require(challenge['phase'] in ('selector_write_flush', 'grant_write_flush', 'challenge_read_verify')
@@ -327,6 +339,8 @@ def validate_deposit_diagnostics(value, version=1):
                     and detail['stage'] == 'challenge' and detail['tls_failure'] is None
                     and detail['stream_failure'] is None and failure['agent_code'] == 'CONTENT_UNAVAILABLE',
                     'deposit_diagnostics')
+                if version == 10:
+                    validate_challenge_read(challenge['read'], challenge['phase'])
             if version >= 8 and detail['flow_acquire'] is not None:
                 validate_flow_acquire(detail['flow_acquire'])
                 require(detail['stage'] == 'stream_open' and detail['deadline_scope'] == 'none'

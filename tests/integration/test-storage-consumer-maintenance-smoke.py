@@ -1296,5 +1296,43 @@ class ConsumerOrchestration(unittest.TestCase):
             self.assertEqual(writes, [])
 
 
+class ChallengeReadTests(unittest.TestCase):
+    def diagnostic(self):
+        return dict(version=10, omitted_failures=0, failures=[dict(fragment_index=3, copy_index=1,
+            operation='append', stage='agent_ready', category='agent_rejected',
+            agent_code='CONTENT_UNAVAILABLE', agent_outcome=None, agent_detail=dict(
+                stage='challenge', deadline_scope='operation', tls_failure=None, stream_failure=None,
+                flow_acquire=None, challenge=dict(phase='challenge_read_verify',
+                    before_challenge='1_to_5s', in_challenge='90_to_120s',
+                    read=dict(step='body_read', returned_outcome=None))))])
+
+    def test_challenge_read_accepts_finite_matrix_preserves_original_buckets_and_binding(self):
+        allowed = {'length_read': (None, 'io_eof', 'io_other', 'invalid', 'wire_timeout'),
+            'body_read': (None, 'io_eof', 'io_other', 'wire_timeout'),
+            'verification': (None, 'invalid', 'verification_rejected')}
+        for step in allowed:
+            for outcome in (None, 'io_eof', 'io_other', 'invalid', 'verification_rejected', 'wire_timeout'):
+                value = self.diagnostic()
+                value['failures'][0]['agent_detail']['challenge']['read'] = dict(step=step, returned_outcome=outcome)
+                before = copy.deepcopy(value)
+                if outcome in allowed[step]:
+                    M['validate_deposit_diagnostics'](value, 10)
+                    self.assertEqual(value, before)
+                else:
+                    with self.assertRaises(ValueError): M['validate_deposit_diagnostics'](value, 10)
+
+    def test_challenge_read_rejects_old_profiles_unknowns_and_other_phases(self):
+        for version in range(1, 10):
+            value = self.diagnostic(); value['version'] = version
+            with self.assertRaises(ValueError): M['validate_deposit_diagnostics'](value, version)
+        for read in ({'step': 'PRIVATE', 'returned_outcome': None}, {'step': 'body_read'},
+            {'step': 'body_read', 'returned_outcome': True},
+            {'step': 'body_read', 'returned_outcome': None, 'raw': 'PRIVATE'}):
+            value = self.diagnostic(); value['failures'][0]['agent_detail']['challenge']['read'] = read
+            with self.assertRaises(ValueError): M['validate_deposit_diagnostics'](value, 10)
+        value = self.diagnostic(); value['failures'][0]['agent_detail']['challenge']['phase'] = 'grant_write_flush'
+        with self.assertRaises(ValueError): M['validate_deposit_diagnostics'](value, 10)
+
+
 if __name__ == '__main__':
     unittest.main()
