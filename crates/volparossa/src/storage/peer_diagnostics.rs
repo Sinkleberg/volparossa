@@ -692,15 +692,16 @@ impl Failure {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Wire {
+    version: u8,
+    failures: Vec<serde_json::Value>,
+    omitted_failures: usize,
+}
+
 impl<'de> Deserialize<'de> for Diagnostics {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Wire {
-            version: u8,
-            failures: Vec<serde_json::Value>,
-            omitted_failures: usize,
-        }
         let wire = Wire::deserialize(deserializer)?;
         if !matches!(wire.version, 1..=10) || wire.failures.len() > MAX_FAILURES {
             return Err(serde::de::Error::custom(

@@ -59,16 +59,9 @@ pub(super) async fn with_all_diagnostics<F: Future>(
 
 pub(super) async fn with_challenge_read_diagnostics<F: Future>(
     read_v10: bool,
-    append_v7: bool,
-    flow_v8: bool,
-    close_v9: bool,
     work: F,
 ) -> F::Output {
-    diagnostics::with_challenge_read(
-        read_v10,
-        with_all_diagnostics(append_v7, flow_v8, close_v9 || read_v10, work),
-    )
-    .await
+    diagnostics::with_challenge_read(read_v10, work).await
 }
 
 #[derive(Debug, Subcommand)]

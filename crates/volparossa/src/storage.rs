@@ -183,10 +183,12 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
         } => {
             return Box::pin(peer::with_challenge_read_diagnostics(
                 challenge_read_diagnostics_v10,
-                append_diagnostics_v7,
-                flow_acquire_diagnostics_v8,
-                tls_close_diagnostics_v9,
-                peer::replicas::run(*command, socket),
+                peer::with_all_diagnostics(
+                    append_diagnostics_v7,
+                    flow_acquire_diagnostics_v8,
+                    tls_close_diagnostics_v9 || challenge_read_diagnostics_v10,
+                    peer::replicas::run(*command, socket),
+                ),
             ))
             .await;
         }
@@ -199,10 +201,12 @@ pub(crate) async fn run(command: Command, socket: &Path) -> Result<()> {
         } => {
             return Box::pin(peer::with_challenge_read_diagnostics(
                 challenge_read_diagnostics_v10,
-                append_diagnostics_v7,
-                flow_acquire_diagnostics_v8,
-                tls_close_diagnostics_v9,
-                peer::replicas::fragments::run(*command, socket),
+                peer::with_all_diagnostics(
+                    append_diagnostics_v7,
+                    flow_acquire_diagnostics_v8,
+                    tls_close_diagnostics_v9 || challenge_read_diagnostics_v10,
+                    peer::replicas::fragments::run(*command, socket),
+                ),
             ))
             .await;
         }

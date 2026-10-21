@@ -25,15 +25,14 @@ fn challenge_read_v10_roundtrips_finite_matrix_and_retains_fragment_copy_operati
             let mut value = sample();
             value["failures"][0]["agent_detail"]["challenge"]["read"] =
                 serde_json::json!({"step":step,"returned_outcome":outcome});
-            let expected = match (step, outcome) {
+            let expected = matches!(
+                (step, outcome),
                 (
                     "length_read" | "body_read",
                     None | Some("io_eof" | "io_other" | "wire_timeout"),
-                )
-                | ("length_read" | "verification", Some("invalid"))
-                | ("verification", None | Some("verification_rejected")) => true,
-                _ => false,
-            };
+                ) | ("length_read" | "verification", Some("invalid"))
+                    | ("verification", None | Some("verification_rejected"))
+            );
             let decoded = serde_json::from_value::<Diagnostics>(value.clone());
             assert_eq!(decoded.is_ok(), expected);
             if let Ok(decoded) = decoded {
@@ -67,11 +66,14 @@ fn challenge_read_v10_rejects_legacy_reinterpretation_unknown_fields_and_wrong_p
 #[tokio::test]
 async fn challenge_read_v10_is_explicit_scoped_and_mixed_cli_flags_reject_before_io() {
     assert!(!challenge_read_enabled());
-    super::super::with_challenge_read_diagnostics(true, false, false, false, async {
-        assert!(challenge_read_enabled());
-        assert!(flow_acquire_enabled() && tls_close_enabled() && append_timing_enabled());
-        assert_eq!(Diagnostics::default().version, 10);
-    })
+    super::super::with_challenge_read_diagnostics(
+        true,
+        super::super::with_all_diagnostics(false, false, true, async {
+            assert!(challenge_read_enabled());
+            assert!(flow_acquire_enabled() && tls_close_enabled() && append_timing_enabled());
+            assert_eq!(Diagnostics::default().version, 10);
+        }),
+    )
     .await;
     assert!(!challenge_read_enabled());
     assert_eq!(Diagnostics::default().version, 6);
