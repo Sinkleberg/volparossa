@@ -60,11 +60,23 @@ approved workflow-base literal changes. Combined Quality `39648721302`, CodeQL
 `39648713139` and fixture contracts `39648711002` are running; automatic
 alpha/datapath run `39648721222` was skipped by design. The already-dispatched
 profile-10 trial remains bound to PR311 source `065f7abfc8c0e59382b7b0000bece880de9c289e`.
-The protected-model result-failure diagnostic is approved separately in
-`.volparossa-dev/worktrees/protected-result-failure-20261021` from source
-`b47d80d80c650791a6273c291a99c154536f4dab`; it will categorize closed public-fixture
-result failures after observed worker/root joins. Implementation, review and
-source/runtime checks remain pending; no fix or cause is claimed.
+The protected-model result-failure diagnostic is published separately as
+[PR312](https://github.com/VOLPAROSSA/volparossa/pull/312), source
+`db67d7286688152213070b3a38608e420fc97164`, tree
+`c5dce37fdf5c87e1bb75ed67e94b932f4d26f64c`, based on
+`b47d80d80c650791a6273c291a99c154536f4dab`, in
+`.volparossa-dev/worktrees/protected-result-failure-20261021`. It distinguishes
+closed requester read/result rejection from a terminal public-fixture worker
+failure emitted only after the existing owner join and exact native-session
+cleanup proof. Independent review and 188 inert controller tests pass; no local
+Rust/native/VM tests ran. Exact-source hosted contracts `39650771592` are running,
+with 117 Rust and 417 Python tests required. Frozen binary diff SHA-256 is
+`129542f9a4b201e43627b4d90b7c2ae7fabf2ce03e4fe6dc386f37d3f34eb2cb` and the
+sorted 11-file manifest SHA-256 is
+`68f720b62aabfae6614186bb5805dbbc6afd83dcffc3c1d9c8ff602f92a8caba`. The actual
+model job, success predicates and original failure remain unchanged; source and
+actual-trial acceptance remain pending. This does not prove a functional fix,
+worker startup, inference or whole-guest descendant cleanup.
 The historical retained-branch table below is not a current branch catalogue.
 
 | Integration | Accepted evidence, retained work and next action |
