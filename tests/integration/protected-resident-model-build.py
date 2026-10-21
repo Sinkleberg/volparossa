@@ -52,6 +52,8 @@ EXPORT_ERRORS = {
     'inventory': frozenset(('build_deadline', 'stage_deadline', 'inventory_entries',
         'asset_directory_metadata', 'asset_file', 'asset_changed', 'export_bytes',
         'inventory_digest', 'core_source', 'inventory_bound', 'inventory_scope', 'inventory_entry',
+        'inventory_path_type', 'inventory_path_empty', 'inventory_path_length',
+        'inventory_path_character_or_separator', 'inventory_path_dot_component',
         'asset_scope', 'lease_is_generated', 'symlink_scope', 'file_inventory', 'executable_scope',
         'inventory_parent_file', 'inventory_total', 'core_executable', 'symlink_loop',
         'symlink_external', 'symlink_escape', 'symlink_target', 'symlink_missing')),
@@ -406,7 +408,15 @@ def provision(core, native, deadline):
 
 def asset_inventory(root, source, stager, deadline):
     entries, total = {}, 0
-    for name in sorted(stager.scan(root, deadline / 1_000_000_000)):
+    names = stager.scan(root, deadline / 1_000_000_000)
+    # Validate the complete bounded name set before hashing any inventory entry or
+    # reading any symlink target. Earlier core-copy validation/order is unchanged.
+    for name in names:
+        remaining(deadline)
+        rejection = stager.path_rejection(name)
+        if rejection is not None:
+            raise ValueError(rejection)
+    for name in sorted(names):
         path = root / name
         if path.is_symlink():
             item = dict(kind='symlink', target=os.readlink(path))

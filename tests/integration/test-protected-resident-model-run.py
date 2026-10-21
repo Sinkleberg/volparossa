@@ -1770,6 +1770,23 @@ class BuilderDiagnostic(Inert):
                     for key in ('provision', 'export', 'source_commit', 'native_build_manifest_sha256'):
                         self.assertNotIn(key, result)
 
+    def test_inventory_path_rules_survive_closed_projection_without_paths_or_fingerprints(self):
+        reasons = ('inventory_path_type', 'inventory_path_empty', 'inventory_path_length',
+            'inventory_path_character_or_separator', 'inventory_path_dot_component')
+        for reason in reasons:
+            value = self.receipt('export', export_diagnostic=dict(operation='inventory', reason=reason))
+            error, diagnostics, _calls = self.observe(reply=(R.encoded(value), b'', 0))
+            self.assertEqual(str(error), 'guest_unit_failed')
+            projected = diagnostics[0]['builder']['export_diagnostic']
+            self.assertEqual(projected, dict(operation='inventory', reason=reason))
+            self.assertEqual(set(projected), {'operation', 'reason'})
+            self.assertFalse(diagnostics[0]['builder']['assets_exported'])
+            for bad in (dict(projected, reason='runtime/PRIVATE:CANARY'),
+                    dict(projected, reason='a' * 64), dict(projected, raw_path='PRIVATE_CANARY'),
+                    dict(projected, path_sha256='b' * 64), dict(projected, operation='metadata')):
+                with self.assertRaises(ValueError):
+                    R.builder_failure_projection(R.encoded(self.receipt('export', export_diagnostic=bad)), self.SOURCE)
+
     def test_export_projection_accepts_legacy_and_interrupted_return_boundary(self):
         for exported in (False, True):
             value = self.receipt('export', **({'export': self.export()} if exported else {}))
@@ -2088,6 +2105,43 @@ class BuilderDiagnostic(Inert):
 
 
 class ReceiptAndBindings(Inert):
+    def test_inventory_diagnostic_branch_only_adds_exact_source_contract_authority(self):
+        import textwrap
+        workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
+        self.assertIn('branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021]', workflow)
+        self.assertIn("github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' &&", workflow)
+        self.assertIn("github.event_name == 'push' || inputs.scenario == 'source-contracts'", workflow)
+        public = workflow.split('\n  public-model:\n', 1)[1]
+        self.assertNotIn('diagnostic/protected-export-inventory', public)
+        self.assertIn("github.ref == 'refs/heads/feature/protected-resident-model'", public)
+        self.assertIn('test "$GITHUB_SHA" = "$EXPECTED_SOURCE"', public)
+        self.assertIn('test "$GITHUB_WORKFLOW_SHA" = "$EXPECTED_SOURCE"', public)
+        code = textwrap.dedent(workflow.split("python3 -B - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
+        gate = next(node for node in ast.parse(code).body if isinstance(node, ast.If))
+        approved = {'.github/workflows/protected-resident-model.yml',
+            'tests/integration/protected-resident-model-build.py',
+            'tests/integration/protected-resident-model-workload.py',
+            'tests/integration/test-protected-resident-model-build.py',
+            'tests/integration/test-protected-resident-model-workload.py',
+            'tests/integration/test-protected-resident-model-run.py'}
+        base = '3a1a15930fa69b89c9275f980e02eb6b89c94fb7'
+        for extra in (None, 'crates/volparossa/src/main.rs'):
+            changed = sorted(approved | ({extra} if extra else set()))
+            git = mock.Mock(return_value='\n'.join(changed))
+            command = mock.Mock()
+            namespace = {'os': types.SimpleNamespace(environ={
+                'GITHUB_REF': 'refs/heads/diagnostic/protected-export-inventory-20261021'}),
+                'git': git, 'subprocess': types.SimpleNamespace(run=command)}
+            compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-diagnostic-gate', 'exec')
+            if extra:
+                with self.assertRaises(AssertionError):
+                    exec(compiled, namespace)
+            else:
+                exec(compiled, namespace)
+                self.assertEqual(namespace['diagnostic_allowed'], approved)
+            git.assert_called_once_with('diff', '--name-only', base, 'HEAD')
+            command.assert_called_once_with(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
+
     def test_ready_uses_actual_fixed_entrypoint_literal(self):
         source = R.ROOT / 'packaging/protected-resident-model/entrypoint'
         statements = ast.parse(source.read_bytes()).body
