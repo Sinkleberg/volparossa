@@ -470,7 +470,9 @@ mod tests {
 
     #[tokio::test]
     async fn stdout_eof_carries_only_closed_public_bubblewrap_stage_after_join() {
-        let process = child("import sys;sys.stdin.buffer.read(1);sys.stderr.write(\"bwrap: Can't open source PRIVATE_CANARY /private/input\\n\");sys.stderr.flush();sys.exit(23)");
+        let process = child(
+            "import sys;sys.stdin.buffer.read(1);sys.stderr.write(\"bwrap: Can't open source PRIVATE_CANARY /private/input\\n\");sys.stderr.flush();sys.exit(23)",
+        );
         let mut live = Live::own(process, clock_ticks().unwrap());
         live.stdin.as_mut().unwrap().write_all(b"x").await.unwrap();
         assert!(live.stdout.next().await.is_err());

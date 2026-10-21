@@ -446,14 +446,18 @@ fn public_bubblewrap_stages_preserve_ordinary_detail_and_require_stdout_close() 
             invalid["code"] = code.into();
             assert!(!public_fixture_detail(&invalid));
         }
-        let before =
-            super::super::diagnostic::native_session_detail(&anyhow::anyhow!("compute_memory_budget"));
+        let before = super::super::diagnostic::native_session_detail(&anyhow::anyhow!(
+            "compute_memory_budget"
+        ));
         assert_eq!(before.with_public_bubblewrap_stage(Some(stage)), before);
         let eof = super::super::diagnostic::native_session_detail(&anyhow::anyhow!(
             "compute_native_session_stdout_closed"
         ));
         let non_bwrap = eof.with_native_stdout_close(None, "other");
-        assert_eq!(non_bwrap.with_public_bubblewrap_stage(Some(stage)), non_bwrap);
+        assert_eq!(
+            non_bwrap.with_public_bubblewrap_stage(Some(stage)),
+            non_bwrap
+        );
         assert_eq!(
             eof.with_native_stdout_close(None, "bubblewrap")
                 .with_public_bubblewrap_stage(None),

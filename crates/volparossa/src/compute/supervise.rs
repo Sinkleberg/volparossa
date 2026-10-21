@@ -1658,9 +1658,15 @@ mod tests {
             ),
             ("bwrap: Failed to mount tmpfs: ", BubblewrapStage::RootSetup),
             ("bwrap: pivot_root: ", BubblewrapStage::RootSetup),
-            ("bwrap: Can't find source path ", BubblewrapStage::SourceSetup),
+            (
+                "bwrap: Can't find source path ",
+                BubblewrapStage::SourceSetup,
+            ),
             ("bwrap: Can't open source ", BubblewrapStage::SourceSetup),
-            ("bwrap: Can't get type of source ", BubblewrapStage::SourceSetup),
+            (
+                "bwrap: Can't get type of source ",
+                BubblewrapStage::SourceSetup,
+            ),
             (
                 "bwrap: Can't mkdir parents for ",
                 BubblewrapStage::DestinationSetup,
@@ -1670,7 +1676,10 @@ mod tests {
                 BubblewrapStage::DestinationSetup,
             ),
             ("bwrap: Can't bind mount ", BubblewrapStage::BindMount),
-            ("bwrap: Can't remount readonly on ", BubblewrapStage::BindMount),
+            (
+                "bwrap: Can't remount readonly on ",
+                BubblewrapStage::BindMount,
+            ),
         ] {
             let raw = format!("{prefix}PRIVATE_CANARY /private/input: private errno text");
             assert_eq!(startup_class(raw.as_bytes()), StartupClass::Bubblewrap);
@@ -1695,7 +1704,7 @@ mod tests {
 
     #[tokio::test]
     async fn public_bubblewrap_stage_uses_existing_fragmented_prefix_without_changing_default_failure()
-    {
+     {
         use tokio::io::AsyncWriteExt as _;
 
         let raw = [
@@ -1720,7 +1729,12 @@ mod tests {
         );
         assert!(!format!("{diagnostics:?}").contains("PRIVATE_CANARY"));
         let error = required_result(None, ExitStatus::from_raw(256), diagnostics).unwrap_err();
-        assert_eq!(error.to_string(), format!("compute_result_missing exit_code=1 signal=0 stderr_class=bubblewrap stderr_bytes={bytes}"));
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "compute_result_missing exit_code=1 signal=0 stderr_class=bubblewrap stderr_bytes={bytes}"
+            )
+        );
         assert!(!format!("{error:?}").contains("PRIVATE_CANARY"));
     }
 
