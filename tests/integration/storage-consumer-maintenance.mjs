@@ -38,8 +38,8 @@ const APPEND_REVISIONS = Object.freeze({ image: '10c46b9d6424929748e324fdd188a2f
   cloud: 'dda7a21818ece774445cf63d6e9a01fe0f2803b2' });
 const FLOW_REVISIONS = Object.freeze({ image: '9694a2b9dcb40aceefd78dbc0ab34303071a0ffd',
   cloud: '47b0f03b84913761570c3de7037ba5509b848c23' });
-const TLS_CLOSE_REVISIONS = Object.freeze({ image: '1e812ec6424a539a336d230b99ae1c11a494ca29',
-  cloud: '35598609d3fedb5d1241a479c1930c8a6b831661' });
+const CHALLENGE_READ_REVISIONS = Object.freeze({ image: 'f51b8ace0352377c7068a93fc8f4544f18e52978',
+  cloud: '5f143725fd18c98848beb61c9198a82066bfec13' });
 const CHECKPOINTS = new Set(['enrolled', 'owner_locked', 'waiting_for_core', 'working', 'paused',
   'enrollment_expired', 'core_unavailable', 'core_turn_revoked', 'turn_completed', 'retry_pending']);
 const SQL = Buffer.from('-- VOLPAROSSA synthetic quiesced snapshot\nCREATE TABLE fixture (id integer);\nINSERT INTO fixture VALUES (1);\n');
@@ -254,9 +254,10 @@ class PublishFailure extends Error {
 
 // Observe only the closed bridge result returned by this exact call. Never
 // copy its raw storage report, paths, exceptions or private journal to evidence.
-export function requirePublishComplete(value, app, operation, profileVersion = 1) {
+export function requirePublishComplete(value, app, operation, profileVersion = 1, challengeReadDiagnosticsV10 = false) {
   check(['image', 'cloud'].includes(app) && ['create', 'deposit'].includes(operation), 'arguments');
   check([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(profileVersion), 'arguments');
+  check(typeof challengeReadDiagnosticsV10 === 'boolean' && (!challengeReadDiagnosticsV10 || profileVersion === 10), 'arguments');
   const report = value?.storage;
   const present = report !== null && typeof report === 'object' && !Array.isArray(report);
   let state = 'not_applicable', diagnostic = null;
@@ -264,7 +265,7 @@ export function requirePublishComplete(value, app, operation, profileVersion = 1
     state = 'missing';
     if (present && Object.hasOwn(report, 'deposit_diagnostics')) {
       try {
-        diagnostic = depositDiagnostic(report.deposit_diagnostics, profileVersion - 1);
+        diagnostic = depositDiagnostic(report.deposit_diagnostics, challengeReadDiagnosticsV10 ? 10 : profileVersion - 1);
         check(report.operation_complete === false || (report.operation_complete === true && diagnostic.failures.length === 0),
           'deposit_diagnostics');
         check(value.status !== 'complete' || report.operation_complete === true, 'deposit_diagnostics');
@@ -275,6 +276,7 @@ export function requirePublishComplete(value, app, operation, profileVersion = 1
   if (value?.status === 'complete' && value.local_process_joined === true
     && (profileVersion === 1 || operation === 'create' || (state === 'observed' && diagnostic.failures.length === 0))) return;
   throw new PublishFailure({ version: profileVersion, app, operation,
+    ...(challengeReadDiagnosticsV10 ? { diagnostic_version: 10 } : {}),
     status: PUBLISH_STATUSES.has(value?.status) ? value.status : 'unknown',
     code: PUBLISH_CODES.has(value?.code) ? value.code : 'unknown',
     local_process_joined: observedBoolean(value?.local_process_joined),
@@ -790,7 +792,7 @@ async function guard(root, profileVersion) {
     && provision.kind === 'storage-consumer-maintenance-runtime-provision'
     && provision.success === true && provision.guest_only === true && provision.shared_adapter_verified === true,
   'provision');
-  const revisions = profileVersion === 10 ? TLS_CLOSE_REVISIONS : profileVersion === 9 ? FLOW_REVISIONS : profileVersion === 8 ? APPEND_REVISIONS : profileVersion === 7 ? CHALLENGE_REVISIONS : profileVersion === 6 ? STREAM_REVISIONS : profileVersion === 5 ? OUTCOME_REVISIONS
+  const revisions = profileVersion === 10 ? CHALLENGE_READ_REVISIONS : profileVersion === 9 ? FLOW_REVISIONS : profileVersion === 8 ? APPEND_REVISIONS : profileVersion === 7 ? CHALLENGE_REVISIONS : profileVersion === 6 ? STREAM_REVISIONS : profileVersion === 5 ? OUTCOME_REVISIONS
     : profileVersion === 4 ? TLS_REVISIONS : profileVersion === 3 ? DETAIL_REVISIONS
     : profileVersion === 2 ? DIAGNOSTIC_REVISIONS : REVISIONS;
   for (const [name, source] of Object.entries(provision.pins.sources)) {
@@ -820,10 +822,13 @@ async function receipt(app, name) {
   return r;
 }
 export function validateAppendProfile(value, profileVersion) {
-  check([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(profileVersion)
+  const read = profileVersion === 10 && value.challengeReadDiagnosticsV10 === true;
+  check((!Object.hasOwn(value, 'challengeReadDiagnosticsV10')
+      || (profileVersion === 10 && typeof value.challengeReadDiagnosticsV10 === 'boolean'))
+    && [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(profileVersion)
     && (profileVersion === 8 ? value.appendDiagnosticsV7 === true : !Object.hasOwn(value, 'appendDiagnosticsV7'))
     && (profileVersion === 9 ? value.flowAcquireDiagnosticsV8 === true : !Object.hasOwn(value, 'flowAcquireDiagnosticsV8'))
-    && (profileVersion === 10 ? value.tlsCloseDiagnosticsV9 === true : !Object.hasOwn(value, 'tlsCloseDiagnosticsV9')),
+    && (profileVersion === 10 && !read ? value.tlsCloseDiagnosticsV9 === true : !Object.hasOwn(value, 'tlsCloseDiagnosticsV9')),
   'configuration');
 }
 async function config(app, profileVersion) {
@@ -882,7 +887,7 @@ export async function publish(ctx, m) {
           const value = name === 'image'
             ? await m.runSnapshotStorage({ operation, config: join(app, 'storage.json'), bundle: join(app, 'bundle') }, { signal: ctx.signal, storageFactory: factory })
             : await m.storePrivateFile(operation, { config: join(app, 'storage.json'), bundle: join(app, 'bundle') }, { signal: ctx.signal, storageFactory: factory });
-          requirePublishComplete(value, name, operation, ctx.profileVersion);
+          requirePublishComplete(value, name, operation, ctx.profileVersion, c.challengeReadDiagnosticsV10 === true);
           return value;
         };
         const value = name === 'image' && operation === 'deposit'

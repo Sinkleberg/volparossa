@@ -1085,7 +1085,7 @@ class ConsumerOrchestration(unittest.TestCase):
     def test_preparation_enables_only_flow_opt_in_for_explicit_profile_nine(self):
         self.assert_preparation(9)
 
-    def test_preparation_enables_only_close_opt_in_for_explicit_profile_ten(self):
+    def test_preparation_enables_only_challenge_read_opt_in_for_explicit_profile_ten(self):
         self.assert_preparation(10)
 
     def assert_preparation(self, profile):
@@ -1131,10 +1131,11 @@ class ConsumerOrchestration(unittest.TestCase):
                     self.assertIs(config.pop('flowAcquireDiagnosticsV8'), True)
                 else:
                     self.assertNotIn('flowAcquireDiagnosticsV8', config)
+                self.assertNotIn('tlsCloseDiagnosticsV9', config)
                 if profile == 10:
-                    self.assertIs(config.pop('tlsCloseDiagnosticsV9'), True)
+                    self.assertIs(config.pop('challengeReadDiagnosticsV10'), True)
                 else:
-                    self.assertNotIn('tlsCloseDiagnosticsV9', config)
+                    self.assertNotIn('challengeReadDiagnosticsV10', config)
                 policy = M['private_json'](root / name / 'maintenance-policy.json')
                 self.assertEqual(config['fragmentBytes'], (size + 3) // 4)
                 self.assertEqual((config['lifetimeSeconds'], config['deadlineMs']), (1800, 1800000))
@@ -1320,6 +1321,72 @@ class ChallengeReadTests(unittest.TestCase):
                     self.assertEqual(value, before)
                 else:
                     with self.assertRaises(ValueError): M['validate_deposit_diagnostics'](value, 10)
+
+    def opted_failure(self):
+        value = diagnostic_failure(10)
+        value['publish_observation'].update(diagnostic_version=10, deposit_diagnostics=self.diagnostic())
+        return value
+
+    def test_profile10_read_failure_requires_explicit_mode_and_preserves_bound_attempt(self):
+        value = self.opted_failure()
+        before = copy.deepcopy(value)
+        self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=10, challenge_read_diagnostics_v10=True), before)
+        self.assertEqual(value, before)
+        failure = value['publish_observation']['deposit_diagnostics']['failures'][0]
+        self.assertEqual((failure['fragment_index'], failure['copy_index'], failure['operation']), (3, 1, 'append'))
+        self.assertIsNone(failure['agent_detail']['challenge']['read']['returned_outcome'])
+        self.assertFalse(value['cleanup_confirmed'])
+        for mode in (False, None, True, 10, 'true'):
+            if mode is True: continue
+            with self.assertRaises(ValueError): M['validate_node_report'](value, 'publish', PROVISION,
+                profile_version=10, challenge_read_diagnostics_v10=mode)
+        value['publish_observation'].pop('diagnostic_version')
+        with self.assertRaises(ValueError): M['validate_node_report'](value, 'publish', PROVISION, profile_version=10, challenge_read_diagnostics_v10=True)
+        legacy = diagnostic_failure(10)
+        self.assertNotIn('diagnostic_version', legacy['publish_observation'])
+        self.assertEqual(M['validate_node_report'](legacy, 'publish', PROVISION, profile_version=10), legacy)
+
+    def test_profile10_read_mode_rejects_downgrade_wrong_generation_and_noninteger_selectors(self):
+        for version in (None, True, False, '10', 9, 11):
+            value = self.opted_failure(); value['publish_observation']['diagnostic_version'] = version
+            with self.assertRaises(ValueError): M['validate_node_report'](value, 'publish', PROVISION, profile_version=10, challenge_read_diagnostics_v10=True)
+        legacy = diagnostic_failure(10); legacy['publish_observation']['diagnostic_version'] = 10
+        with self.assertRaises(ValueError): M['validate_node_report'](legacy, 'publish', PROVISION, profile_version=10, challenge_read_diagnostics_v10=True)
+        for profile in range(2, 10):
+            value = diagnostic_failure(profile); value['publish_observation']['diagnostic_version'] = 10
+            with self.assertRaises(ValueError): M['validate_node_report'](value, 'publish', PROVISION, profile_version=profile)
+        value = self.opted_failure(); value['publish_observation']['private_mode'] = 'PRIVATE'
+        with self.assertRaises(ValueError): M['validate_node_report'](value, 'publish', PROVISION, profile_version=10, challenge_read_diagnostics_v10=True)
+
+    def test_profile10_node_phase_binds_mode_to_both_retained_private_configs(self):
+        for mode in (False, True):
+            for payload in ('legacy', 'v10', 'missing_marker'):
+                value = diagnostic_failure(10) if payload == 'legacy' else self.opted_failure()
+                if payload == 'missing_marker': value['publish_observation'].pop('diagnostic_version')
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary); raw = (json.dumps(value) + '\n').encode()
+                    write(root / 'storage-consumer-publish.json', raw)
+                    write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+                    for app in ('image', 'cloud'):
+                        (root / app).mkdir(mode=0o700)
+                        config = dict(challengeReadDiagnosticsV10=True) if mode else dict(tlsCloseDiagnosticsV9=True)
+                        write(root / app / 'storage.json', json.dumps(config).encode())
+                    with patch.dict(G, PROFILE_VERSION=10, run_child=lambda *_: (1, raw, b'PRIVATE-STDERR')):
+                        if (mode and payload == 'v10') or (not mode and payload == 'legacy'):
+                            with self.assertRaises(M['NodePhaseFailure']) as caught:
+                                M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+                            self.assertEqual(caught.exception.report['node'], value)
+                            self.assertNotIn('PRIVATE', json.dumps(caught.exception.report))
+                        else:
+                            with self.assertRaises(ValueError) as caught:
+                                M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+                            self.assertNotIsInstance(caught.exception, M['NodePhaseFailure'])
+        for invalid in ({'challengeReadDiagnosticsV10': 'true'}, {'challengeReadDiagnosticsV10': None},
+                {'challengeReadDiagnosticsV10': True, 'tlsCloseDiagnosticsV9': False},
+                {'challengeReadDiagnosticsV10': False}, {'challengeReadDiagnosticsV10': True, 'flowAcquireDiagnosticsV8': True}):
+            with self.assertRaises(ValueError): M['challenge_read_selection'](invalid, 10)
+        self.assertIs(M['challenge_read_selection'](dict(tlsCloseDiagnosticsV9=True), 10), False)
+        self.assertIs(M['challenge_read_selection'](dict(tlsCloseDiagnosticsV9=True, challengeReadDiagnosticsV10=False), 10), False)
 
     def test_challenge_read_rejects_old_profiles_unknowns_and_other_phases(self):
         for version in range(1, 10):
