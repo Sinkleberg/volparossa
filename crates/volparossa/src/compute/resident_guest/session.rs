@@ -68,6 +68,7 @@ where
     let mut closing = false;
     let mut sequence = 1_u32;
     let mut pending: Option<String> = None;
+    let mut native_ended = false;
     let result: Result<()> = async {
         loop {
             tokio::select! {
@@ -105,7 +106,7 @@ where
                         pending = None;
                         sequence += 1;
                     }
-                    None => { ensure!(closing && pending.is_none(), "resident_worker_stopped"); break Ok(()); }
+                    None => { native_ended = true; ensure!(closing && pending.is_none(), "resident_worker_stopped"); break Ok(()); }
                     _ => anyhow::bail!("resident_worker_event"),
                 }
             }
@@ -128,6 +129,13 @@ where
         cleanup == Some(json!({"version":1,"child_reaped":true,"private_state_removed":true})),
         "resident_cleanup_unconfirmed"
     );
+    // Only spontaneous native sender closure during an admitted turn can export
+    // its sealed diagnostic. Cancellation/read/write/signal failures cannot.
+    if native_ended && pending.is_some() {
+        if let Err(error) = &execution {
+            observe_native_failure(&mut writer, error, sequence, deadline).await;
+        }
+    }
     execution?;
     result?;
     wire::write(
@@ -136,4 +144,20 @@ where
         deadline,
     )
     .await
+}
+
+// The caller has already checked loop origin and the exact owner cleanup receipt.
+// The sealed accessor independently denies ordinary/unconfirmed errors.
+pub(super) async fn observe_native_failure(
+    writer: &mut (impl AsyncWrite + Unpin),
+    error: &anyhow::Error,
+    sequence: u32,
+    deadline: tokio::time::Instant,
+) {
+    if let Some(detail) = native_session::public_fixture_failure(error) {
+        if let Ok(frame) = wire::failure(sequence, &detail) {
+            // No fresh execution budget, retry, or error-precedence change.
+            let _ = wire::write(writer, frame, deadline).await;
+        }
+    }
 }

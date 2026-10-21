@@ -2114,13 +2114,15 @@ class ReceiptAndBindings(Inert):
     def test_inventory_diagnostic_branch_only_adds_exact_source_contract_authority(self):
         import textwrap
         workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
-        self.assertIn('branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021]', workflow)
+        self.assertIn('branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021]', workflow)
         self.assertIn("github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' ||", workflow)
-        self.assertIn("github.ref == 'refs/heads/fix/protected-requester-diagnostic-20261021') &&", workflow)
+        self.assertIn("github.ref == 'refs/heads/fix/protected-requester-diagnostic-20261021' ||", workflow)
+        self.assertIn("github.ref == 'refs/heads/fix/protected-result-failure-20261021') &&", workflow)
         self.assertIn("github.event_name == 'push' || inputs.scenario == 'source-contracts'", workflow)
         public = workflow.split('\n  public-model:\n', 1)[1]
         self.assertNotIn('diagnostic/protected-export-inventory', public)
         self.assertNotIn('fix/protected-requester-diagnostic', public)
+        self.assertNotIn('fix/protected-result-failure', public)
         self.assertIn("github.ref == 'refs/heads/feature/protected-resident-model'", public)
         self.assertIn('test "$GITHUB_SHA" = "$EXPECTED_SOURCE"', public)
         self.assertIn('test "$GITHUB_WORKFLOW_SHA" = "$EXPECTED_SOURCE"', public)
@@ -2148,6 +2150,49 @@ class ReceiptAndBindings(Inert):
                 exec(compiled, namespace)
                 self.assertEqual(namespace['diagnostic_allowed'], approved)
             git.assert_called_once_with('diff', '--name-only', base, 'HEAD')
+            command.assert_called_once_with(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
+
+    def test_result_failure_source_gate_requires_exact_paths_dependencies_and_ancestry(self):
+        import textwrap
+        workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
+        code = textwrap.dedent(workflow.split("python3 -B - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
+        branch = 'refs/heads/fix/protected-result-failure-20261021'
+        gate = next(node for node in ast.parse(code).body
+                    if isinstance(node, ast.If) and repr(branch) in ast.unparse(node.test))
+        compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-result-failure-gate', 'exec')
+        approved = {'.github/workflows/protected-resident-model.yml',
+            'crates/volparossa/src/compute/resident_guest/wire.rs',
+            'crates/volparossa/src/compute/resident_guest/session.rs',
+            'crates/volparossa/src/compute/resident_guest/public_trial.rs',
+            'crates/volparossa/src/compute/resident_guest/tests.rs',
+            'crates/volparossa/src/compute/resident_guest/public_trial/tests.rs',
+            'crates/volparossa/src/compute/supervise/native_session.rs',
+            'crates/volparossa/src/compute/supervise/native_session/tests.rs',
+            'crates/volparossa/src/compute/supervise/diagnostic.rs',
+            'tests/integration/protected-resident-model-run.py',
+            'tests/integration/test-protected-resident-model-run.py'}
+        base = 'b47d80d80c650791a6273c291a99c154536f4dab'
+        for change in ('valid', 'missing', 'extra', 'duplicate', 'dependency', 'ancestry'):
+            changed = sorted(approved)
+            if change == 'missing': changed.pop()
+            if change == 'extra': changed.append('crates/volparossa/src/main.rs')
+            if change == 'duplicate': changed.append(changed[0])
+            def git(*args):
+                if args[0] == 'diff': return '\n'.join(changed)
+                if change == 'dependency' and args == ('rev-parse', base + ':Cargo.lock'): return 'b' * 40
+                return 'a' * 40
+            command = mock.Mock(side_effect=AssertionError('ancestry') if change == 'ancestry' else None)
+            namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}),
+                             subprocess=types.SimpleNamespace(run=command), git=git)
+            if change == 'valid':
+                exec(compiled, namespace)
+                receipt = namespace['result_failure_scope']
+                self.assertEqual(set(receipt['source_blobs']), approved)
+                self.assertEqual(len(receipt['dependency_blobs']), 5)
+                self.assertTrue(receipt['diagnostic_only'])
+                self.assertFalse(receipt['actual_model_execution'])
+            else:
+                with self.assertRaises(AssertionError): exec(compiled, namespace)
             command.assert_called_once_with(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
 
     def test_ready_uses_actual_fixed_entrypoint_literal(self):
@@ -2917,6 +2962,146 @@ class RequesterDiagnostics(Inert):
         tree = rust[rust.index('impl Stage {'):rust.index('fn observe_stage(')]
         import re
         self.assertEqual(tuple(re.findall(r'=> "([a-z0-9_]+)"', tree)), R.REQUESTER_STAGES)
+
+
+class RequesterResultFailure(Inert):
+    markers = RequesterDiagnostics.markers
+
+    def observation(self, category='read_eof', turn=1):
+        guest = None
+        if category == 'guest_failure':
+            guest = dict(version=1, scope='public_fixture_native_session',
+                detail=dict(code='NATIVE_MODEL_LOAD_FAILED', io_kind='none',
+                            exit_code=None, signal=None, stderr_class=None),
+                cleanup=dict(version=1, child_reaped=True, private_state_removed=True))
+        return dict(version=1, turn=turn, category=category, guest=guest)
+
+    def marker(self, observation):
+        return R.REQUESTER_FAILURE_PREFIX + R.encoded(observation)
+
+    def raw(self, observation):
+        return self.markers(12 if observation['turn'] == 1 else 15) + self.marker(observation)
+
+    def test_every_local_category_is_closed_and_never_execution_evidence(self):
+        for category in R.REQUESTER_RESULT_CATEGORIES:
+            for turn in (1, 2):
+                value = self.observation(category, turn)
+                report = R.requester_diagnostic(self.raw(value), 1)
+                self.assertEqual(report['result_failure'], dict(state='observed', observation=value))
+                self.assertFalse(report['acceptance_evidence'])
+                self.assertNotIn('turns', report)
+
+    def test_marker_without_matching_stage_or_before_stage_is_unavailable(self):
+        value = self.observation()
+        for raw in (self.marker(value), self.marker(value) + self.markers(12),
+                    self.markers(11) + self.marker(value), self.markers() + self.marker(value),
+                    self.markers(15) + self.marker(value)):
+            report = R.requester_diagnostic(raw, 1)
+            self.assertEqual(report['result_failure'], dict(state='malformed', observation=None))
+
+    def test_duplicate_truncated_oversize_and_noncanonical_markers_are_rejected(self):
+        value = self.observation()
+        marker = self.marker(value)
+        for raw, state in ((self.raw(value) + marker, 'malformed'),
+                           (self.raw(value)[:-1], 'truncated'),
+                           (self.markers(12) + R.REQUESTER_FAILURE_PREFIX + b'x' * 2049 + b'\n', 'malformed'),
+                           (self.markers(12) + R.REQUESTER_FAILURE_PREFIX + b' ' + R.encoded(value), 'malformed'),
+                           (self.markers(12) + R.REQUESTER_FAILURE_PREFIX +
+                            R.encoded(value).replace(b'{', b'{"version":1,', 1), 'malformed')):
+            self.assertEqual(R.requester_diagnostic(raw, 1)['result_failure'],
+                             dict(state=state, observation=None))
+
+    def test_unknown_fields_versions_categories_turns_and_private_canaries_are_not_exported(self):
+        variants = [('extra', 'PRIVATE_CANARY'), ('version', True), ('version', 2),
+                    ('turn', True), ('turn', 0), ('turn', 3), ('category', 'read_eof PRIVATE_CANARY'),
+                    ('guest', {'PRIVATE_CANARY': 'private path'})]
+        for key, value in variants:
+            observation = self.observation()
+            observation[key] = value
+            raw = self.markers(12) + self.marker(observation)
+            result = R.requester_diagnostic(raw, 1)
+            self.assertEqual(result['result_failure'], dict(state='malformed', observation=None))
+            self.assertNotIn('PRIVATE_CANARY', R.encoded(result).decode())
+
+    def test_guest_failure_requires_exact_confirmed_cleanup_and_closed_detail(self):
+        for key, replacement in [('version', True), ('child_reaped', False),
+                                 ('private_state_removed', None), ('extra', 'PRIVATE_CANARY')]:
+            observation = self.observation('guest_failure')
+            observation['guest']['cleanup'][key] = replacement
+            result = R.requester_diagnostic(self.raw(observation), 1)
+            self.assertEqual(result['result_failure']['state'], 'malformed')
+            self.assertNotIn('PRIVATE_CANARY', R.encoded(result).decode())
+        for key, replacement in [('code', 'NATIVE_MODEL_LOAD_FAILED PRIVATE_CANARY'),
+                                 ('io_kind', 'PRIVATE_CANARY'), ('exit_code', 0),
+                                 ('signal', 9), ('stderr_class', 'none'), ('extra', 'PRIVATE_CANARY')]:
+            observation = self.observation('guest_failure')
+            observation['guest']['detail'][key] = replacement
+            result = R.requester_diagnostic(self.raw(observation), 1)
+            self.assertEqual(result['result_failure']['state'], 'malformed')
+            self.assertNotIn('PRIVATE_CANARY', R.encoded(result).decode())
+
+    def test_guest_version_scope_field_set_and_body_bound_are_enforced(self):
+        for key, replacement in [('version', 2), ('version', True), ('scope', 'private'),
+                                 ('extra', 'PRIVATE_CANARY'), ('detail', None)]:
+            observation = self.observation('guest_failure')
+            observation['guest'][key] = replacement
+            self.assertEqual(R.requester_diagnostic(self.raw(observation), 1)['result_failure']['state'], 'malformed')
+        self.assertEqual(R.requester_diagnostic(b'x' * 65537, 1)['result_failure']['state'], 'unavailable')
+
+    def test_all_native_codes_and_status_shapes_use_exact_enums(self):
+        for code in R.REQUESTER_NATIVE_CODES - {'startup_missing_result'}:
+            detail = self.observation('guest_failure')['guest']['detail']
+            detail['code'] = code
+            self.assertTrue(R.requester_failure_detail(detail))
+        for exit_code, sig, expected in ((0, 0, True), (255, 0, True), (-1, 9, True),
+                                         (-1, 0, False), (0, 9, False), (True, 0, False),
+                                         (-1, True, False), (-1, 65, False)):
+            detail = dict(code='startup_missing_result', io_kind='none', exit_code=exit_code,
+                          signal=sig, stderr_class='none')
+            self.assertEqual(R.requester_failure_detail(detail), expected)
+
+    def test_original_command_failure_and_cleanup_precedence_are_preserved(self):
+        observation = self.observation('guest_failure')
+        value = {}
+        with fake_tool(returncode=1, pipe_bytes=(b'PRIVATE_CANARY', self.raw(observation))) as (process, join):
+            with self.assertRaisesRegex(ValueError, '^command_failed$'):
+                R.run(['never-executed'], 200, requester_observation=value)
+        self.assertEqual(value['result_failure']['observation'], observation)
+        self.assertNotIn('PRIVATE_CANARY', R.encoded(value).decode())
+        join.assert_called_once_with(process)
+        error = R.CleanupUnconfirmed('PRIVATE_CANARY')
+        with fake_tool(join_error=error, returncode=1, pipe_bytes=(b'', self.raw(observation))):
+            with self.assertRaises(R.CleanupUnconfirmed) as caught:
+                R.run(['never-executed'], 200, requester_observation={})
+        self.assertIs(caught.exception, error)
+
+    def test_malformed_failure_diagnostic_never_replaces_original_exit_status(self):
+        value = {}
+        raw = self.markers(12) + R.REQUESTER_FAILURE_PREFIX + b'PRIVATE_CANARY\n'
+        with fake_tool(returncode=1, pipe_bytes=(b'', raw)):
+            with self.assertRaisesRegex(ValueError, '^command_failed$'):
+                R.run(['never-executed'], 200, requester_observation=value)
+        self.assertEqual(value['result_failure'], dict(state='malformed', observation=None))
+        self.assertEqual(value['termination']['exit_code'], 1)
+        self.assertNotIn('PRIVATE_CANARY', R.encoded(value).decode())
+
+    def test_rust_native_vocabulary_matches_controller_without_prefix_matching(self):
+        import re
+        rust = (R.ROOT / 'crates/volparossa/src/compute/supervise/diagnostic.rs').read_text()
+        names = set()
+        for name in ('FIXED_CODES', 'WORKER_CODES', 'SESSION_CODES', 'SESSION_WORKER_CODES'):
+            body = rust.split('const ' + name + ':')[1].split('];', 1)[0]
+            names.update(re.findall(r'^\s*"([a-zA-Z0-9_]+)",', body, re.M))
+        self.assertEqual(names | {'unclassified', 'worker_other', 'startup_missing_result'}, R.REQUESTER_NATIVE_CODES)
+
+    def test_local_category_vocabulary_matches_rust_serializer(self):
+        import re
+        rust = (R.ROOT / 'crates/volparossa/src/compute/resident_guest/public_trial.rs').read_text()
+        body = rust.split('enum ResultFailure {')[1].split('}', 1)[0]
+        variants = re.findall(r'\b([A-Z][A-Za-z0-9]+)\s*[,\n]', body)
+        snake = lambda value: re.sub(r'(?<!^)(?=[A-Z])', '_', value).lower()
+        self.assertEqual(tuple(map(snake, variants)), R.REQUESTER_RESULT_CATEGORIES)
+
 
 
 class CommandLifecycle(Inert):

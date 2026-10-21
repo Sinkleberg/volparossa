@@ -204,6 +204,15 @@ async fn signed_guest_budget_cannot_restart_the_requester_deadline() {
 
 #[tokio::test]
 async fn requester_and_guest_complete_one_tls_channel_and_join_the_inert_worker() {
+    requester_fixture(false).await;
+}
+
+#[tokio::test]
+async fn authenticated_guest_failure_is_terminal_even_with_export_disabled() {
+    requester_fixture(true).await;
+}
+
+async fn requester_fixture(failure: bool) {
     let rcgen::CertifiedKey { cert, key_pair } =
         rcgen::generate_simple_self_signed(vec!["resident.test".into()]).unwrap();
     let (acceptor, spki) = tls_config(cert.der().to_vec(), key_pair.serialize_der()).unwrap();
@@ -240,6 +249,10 @@ async fn requester_and_guest_complete_one_tls_channel_and_join_the_inert_worker(
                         Some(native_session::Command::Submit{id,input}) => {
                             let turn = count.fetch_add(1,Ordering::SeqCst);
                             assert_eq!(input,inputs().unwrap()[turn]);
+                            if failure {
+                                done.store(true, Ordering::SeqCst);
+                                return Err(native_session::public_fixture_test_failure(anyhow::anyhow!("compute_memory_budget")));
+                            }
                             let frame = answer(u32::try_from(turn + 1).unwrap(),["READY","4"][turn]);
                             events.send(native_session::Event::Result{id,value:serde_json::from_slice(&frame.body).unwrap()}).await.unwrap();
                         },
@@ -256,10 +269,23 @@ async fn requester_and_guest_complete_one_tls_channel_and_join_the_inert_worker(
         .connect("resident.test".try_into().unwrap(), client_io)
         .await
         .unwrap();
-    let report = exchange(tls, &key(), [7; 32], spki, deadline, false)
-        .await
-        .unwrap();
-    serving.await.unwrap().unwrap();
+    let report = exchange(tls, &key(), [7; 32], spki, deadline, false).await;
+    let served = serving.await.unwrap();
+    if failure {
+        assert_eq!(
+            report.unwrap_err().to_string(),
+            "resident_public_trial_guest_failed"
+        );
+        assert_eq!(
+            served.unwrap_err().to_string(),
+            "compute_native_session_execution_failed"
+        );
+        assert_eq!(turns.load(Ordering::SeqCst), 1);
+        assert!(joined.load(Ordering::SeqCst));
+        return;
+    }
+    let report = report.unwrap();
+    served.unwrap();
     assert_eq!(report["turns"].as_array().unwrap().len(), 2);
     assert_eq!(turns.load(Ordering::SeqCst), 2);
     assert!(joined.load(Ordering::SeqCst));
@@ -325,4 +351,138 @@ fn public_fixture_stage_sink_is_fixed_optional_and_cannot_replace_failure() {
         b"VP_PUBLIC_REQUESTER_STAGE_V1 configuration\nVP_PUBLIC_REQUESTER_STAGE_V1 turn_1_result\nVP_PUBLIC_REQUESTER_STAGE_V1 turn_2_result\n"
     );
     observe_stage(true, Stage::Cleanup, Broken);
+}
+
+#[test]
+fn result_rejections_have_closed_categories_without_exporting_answer_or_bytes() {
+    for (field, value, category) in [
+        (
+            "execution_complete",
+            json!(false),
+            ResultFailure::ResultCompletion,
+        ),
+        (
+            "model_profile",
+            json!("PRIVATE_CANARY"),
+            ResultFailure::ResultProfile,
+        ),
+        (
+            "output",
+            json!({"type":"tool","text":"PRIVATE_CANARY"}),
+            ResultFailure::ResultOutput,
+        ),
+        (
+            "output",
+            json!({"type":"assistant","text":"PRIVATE_CANARY"}),
+            ResultFailure::ResultAnswer,
+        ),
+        ("generated_tokens", json!(0), ResultFailure::ResultTokens),
+        ("cleanup", json!({}), ResultFailure::ResultCleanup),
+    ] {
+        let mut frame = answer(1, "READY");
+        let mut body: Value = serde_json::from_slice(&frame.body).unwrap();
+        body[field] = value;
+        frame.body = serde_json::to_vec(&body).unwrap();
+        let error = result(&frame, "READY").unwrap_err();
+        assert_eq!(error.downcast_ref::<ResultFailure>(), Some(&category));
+        let mut output = Vec::new();
+        observe_result_failure(true, 1, category, None, &mut output);
+        assert!(
+            !String::from_utf8(output)
+                .unwrap()
+                .contains("PRIVATE_CANARY")
+        );
+    }
+    let error = result(
+        &wire::frame(wire::RESULT, 1, b"PRIVATE_CANARY".to_vec()),
+        "READY",
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<ResultFailure>(),
+        Some(&ResultFailure::ResultJson)
+    );
+}
+
+#[tokio::test]
+async fn first_result_reader_distinguishes_eof_bound_frame_and_deadline() {
+    use tokio::io::AsyncWriteExt as _;
+    let (writer, mut reader) = tokio::io::duplex(32);
+    drop(writer);
+    let stop = Instant::now() + Duration::from_secs(5);
+    assert_eq!(
+        read_failure(&wire::read(&mut reader, stop).await.unwrap_err()),
+        ResultFailure::ReadEof
+    );
+    for (bytes, category) in [
+        (
+            (u32::try_from(wire::MAX_FRAME).unwrap() + 1)
+                .to_be_bytes()
+                .to_vec(),
+            ResultFailure::ReadBound,
+        ),
+        (vec![0, 0, 0, 1, 0], ResultFailure::ReadFrame),
+    ] {
+        let (mut writer, mut reader) = tokio::io::duplex(32);
+        writer.write_all(&bytes).await.unwrap();
+        assert_eq!(
+            read_failure(&wire::read(&mut reader, stop).await.unwrap_err()),
+            category
+        );
+    }
+    let (_, mut reader) = tokio::io::duplex(32);
+    assert_eq!(
+        read_failure(&wire::read(&mut reader, Instant::now()).await.unwrap_err()),
+        ResultFailure::ReadDeadline
+    );
+    assert_eq!(
+        read_failure(&std::io::Error::other("PRIVATE_CANARY").into()),
+        ResultFailure::ReadIo
+    );
+    assert_eq!(
+        read_failure(&anyhow::anyhow!("PRIVATE_CANARY")),
+        ResultFailure::ReadOther
+    );
+}
+
+#[tokio::test]
+async fn terminal_frame_old_reader_rejects_and_new_reader_validates_before_failure() {
+    let detail = json!({"code":"NATIVE_MODEL_LOAD_FAILED","io_kind":"none",
+        "exit_code":null,"signal":null,"stderr_class":null});
+    let frame = wire::failure(1, &detail).unwrap();
+    for (sequence, old) in [(1, true), (1, false), (2, false)] {
+        let (mut writer, mut reader) = tokio::io::duplex(2048);
+        let stop = Instant::now() + Duration::from_secs(5);
+        wire::write(&mut writer, frame.clone(), stop).await.unwrap();
+        let error = if old {
+            expected(&mut reader, wire::RESULT, sequence, stop)
+                .await
+                .unwrap_err()
+        } else {
+            turn_result(&mut reader, sequence, stop, false)
+                .await
+                .unwrap_err()
+        };
+        assert!(!error.to_string().contains("NATIVE_MODEL_LOAD_FAILED"));
+    }
+}
+
+#[test]
+fn result_diagnostic_export_is_optional_bounded_and_sink_errors_are_ignored() {
+    struct Broken;
+    impl std::io::Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("PRIVATE_CANARY"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            panic!("no_extra_flush")
+        }
+    }
+    let mut output = Vec::new();
+    observe_result_failure(false, 1, ResultFailure::ReadEof, None, &mut output);
+    observe_result_failure(true, 3, ResultFailure::ReadEof, None, &mut output);
+    assert!(output.is_empty());
+    observe_result_failure(true, 1, ResultFailure::ReadEof, None, &mut output);
+    assert_eq!(output, b"VP_PUBLIC_REQUESTER_FAILURE_V1 {\"category\":\"read_eof\",\"guest\":null,\"turn\":1,\"version\":1}\n");
+    observe_result_failure(true, 1, ResultFailure::ReadEof, None, Broken);
 }

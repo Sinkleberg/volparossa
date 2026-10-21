@@ -278,29 +278,137 @@ async fn expected<S: AsyncRead + Unpin>(
     Ok(frame)
 }
 
+#[derive(Clone, Copy, Debug, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum ResultFailure {
+    ReadDeadline,
+    ReadBound,
+    ReadFrame,
+    ReadEof,
+    ReadIo,
+    ReadOther,
+    ReplyOrder,
+    FailureFrame,
+    GuestFailure,
+    ResultJson,
+    ResultCompletion,
+    ResultProfile,
+    ResultOutput,
+    ResultAnswer,
+    ResultTokens,
+    ResultCleanup,
+}
+
+impl std::fmt::Display for ResultFailure {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        output.write_str("resident_public_trial_result")
+    }
+}
+impl std::error::Error for ResultFailure {}
+
+fn observe_result_failure(
+    enabled: bool,
+    sequence: u32,
+    category: ResultFailure,
+    guest: Option<&Value>,
+    mut output: impl std::io::Write,
+) {
+    if enabled && (1..=2).contains(&sequence) {
+        let value = json!({"version":1,"turn":sequence,"category":category,"guest":guest});
+        // Every field is locally closed or a validated public-fixture frame.
+        // Sink errors never replace the execution error or trigger another exchange.
+        let _ = writeln!(output, "VP_PUBLIC_REQUESTER_FAILURE_V1 {value}");
+    }
+}
+
+fn result_failure(enabled: bool, sequence: u32, category: ResultFailure, guest: Option<&Value>) {
+    if enabled {
+        observe_result_failure(true, sequence, category, guest, std::io::stderr().lock());
+    }
+}
+
+fn read_failure(error: &anyhow::Error) -> ResultFailure {
+    if let Some(error) = error.downcast_ref::<wire::ReadFailure>() {
+        return match error {
+            wire::ReadFailure::Deadline => ResultFailure::ReadDeadline,
+            wire::ReadFailure::Bound => ResultFailure::ReadBound,
+            wire::ReadFailure::Encoding => ResultFailure::ReadFrame,
+        };
+    }
+    match error.downcast_ref::<std::io::Error>() {
+        Some(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => ResultFailure::ReadEof,
+        Some(_) => ResultFailure::ReadIo,
+        None => ResultFailure::ReadOther,
+    }
+}
+
+async fn turn_result<S: AsyncRead + Unpin>(
+    stream: &mut S,
+    sequence: u32,
+    deadline: Instant,
+    diagnostics: bool,
+) -> Result<wire::Frame> {
+    let frame = wire::read(stream, deadline).await.inspect_err(|error| {
+        result_failure(diagnostics, sequence, read_failure(error), None);
+    })?;
+    if frame.kind == wire::FAILURE {
+        match wire::failure_body(&frame, sequence) {
+            Ok(value) => result_failure(
+                diagnostics,
+                sequence,
+                ResultFailure::GuestFailure,
+                Some(&value),
+            ),
+            Err(_) => result_failure(diagnostics, sequence, ResultFailure::FailureFrame, None),
+        }
+        anyhow::bail!("resident_public_trial_guest_failed");
+    }
+    if frame.kind != wire::RESULT || frame.sequence != sequence {
+        result_failure(diagnostics, sequence, ResultFailure::ReplyOrder, None);
+        anyhow::bail!("resident_reply_order");
+    }
+    Ok(frame)
+}
+
 fn result(frame: &wire::Frame, expected_text: &str) -> Result<Value> {
-    let value = crate::compute::private_conversation::decode_worker_message(&frame.body)?;
+    let value = crate::compute::private_conversation::decode_worker_message(&frame.body)
+        .map_err(|_| ResultFailure::ResultJson)?;
     ensure!(
         value["version"] == 2
             && value["execution_complete"] == true
-            && value["turn_complete"] == true
-            && value["model_profile"] == "qwen3-4b-instruct-2507-v1"
-            && value["output"]["type"] == "assistant"
-            && value["output"]["text"]
-                .as_str()
-                .is_some_and(|text| text.trim() == expected_text)
-            && value["prompt_tokens"]
-                .as_u64()
-                .is_some_and(|count| (1..=12_288).contains(&count))
+            && value["turn_complete"] == true,
+        ResultFailure::ResultCompletion
+    );
+    ensure!(
+        value["model_profile"] == "qwen3-4b-instruct-2507-v1",
+        ResultFailure::ResultProfile
+    );
+    ensure!(
+        value["output"]["type"] == "assistant",
+        ResultFailure::ResultOutput
+    );
+    ensure!(
+        value["output"]["text"]
+            .as_str()
+            .is_some_and(|text| text.trim() == expected_text),
+        ResultFailure::ResultAnswer
+    );
+    ensure!(
+        value["prompt_tokens"]
+            .as_u64()
+            .is_some_and(|count| (1..=12_288).contains(&count))
             && value["generated_tokens"]
                 .as_u64()
-                .is_some_and(|count| (1..=1024).contains(&count))
-            && value["cleanup"]
-                == json!({"version":2,"request_files_removed":true,"session_closed":false,"session_private_state_retained":true}),
-        "resident_public_trial_result"
+                .is_some_and(|count| (1..=1024).contains(&count)),
+        ResultFailure::ResultTokens
     );
-    // Project only fixed public answers and counters, not a claim of general model
-    // quality, hardware attestation or confidentiality from the guest operator.
+    ensure!(
+        value["cleanup"]
+            == json!({"version":2,"request_files_removed":true,
+        "session_closed":false,"session_private_state_retained":true}),
+        ResultFailure::ResultCleanup
+    );
+    // Original public success projection and predicates remain unchanged.
     Ok(
         json!({"sequence":frame.sequence,"answer":value["output"]["text"],
         "prompt_tokens":value["prompt_tokens"],"generated_tokens":value["generated_tokens"],
@@ -379,8 +487,15 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
             "resident_admitted_payload"
         );
         stage(diagnostics, result_stage);
-        let frame = expected(&mut tls, wire::RESULT, sequence, deadline).await?;
-        results.push(result(&frame, ["READY", "4"][index])?);
+        let frame = turn_result(&mut tls, sequence, deadline, diagnostics).await?;
+        let value = result(&frame, ["READY", "4"][index]).inspect_err(|error| {
+            let category = error
+                .downcast_ref::<ResultFailure>()
+                .copied()
+                .unwrap_or(ResultFailure::ResultJson);
+            result_failure(diagnostics, sequence, category, None);
+        })?;
+        results.push(value);
     }
     stage(diagnostics, Stage::Close);
     wire::write(&mut tls, wire::frame(wire::CLOSE, 3, vec![]), deadline).await?;

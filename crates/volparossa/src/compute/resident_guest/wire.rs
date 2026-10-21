@@ -14,6 +14,61 @@ pub(super) const ADMITTED: u32 = 5;
 pub(super) const RESULT: u32 = 6;
 pub(super) const CLOSE: u32 = 7;
 pub(super) const CLOSED: u32 = 8;
+// Terminal public-fixture diagnostic, never a RESULT or successful CLOSED receipt.
+pub(super) const FAILURE: u32 = 9;
+pub(super) const MAX_FAILURE: usize = 1024;
+
+#[derive(Debug)]
+pub(super) enum ReadFailure {
+    Deadline,
+    Bound,
+    Encoding,
+}
+
+impl std::fmt::Display for ReadFailure {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        output.write_str(match self {
+            Self::Deadline => "resident_read_deadline",
+            Self::Bound => "resident_frame_bound",
+            Self::Encoding => "resident_frame",
+        })
+    }
+}
+impl std::error::Error for ReadFailure {}
+
+pub(super) fn failure(sequence: u32, detail: &serde_json::Value) -> Result<Frame> {
+    let body = serde_json::to_vec(&serde_json::json!({"version":1,
+        "scope":"public_fixture_native_session","detail":detail,
+        "cleanup":{"version":1,"child_reaped":true,"private_state_removed":true}}))?;
+    let frame = frame(FAILURE, sequence, body);
+    failure_body(&frame, sequence)?;
+    Ok(frame)
+}
+
+pub(super) fn failure_body(frame: &Frame, sequence: u32) -> Result<serde_json::Value> {
+    use serde_json::json;
+    ensure!(
+        frame.version == 1
+            && frame.kind == FAILURE
+            && frame.sequence == sequence
+            && (1..=2).contains(&sequence)
+            && frame.body.len() <= MAX_FAILURE,
+        "resident_failure_frame"
+    );
+    let value: serde_json::Value = serde_json::from_slice(&frame.body)
+        .map_err(|_| anyhow::anyhow!("resident_failure_frame"))?;
+    ensure!(
+        value.as_object().is_some_and(|object| object.len() == 4)
+            && value["version"] == 1
+            && value["scope"] == "public_fixture_native_session"
+            && crate::compute::supervise::diagnostic::public_fixture_detail(&value["detail"])
+            && value["cleanup"]
+                == json!({"version":1,"child_reaped":true,"private_state_removed":true})
+            && serde_json::to_vec(&value)? == frame.body,
+        "resident_failure_frame"
+    );
+    Ok(value)
+}
 
 #[derive(Clone, PartialEq, prost::Message)]
 pub(super) struct Frame {
@@ -41,23 +96,22 @@ pub(super) async fn read(
     reader: &mut (impl AsyncRead + Unpin),
     deadline: Instant,
 ) -> Result<Frame> {
-    ensure!(Instant::now() < deadline, "resident_read_deadline");
+    ensure!(Instant::now() < deadline, ReadFailure::Deadline);
     timeout_at(deadline, async {
         let length = reader.read_u32().await? as usize;
-        ensure!((1..=MAX_FRAME).contains(&length), "resident_frame_bound");
+        ensure!((1..=MAX_FRAME).contains(&length), ReadFailure::Bound);
         let mut bytes = vec![0; length];
         reader.read_exact(&mut bytes).await?;
-        let frame =
-            Frame::decode(bytes.as_slice()).map_err(|_| anyhow::anyhow!("resident_frame"))?;
+        let frame = Frame::decode(bytes.as_slice()).map_err(|_| ReadFailure::Encoding)?;
         ensure!(
             frame.version == 1 && frame.encode_to_vec() == bytes,
-            "resident_frame"
+            ReadFailure::Encoding
         );
-        ensure!(Instant::now() < deadline, "resident_read_deadline");
+        ensure!(Instant::now() < deadline, ReadFailure::Deadline);
         Ok(frame)
     })
     .await
-    .map_err(|_| anyhow::anyhow!("resident_read_deadline"))?
+    .map_err(|_| anyhow::anyhow!(ReadFailure::Deadline))?
 }
 
 pub(super) async fn write(

@@ -75,6 +75,18 @@ pub(super) fn diagnostic(error: &anyhow::Error) -> Option<super::diagnostic::Det
         .map(|failure| failure.diagnostic)
 }
 
+/// Public-fixture projection only. Ordinary errors cannot assert completed cleanup.
+pub(in crate::compute) fn public_fixture_failure(error: &anyhow::Error) -> Option<Value> {
+    diagnostic(error).and_then(|detail| serde_json::to_value(detail).ok())
+}
+
+// Fabricated owner result for injected-worker protocol tests only. This helper
+// performs no worker execution and must never be used as runtime evidence.
+#[cfg(test)]
+pub(in crate::compute) fn public_fixture_test_failure(cause: anyhow::Error) -> anyhow::Error {
+    anyhow::Error::new(Failure::after_cleanup(cause))
+}
+
 fn cleanup_record() -> Value {
     json!({"version":1,"child_reaped":true,"private_state_removed":true})
 }
