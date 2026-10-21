@@ -488,16 +488,17 @@ async fn fixture_v3_callback_loss_after_projection_cannot_remain_observed() {
     };
     let mut projected = state.request(UID, &selected).await.unwrap();
     assert!(!projected.incomplete);
-    let held = state.bank.lock().unwrap();
-    // Recreate record projection before the final loss-flag load, without a
-    // production scheduling hook. A real worker callback loses this held lock.
-    std::thread::scope(|scope| {
-        scope.spawn(|| worker.entered()).join().unwrap();
-    });
-    projected.incomplete = held.epoch.as_ref().unwrap().life.incomplete.load(Relaxed);
-    assert!(projected.incomplete);
-    assert!(projected.validate_for(&selected).is_err());
-    drop(held);
+    {
+        let held = state.bank.lock().unwrap();
+        // Recreate record projection before the final loss-flag load, without a
+        // production scheduling hook. A real worker callback loses this held lock.
+        std::thread::scope(|scope| {
+            scope.spawn(|| worker.entered()).join().unwrap();
+        });
+        projected.incomplete = held.epoch.as_ref().unwrap().life.incomplete.load(Relaxed);
+        assert!(projected.incomplete);
+        assert!(projected.validate_for(&selected).is_err());
+    }
     let rejected = state.request(UID, &selected).await.unwrap();
     assert_eq!(rejected.state, State::Unavailable as i32);
     assert!(rejected.incomplete);
