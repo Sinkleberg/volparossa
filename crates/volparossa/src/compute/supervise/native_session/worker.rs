@@ -368,15 +368,14 @@ impl Live {
             .stderr
             .take()
             .context("compute_native_session_stderr")?;
-        let drained = if let Ok(Ok(Ok(diagnostics))) =
-            tokio::time::timeout_at(deadline, &mut stderr).await
-        {
-            Some(diagnostics)
-        } else {
-            stderr.abort();
-            let _ = stderr.await;
-            None
-        };
+        let drained =
+            if let Ok(Ok(Ok(diagnostics))) = tokio::time::timeout_at(deadline, &mut stderr).await {
+                Some(diagnostics)
+            } else {
+                stderr.abort();
+                let _ = stderr.await;
+                None
+            };
         ensure!(closed, crate::compute::private_task::CleanupUnconfirmed);
         let diagnostics = drained.ok_or(crate::compute::private_task::CleanupUnconfirmed)?;
         Ok(CloseObservation {
@@ -477,7 +476,10 @@ mod tests {
         let mut live = Live::own(process, clock_ticks().unwrap());
         live.stdin.as_mut().unwrap().write_all(b"x").await.unwrap();
         assert!(live.stdout.next().await.is_err());
-        assert_eq!(live.child.wait().await.unwrap().signal(), Some(libc::SIGUSR1));
+        assert_eq!(
+            live.child.wait().await.unwrap().signal(),
+            Some(libc::SIGUSR1)
+        );
         let observation = live.close().await.unwrap();
         assert_eq!(
             observation.status_before_cleanup.unwrap().signal(),

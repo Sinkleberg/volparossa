@@ -388,11 +388,9 @@ async fn run_owned(
         None
     };
     root.close()?;
-    let result = result
-        .map(|()| cleanup_record())
-        .map_err(|cause| {
-            anyhow::Error::new(Failure::after_cleanup(cause).with_close_observation(observation))
-        });
+    let result = result.map(|()| cleanup_record()).map_err(|cause| {
+        anyhow::Error::new(Failure::after_cleanup(cause).with_close_observation(observation))
+    });
     if let Some(hints) = resident.hints.take() {
         hints.finish(&result);
     }
