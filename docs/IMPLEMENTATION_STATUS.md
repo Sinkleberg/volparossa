@@ -78,6 +78,11 @@ privacy boundary, five-layer integration and measurement requirement.
   freshness, and a selected input is not a fused or improved position.
 - [ ] Join Map with explicit quality/unavailability and application permissions;
   verify native location handling and actual navigation separately.
+  The native integration contract is merged through Map
+  [PR7](https://github.com/VOLPAROSSA/volparossa-map/pull/7) at
+  `b258db7a9e1e0533bd858030b0ea9ae5cea93c2b`, after source
+  `39610549658` and CodeQL `39610549030` pass on `e2fd5346`.
+  This is documentation acceptance; it does not implement a native adapter.
 - [ ] Implement and measure real GNSS, non-GNSS and hybrid positioning, robust
   estimation, independent references, anomaly handling and platform adapters.
   Hardware accuracy, energy, privacy and manipulation-resilience claims require
@@ -89,12 +94,38 @@ no source blocker; the first hosted [Quality run `39608983858`](https://github.c
 then found a missing exhaustive CLI response arm (`main.rs:667`, Rust E0004).
 The local-control library compiled, but the workspace test gate did not complete.
 The correction explicitly rejects an unsolicited DPS payload in the generic CLI
-renderer without printing location data. This original failed run remains failed;
-the corrected source still needs its own completed hosted checks. Existing Quality
+renderer without printing location data. Corrected source
+`d249f0b8c6f60801c0c4b70da96794841f6bf06c` passes that compilation step, then
+[Quality `39610230199`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39610230199)
+fails the standalone fuzz package's locked dependency fetch. Both original
+failures remain failed. The reconciliation adds the missing `serde_json 1.0.151`
+and `zmij 1.0.23` records verbatim from the passing root lockfile, preserving all
+existing pins; inert graph checks pass, while Cargo acceptance remains hosted.
+Reconciled source needs its own completed checks. Existing Quality
 and CodeQL are reused, rather than adding a second full-build workflow.
 
 No location collection, publication, private-history storage, OS location override
 or development-host network/sensor configuration change is enabled by this work.
+
+### Storage route-selection diagnostic — 2026-10-21
+
+The original ordinary-expiry failure `39081968944` occurs during initial route
+selection, before deposits or the expiry wait. Its cause remains unknown. The
+test-only continuation [PR300](https://github.com/VOLPAROSSA/volparossa/pull/300)
+is stacked on retained PR287 at `b2b9c6b3`, preserving that original branch.
+Diagnostic source `6604d813769348d22d5dec47d4a3a8884d2e95fb` changes exactly nine
+fixture/workflow files and freezes the first selector invocation's closed
+diagnostic inside the existing smoke report. Raw stderr and identifiers remain
+excluded; the selector body, retries, polling, success/cleanup predicates,
+production code, dependency pins and VM export filename sets remain unchanged.
+
+Independent review found no blocker; 54 inert fixture tests, shell/Python syntax
+and whitespace checks pass. One new hosted
+[diagnostic run `39611342307`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39611342307)
+was dispatched on that exact source. Its result must be inspected before any
+runtime claim; it is not a rerun or replacement of the immutable failed trial.
+The worktree is `.volparossa-dev/worktrees/storage-route-selection-diagnostic-20261021`.
+Full consumer failure `38917106698` and Image/Cloud acceptance remain separate.
 
 ### Organization-wide maintenance — 2026-10-20
 
