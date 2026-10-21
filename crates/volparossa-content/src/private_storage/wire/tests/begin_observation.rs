@@ -1,28 +1,28 @@
 use super::*;
-use crate::private_storage::wire::begin_observation::{Observer, Phase};
+use crate::private_storage::wire::begin_observation::{self as observation, Observer, Phase};
 
 #[derive(Default)]
 struct Trace(
     Mutex<Vec<Phase>>,
-    Mutex<Vec<begin_observation::ReadStep>>,
-    Mutex<Vec<begin_observation::ReadFailure>>,
+    Mutex<Vec<observation::ReadStep>>,
+    Mutex<Vec<observation::ReadFailure>>,
 );
 
 impl Observer for Trace {
     fn phase(&self, phase: Phase) {
         self.0.lock().unwrap().push(phase);
     }
-    fn read_step(&self, step: begin_observation::ReadStep) {
+    fn read_step(&self, step: observation::ReadStep) {
         self.1.lock().unwrap().push(step);
     }
-    fn read_failure(&self, failure: begin_observation::ReadFailure) {
+    fn read_failure(&self, failure: observation::ReadFailure) {
         self.2.lock().unwrap().push(failure);
     }
 }
 
 #[tokio::test(start_paused = true)]
 async fn challenge_read_steps_preserve_pending_timeout_eof_invalid_and_verification_errors() {
-    use begin_observation::{ReadFailure as Failure, ReadStep as Step};
+    use observation::{ReadFailure as Failure, ReadStep as Step};
     for (bytes, eof, step, failure) in [
         (vec![], false, Step::LengthRead, Failure::WireTimeout),
         (
@@ -168,9 +168,9 @@ async fn begin_progress_preserves_original_authenticated_exchange_and_receipt() 
     assert_eq!(
         *trace.1.lock().unwrap(),
         [
-            begin_observation::ReadStep::LengthRead,
-            begin_observation::ReadStep::BodyRead,
-            begin_observation::ReadStep::Verification
+            observation::ReadStep::LengthRead,
+            observation::ReadStep::BodyRead,
+            observation::ReadStep::Verification
         ]
     );
     assert!(trace.2.lock().unwrap().is_empty());
@@ -216,6 +216,6 @@ async fn begin_progress_preserves_io_error_without_exposing_its_text() {
     assert!(!format!("{phases:?}").contains("private-read-canary"));
     assert_eq!(
         *trace.2.lock().unwrap(),
-        [begin_observation::ReadFailure::IoOther]
+        [observation::ReadFailure::IoOther]
     );
 }
