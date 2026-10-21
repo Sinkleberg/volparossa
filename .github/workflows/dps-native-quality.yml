@@ -89,7 +89,7 @@ jobs:
           expected_lints['rust']['unsafe_code'] = 'deny'
           assert package['lints'] == expected_lints
           assert package['dependencies'] == {'prost': {'workspace': True},
-              'volparossa-local-control': {'path': '../volparossa-local-control'}}
+              'volparossa-local-control': {'path': '../volparossa-local-control', 'version': '=0.1.0'}}
           shared = ('Cargo.toml', 'rust-toolchain.toml',
               'crates/volparossa-local-control/Cargo.toml',
               'crates/volparossa-local-control/src/lib.rs',

@@ -14,7 +14,7 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 prost.workspace = true
-volparossa-local-control = { path = "../volparossa-local-control" }
+volparossa-local-control = { path = "../volparossa-local-control", version = "=0.1.0" }
 
 # Mirror workspace lints exactly, except deny permits the one ffi module's
 # documented unsafe boundary. The existing workspace forbid remains unchanged.
