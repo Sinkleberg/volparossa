@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/storage-fixture-correlation
+      - test/storage-request-stage-proof-20261021
   workflow_dispatch:
 
 permissions:
@@ -27,7 +28,8 @@ jobs:
     name: Opt-in RAM observation, local authority and closed export
     if: >-
       github.repository == 'VOLPAROSSA/volparossa' &&
-      github.ref == 'refs/heads/fix/storage-fixture-correlation'
+      (github.ref == 'refs/heads/fix/storage-fixture-correlation' ||
+      github.ref == 'refs/heads/test/storage-request-stage-proof-20261021')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -45,7 +47,10 @@ jobs:
           test "$GITHUB_ACTIONS" = true
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$GITHUB_REPOSITORY" = VOLPAROSSA/volparossa
-          test "$GITHUB_REF" = refs/heads/fix/storage-fixture-correlation
+          case "$GITHUB_REF" in
+            refs/heads/fix/storage-fixture-correlation|refs/heads/test/storage-request-stage-proof-20261021) ;;
+            *) exit 1 ;;
+          esac
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
           test -z "$(git status --porcelain --untracked-files=all)"
@@ -60,10 +65,34 @@ jobs:
           def git(*args):
               return subprocess.check_output(['git', *args], text=True).strip()
           base = os.environ['SOURCE_BASE']
+          if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-request-stage-proof-20261021':
+              base = 'bae45ace7c40825ebc0c2e3035771ed27a801785'
+              subprocess.run(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
           changed = git('diff', '--name-only', base, 'HEAD').splitlines()
           assert changed and len(changed) == len(set(changed))
+          if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-request-stage-proof-20261021':
+              allowed = {
+                  '.github/workflows/storage-fixture-correlation.yml',
+                  'crates/volparossa-agent/src/content/fixture_correlation.rs',
+                  'crates/volparossa-agent/src/content/fixture_correlation/tests.rs',
+                  'crates/volparossa-agent/src/content/fixture_correlation/request_tests.rs',
+                  'crates/volparossa-agent/src/content/private_storage.rs',
+                  'crates/volparossa-agent/src/control/fixture_correlation.rs',
+                  'crates/volparossa-content/src/provider/activity.rs',
+                  'crates/volparossa-content/src/private_storage/wire.rs',
+                  'crates/volparossa-content/src/private_storage/wire/bridge_observation.rs',
+                  'crates/volparossa-content/src/private_storage/wire/tests.rs',
+                  'crates/volparossa-content/src/private_storage/wire/tests/request_stage.rs',
+                  'crates/volparossa-local-control/src/fixture_correlation.rs',
+                  'crates/volparossa-local-control/src/fixture_correlation/tests.rs',
+                  'crates/volparossa-local-control/src/lib.rs',
+                  'crates/volparossa/src/content/fixture_correlation.rs',
+                  'crates/volparossa/src/content/fixture_correlation_tests.rs',
+              }
+              assert set(changed) == allowed and len(changed) == len(allowed)
           dependencies = ('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
               'crates/volparossa-agent/Cargo.toml',
+              'crates/volparossa-content/Cargo.toml',
               'crates/volparossa-local-control/Cargo.toml', 'crates/volparossa/Cargo.toml')
           for name in dependencies:
               assert git('rev-parse', 'HEAD:' + name) == git('rev-parse', base + ':' + name)
@@ -99,7 +128,7 @@ jobs:
         id: toolchain
         run: |
           rustup toolchain install 1.85.0 \
-            --profile minimal --component clippy --component rustfmt
+            --profile minimal --no-self-update --component clippy --component rustfmt
           rustup show active-toolchain
           rustc --version --verbose
           cargo --version --verbose
@@ -109,9 +138,12 @@ jobs:
           test "$GITHUB_ACTIONS" = true
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$(dpkg --print-architecture)" = amd64
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            protobuf-compiler=3.21.12-8.2ubuntu0.3
+          # Reuse the reviewed official Noble security family from core Quality.
+          sudo -n apt-get update
+          sudo -n apt-get install --yes --no-install-recommends \
+            protobuf-compiler=3.21.12-8.2ubuntu0.4 \
+            libprotoc32t64=3.21.12-8.2ubuntu0.4 \
+            libprotobuf32t64=3.21.12-8.2ubuntu0.4
           test "$(protoc --version)" = 'libprotoc 3.21.12'
 
       - name: Fetch unchanged dependencies and compile affected targets
@@ -120,7 +152,7 @@ jobs:
           set -euo pipefail
           cargo fetch --locked
           cargo test --locked --offline -p volparossa-local-control \
-            -p volparossa-agent -p volparossa --no-run \
+            -p volparossa-content -p volparossa-agent -p volparossa --no-run \
             2>&1 | tee storage-fixture-evidence/build.log
 
       - name: Inventory and execute disjoint new and historical tests
@@ -149,8 +181,12 @@ jobs:
           contract_group agent-storage volparossa-agent content::private_storage::
           contract_group agent-tls volparossa-agent content::tls::tests::
           contract_group agent-refresh volparossa-agent content::refresh_tests::
+          if test "$GITHUB_REF" = refs/heads/test/storage-request-stage-proof-20261021; then
+            contract_group content-request volparossa-content fixture_request_
+          fi
           python3 -B - <<'PY'
           import json
+          import os
           import pathlib
           import re
           root = pathlib.Path('storage-fixture-evidence')
@@ -161,7 +197,10 @@ jobs:
               'agent-storage': 'volparossa-agent', 'agent-tls': 'volparossa-agent',
               'agent-refresh': 'volparossa-agent',
           }
+          if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-request-stage-proof-20261021':
+              groups['content-request'] = 'volparossa-content'
           all_names, counts = [], {}
+          new_counts = {}
           for group, package in groups.items():
               inventory = (root / (group + '-inventory.log')).read_text()
               output = (root / (group + '-test.log')).read_text()
@@ -172,8 +211,15 @@ jobs:
               for name in names:
                   assert len(re.findall(r'^test ' + re.escape(name) + r' \.\.\. ok$', output, re.M)) == 1
               counts[group] = len(names)
+              new_counts[group] = sum(name.rsplit('::', 1)[-1].startswith(
+                  ('fixture_v3_', 'fixture_request_')) for name in names)
               all_names.extend(package + ':' + name for name in names)
           assert len(all_names) == len(set(all_names)), 'overlapping test groups'
+          if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-request-stage-proof-20261021':
+              expected_new = {'wire-new': 4, 'agent-new': 12, 'cli-new': 1,
+                  'content-request': 5}
+              assert {group: count for group, count in new_counts.items() if count} == expected_new
+              assert sum(new_counts.values()) == 22
           receipt = dict(schema=1, unique_tests=len(all_names), group_counts=counts,
               test_names=sorted(all_names), live_consumer_acceptance=False, causal_attribution=False)
           (root / 'tests.json').write_text(json.dumps(receipt, sort_keys=True) + '\n')
@@ -184,7 +230,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo clippy --locked --offline -p volparossa-local-control \
-            -p volparossa-agent -p volparossa --all-targets --all-features -- -D warnings \
+            -p volparossa-content -p volparossa-agent -p volparossa --all-targets --all-features -- -D warnings \
             2>&1 | tee storage-fixture-evidence/clippy.log
 
       - name: Check formatting without modifying tested source
