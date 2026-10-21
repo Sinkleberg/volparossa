@@ -66,7 +66,7 @@ jobs:
               return subprocess.check_output(['git', *args], text=True).strip()
           base = os.environ['SOURCE_BASE']
           if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-request-stage-proof-20261021':
-              base = 'bae45ace7c40825ebc0c2e3035771ed27a801785'
+              base = 'e3b78c6376ccfe6ca9a4af1a60ffe65771ab1feb'
               subprocess.run(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
           changed = git('diff', '--name-only', base, 'HEAD').splitlines()
           assert changed and len(changed) == len(set(changed))
