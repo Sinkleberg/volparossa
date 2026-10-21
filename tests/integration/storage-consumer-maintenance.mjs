@@ -7,6 +7,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, readdir, readlink, realpath, unlink } from 'node:fs/promises';
 import http from 'node:http';
+import { Socket } from 'node:net';
 import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -272,6 +273,7 @@ export function requirePublishComplete(value, app, operation, profileVersion = 1
 }
 
 export function consumerFailureReport(ctx, phase, error) {
+  if (error instanceof RequestStageFailure) return error.primary;
   if (error instanceof PublishLifecycleFailure) {
     return { ...error.primary, version: ctx.profileVersion + 2, publish_cleanup: error.cleanup };
   }
@@ -289,6 +291,13 @@ class PublishLifecycleFailure extends Error {
     super('publish_lifecycle_failed', { cause });
     this.primary = Object.freeze(primary);
     this.cleanup = Object.freeze(cleanup);
+  }
+}
+
+class RequestStageFailure extends Error {
+  constructor(primary, cause) {
+    super('request_stage_original_failure', { cause });
+    this.primary = Object.freeze(primary);
   }
 }
 
@@ -320,6 +329,100 @@ export async function withPublishCore(ctx, app, core, operation) {
   if (primary) throw new PublishLifecycleFailure(primary, { app, state }, cause);
   ctx.stage = beforeClose;
   return result;
+}
+
+export function requestStageTarget(journal, signed, config) {
+  const hex = value => {
+    check(Array.isArray(value) && value.length === 32 && value.every(byte => integer(byte, 0, 255)), 'configuration');
+    return Buffer.from(value).toString('hex');
+  };
+  const manifest = signed?.manifest, copy = manifest?.fragments?.[2]?.copies?.[0];
+  check(config.providers?.length === 3 && manifest?.providers?.length === 3 && manifest?.fragments?.length === 4
+    && integer(copy?.provider, 0, 2), 'configuration');
+  const provider = hex(journal.provider_key), archive = hex(journal.archive_id), index = copy.provider;
+  check(hex(copy.archive_id) === archive && hex(manifest.providers[index].key) === provider
+    && config.providers[index].key === provider && new Set(config.providers.map(value => value.key)).size === 3,
+  'configuration');
+  return { version: 3, target: { archive_id: archive, provider_key: provider, operation: 'reserve' }, provider_index: index };
+}
+
+export function requestStageOutcome(error) {
+  const value = error instanceof PublishFailure ? error.observation : null;
+  const failures = value?.deposit_diagnostics?.failures;
+  return value?.app === 'image' && value.operation === 'deposit' && value.local_process_joined === true
+    && value.deposit_diagnostics_state === 'observed' && value.deposit_diagnostics.omitted_failures === 0
+    && failures?.length === 1 && failures[0].fragment_index === 2 && failures[0].copy_index === 0
+    && failures[0].operation === 'reserve' ? 'targeted_failure' : 'untargeted_failure';
+}
+
+// Only the disposable profile owner can inherit this private pipe. No identifier
+// appears in argv/env or public receipts. SDK operation limits stay unchanged;
+// this handshake spends time from the existing enclosing phase budget.
+export async function withRequestStage(ctx, app, config, operation,
+  channelFactory = fd => new Socket({ fd, readable: true, writable: true })) {
+  if (!Number.isSafeInteger(ctx.requestStageFd) || ctx.profileVersion !== 10) return operation();
+  let channel, read, finish, stop;
+  try {
+    channel = channelFactory(ctx.requestStageFd);
+    stop = () => channel.destroy();
+    let bytes = Buffer.alloc(0), pending, closed = false;
+    channel.on('error', () => stop());
+    channel.on('close', () => { closed = true; if (pending) pending(); });
+    channel.on('end', stop);
+    channel.on('data', block => {
+      if (bytes.length + block.length > 4096) { stop(); return; }
+      bytes = Buffer.concat([bytes, block]);
+      if (pending) pending();
+    });
+    ctx.signal.addEventListener('abort', stop, { once: true });
+    if (ctx.signal.aborted) stop();
+    read = capMs => new Promise((resolve, reject) => {
+      const timer = setTimeout(stop, Math.max(0, Math.min(capMs, ctx.deadline - performance.now())));
+      pending = () => {
+        if (closed) { clearTimeout(timer); pending = null; reject(new Error('diagnostic_unavailable')); return; }
+        if (!bytes.includes(10)) return;
+        clearTimeout(timer); pending = null;
+        try {
+          check(bytes.at(-1) === 10 && bytes.indexOf(10) === bytes.length - 1, 'configuration');
+          const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+          bytes = Buffer.alloc(0);
+          check(closedKeys(value, ['version', 'state']) && value.version === 3, 'configuration');
+          resolve(value.state);
+        } catch { reject(new Error('diagnostic_unavailable')); }
+      };
+      pending();
+    });
+    finish = async outcome => {
+      try {
+        channel.write(`${JSON.stringify({ version: 3, outcome })}\n`);
+        check(await read(30000) === 'closed', 'configuration');
+      }
+      catch { /* Diagnostic unavailability never replaces the operation result. */ }
+      finally { ctx.signal.removeEventListener('abort', stop); channel.destroy(); }
+    };
+    const target = requestStageTarget(
+      await json(join(app, 'archive/fragment-0002/copy-0/archive.json')),
+      await json(join(app, 'archive/fragments.json')), config);
+    channel.write(`${JSON.stringify(target)}\n`);
+    check(['armed', 'unavailable'].includes(await read(15000)), 'configuration');
+  } catch {
+    if (channel) channel.destroy();
+    if (stop) ctx.signal.removeEventListener('abort', stop);
+    finish = null;
+  }
+  try {
+    const result = await operation();
+    if (finish) await finish('complete');
+    return result;
+  } catch (error) {
+    // Freeze the original phase outcome before optional query/disarm latency can
+    // cross its deadline. No diagnostic error can replace this failure receipt.
+    let primary;
+    try { primary = consumerFailureReport(ctx, 'publish', error); }
+    catch { primary = consumerFailureReport(ctx, 'publish', undefined); }
+    if (finish) await finish(requestStageOutcome(error));
+    throw new RequestStageFailure(primary, error);
+  }
 }
 
 export async function createPublishCatalog(ctx, m, request, options) {
@@ -764,10 +867,15 @@ export async function publish(ctx, m) {
       const factory = async path => { check(path === join(app, 'storage.json'), 'configuration'); return core; };
       let deposited;
       for (const operation of ['create', 'deposit']) {
-        const value = name === 'image'
-          ? await m.runSnapshotStorage({ operation, config: join(app, 'storage.json'), bundle: join(app, 'bundle') }, { signal: ctx.signal, storageFactory: factory })
-          : await m.storePrivateFile(operation, { config: join(app, 'storage.json'), bundle: join(app, 'bundle') }, { signal: ctx.signal, storageFactory: factory });
-        requirePublishComplete(value, name, operation, ctx.profileVersion);
+        const execute = async () => {
+          const value = name === 'image'
+            ? await m.runSnapshotStorage({ operation, config: join(app, 'storage.json'), bundle: join(app, 'bundle') }, { signal: ctx.signal, storageFactory: factory })
+            : await m.storePrivateFile(operation, { config: join(app, 'storage.json'), bundle: join(app, 'bundle') }, { signal: ctx.signal, storageFactory: factory });
+          requirePublishComplete(value, name, operation, ctx.profileVersion);
+          return value;
+        };
+        const value = name === 'image' && operation === 'deposit'
+          ? await withRequestStage(ctx, app, c, execute) : await execute();
         if (operation === 'deposit') deposited = validateStorage(value, r.cipher_bytes, 'published');
       }
       if (name === 'cloud') {
@@ -928,6 +1036,10 @@ export async function main(argv) {
   for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(name, abort);
   const timer = setTimeout(abort, 1800000);
   const ctx = { root, provision, profileVersion, cancel, signal: cancel.signal, deadline: performance.now() + 1800000, stage: 'phase_start' };
+  const requestFd = process.env.STORAGE_PROOF_REQUEST_STAGE_FD;
+  if (phase === 'publish' && profileVersion === 10 && /^[0-9]{1,5}$/u.test(requestFd ?? '') && Number(requestFd) >= 3) {
+    ctx.requestStageFd = Number(requestFd);
+  }
   try {
     await absent(join(root, `storage-consumer-${phase}.json`));
     if (phase !== 'prepare') {

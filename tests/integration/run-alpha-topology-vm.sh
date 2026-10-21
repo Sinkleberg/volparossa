@@ -1202,6 +1202,7 @@ MAINTENANCE_NAMES = (FRAGMENTS_NAMES - {"private-storage-fragments-smoke.json", 
     "private-storage-maintenance-helper-acquire.json",
     "private-storage-provider-activity.json",
     "private-storage-fixture-correlation.json",
+    "storage-consumer-provider-usage.json",
     "private-storage-maintenance-inventory.json",
     "private-storage-maintenance-supervisor.json",
     "private-storage-maintenance-control-transition.json",
@@ -1827,6 +1828,15 @@ def collect(home, opt, revision, scenario, guest_status,
         if observed is None:
             continue
         data, original_size = observed
+        if path.name == "storage-consumer-provider-usage.json":
+            if original_size > 4096 or original_size != len(data):
+                continue
+            try:
+                subprocess.run(["/usr/bin/python3", "-I", "-B", str(home / "source/tests/integration/storage-consumer-provider-usage.py"),
+                    "validate-stdin"], input=data, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=2, check=True, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+            except (OSError, subprocess.SubprocessError):
+                continue
         if path.name == "private-storage-fixture-correlation.json":
             if original_size > 16384 or original_size != len(data):
                 continue
@@ -2239,6 +2249,9 @@ elif [ "$scenario" = browser-network ]; then
 fi
 guest_phase build
 if [ "$scenario" = private-storage-maintenance ]; then
+    # Reduce test compiler/linker memory pressure in the single-job 4-GiB guest.
+    # Reuse these profiles for the following binaries without changing assertions.
+    export CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0
     guest_phase storage-maintenance-targeted-tests
     # Both the actual cargo exit and bounded executed-test output must pass.
     # A stale libtest filter otherwise exits successfully with zero tests.
@@ -2458,6 +2471,10 @@ elif [ "$scenario" = private-storage-fragments ] || [ "$scenario" = private-stor
         case $retained in */*|'') exit 1 ;; esac
         retained_path=/home/vpci/alpha-output/$retained
         if [ -f "$retained_path" ] && [ ! -L "$retained_path" ]; then
+            if [ "$retained" = storage-consumer-provider-usage.json ]; then
+                python3 -I -B tests/integration/storage-consumer-provider-usage.py validate-stdin \
+                    <"$retained_path" >/dev/null 2>&1 || continue
+            fi
             if [ "$retained" = private-storage-fixture-correlation.json ]; then
                 python3 -I -B tests/integration/storage-fixture-correlation-sampler.py validate-stdin \
                     <"$retained_path" >/dev/null 2>&1 || continue
