@@ -25,6 +25,15 @@ Unix socket authorizes local administrative callers; it is not yet a per-app
 least-authority location broker. Untrusted mobile apps must not receive that
 administrative socket as a shortcut to location access.
 
+The local-control envelope remains version 2; DPS schema version 1 uses request
+field 64 and response field 64. Allocation was checked against main and all 23
+open PR heads on 2026-10-21. The retained Storage integration already uses request
+fields 46–49 and response fields 34–37; historical draft assignments also remain
+reserved until their integration/migration is resolved. The unreleased DPS
+prototype's conflicting request 46/response 34 are superseded without aliases.
+Checking main alone is insufficient when allocating fields across retained work.
+Golden wire fixtures bind both DPS envelope fields to 64.
+
 Version 1 compares declared three-dimensional positions in metres: WGS84
 Earth-centred Earth-fixed coordinates or a named local Cartesian frame. WGS84
 is a caller assertion, not verified geography. Local coordinates do not imply a

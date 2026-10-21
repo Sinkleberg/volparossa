@@ -4,6 +4,7 @@ use crate::{
     control_request::Operation, control_response::Payload, decode_request, decode_response,
     encode_request, encode_response,
 };
+use prost::Message;
 
 const NOW: u64 = 1_000_000;
 
@@ -58,6 +59,46 @@ fn assessed(request: &DpsAssessRequest) -> DpsAssessment {
     let assessment = request.assess(NOW).unwrap();
     assessment.validate().unwrap();
     assessment
+}
+
+#[test]
+fn dps_request_and_response_use_golden_field_64_without_prototype_aliases() {
+    // Protobuf-only fixtures deliberately omit application headers and validation.
+    // Field 64, wire type 2, zero-length nested message: 82 04 00.
+    // These empty messages prove field allocation, never valid service authority.
+    let golden = [0x82, 0x04, 0x00];
+    let request = ControlRequest {
+        operation: Some(Operation::DpsAssess(DpsAssessRequest::default())),
+        ..Default::default()
+    };
+    assert_eq!(request.encode_to_vec(), golden);
+    assert_eq!(ControlRequest::decode(golden.as_slice()).unwrap(), request);
+    let response = ControlResponse {
+        payload: Some(Payload::DpsAssessment(DpsAssessment::default())),
+        ..Default::default()
+    };
+    assert_eq!(response.encode_to_vec(), golden);
+    assert_eq!(
+        ControlResponse::decode(golden.as_slice()).unwrap(),
+        response
+    );
+
+    // Unreleased prototype fields collide with retained Storage assignments.
+    // They must never decode as DPS aliases; retained Storage may use them.
+    let old_request = [0xf2, 0x02, 0x00]; // Field 46.
+    let old_response = [0x92, 0x02, 0x00]; // Field 34.
+    assert!(!matches!(
+        ControlRequest::decode(old_request.as_slice())
+            .unwrap()
+            .operation,
+        Some(Operation::DpsAssess(_))
+    ));
+    assert!(!matches!(
+        ControlResponse::decode(old_response.as_slice())
+            .unwrap()
+            .payload,
+        Some(Payload::DpsAssessment(_))
+    ));
 }
 
 #[test]

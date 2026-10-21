@@ -65,9 +65,10 @@ pub struct ControlRequest {
     #[prost(bytes = "vec", tag = "2")]
     pub request_id: Vec<u8>,
     /// One allowlisted operation.
+    /// Fields 46 through 49 belong to retained Storage APIs; DPS uses field 64.
     #[prost(
         oneof = "control_request::Operation",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 64"
     )]
     pub operation: Option<control_request::Operation>,
 }
@@ -199,7 +200,7 @@ pub mod control_request {
         #[prost(message, tag = "45")]
         QuoteRemote(QuoteRemoteRequest),
         /// Assess explicit local positioning claims without collecting or retaining them.
-        #[prost(message, tag = "46")]
+        #[prost(message, tag = "64")]
         DpsAssess(DpsAssessRequest),
     }
 }
@@ -284,9 +285,10 @@ pub struct ControlResponse {
     #[prost(string, tag = "4")]
     pub diagnostic_code: String,
     /// Typed response body.
+    /// Fields 34 through 37 belong to retained Storage APIs; DPS uses field 64.
     #[prost(
         oneof = "control_response::Payload",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 64"
     )]
     pub payload: Option<control_response::Payload>,
 }
@@ -380,7 +382,7 @@ pub mod control_response {
         #[prost(message, tag = "33")]
         QuoteReady(QuoteReady),
         /// Stateless input consistency and explicit positioning quality limitations.
-        #[prost(message, tag = "34")]
+        #[prost(message, tag = "64")]
         DpsAssessment(DpsAssessment),
     }
 }
