@@ -155,6 +155,57 @@ These clarifications supplement the preserved objective; they do not replace it.
   financial commitments and account changes still require separate authorization.
 
 
-### Decentralized Positioning System clarification (2026-10-21)
+### Decentralized Positioning System addition (2026-10-21)
 
-The complete original objective and all subsequent clarifications remain in force. The received DPS requirements are an authorized additive scope, preserved verbatim with provenance and truncation noted in [DPS_GOAL_20261021.md](DPS_GOAL_20261021.md). DPS is a reusable shared core service using the existing five DICN infrastructure layers; it does not create a sixth layer. The first attachment ends mid-sentence at “en detect”; the user supplied the continuation on 2026-10-21, and it is preserved separately in [DPS_GOAL_20261021.md](DPS_GOAL_20261021.md).
+The complete [DPS_REQUIREMENTS.md](DPS_REQUIREMENTS.md) is incorporated here as a
+permanent, normative addition to this goal. The preserved original objective and
+**every** later clarification above remain in force. Read the full joined DPS
+text, not just this navigation summary:
+
+- **Positioning:** investigate and implement useful standalone and hybrid GNSS,
+  local radio, ranging and sensor-based positioning, relative and absolute
+  estimates, with explicit hardware and platform limits.
+- **GNSS integrity:** investigate manipulation and interference, compare
+  sufficiently independent observations, represent uncertainty, and distinguish
+  inconsistency detection from proof that a position is correct.
+- **Privacy and control:** require appropriate permission, precision limits,
+  purpose and retention boundaries. Do not automatically share locations, routes,
+  photo locations or movement histories, or turn them into public cache/training
+  data. Keep private processing within existing protected-execution boundaries.
+- **Shared architecture:** build a versioned core service above the existing five
+  infrastructure layers, with separate sensor/radio platform adapters. Reuse
+  authorized Network, Cache, Storage, Compute and Transaction facilities; DPS is
+  not a sixth layer or a payment condition for positioning.
+- **Applications:** retain offline Organic Maps navigation and visible uncertainty;
+  assess Weather, Image, Chat, Browser, Cloud and other applications on actual
+  value. Preserve Signal Protocol, browser/platform permission ceilings, private
+  storage, independent weather observations and existing functionality. Unproven
+  location claims cannot alone establish financial, identity or voting authority.
+- **Verification:** research existing open-source implementations and standards;
+  document trust assumptions, faults and resource limits; start with bounded,
+  reproducible relative-positioning, fusion and GNSS-integrity trials using
+  independent references and controlled fault injection where possible. Keep
+  simulation, functioning hardware and measured accuracy improvements distinct.
+- **Safety and priorities:** no unauthorized radio scans, GNSS disruption or
+  host network/location changes. Schedule DPS by dependencies and system value
+  alongside critical integrations; documentation does not complete functionality.
+
+The [dated source archive](DPS_GOAL_20261021.md) preserves both received parts
+verbatim. The second part replaces/completes the interrupted Map subsection in
+the first; the normative join contains that subsection once. Provenance copies
+are not extra requirements or instructions to find a temporary attachment.
+
+### Durable goal and instruction boundaries
+
+This file, its preserved original, every clarification and the incorporated
+DPS addition define **agreed functionality**. [AGENTS.md](../../AGENTS.md) defines
+engineering, delegation, authority and host-safety rules. The
+[implementation ledger](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
+records **implemented evidence and the active plan**. A current limitation or
+next milestone does not repeal a requirement. Scoped later user amendments
+supersede only the earlier terms they explicitly revise; all other terms remain.
+
+Use [PURSUING_GOAL.md](PURSUING_GOAL.md) for the self-contained replacement UI
+text and [GOAL_VERIFICATION.md](GOAL_VERIFICATION.md) for reproducible preservation
+and completeness checks. A fresh conversation needs only the repository and live
+branch/run state; historical attachment paths identify provenance, not dependencies.
