@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import sqlite3
 import stat
 import subprocess
@@ -22,33 +23,23 @@ SNAPSHOT = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(SNAPSHOT)
 
-SCHEMA_SQL = """
-CREATE TABLE storage_meta (
- singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
- version INTEGER NOT NULL, store_id BLOB NOT NULL CHECK(length(store_id) = 32),
- capacity_bytes INTEGER NOT NULL CHECK(capacity_bytes > 0),
- min_free_bytes INTEGER NOT NULL CHECK(min_free_bytes >= 0),
- admission_target_bytes INTEGER NOT NULL CHECK(admission_target_bytes >= 0 AND admission_target_bytes <= capacity_bytes)
-) STRICT;
-CREATE TABLE leases (
- lease_id BLOB PRIMARY KEY CHECK(length(lease_id) = 16),
- ciphertext_bytes INTEGER NOT NULL CHECK(ciphertext_bytes >= 0),
- sha256 BLOB NOT NULL CHECK(length(sha256) = 32),
- expires INTEGER NOT NULL CHECK(expires > 0),
- committed INTEGER NOT NULL CHECK(committed IN (0,1))
-) STRICT;
-CREATE TABLE chunks (
- lease_id BLOB NOT NULL REFERENCES leases(lease_id) ON DELETE CASCADE,
- ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
- sha256 BLOB NOT NULL CHECK(length(sha256) = 32),
- payload BLOB NOT NULL CHECK(length(payload) BETWEEN 1 AND 262144),
- PRIMARY KEY(lease_id, ordinal)
-) STRICT;
-"""
+def production_sql(name: str, pattern: str) -> str:
+    # Execute the actual production DDL in synthetic SQLite fixtures, independently
+    # of the observer's allowlist. This neither executes Rust nor opens real stores.
+    source = (ROOT / "crates/volparossa-content/src/private_storage" / name).read_text()
+    matches = re.findall(pattern, source, re.DOTALL)
+    if len(matches) != 1:
+        raise AssertionError("production fixture DDL not uniquely located")
+    return matches[0]
+
+
+SCHEMA_SQL = production_sql("disk.rs", r'connection.execute_batch\(\s*"(PRAGMA auto_vacuum = FULL;.*?)",\s*\)')
+PROVIDER_SQL = production_sql("provider.rs", r'const SCHEMA: &str = "(.*?)";')
+UPGRADE_SQL = production_sql("admission.rs", r'transaction.execute_batch\(\s*"(ALTER TABLE storage_meta.*?)",\s*\)')
 
 
 class Fixture:
-    def __init__(self, parent: Path, capacity: int = 10_000):
+    def __init__(self, parent: Path, capacity: int = 10_000, provider_sql: str | None = None):
         parent.mkdir(parents=True, exist_ok=True)
         self.path = parent / "store"
         self.path.mkdir(mode=0o700)
@@ -64,6 +55,10 @@ class Fixture:
         db.execute(f"PRAGMA application_id={SNAPSHOT.APPLICATION_ID}")
         db.execute("PRAGMA user_version=2")
         db.execute("INSERT INTO storage_meta VALUES(1, 2, ?, ?, 0, ?)", (store_id, capacity, capacity))
+        if provider_sql is not None:
+            db.executescript(provider_sql)
+            db.execute("INSERT INTO storage_provider VALUES(1, 1, ?)",
+                       (b"private-provider-canary".ljust(32, b"!"),))
         db.commit()
         db.close()
         os.chmod(self.dbpath, 0o600)
@@ -123,6 +118,96 @@ class UsageSnapshotTests(unittest.TestCase):
         fixture.add_lease(1, 37, 0, expires=1)
         fixture.add_lease(2, 63, 1, expires=1)
         self.observed(fixture, 37, 63, 2)
+
+    def test_production_provider_layout_counts_zero_reserved_committed_and_expired_leases(self) -> None:
+        fixture = Fixture(self.root, provider_sql=PROVIDER_SQL)
+        self.observed(fixture, 0, 0, 0)
+        fixture.add_lease(1, 37, 0, expires=1)
+        fixture.add_lease(2, 63, 1, expires=1)
+        self.observed(fixture, 37, 63, 2)
+
+    def test_partial_provider_layouts_are_unavailable_without_mutation(self) -> None:
+        for kind, name in (("TABLE", "storage_provider"), ("TABLE", "storage_grants"),
+                           ("TABLE", "storage_bindings"), ("TRIGGER", "storage_binding_delete")):
+            with self.subTest(object=name):
+                fixture = Fixture(self.root / name, provider_sql=PROVIDER_SQL)
+                db = sqlite3.connect(fixture.dbpath)
+                db.execute(f"DROP {kind} {name}")
+                db.commit()
+                db.close()
+                before = inventory(fixture.path)
+                self.unavailable(fixture.path, "schema")
+                self.assertEqual(before, inventory(fixture.path))
+
+    def test_altered_provider_table_or_trigger_is_unavailable(self) -> None:
+        variants = (
+            PROVIDER_SQL.replace("CHECK (version = 1)", "CHECK (version IN (1, 2))"),
+            PROVIDER_SQL.replace("BETWEEN 1 AND 2048", "BETWEEN 1 AND 4096"),
+            PROVIDER_SQL.replace("SET deleted = 1", "SET deleted = 0"),
+        )
+        for index, sql in enumerate(variants):
+            with self.subTest(variant=index):
+                self.assertNotEqual(sql, PROVIDER_SQL)
+                fixture = Fixture(self.root / str(index), provider_sql=sql)
+                before = inventory(fixture.path)
+                self.unavailable(fixture.path, "schema")
+                self.assertEqual(before, inventory(fixture.path))
+
+    def test_extra_provider_objects_are_unavailable(self) -> None:
+        variants = ("CREATE TABLE extra(x)", "CREATE VIEW extra AS SELECT 1 AS x",
+                    "CREATE INDEX extra ON leases(expires)",
+                    "CREATE TRIGGER extra AFTER DELETE ON leases BEGIN SELECT 1; END")
+        for index, sql in enumerate(variants):
+            with self.subTest(variant=index):
+                fixture = Fixture(self.root / str(index), provider_sql=PROVIDER_SQL)
+                db = sqlite3.connect(fixture.dbpath)
+                db.execute(sql)
+                db.commit()
+                db.close()
+                before = inventory(fixture.path)
+                self.unavailable(fixture.path, "schema")
+                self.assertEqual(before, inventory(fixture.path))
+
+    def test_migrated_v1_ddl_remains_outside_fresh_fixture_scope(self) -> None:
+        fixture = Fixture(self.root, provider_sql=PROVIDER_SQL)
+        db = sqlite3.connect(fixture.dbpath)
+        db.execute("ALTER TABLE storage_meta DROP COLUMN admission_target_bytes")
+        db.execute("UPDATE storage_meta SET version=1")
+        db.execute("PRAGMA user_version=1")
+        db.executescript(UPGRADE_SQL)
+        db.execute("UPDATE storage_meta SET version=2")
+        db.execute("PRAGMA user_version=2")
+        db.commit()
+        db.close()
+        before = inventory(fixture.path)
+        self.unavailable(fixture.path, "schema")
+        self.assertEqual(before, inventory(fixture.path))
+
+    def test_provider_cli_reports_only_counts_without_mutation_or_private_canaries(self) -> None:
+        fixture = Fixture(self.root / "private-path-canary", provider_sql=PROVIDER_SQL)
+        fixture.add_lease(1, 37, 0)
+        fixture.add_lease(2, 63, 1)
+        db = sqlite3.connect(fixture.dbpath)
+        db.execute("INSERT INTO chunks VALUES(?, 0, ?, ?)",
+                   ((2).to_bytes(16, "little"), bytes(32), b"private-payload-canary"))
+        db.execute("INSERT INTO storage_grants VALUES(?, ?, ?, ?)",
+                   (bytes(32), bytes([1]) * 32, bytes([2]) * 32, b"private-grant-canary"))
+        db.commit()
+        db.close()
+        before = inventory(fixture.path)
+        completed = subprocess.run(
+            [sys.executable, "-B", str(HERE / "storage-provider-usage-snapshot.py"), str(fixture.path)],
+            capture_output=True, text=True, timeout=2, check=False,
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(json.loads(completed.stdout), {
+            "version": 1, "state": "observed", "reason": None, "reserved_bytes": 37,
+            "committed_bytes": 63, "leases": 2, "owner_cleanup_proven": False,
+        })
+        self.assertEqual(completed.stderr, "")
+        self.assertNotIn("private-", completed.stdout)
+        self.assertNotIn(str(fixture.path), completed.stdout)
+        self.assertEqual(before, inventory(fixture.path))
 
     def test_busy_owner_lock_is_unavailable(self) -> None:
         fixture = Fixture(self.root)

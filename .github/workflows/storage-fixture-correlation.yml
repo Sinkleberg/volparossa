@@ -419,7 +419,7 @@ jobs:
           import sys
           groups = {
               'storage-request-stage-consumers': 15,
-              'storage-provider-usage-snapshot': 10,
+              'storage-provider-usage-snapshot': 16,
               'storage-fixture-correlation-sampler': 33,
               'storage-provider-activity-sampler': 17,
               'storage-consumer-maintenance-smoke': 54,

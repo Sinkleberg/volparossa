@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Read-only logical lease counts from one stopped, private schema-2 fixture store."""
+"""Read-only logical lease counts from one stopped, fresh schema-2 fixture store.
+
+Accept the base store or its complete provider authorization layout. Migrated v1
+stores have different storage_meta DDL and remain outside this fixture's scope.
+"""
 
 from __future__ import annotations
 
@@ -31,6 +35,12 @@ SCHEMA = {
     "leases": "CREATE TABLE leases ( lease_id BLOB PRIMARY KEY CHECK(length(lease_id) = 16), ciphertext_bytes INTEGER NOT NULL CHECK(ciphertext_bytes >= 0), sha256 BLOB NOT NULL CHECK(length(sha256) = 32), expires INTEGER NOT NULL CHECK(expires > 0), committed INTEGER NOT NULL CHECK(committed IN (0,1)) ) STRICT",
     "chunks": "CREATE TABLE chunks ( lease_id BLOB NOT NULL REFERENCES leases(lease_id) ON DELETE CASCADE, ordinal INTEGER NOT NULL CHECK(ordinal >= 0), sha256 BLOB NOT NULL CHECK(length(sha256) = 32), payload BLOB NOT NULL CHECK(length(payload) BETWEEN 1 AND 262144), PRIMARY KEY(lease_id, ordinal) ) STRICT",
 }
+PROVIDER_SCHEMA = {
+    "storage_provider": "CREATE TABLE storage_provider ( singleton INTEGER PRIMARY KEY CHECK (singleton = 1), version INTEGER NOT NULL CHECK (version = 1), public_key BLOB NOT NULL CHECK (length(public_key) = 32) ) STRICT",
+    "storage_grants": "CREATE TABLE storage_grants ( grant_id BLOB PRIMARY KEY CHECK (length(grant_id) = 32), capability_id BLOB UNIQUE NOT NULL CHECK (length(capability_id) = 32), owner BLOB NOT NULL CHECK (length(owner) = 32), signed_grant BLOB NOT NULL CHECK (length(signed_grant) BETWEEN 1 AND 2048) ) STRICT",
+    "storage_bindings": "CREATE TABLE storage_bindings ( owner BLOB NOT NULL CHECK (length(owner) = 32), archive_id BLOB NOT NULL CHECK (length(archive_id) = 32), grant_id BLOB NOT NULL REFERENCES storage_grants(grant_id), lease_id BLOB UNIQUE NOT NULL CHECK (length(lease_id) = 16), ciphertext_bytes INTEGER NOT NULL CHECK (ciphertext_bytes BETWEEN 1 AND 68719476736), sha256 BLOB NOT NULL CHECK (length(sha256) = 32), deleted INTEGER NOT NULL CHECK (deleted IN (0, 1)), PRIMARY KEY (owner, archive_id) ) STRICT",
+}
+PROVIDER_TRIGGER = "CREATE TRIGGER storage_binding_delete AFTER DELETE ON leases BEGIN UPDATE storage_bindings SET deleted = 1 WHERE lease_id = OLD.lease_id; END"
 
 
 class Unavailable(Exception):
@@ -93,14 +103,19 @@ def _schema_check(db: sqlite3.Connection) -> None:
     objects = db.execute(
         "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
     ).fetchall()
-    if len(objects) != 3 or any(kind != "table" or name not in SCHEMA for kind, name, _ in objects):
+    expected_objects = {("table", name): sql for name, sql in SCHEMA.items()}
+    expected = {"storage_meta": (6, 1), "leases": (5, 1), "chunks": (4, 1)}
+    if len(objects) == 7:
+        expected_objects.update({("table", name): sql for name, sql in PROVIDER_SCHEMA.items()})
+        expected_objects[("trigger", "storage_binding_delete")] = PROVIDER_TRIGGER
+        expected.update({"storage_provider": (3, 1), "storage_grants": (4, 1), "storage_bindings": (7, 1)})
+    if {(kind, name) for kind, name, _ in objects} != set(expected_objects):
         _fail("schema")
     for kind, name, sql in objects:
         normalized = " ".join((sql or "").split())
-        if kind != "table" or normalized != SCHEMA[name]:
+        if normalized != expected_objects[(kind, name)]:
             _fail("schema")
     tables = db.execute("PRAGMA table_list").fetchall()
-    expected = {"storage_meta": (6, 1), "leases": (5, 1), "chunks": (4, 1)}
     seen = {}
     for row in tables:
         # schema, name, type, ncol, wr, strict
