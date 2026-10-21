@@ -68,6 +68,10 @@ over the same Network, Cache, Storage, Compute and Transaction infrastructure;
 it adds no sixth layer or location dependency to network participation. Platform
 adapters own permission-checked sensor/radio access, reference frames and lifecycle.
 Shared logic owns bounded observation assessment and subsequent positioning/fusion.
+The [complete agreed goal](../development/GOAL.md) remains authoritative for the
+full project scope; the [joined DPS requirements](../development/DPS_REQUIREMENTS.md)
+are the permanent normative DPS scope. The service page records design choices
+and staged acceptance, not a ceiling on those requirements.
 Private measurements stay local by default; receiving assistance, contributing,
 retaining history and training are separately authorized. A signed location claim,
 matching peer reports or authenticated GNSS navigation data does not establish

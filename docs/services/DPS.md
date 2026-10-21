@@ -2,10 +2,15 @@
 
 DPS is a shared VOLPAROSSA core service for local positioning, source consistency
 and eventually independent GNSS integrity assessment. It uses the existing five
-DICN infrastructure layers. The [received requirements](../development/DPS_GOAL_20261021.md)
-supplement the [complete goal](../development/GOAL.md); the initial attachment and
-the user's subsequently supplied continuation are preserved separately. The [implementation ledger](../IMPLEMENTATION_STATUS.md#decentralized-positioning-system--2026-10-21)
-records accepted evidence. This design is not a claim of working sensor fusion,
+DICN infrastructure layers. The [complete goal](../development/GOAL.md) remains
+the project-wide authority. The [joined DPS requirements](../development/DPS_REQUIREMENTS.md)
+are the permanent normative DPS scope; the byte-preserved
+[DPS_GOAL_20261021 provenance archive](../development/DPS_GOAL_20261021.md) is
+retained only to document received source text and hashes. This service design
+and acceptance sequence explain implementation choices; they do not cap or
+replace either goal. The [implementation ledger](../IMPLEMENTATION_STATUS.md#decentralized-positioning-system--2026-10-21)
+records accepted evidence. Chat attachments or transcript context are not
+requirements dependencies. This design is not a claim of working sensor fusion,
 GNSS-free navigation, anonymous ranging or comprehensive spoofing detection.
 
 ## Shared service and device boundary
