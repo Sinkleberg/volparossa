@@ -764,6 +764,9 @@ fn print_response(response: ControlResponse) -> Result<()> {
         Payload::BrowserGatewayGranted(_) => {
             anyhow::bail!("browser capability requires its explicit private output command")
         }
+        Payload::DpsAssessment(_) => {
+            anyhow::bail!("positioning assessment requires its explicit DPS consumer")
+        }
         Payload::Roles(roles) => {
             println!("client: {}", roles.client);
             println!("relay: {}", roles.relay);

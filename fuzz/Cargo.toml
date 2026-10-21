@@ -23,6 +23,7 @@ libfuzzer-sys = "0.4"
 prost = "0.14.1"
 volparossa-discovery = { path = "../crates/volparossa-discovery", version = "0.1.0" }
 volparossa-inspection = { path = "../crates/volparossa-inspection", version = "0.1.0" }
+volparossa-local-control = { path = "../crates/volparossa-local-control", version = "0.1.0" }
 volparossa-policy = { path = "../crates/volparossa-policy", version = "0.1.0" }
 volparossa-protocol = { path = "../crates/volparossa-protocol", version = "0.1.0" }
 volparossa-quic = { path = "../crates/volparossa-quic", version = "0.1.0" }

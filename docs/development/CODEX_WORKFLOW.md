@@ -60,6 +60,12 @@ Subagents do not recursively delegate or publish/dispatch work unless assigned;
 the principal coordinates integration, branch protections and final claims.
 Review by an agent is not a release signature or authority to weaken privacy.
 
+Before allocating or changing shared wire fields, inspect both main and retained
+active integration heads. A field absent from main may already belong to an
+unfinished service. Preserve existing assignments, record the selected unused
+fields and bind them with wire compatibility tests. Do not silently reinterpret
+an older field or add aliases that collide with another service.
+
 ## Local configuration and verification
 
 On 2026-10-20 the VSCodium extension `26.5908.31748` used bundled

@@ -9,6 +9,7 @@
 
 mod browser_gateway;
 pub mod compute;
+pub mod dps;
 pub use browser_gateway::{BrowserGatewayGrantRequest, BrowserGatewayGranted};
 mod compute_control;
 mod content;
@@ -64,9 +65,10 @@ pub struct ControlRequest {
     #[prost(bytes = "vec", tag = "2")]
     pub request_id: Vec<u8>,
     /// One allowlisted operation.
+    /// Fields 46 through 49 belong to retained Storage APIs; DPS uses field 64.
     #[prost(
         oneof = "control_request::Operation",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 64"
     )]
     pub operation: Option<control_request::Operation>,
 }
@@ -83,6 +85,7 @@ pub mod control_request {
         HttpsContentFetchRequest, LogQuery, MailboxRemoteRequest, MailboxServeRequest,
         PrivateStorageAdmissionRequest, PrivateStorageGrantRequest, PrivateStorageRemoteRequest,
         PrivateStorageServeRequest, QuoteAttachRequest, QuoteRemoteRequest, RoleChange,
+        dps::DpsAssessRequest,
     };
 
     /// Exactly one supported CLI-to-agent operation.
@@ -196,6 +199,9 @@ pub mod control_request {
         /// Upgrade this exact socket for one distinct protected quote exchange.
         #[prost(message, tag = "45")]
         QuoteRemote(QuoteRemoteRequest),
+        /// Assess explicit local positioning claims without collecting or retaining them.
+        #[prost(message, tag = "64")]
+        DpsAssess(DpsAssessRequest),
     }
 }
 
@@ -279,9 +285,10 @@ pub struct ControlResponse {
     #[prost(string, tag = "4")]
     pub diagnostic_code: String,
     /// Typed response body.
+    /// Fields 34 through 37 belong to retained Storage APIs; DPS uses field 64.
     #[prost(
         oneof = "control_response::Payload",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 64"
     )]
     pub payload: Option<control_response::Payload>,
 }
@@ -296,7 +303,7 @@ pub mod control_response {
         ContentTransferReady, Empty, HttpsContentTransferReady, LogList, MailboxReady,
         NamedContentTransferReady, PathList, PeerList, PolicySnapshot, PrivateStorageAdmission,
         PrivateStorageGrant, PrivateStorageReady, QuoteReady, RoleSnapshot, SessionList,
-        StatusSnapshot,
+        StatusSnapshot, dps::DpsAssessment,
     };
 
     /// Exactly one response body.
@@ -374,6 +381,9 @@ pub mod control_response {
         /// Route, TLS and signed quote challenge are ready; no quote or admission yet.
         #[prost(message, tag = "33")]
         QuoteReady(QuoteReady),
+        /// Stateless input consistency and explicit positioning quality limitations.
+        #[prost(message, tag = "64")]
+        DpsAssessment(DpsAssessment),
     }
 }
 
@@ -778,6 +788,7 @@ fn validate_request(request: &ControlRequest) -> Result<(), ControlProtocolError
         control_request::Operation::ContentPolicyApply(request) => request.validate()?,
         control_request::Operation::ComputeAttach(request) => request.validate()?,
         control_request::Operation::ComputeRemote(request) => request.validate()?,
+        control_request::Operation::DpsAssess(request) => request.validate()?,
         control_request::Operation::QuoteAttach(request) => request.validate()?,
         control_request::Operation::QuoteRemote(request) => request.validate()?,
         control_request::Operation::ComputeDiscover(request) => {
@@ -903,6 +914,7 @@ fn validate_response(response: &ControlResponse) -> Result<(), ControlProtocolEr
         control_response::Payload::ContentCustodyReady(ready) => ready.validate()?,
         control_response::Payload::ContentCustodyDiscovered(discovered) => discovered.validate()?,
         control_response::Payload::ComputeReady(ready) => ready.validate()?,
+        control_response::Payload::DpsAssessment(assessment) => assessment.validate()?,
         control_response::Payload::QuoteReady(ready) => ready.validate()?,
         control_response::Payload::ComputeDiscovered(discovered) => discovered.validate()?,
         control_response::Payload::ComputeTranscript(transcript) => transcript.validate()?,
