@@ -1,5 +1,6 @@
 //! Actual signed duplex/SQLite boundaries; synthetic fixtures, not consumer acceptance.
 use super::*;
+use crate::private_storage::wire::{bridge_observation, diagnostic};
 use crate::provider::{
     activity::{Observer, RequestStage, Stage, WorkerObserver},
     serve_publication_with_activity,
