@@ -52,10 +52,12 @@ pub use private_storage::{
     PrivateStorageReady, PrivateStorageRemoteRequest, PrivateStorageServeRequest,
 };
 pub use private_storage_detail::{
-    PrivateStorageChallengeDetail, PrivateStorageChallengePhase, PrivateStorageDeadlineScope,
-    PrivateStorageElapsedBucket, PrivateStorageFlowAcquireDetail, PrivateStorageFlowAcquireFailure,
-    PrivateStorageFlowAcquireReason, PrivateStorageFlowAcquireStage, PrivateStorageRemoteDetail,
-    PrivateStorageRemoteStage, PrivateStorageStreamFailure, PrivateStorageTlsFailure,
+    PrivateStorageChallengeDetail, PrivateStorageChallengePhase, PrivateStorageChallengeReadDetail,
+    PrivateStorageChallengeReadOutcome, PrivateStorageChallengeReadStep,
+    PrivateStorageDeadlineScope, PrivateStorageElapsedBucket, PrivateStorageFlowAcquireDetail,
+    PrivateStorageFlowAcquireFailure, PrivateStorageFlowAcquireReason,
+    PrivateStorageFlowAcquireStage, PrivateStorageRemoteDetail, PrivateStorageRemoteStage,
+    PrivateStorageStreamFailure, PrivateStorageTlsFailure,
 };
 pub use private_storage_outcome::{
     PrivateStorageAppendTiming, PrivateStorageOutcome, PrivateStorageOutcomeCategory,

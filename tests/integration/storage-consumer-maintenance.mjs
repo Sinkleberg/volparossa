@@ -38,8 +38,8 @@ const APPEND_REVISIONS = Object.freeze({ image: '10c46b9d6424929748e324fdd188a2f
   cloud: 'dda7a21818ece774445cf63d6e9a01fe0f2803b2' });
 const FLOW_REVISIONS = Object.freeze({ image: '9694a2b9dcb40aceefd78dbc0ab34303071a0ffd',
   cloud: '47b0f03b84913761570c3de7037ba5509b848c23' });
-const TLS_CLOSE_REVISIONS = Object.freeze({ image: '1e812ec6424a539a336d230b99ae1c11a494ca29',
-  cloud: '35598609d3fedb5d1241a479c1930c8a6b831661' });
+const CHALLENGE_READ_REVISIONS = Object.freeze({ image: 'f51b8ace0352377c7068a93fc8f4544f18e52978',
+  cloud: '5f143725fd18c98848beb61c9198a82066bfec13' });
 const CHECKPOINTS = new Set(['enrolled', 'owner_locked', 'waiting_for_core', 'working', 'paused',
   'enrollment_expired', 'core_unavailable', 'core_turn_revoked', 'turn_completed', 'retry_pending']);
 const SQL = Buffer.from('-- VOLPAROSSA synthetic quiesced snapshot\nCREATE TABLE fixture (id integer);\nINSERT INTO fixture VALUES (1);\n');
@@ -127,15 +127,15 @@ function flowAcquire(value) {
 function agentOutcome(value, stage, version = 4, operation = null) {
   if (value === null) return null;
   check(['wire_receipt', 'agent_terminal', 'deadline'].includes(stage)
-    && closedKeys(value, ['status', 'detail', ...([7, 8, 9].includes(version) ? ['append_timing'] : []),
-      ...(version === 9 ? ['tls_close_failure'] : [])])
+    && closedKeys(value, ['status', 'detail', ...([7, 8, 9, 10].includes(version) ? ['append_timing'] : []),
+      ...(version >= 9 ? ['tls_close_failure'] : [])])
     && ['observed', 'missing', 'pending', 'expired', 'query_failed', 'query_timeout'].includes(value.status), 'deposit_diagnostics');
   if (value.status !== 'observed') {
     check(value.detail === null, 'deposit_diagnostics');
-    if ([7, 8, 9].includes(version)) check(value.append_timing === null, 'deposit_diagnostics');
-    if (version === 9) check(value.tls_close_failure === null, 'deposit_diagnostics');
-    return { status: value.status, detail: null, ...([7, 8, 9].includes(version) ? { append_timing: null } : {}),
-      ...(version === 9 ? { tls_close_failure: null } : {}) };
+    if ([7, 8, 9, 10].includes(version)) check(value.append_timing === null, 'deposit_diagnostics');
+    if (version >= 9) check(value.tls_close_failure === null, 'deposit_diagnostics');
+    return { status: value.status, detail: null, ...([7, 8, 9, 10].includes(version) ? { append_timing: null } : {}),
+      ...(version >= 9 ? { tls_close_failure: null } : {}) };
   }
   const d = value.detail;
   check(closedKeys(d, ['phase', 'category', 'deadline_scope']) && OUTCOME_PHASES.includes(d.phase)
@@ -145,7 +145,7 @@ function agentOutcome(value, stage, version = 4, operation = null) {
     && (d.deadline_scope !== 'bridge' || OUTCOME_PHASES.slice(1, 15).includes(d.phase))
     && (d.deadline_scope !== 'remote_wire' || OUTCOME_PHASES.slice(6, 13).includes(d.phase)), 'deposit_diagnostics');
   let timing = null;
-  if ([7, 8, 9].includes(version) && value.append_timing !== null) {
+  if ([7, 8, 9, 10].includes(version) && value.append_timing !== null) {
     const t = value.append_timing;
     check(closedKeys(t, ['before_payload', 'in_payload_write_flush', 'in_receipt_read'])
       && operation === 'append' && ['remote_payload_write', 'remote_receipt_read'].includes(d.phase)
@@ -155,21 +155,21 @@ function agentOutcome(value, stage, version = 4, operation = null) {
     timing = { before_payload: t.before_payload, in_payload_write_flush: t.in_payload_write_flush,
       in_receipt_read: t.in_receipt_read };
   }
-  if (version === 9) {
+  if (version >= 9) {
     check(value.tls_close_failure === null || (
       ['shutdown_io', 'read_io', 'trailing_data', 'internal_deadline'].includes(value.tls_close_failure)
       && d.phase === 'transport_tls_close' && d.category === 'unavailable' && d.deadline_scope === 'none'
       && value.append_timing === null), 'deposit_diagnostics');
   }
   return { status: value.status, detail: { phase: d.phase, category: d.category, deadline_scope: d.deadline_scope },
-    ...([7, 8, 9].includes(version) ? { append_timing: timing } : {}),
-    ...(version === 9 ? { tls_close_failure: value.tls_close_failure } : {}) };
+    ...([7, 8, 9, 10].includes(version) ? { append_timing: timing } : {}),
+    ...(version >= 9 ? { tls_close_failure: value.tls_close_failure } : {}) };
 }
 
 // This proof has exactly four fragments/two initial copies. The bridge already
 // checks general archive geometry; revalidate the narrower exported trial here.
 export function depositDiagnostic(value, version = 1) {
-  check([1, 2, 3, 4, 5, 6, 7, 8, 9].includes(version), 'deposit_diagnostics');
+  check([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(version), 'deposit_diagnostics');
   check(closedKeys(value, ['version', 'failures', 'omitted_failures']) && value.version === version
     && Array.isArray(value.failures) && value.failures.length <= 8 && value.omitted_failures === 0, 'deposit_diagnostics');
   const seen = new Set(), failures = value.failures.map(failure => {
@@ -208,13 +208,14 @@ export function depositDiagnostic(value, version = 1) {
       }
       if (version >= 6) {
         const c = value.challenge;
-        check(c === null || (closedKeys(c, ['phase', 'before_challenge', 'in_challenge'])
+        check(c === null || (closedKeys(c, ['phase', 'before_challenge', 'in_challenge', ...(version === 10 ? ['read'] : [])])
           && CHALLENGE_PHASES.has(c.phase) && ELAPSED_BUCKETS.has(c.before_challenge)
           && ELAPSED_BUCKETS.has(c.in_challenge) && value.stage === 'challenge'
           && value.tls_failure === null && value.stream_failure === null
           && failure.agent_code === 'CONTENT_UNAVAILABLE'), 'deposit_diagnostics');
         detail.challenge = c === null ? null : { phase: c.phase,
-          before_challenge: c.before_challenge, in_challenge: c.in_challenge };
+          before_challenge: c.before_challenge, in_challenge: c.in_challenge,
+          ...(version === 10 ? { read: challengeRead(c.read, c.phase) } : {}) };
       }
       if (version >= 8) {
         const flow = value.flow_acquire;
@@ -233,6 +234,16 @@ export function depositDiagnostic(value, version = 1) {
   });
   return { version, failures, omitted_failures: 0 };
 }
+
+function challengeRead(value, phase) {
+  if (value === null) return null;
+  check(phase === 'challenge_read_verify' && closedKeys(value, ['step', 'returned_outcome'])
+    && ['length_read', 'body_read', 'verification'].includes(value.step), 'deposit_diagnostics');
+  const allowed = { length_read: ['io_eof', 'io_other', 'invalid', 'wire_timeout'],
+    body_read: ['io_eof', 'io_other', 'wire_timeout'], verification: ['invalid', 'verification_rejected'] };
+  check(value.returned_outcome === null || allowed[value.step].includes(value.returned_outcome), 'deposit_diagnostics');
+  return { step: value.step, returned_outcome: value.returned_outcome };
+}
 class PublishFailure extends Error {
   constructor(observation) {
     super('publish_operation');
@@ -243,9 +254,10 @@ class PublishFailure extends Error {
 
 // Observe only the closed bridge result returned by this exact call. Never
 // copy its raw storage report, paths, exceptions or private journal to evidence.
-export function requirePublishComplete(value, app, operation, profileVersion = 1) {
+export function requirePublishComplete(value, app, operation, profileVersion = 1, challengeReadDiagnosticsV10 = false) {
   check(['image', 'cloud'].includes(app) && ['create', 'deposit'].includes(operation), 'arguments');
   check([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(profileVersion), 'arguments');
+  check(typeof challengeReadDiagnosticsV10 === 'boolean' && (!challengeReadDiagnosticsV10 || profileVersion === 10), 'arguments');
   const report = value?.storage;
   const present = report !== null && typeof report === 'object' && !Array.isArray(report);
   let state = 'not_applicable', diagnostic = null;
@@ -253,7 +265,7 @@ export function requirePublishComplete(value, app, operation, profileVersion = 1
     state = 'missing';
     if (present && Object.hasOwn(report, 'deposit_diagnostics')) {
       try {
-        diagnostic = depositDiagnostic(report.deposit_diagnostics, profileVersion - 1);
+        diagnostic = depositDiagnostic(report.deposit_diagnostics, challengeReadDiagnosticsV10 ? 10 : profileVersion - 1);
         check(report.operation_complete === false || (report.operation_complete === true && diagnostic.failures.length === 0),
           'deposit_diagnostics');
         check(value.status !== 'complete' || report.operation_complete === true, 'deposit_diagnostics');
@@ -264,6 +276,7 @@ export function requirePublishComplete(value, app, operation, profileVersion = 1
   if (value?.status === 'complete' && value.local_process_joined === true
     && (profileVersion === 1 || operation === 'create' || (state === 'observed' && diagnostic.failures.length === 0))) return;
   throw new PublishFailure({ version: profileVersion, app, operation,
+    ...(challengeReadDiagnosticsV10 ? { diagnostic_version: 10 } : {}),
     status: PUBLISH_STATUSES.has(value?.status) ? value.status : 'unknown',
     code: PUBLISH_CODES.has(value?.code) ? value.code : 'unknown',
     local_process_joined: observedBoolean(value?.local_process_joined),
@@ -779,7 +792,7 @@ async function guard(root, profileVersion) {
     && provision.kind === 'storage-consumer-maintenance-runtime-provision'
     && provision.success === true && provision.guest_only === true && provision.shared_adapter_verified === true,
   'provision');
-  const revisions = profileVersion === 10 ? TLS_CLOSE_REVISIONS : profileVersion === 9 ? FLOW_REVISIONS : profileVersion === 8 ? APPEND_REVISIONS : profileVersion === 7 ? CHALLENGE_REVISIONS : profileVersion === 6 ? STREAM_REVISIONS : profileVersion === 5 ? OUTCOME_REVISIONS
+  const revisions = profileVersion === 10 ? CHALLENGE_READ_REVISIONS : profileVersion === 9 ? FLOW_REVISIONS : profileVersion === 8 ? APPEND_REVISIONS : profileVersion === 7 ? CHALLENGE_REVISIONS : profileVersion === 6 ? STREAM_REVISIONS : profileVersion === 5 ? OUTCOME_REVISIONS
     : profileVersion === 4 ? TLS_REVISIONS : profileVersion === 3 ? DETAIL_REVISIONS
     : profileVersion === 2 ? DIAGNOSTIC_REVISIONS : REVISIONS;
   for (const [name, source] of Object.entries(provision.pins.sources)) {
@@ -809,10 +822,13 @@ async function receipt(app, name) {
   return r;
 }
 export function validateAppendProfile(value, profileVersion) {
-  check([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(profileVersion)
+  const read = profileVersion === 10 && value.challengeReadDiagnosticsV10 === true;
+  check((!Object.hasOwn(value, 'challengeReadDiagnosticsV10')
+      || (profileVersion === 10 && typeof value.challengeReadDiagnosticsV10 === 'boolean'))
+    && [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(profileVersion)
     && (profileVersion === 8 ? value.appendDiagnosticsV7 === true : !Object.hasOwn(value, 'appendDiagnosticsV7'))
     && (profileVersion === 9 ? value.flowAcquireDiagnosticsV8 === true : !Object.hasOwn(value, 'flowAcquireDiagnosticsV8'))
-    && (profileVersion === 10 ? value.tlsCloseDiagnosticsV9 === true : !Object.hasOwn(value, 'tlsCloseDiagnosticsV9')),
+    && (profileVersion === 10 && !read ? value.tlsCloseDiagnosticsV9 === true : !Object.hasOwn(value, 'tlsCloseDiagnosticsV9')),
   'configuration');
 }
 async function config(app, profileVersion) {
@@ -871,7 +887,7 @@ export async function publish(ctx, m) {
           const value = name === 'image'
             ? await m.runSnapshotStorage({ operation, config: join(app, 'storage.json'), bundle: join(app, 'bundle') }, { signal: ctx.signal, storageFactory: factory })
             : await m.storePrivateFile(operation, { config: join(app, 'storage.json'), bundle: join(app, 'bundle') }, { signal: ctx.signal, storageFactory: factory });
-          requirePublishComplete(value, name, operation, ctx.profileVersion);
+          requirePublishComplete(value, name, operation, ctx.profileVersion, c.challengeReadDiagnosticsV10 === true);
           return value;
         };
         const value = name === 'image' && operation === 'deposit'
