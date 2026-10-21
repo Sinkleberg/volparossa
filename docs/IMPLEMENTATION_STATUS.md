@@ -31,6 +31,12 @@ order or change count. Develop core functions with their actual consumers.
 
 The immediate milestones build on the retained candidates and evidence below:
 
+The 2026-10-21 [DPS extension](development/DPS_GOAL_20261021.md) adds reusable
+positioning and integrity assessment alongside these integrations. Its first
+bounded local service slice tests a shared architectural boundary without needing
+Storage or protected-compute completion. Real sensors, fusion and Map navigation
+remain subsequent acceptance work; this does not demote the shared blockers.
+
 | Workstream and repositories | Next demonstrable milestone | Dependencies and remaining blockers |
 | --- | --- | --- |
 | Integrated cache and Weather delivery — `volparossa`, `volparossa-weather` | Preserve the real provider sequence and both joined web-client proofs. | Core PR227, PR229 and PR230, and Weather PR14–PR18 are merged. Drizz.li run `38228710535` and Overmorrow run `38241212407` pass actual acquisition, separate protected cold transfers and exact initial/refresh UI checks. Independent reconstruction, Quality and CodeQL pass. Automatic acquisition, browser-initiated cold retrieval and the complete weather service remain open. |
@@ -39,6 +45,41 @@ The immediate milestones build on the retained candidates and evidence below:
 | Automatic private uploads — `volparossa`, Image/Cloud | Enroll a new encrypted upload under finite service authority, then repair, restore and delete it after provider loss. | PR279 joins upload profile 6 to shared consumer profile 10 on `dd1fd4df`; source run `38903572207` passes. A real upload trial still requires the shared Storage consumer acceptance above, joined cleanup and zero usage at all three providers. Finite authorization, HTTP PUT, enrollment, repeated restore and all-copy deletion remain required; source checks and synthetic-core SDK results do not replace them. |
 | Native coding execution — `volparossa`, `volparossa-code` | Build on the accepted coding lifecycle and the native backend now integrated into core main. | Actual `38824828727` passes on Code `fd4ff968` / core `7d0f9f0b`: two reads, approved edit/test, independent verification, task-resource and input-integrity checks, and cleanup. Code PR11 keeps that immutable core pin. Core PR277 integrates the native-only composition after Quality and CodeQL pass; this main composition has not had a new model trial. General coding quality, competitive performance, native editor UI and protected-peer execution remain open. Earlier failures retain their original outcomes. |
 | Protected remote compute — `volparossa`, then Code/Browser | Resolve the guest builder/export blocker, construct the sealed runtime and execute two public model turns before joining approved private workloads. | Actual `39078833292` on `fabfa849` verifies all 199 build and 65 runtime packages, then fails in export. Diagnostic source `39081437862` passes on `3a1a1593`; subsequent actual `39082065142` passes contracts but fails public-model execution. The original artifact now identifies an export inventory pathname rejection; the exact pathname and failing rule remain unknown. Model execution, production approval, vendor appraisal and confidential hardware remain open. |
+
+### Decentralized positioning system — 2026-10-21
+
+The complete original goal and all existing clarifications remain in force.
+The original payload SHA-256 remains
+`2bebaf9e27860115e64f5b93f50cc1e5bc17d34b22c45fe83106d200b86b54c7`.
+The [separate verbatim DPS addition](development/DPS_GOAL_20261021.md) preserves
+10,495 received bytes with SHA-256
+`df3ec2bab02272138e2713159959c925097780d49f73c805a11cbdc049bfc56b`.
+It ends mid-sentence in Map; the user's explicit continuation is now preserved
+separately in the same document, without rewriting the received attachment.
+The [service design and research](services/DPS.md) retains every received modality,
+privacy boundary, five-layer integration and measurement requirement.
+
+- [x] Preserve both goal payloads byte-for-byte and record their hashes.
+- [x] Recheck retained Storage/compute PR heads and Map main. Core starts at
+  `a330519069d8d0df54b3981ef6563c08c67d01b4`; PR275/276/279/285/287/288 remain
+  open at the retained revisions below. Map main is
+  `aa9aee6edc639300f8f3747003297749e87e2ddc`, with source `39602631219` and
+  CodeQL `39602632919` passing. Preserve unpublished Map
+  `feature/native-traffic-lifecycle` at `ca7a4e59a057743f1903132588b6232bec0f6ea6`.
+- [ ] Verify the stateless bounded DPS assessment API and real local-control
+  dispatch on a disposable hosted runner. Candidate worktree:
+  `.volparossa-dev/worktrees/dps-core-20261021`, branch `feature/dps-core-20261021`.
+  Observation consistency is not physical integrity or independently proven
+  freshness, and a selected input is not a fused or improved position.
+- [ ] Join Map with explicit quality/unavailability and application permissions;
+  verify native location handling and actual navigation separately.
+- [ ] Implement and measure real GNSS, non-GNSS and hybrid positioning, robust
+  estimation, independent references, anomaly handling and platform adapters.
+  Hardware accuracy, energy, privacy and manipulation-resilience claims require
+  actual evidence; neither contract tests nor synthetic observations establish them.
+
+No location collection, publication, private-history storage, OS location override
+or development-host network/sensor configuration change is enabled by this work.
 
 ### Organization-wide maintenance — 2026-10-20
 
@@ -240,8 +281,24 @@ and provider state. It preserves production lifetimes and does not force a
 reconnect. Its [trial `39081968944`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39081968944)
 on `b2b9c6b3483ba13ad02ee1c1b3b23e1eaf0b8fc9` completes the topology command
 but fails the required ordinary-expiry/retained-owner/cleanup acceptance step.
-That step result does not identify which substantive condition failed. Live
-handshake expiry and the full consumer lifecycle remain separate requirements.
+That step result alone does not identify which substantive condition failed. A
+2026-10-21 read-only inspection of the original retained artifact refines this:
+`private-storage-natural-expiry-smoke.json` records
+`phase=private-storage-deposit-sequence-prepare`,
+`observed_blocker=SEQUENCE_ROUTE_UNAVAILABLE`, `runner_exit_status=1`, and
+`storage=null`. The workflow checks `TOPOLOGY_EXIT_CODE=0` before calling its
+report validator, so this failure occurs before deposits, the expiry wait or
+the ordinary-expiry assertions. It does not establish an expiry/report-reader bug.
+The cleanup sidecar reports owner/remote cleanup confirmed and the smoke report
+records unchanged host hashes; `collector_joined=false` because collection was
+not reached. This is distinct from the unconfirmed full-consumer cleanup below.
+The bounded route-selection diagnostic was not exported, leaving connect/path
+query/selection failure unresolved. The next useful probe must retain that closed
+diagnostic without changing production route lifetimes. Evidence is retained in
+`.git/ci-evidence/storage-natural-expiry-39081968944.O5UcAN/`; ZIP CRC checks pass
+and local SHA-256 `221483a6699e6b6e0918db40cb8d331b264c1a7f016dbfa7f7515c76af7cc522`
+matches the recorded artifact API digest. No trial was rerun. Live handshake expiry and the full consumer
+lifecycle remain separate requirements.
 
 **Both package profiles install; the guest builder remains the model blocker.**
 Original [public trial `39075796147`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39075796147)

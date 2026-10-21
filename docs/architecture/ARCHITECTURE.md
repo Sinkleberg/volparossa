@@ -63,6 +63,20 @@ separately and never makes private HTTPS content public. Per-app authority and a
 resource accounting must be implemented rather than exposing the whole administrative socket
 to every frontend. Existing service files alone do not prove that integration is complete.
 
+The [Decentralized Positioning System](../services/DPS.md) is a reusable core service
+over the same Network, Cache, Storage, Compute and Transaction infrastructure;
+it adds no sixth layer or location dependency to network participation. Platform
+adapters own permission-checked sensor/radio access, reference frames and lifecycle.
+Shared logic owns bounded observation assessment and subsequent positioning/fusion.
+Private measurements stay local by default; receiving assistance, contributing,
+retaining history and training are separately authorized. A signed location claim,
+matching peer reports or authenticated GNSS navigation data does not establish
+physical truth. Relative positions need a validated geographic reference before
+they become absolute location estimates. DPS must expose uncertainty, conflicts,
+age, provenance and unavailable states and must not replace OS location services
+without separate authorization. The first stateless local-control contract is not
+yet native Map integration, measured sensor fusion or proven attack detection.
+
 ## Trust and process boundaries
 
 The [cooperative AI extension](../services/DECENTRALIZED_AGENTS.md) uses isolated training/task workers

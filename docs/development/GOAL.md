@@ -153,3 +153,8 @@ These clarifications supplement the preserved objective; they do not replace it.
   and evidence boundaries. This supersedes the previous milestone's publication
   hold for these scoped changes. Unrelated outreach, funding applications,
   financial commitments and account changes still require separate authorization.
+
+
+### Decentralized Positioning System clarification (2026-10-21)
+
+The complete original objective and all subsequent clarifications remain in force. The received DPS requirements are an authorized additive scope, preserved verbatim with provenance and truncation noted in [DPS_GOAL_20261021.md](DPS_GOAL_20261021.md). DPS is a reusable shared core service using the existing five DICN infrastructure layers; it does not create a sixth layer. The first attachment ends mid-sentence at “en detect”; the user supplied the continuation on 2026-10-21, and it is preserved separately in [DPS_GOAL_20261021.md](DPS_GOAL_20261021.md).

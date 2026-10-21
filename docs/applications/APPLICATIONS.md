@@ -95,6 +95,13 @@ Signed traffic-snapshot validation exists; live aggregation and mobile display r
 Sharing congestion should not expose individual journeys or complete location histories.
 Licenses, freshness and uncertainty remain relevant even when data comes from nearby peers.
 
+The agreed [DPS extension](../services/DPS.md) adds an alternative or complementary
+core location source, including investigation of weak-GNSS, tunnel/indoor and
+manipulated-GNSS scenarios. Keep offline navigation, visible uncertainty and
+application permission boundaries. Native integration and actual positioning
+improvement remain unverified; journeys and movement histories are not shared
+automatically.
+
 ## Weather
 
 [volparossa-weather](https://github.com/VOLPAROSSA/volparossa-weather) builds an application-independent
@@ -152,6 +159,30 @@ confirmed governance rules.
 Real identity verification and uniqueness, secret verifiable voting, contestable
 proposal review, core delivery and recovery remain open. A synthetic result is
 neither a public-election security proof nor recognized legal authority.
+
+## Shared positioning integration
+
+The [shared DPS service](../services/DPS.md#application-integration-priorities)
+supplies one versioned core interface with separate platform sensor adapters.
+Applications must not duplicate its positioning engine or enable collection just
+because the node participates in VOLPAROSSA.
+
+- Weather may use permitted position estimates and geographically associated
+  observations while protecting locations and accounting for correlated sources.
+- Image may optionally retain photo/video locations only within existing user
+  rights and private storage, without automatic publication.
+- Chat may provide explicitly authorized encrypted location exchange/local
+  positioning with bounded retention and the existing Signal Protocol.
+- Browser must preserve platform and origin permissions and never give websites
+  or extensions finer location than the user allowed.
+- Cloud may store/synchronize only explicitly authorized private positioning
+  data through the existing Storage layer.
+- Other applications adopt DPS only for a concrete benefit. Unproven location
+  claims cannot alone authorize transactions, identities, voting rights or access.
+
+Hardware, permission revocation, privacy and native application behavior require
+their own tests. Synthetic service tests do not prove functioning location sensors,
+geographic truth or improved navigation. See the [DPS acceptance sequence](../services/DPS.md#acceptance-sequence).
 
 ## Shared boundaries
 
