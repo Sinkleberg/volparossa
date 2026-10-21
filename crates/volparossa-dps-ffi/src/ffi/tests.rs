@@ -22,8 +22,8 @@ fn sentinel() -> DpsQualityV1 {
 
 #[test]
 fn native_quality_ffi_layout_and_actual_success() {
-    assert_eq!(mem::size_of::<DpsQualityV1>(), 36);
-    assert_eq!(mem::align_of::<DpsQualityV1>(), 4);
+    assert_eq!(size_of::<DpsQualityV1>(), 36);
+    assert_eq!(align_of::<DpsQualityV1>(), 4);
     assert_eq!(mem::offset_of!(DpsQualityV1, limitations_mask), 32);
     let mut output = sentinel();
     // SAFETY: owned live input/output allocations are disjoint and correctly sized.

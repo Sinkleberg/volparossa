@@ -1,6 +1,6 @@
 //! The only native-pointer/unsafe-export boundary in this package.
 
-use std::{mem, panic, slice};
+use std::{panic, slice};
 
 use crate::{DpsBridgeError, DpsQualityV1, MAX_DPS_INPUT_BYTES, assess_quality};
 
@@ -15,7 +15,7 @@ fn arguments(
 ) -> Result<(), DpsBridgeError> {
     if input.is_null()
         || output.is_null()
-        || output_size != mem::size_of::<DpsQualityV1>()
+        || output_size != size_of::<DpsQualityV1>()
         || !output.is_aligned()
     {
         return Err(DpsBridgeError::InvalidArgument);
