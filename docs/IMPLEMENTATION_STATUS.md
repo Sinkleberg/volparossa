@@ -101,7 +101,13 @@ fails the standalone fuzz package's locked dependency fetch. Both original
 failures remain failed. The reconciliation adds the missing `serde_json 1.0.151`
 and `zmij 1.0.23` records verbatim from the passing root lockfile, preserving all
 existing pins; inert graph checks pass, while Cargo acceptance remains hosted.
-Reconciled source needs its own completed checks. Existing Quality
+Reconciled source `6196c0f3ce062dd19ce90e43178f27a19ae0c2f6` passes locked
+dependency fetching, fuzz lint and dependency/license checks in
+[Quality `39611513816`](https://github.com/VOLPAROSSA/volparossa/actions/runs/39611513816),
+then fails strict Clippy on `nonminimal_bool` in DPS response age validation.
+The equivalent expression is simplified without suppressing the lint or changing
+age bounds. Workspace tests were not reached. Corrected source still requires
+completed checks. Existing Quality
 and CodeQL are reused, rather than adding a second full-build workflow.
 
 No location collection, publication, private-history storage, OS location override

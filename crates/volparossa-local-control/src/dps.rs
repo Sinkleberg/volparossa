@@ -580,10 +580,10 @@ impl DpsAssessment {
                     || eligible.first() != Some(&candidate.observation_id)
                     || candidate.frame != self.desired_frame
                     || candidate.observed_at_unix_ms == 0
-                    || !self
+                    || self
                         .evaluated_at_unix_ms
                         .checked_sub(candidate.observed_at_unix_ms)
-                        .is_some_and(|age| age <= self.maximum_age_ms)
+                        .is_none_or(|age| age > self.maximum_age_ms)
                     || !self.observations.iter().any(|observation| {
                         observation.observation_id == candidate.observation_id
                             && observation.disposition == ObservationDisposition::Eligible as i32
