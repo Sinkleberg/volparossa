@@ -57,6 +57,163 @@ REQUESTER_STAGE_PREFIX = b'VP_PUBLIC_REQUESTER_STAGE_V1 '
 REQUESTER_STAGES = ('configuration', 'socket', 'certificate', 'connect', 'tls',
     'tls_profile', 'challenge', 'grant', 'accepted', 'turn_1_submit', 'turn_1_admitted',
     'turn_1_result', 'turn_2_submit', 'turn_2_admitted', 'turn_2_result', 'close', 'closed', 'cleanup')
+REQUESTER_FAILURE_PREFIX = b'VP_PUBLIC_REQUESTER_FAILURE_V1 '
+REQUESTER_RESULT_CATEGORIES = ('read_deadline', 'read_bound', 'read_frame', 'read_eof', 'read_io',
+    'read_other', 'reply_order', 'failure_frame', 'guest_failure', 'result_json', 'result_completion',
+    'result_profile', 'result_output', 'result_answer', 'result_tokens', 'result_cleanup')
+# Exact Rust vocabulary; parity is checked inertly against the serializer source.
+REQUESTER_NATIVE_CODES = frozenset((
+    'compute_private_budget',
+    'compute_model_memory_headroom',
+    'compute_runtime_busy',
+    'compute_lock_invalid',
+    'compute_output_create',
+    'compute_sandbox_spawn',
+    'compute_sandbox_prerequisite',
+    'compute_runtime_missing',
+    'compute_native_backend_authorization',
+    'compute_native_backend_manifest_hash',
+    'compute_native_backend_manifest_schema',
+    'compute_native_backend_identity',
+    'compute_native_backend_artifacts',
+    'compute_native_backend_conversion',
+    'compute_native_backend_file',
+    'compute_native_backend_scope',
+    'compute_native_backend_policy',
+    'compute_native_backend_output_constraint',
+    'compute_private_result_scope',
+    'compute_private_result_input',
+    'compute_private_result_model',
+    'compute_private_result_model_weights',
+    'compute_private_result_outputs',
+    'compute_private_result_output',
+    'compute_native_backend_result_binding',
+    'compute_native_backend_result_precision',
+    'compute_native_backend_output_constraint_binding',
+    'conversation_generation_policy_binding',
+    'conversation_output_constraint_binding',
+    'conversation_report_binding',
+    'compute_deadline',
+    'compute_owner_busy',
+    'compute_memory_budget',
+    'compute_storage_budget',
+    'compute_process_bound',
+    'compute_thread_bound',
+    'compute_process_observation',
+    'compute_observation_size',
+    'compute_private_process_observation',
+    'compute_private_process_missing',
+    'compute_private_process_bound',
+    'compute_private_process_stat',
+    'compute_private_process_stat_open',
+    'compute_private_process_stat_read',
+    'compute_private_process_stat_bound',
+    'compute_private_process_children',
+    'compute_private_process_cleanup_deadline',
+    'compute_private_storage_cleanup_failed',
+    'compute_reap_deadline',
+    'compute_reap',
+    'compute_request_write_deadline',
+    'compute_request_write',
+    'compute_control_write_deadline',
+    'compute_control_write',
+    'compute_control_ack_deadline',
+    'compute_private_progress',
+    'compute_memory_pressure',
+    'compute_device_reserve',
+    'compute_owner_pressure',
+    'compute_pressure_observation',
+    'compute_worker_json',
+    'compute_worker_correlation',
+    'compute_worker_phase',
+    'compute_worker_status',
+    'compute_worker_kind',
+    'compute_worker_line_size',
+    'compute_worker_unterminated_line',
+    'compute_stdout_size',
+    'compute_stderr_size',
+    'compute_stderr_read',
+    'compute_wait',
+    'compute_worker_exit',
+    'conversation_request_id',
+    'conversation_native_marker',
+    'conversation_native_call',
+    'conversation_native_preface',
+    'conversation_native_json',
+    'conversation_native_json_syntax',
+    'conversation_native_json_data',
+    'conversation_native_json_eof',
+    'conversation_native_json_io',
+    'conversation_unknown_tool',
+    'conversation_custom_input',
+    'conversation_arguments',
+    'conversation_call_id',
+    'conversation_empty_answer',
+    'conversation_native_output_other',
+    'JOB_INPUT_NOT_FOUND',
+    'JOB_PATH_PERMISSION_DENIED',
+    'JOB_MEMORY_EXHAUSTED',
+    'BACKEND_IMPORT_FAILED',
+    'BACKEND_EXECUTION_FAILED',
+    'BACKEND_NOT_INSTALLED',
+    'BACKEND_VERSION_MISMATCH',
+    'CPU_BACKEND_REQUIRED',
+    'MODEL_PARAMETER_DTYPE_MISMATCH',
+    'MODEL_WEIGHTS_CHANGED_ON_DISK',
+    'CONVERSATION_TOKENIZER_SHAPE',
+    'CONVERSATION_TOKEN_LIMIT',
+    'RESULT_TOO_LARGE',
+    'JOB_CANCELLED',
+    'JOB_DEADLINE_EXCEEDED',
+    'NATIVE_ABI_MISMATCH',
+    'NATIVE_BUILD_PATCH_BINDING',
+    'NATIVE_OPEN_DIAGNOSTIC_INVALID',
+    'NATIVE_OPEN_INVALID_ARGUMENT',
+    'NATIVE_CPU_UNSUPPORTED',
+    'NATIVE_BACKEND_INITIALIZATION_FAILED',
+    'NATIVE_MODEL_INITIALIZATION_FAILED',
+    'NATIVE_VOCABULARY_MISMATCH',
+    'NATIVE_CONTEXT_INITIALIZATION_FAILED',
+    'NATIVE_SAMPLER_INITIALIZATION_FAILED',
+    'NATIVE_MODEL_LOAD_FAILED',
+    'NATIVE_OWNER_CONTROL_FAILED',
+    'INVALID_NATIVE_CONTROL',
+    'compute_native_session_child_exited',
+    'compute_native_session_cpu_backwards',
+    'compute_native_session_cpu_bound',
+    'compute_native_session_cpu_budget',
+    'compute_native_session_cpu_clock',
+    'compute_native_session_cpu_identity',
+    'compute_native_session_cpu_stat',
+    'compute_native_session_receiver',
+    'compute_native_session_report',
+    'compute_native_session_request_bound',
+    'compute_native_session_root',
+    'compute_native_session_stderr',
+    'compute_native_session_stderr_closed',
+    'compute_native_session_stdout_closed',
+    'compute_native_session_turn_root',
+    'compute_native_session_unrequested_idle',
+    'compute_native_session_unsupported',
+    'compute_native_session_worker',
+    'compute_worker_invalid_json',
+    'compute_output_after_result',
+    'compute_result_missing',
+    'NATIVE_DECODE_FAILED',
+    'NATIVE_SAMPLE_FAILED',
+    'NATIVE_SESSION_PREFIX_RESET_FAILED',
+    'NATIVE_SESSION_CPU_OBSERVATION',
+    'NATIVE_SESSION_CPU_BOUND',
+    'NATIVE_SESSION_DEADLINE',
+    'NATIVE_SESSION_MODEL_CHANGED',
+    'NATIVE_SESSION_PREFIX_BOUND',
+    'INVALID_NATIVE_SESSION_FINISH',
+    'INVALID_NATIVE_SESSION_SEQUENCE',
+    'unclassified', 'worker_other', 'startup_missing_result'))
+REQUESTER_IO_KINDS = ('none', 'not_found', 'permission_denied', 'unexpected_eof', 'broken_pipe',
+    'interrupted', 'invalid_data', 'other')
+REQUESTER_STDERR_CLASSES = ('none', 'bubblewrap', 'user_namespace', 'proc_mount', 'exec_denied',
+    'python_startup', 'other')
 FAILURE_CODES = frozenset(('controller_deadline', 'controller_cancelled', 'command_timeout',
     'command_output_bound', 'command_failed', 'host_memory_headroom', 'host_memory_snapshot', 'qemu_limits',
     'qemu_exited_before_scope', 'scope_start_timeout', 'guest_unit_failed', 'guest_unit_cgroup',
@@ -166,6 +323,71 @@ def requester_protocol_stage(raw):
                 attempt_stage=seen[-1])
 
 
+def requester_failure_detail(value):
+    if type(value) is not dict or set(value) != {'code', 'io_kind', 'exit_code', 'signal', 'stderr_class'}:
+        return False
+    if type(value['code']) is not str or value['code'] not in REQUESTER_NATIVE_CODES:
+        return False
+    if type(value['io_kind']) is not str or value['io_kind'] not in REQUESTER_IO_KINDS:
+        return False
+    if value['code'] != 'startup_missing_result':
+        return all(value[key] is None for key in ('exit_code', 'signal', 'stderr_class'))
+    exit_code, sig = value['exit_code'], value['signal']
+    return (type(exit_code) is int and type(sig) is int and
+            ((0 <= exit_code <= 255 and sig == 0) or (exit_code == -1 and 1 <= sig <= 64)) and
+            type(value['stderr_class']) is str and value['stderr_class'] in REQUESTER_STDERR_CLASSES)
+
+
+def requester_result_failure(raw, protocol):
+    absent = dict(state='unavailable', observation=None)
+    if type(raw) is not bytes or len(raw) > 65536:
+        return absent
+    markers = [line for line in raw.splitlines(keepends=True)
+               if line.startswith(REQUESTER_FAILURE_PREFIX.rstrip())]
+    if not markers:
+        return absent
+    if len(markers) != 1:
+        return dict(state='malformed', observation=None)
+    line = markers[0]
+    if not line.endswith(b'\n'):
+        return dict(state='truncated', observation=None)
+    if len(line) > 2048:
+        return dict(state='malformed', observation=None)
+    try:
+        payload = line[len(REQUESTER_FAILURE_PREFIX):-1]
+        value = json.loads(payload)
+        require(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode() == payload,
+                'diagnostic_encoding')
+        require(type(value) is dict and set(value) == {'version', 'turn', 'category', 'guest'}, 'diagnostic_schema')
+        require(type(value['version']) is int and value['version'] == 1 and
+                type(value['turn']) is int and value['turn'] in (1, 2) and
+                type(value['category']) is str and value['category'] in REQUESTER_RESULT_CATEGORIES,
+                'diagnostic_schema')
+        require(protocol == dict(state='prefix', attempt_stage='turn_%d_result' % value['turn']),
+                'diagnostic_order')
+        # The single terminal marker must follow its stage, with no later stage.
+        stage_line = REQUESTER_STAGE_PREFIX + ('turn_%d_result' % value['turn']).encode() + b'\n'
+        require(raw.find(stage_line) < raw.find(line), 'diagnostic_order')
+        guest = value['guest']
+        if value['category'] == 'guest_failure':
+            require(type(guest) is dict and set(guest) == {'version', 'scope', 'detail', 'cleanup'} and
+                    type(guest['version']) is int and guest['version'] == 1 and
+                    guest['scope'] == 'public_fixture_native_session' and
+                    requester_failure_detail(guest['detail']), 'diagnostic_guest')
+            cleanup = guest['cleanup']
+            require(type(cleanup) is dict and set(cleanup) == {'version', 'child_reaped', 'private_state_removed'} and
+                    type(cleanup['version']) is int and cleanup['version'] == 1 and
+                    cleanup['child_reaped'] is True and cleanup['private_state_removed'] is True,
+                    'diagnostic_cleanup')
+            require(len(json.dumps(guest, sort_keys=True, separators=(',', ':')).encode()) <= 1024,
+                    'diagnostic_bound')
+        else:
+            require(guest is None, 'diagnostic_guest')
+        return dict(state='observed', observation=value)
+    except (ValueError, TypeError, KeyError, UnicodeError, RecursionError, OverflowError):
+        return dict(state='malformed', observation=None)
+
+
 def requester_diagnostic(raw=b'', returncode=None, failure=None):
     termination = dict(kind='unavailable', exit_code=None, signal=None)
     if failure in ('command_timeout', 'controller_cancelled', 'command_output_bound'):
@@ -176,9 +398,10 @@ def requester_diagnostic(raw=b'', returncode=None, failure=None):
             termination.update(kind='exit', exit_code=returncode)
         elif 0 < -returncode < signal.NSIG:
             termination.update(kind='signal', signal=-returncode)
-    return dict(version=1, diagnostic_only=True, acceptance_evidence=False,
-                stage_semantics='entered_only', termination=termination,
-                protocol=requester_protocol_stage(raw))
+    protocol = requester_protocol_stage(raw)
+    return dict(version=2, diagnostic_only=True, acceptance_evidence=False,
+                stage_semantics='entered_only', termination=termination, protocol=protocol,
+                result_failure=requester_result_failure(raw, protocol))
 
 
 def run(argv, deadline, *, cap=300, maximum=16 * 1024 ** 2, env=None, check=True,

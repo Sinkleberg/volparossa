@@ -303,6 +303,73 @@ pub(super) struct Detail {
     stderr_class: Option<&'static str>,
 }
 
+/// Exact closed vocabulary shared by the public-fixture writer and reader.
+/// This validates a projection, never constructs cleanup or execution authority.
+pub(in crate::compute) fn public_fixture_detail(value: &Value) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    if object.len() != 5
+        || !["code", "io_kind", "exit_code", "signal", "stderr_class"]
+            .iter()
+            .all(|key| object.contains_key(*key))
+    {
+        return false;
+    }
+    let code = value["code"].as_str().unwrap_or("");
+    let known = FIXED_CODES
+        .iter()
+        .chain(WORKER_CODES)
+        .chain(SESSION_CODES)
+        .chain(SESSION_WORKER_CODES)
+        .copied()
+        .any(|known| code == known)
+        || ["unclassified", "worker_other", "startup_missing_result"].contains(&code);
+    let io = value["io_kind"].as_str().is_some_and(|kind| {
+        [
+            "none",
+            "not_found",
+            "permission_denied",
+            "unexpected_eof",
+            "broken_pipe",
+            "interrupted",
+            "invalid_data",
+            "other",
+        ]
+        .contains(&kind)
+    });
+    let no_status = value["exit_code"].is_null()
+        && value["signal"].is_null()
+        && value["stderr_class"].is_null();
+    let startup_status = code == "startup_missing_result"
+        && value["exit_code"]
+            .as_i64()
+            .zip(value["signal"].as_i64())
+            .is_some_and(|(exit, signal)| {
+                ((0..=255).contains(&exit) && signal == 0)
+                    || (exit == -1 && (1..=64).contains(&signal))
+            })
+        && value["stderr_class"].as_str().is_some_and(|class| {
+            [
+                "none",
+                "bubblewrap",
+                "user_namespace",
+                "proc_mount",
+                "exec_denied",
+                "python_startup",
+                "other",
+            ]
+            .contains(&class)
+        });
+    known
+        && io
+        && if code == "startup_missing_result" {
+            startup_status
+        } else {
+            no_status
+        }
+}
+
 pub(super) fn describe(error: &Error) -> Detail {
     if let Some(detail) = super::native_session::diagnostic(error) {
         return detail;

@@ -2,7 +2,7 @@ name: Public resident model integration contracts
 
 on:
   push:
-    branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021]
+    branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021]
   workflow_dispatch:
     inputs:
       scenario:
@@ -38,7 +38,8 @@ jobs:
       github.repository == 'VOLPAROSSA/volparossa' &&
       (github.ref == 'refs/heads/feature/protected-resident-model' ||
       ((github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' ||
-      github.ref == 'refs/heads/fix/protected-requester-diagnostic-20261021') &&
+      github.ref == 'refs/heads/fix/protected-requester-diagnostic-20261021' ||
+      github.ref == 'refs/heads/fix/protected-result-failure-20261021') &&
       (github.event_name == 'push' || inputs.scenario == 'source-contracts')))
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -97,12 +98,40 @@ jobs:
               source_blobs={name:git('rev-parse','HEAD:'+name) for name in sorted(requester_allowed)},
               dependency_blobs={name:git('rev-parse','HEAD:'+name) for name in dependencies},
               diagnostic_only=True,actual_model_execution=False)
+          result_failure_scope=None
+          if os.environ['GITHUB_REF']=='refs/heads/fix/protected-result-failure-20261021':
+            failure_base='b47d80d80c650791a6273c291a99c154536f4dab'
+            subprocess.run(['git','merge-base','--is-ancestor',failure_base,'HEAD'],check=True)
+            failure_allowed={
+              '.github/workflows/protected-resident-model.yml',
+              'crates/volparossa/src/compute/resident_guest/wire.rs',
+              'crates/volparossa/src/compute/resident_guest/session.rs',
+              'crates/volparossa/src/compute/resident_guest/public_trial.rs',
+              'crates/volparossa/src/compute/resident_guest/tests.rs',
+              'crates/volparossa/src/compute/resident_guest/public_trial/tests.rs',
+              'crates/volparossa/src/compute/supervise/native_session.rs',
+              'crates/volparossa/src/compute/supervise/native_session/tests.rs',
+              'crates/volparossa/src/compute/supervise/diagnostic.rs',
+              'tests/integration/protected-resident-model-run.py',
+              'tests/integration/test-protected-resident-model-run.py'}
+            failure_changed=git('diff','--name-only',failure_base,'HEAD').splitlines()
+            assert len(failure_changed)==len(failure_allowed) and set(failure_changed)==failure_allowed
+            dependencies=('Cargo.lock','Cargo.toml','rust-toolchain.toml',
+              'crates/volparossa/Cargo.toml','crates/volparossa-content/Cargo.toml')
+            for name in dependencies:
+              assert git('rev-parse','HEAD:'+name)==git('rev-parse',failure_base+':'+name)
+            result_failure_scope=dict(base_commit=failure_base,
+              source_blobs={name:git('rev-parse','HEAD:'+name) for name in sorted(failure_allowed)},
+              dependency_blobs={name:git('rev-parse','HEAD:'+name) for name in dependencies},
+              diagnostic_only=True,actual_model_execution=False)
           names=git('diff','--name-only',base,'HEAD').splitlines()
           receipt=dict(version=1,source_commit=os.environ['GITHUB_SHA'],source_tree=git('rev-parse','HEAD^{tree}'),base=base,
             source_blobs={n:git('rev-parse','HEAD:'+n) for n in names},
             dependency_versions_unchanged=True,actual_model_execution=False,guest_boot=False,private_peer_admission=False)
           if requester_scope is not None:
             receipt['requester_diagnostic_scope']=requester_scope
+          if result_failure_scope is not None:
+            receipt['result_failure_scope']=result_failure_scope
           pathlib.Path('resident-model-evidence/source.json').write_text(json.dumps(receipt,sort_keys=True)+'\n')
           PY
 
@@ -165,7 +194,7 @@ jobs:
             for name in names: assert len(re.findall(r'^test '+re.escape(name)+r' \.\.\. ok$',output,re.M))==1
             assert f'{len(names)} passed; 0 failed; 0 ignored;' in output
             groups[label]=len(names); all_names.extend(names)
-          assert groups==dict(grant=22,guest=20,resident=30,local=30)
+          assert groups==dict(grant=22,guest=32,resident=33,local=30)
           assert len(all_names)==len(set(all_names))
           (root/'tests.json').write_text(json.dumps(dict(version=1,counts=groups,test_names=sorted(all_names),model_execution=False,guest_boot=False,private_peer_admission=False),sort_keys=True)+'\n')
           PY
@@ -206,7 +235,7 @@ jobs:
           python3 -B - <<'PY'
           import json,pathlib,re
           root=pathlib.Path('resident-model-evidence'); counts={}
-          expected={'install':58,'assemble':29,'run':176}
+          expected={'install':58,'assemble':29,'run':188}
           for name,count in expected.items():
             raw=(root/('model-'+name+'.log')).read_text()
             tests=re.findall(r'^Ran ([0-9]+) tests? in ',raw,re.M)

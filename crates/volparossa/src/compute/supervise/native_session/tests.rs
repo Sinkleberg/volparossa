@@ -191,3 +191,91 @@ fn fixed_task_and_turn_bounds_are_distinct_from_legacy_cleanup() {
     );
     assert_ne!(legacy["cleanup"], cleanup_record());
 }
+
+#[test]
+fn fixture_failure_accessor_requires_the_private_post_cleanup_wrapper() {
+    for cause in [
+        anyhow::anyhow!("compute_memory_budget"),
+        anyhow::Error::new(private_task::CleanupUnconfirmed),
+    ] {
+        assert!(public_fixture_failure(&cause).is_none());
+    }
+    let error = public_fixture_test_failure(
+        anyhow::anyhow!("PRIVATE_CANARY /private/prompt").context("compute_memory_budget"),
+    );
+    let value = public_fixture_failure(&error).unwrap();
+    assert!(super::super::diagnostic::public_fixture_detail(&value));
+    assert_eq!(value["code"], "compute_memory_budget");
+    assert!(!value.to_string().contains("PRIVATE_CANARY"));
+    let worker = json!({"version":1,"id":"PRIVATE_REQUEST_CANARY","kind":"result",
+        "status":"error","code":"NATIVE_MODEL_LOAD_FAILED"});
+    let cause =
+        super::super::diagnostic::native_worker_failure(&worker, "PRIVATE_REQUEST_CANARY").unwrap();
+    let error = public_fixture_test_failure(cause);
+    let value = public_fixture_failure(&error).unwrap();
+    assert_eq!(value["code"], "NATIVE_MODEL_LOAD_FAILED");
+    assert!(value["exit_code"].is_null() && value["signal"].is_null());
+    assert!(!value.to_string().contains("PRIVATE_REQUEST_CANARY"));
+}
+
+#[test]
+fn fixture_detail_requires_exact_enums_and_real_startup_status_shape() {
+    use super::super::diagnostic::public_fixture_detail;
+    let mut value = json!({"code":"startup_missing_result","io_kind":"none",
+        "exit_code":-1,"signal":9,"stderr_class":"none"});
+    assert!(public_fixture_detail(&value));
+    value["exit_code"] = json!(0);
+    assert!(!public_fixture_detail(&value));
+    value["signal"] = json!(0);
+    assert!(public_fixture_detail(&value));
+    value["signal"] = json!(false);
+    assert!(!public_fixture_detail(&value));
+    value["signal"] = json!(0);
+    value["stderr_class"] = json!("none PRIVATE_CANARY");
+    assert!(!public_fixture_detail(&value));
+    value["stderr_class"] = json!("none");
+    value["extra"] = json!("PRIVATE_CANARY");
+    assert!(!public_fixture_detail(&value));
+}
+
+#[tokio::test]
+async fn real_private_root_is_removed_before_failed_owner_projection_exists() {
+    // Real filesystem owner cleanup, invalid input before worker spawn: no model,
+    // sandbox, native process, or runtime execution is performed by this test.
+    let parent = tempfile::tempdir().unwrap();
+    fs::set_permissions(parent.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    let root = PrivateRoot::new(parent.path()).unwrap();
+    let path = root.path().to_owned();
+    fs::write(path.join("private-canary"), b"PRIVATE_CANARY").unwrap();
+    let config = private_task::ExecutionConfig {
+        runtime_root: "/not-opened/runtime".into(),
+        model_root: "/not-opened/model".into(),
+        work_parent: parent.path().to_owned(),
+        model_profile: crate::compute::ModelProfile::Qwen4bInstruct2507,
+        native_backend: native_cpu::Options::default(),
+        threads: 2,
+        max_seconds: 600,
+    };
+    let (commands, receive) = mpsc::channel(1);
+    commands
+        .send(Command::Submit {
+            id: "PRIVATE_REQUEST_CANARY".into(),
+            input: b"invalid input".to_vec(),
+        })
+        .await
+        .unwrap();
+    let (events, mut receiving) = mpsc::channel(1);
+    let (_active, activity) = watch::channel(true);
+    let budget = SessionBudget::new(Instant::now() + Duration::from_secs(5), 2).unwrap();
+    let error = run_owned(&config, root, receive, events, activity, &budget)
+        .await
+        .unwrap_err();
+    assert!(matches!(receiving.recv().await, Some(Event::Opened)));
+    assert!(receiving.recv().await.is_none());
+    assert!(!path.exists());
+    assert_eq!(cleanup(&error), Some(cleanup_record()));
+    let detail = public_fixture_failure(&error).unwrap();
+    assert!(super::super::diagnostic::public_fixture_detail(&detail));
+    assert!(!detail.to_string().contains("PRIVATE_CANARY"));
+    assert!(!detail.to_string().contains("PRIVATE_REQUEST_CANARY"));
+}

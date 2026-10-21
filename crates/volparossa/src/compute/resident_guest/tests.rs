@@ -26,6 +26,44 @@ fn config() -> private_task::ExecutionConfig {
     }
 }
 
+enum InertEnd {
+    Failure(Option<tokio::sync::oneshot::Receiver<()>>),
+    Abort(
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ),
+    Unconfirmed,
+    Panic,
+}
+
+impl InertEnd {
+    async fn finish(
+        self,
+        joined: &AtomicBool,
+        activity: &mut tokio::sync::watch::Receiver<bool>,
+    ) -> Result<serde_json::Value> {
+        match self {
+            Self::Failure(gate) => {
+                if let Some(gate) = gate {
+                    gate.await.unwrap();
+                }
+            }
+            Self::Abort(gate, cancelled) => {
+                activity.changed().await.unwrap();
+                assert!(!*activity.borrow());
+                cancelled.send(()).unwrap();
+                gate.await.unwrap();
+            }
+            Self::Unconfirmed => return Err(private_task::CleanupUnconfirmed.into()),
+            Self::Panic => panic!("inert_join_failure"),
+        }
+        joined.store(true, Ordering::SeqCst);
+        Err(native_session::public_fixture_test_failure(
+            anyhow::anyhow!("PRIVATE_CANARY /private/prompt").context("compute_memory_budget"),
+        ))
+    }
+}
+
 struct Fixture {
     stream: TlsStream<DuplexStream>,
     serving: JoinHandle<Result<()>>,
@@ -37,6 +75,10 @@ struct Fixture {
 
 impl Fixture {
     async fn new() -> Self {
+        Self::with_end(None).await
+    }
+
+    async fn with_end(mut end: Option<InertEnd>) -> Self {
         let rcgen::CertifiedKey { cert, key_pair } =
             rcgen::generate_simple_self_signed(vec!["resident.test".into()]).unwrap();
         let (acceptor, spki) = tls_config(cert.der().to_vec(), key_pair.serialize_der()).unwrap();
@@ -78,6 +120,7 @@ impl Fixture {
                             command = commands.recv() => match command {
                                 Some(native_session::Command::Submit { id, .. }) => {
                                     turn.fetch_add(1, Ordering::SeqCst);
+                                    if let Some(end) = end.take() { return end.finish(&join, &mut activity).await; }
                                     let value = json!({"version":2,"answer":"inert worker fixture","cleanup":{
                                         "version":2,"request_files_removed":true,"session_closed":false,"session_private_state_retained":true}});
                                     if events.send(native_session::Event::Result { id, value }).await.is_err() { break; }
@@ -408,4 +451,221 @@ async fn expired_wire_budget_rejects_even_when_io_is_ready() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn native_failure_frame_follows_join_gate_and_preserves_original_failure() {
+    let (release, gate) = tokio::sync::oneshot::channel();
+    let mut fixture = Fixture::with_end(Some(InertEnd::Failure(Some(gate)))).await;
+    fixture.admit().await;
+    wire::write(
+        &mut fixture.stream,
+        wire::frame(wire::SUBMIT, 1, inputs()[0].clone()),
+        deadline(),
+    )
+    .await
+    .unwrap();
+    let admitted = wire::read(&mut fixture.stream, deadline()).await.unwrap();
+    assert_eq!((admitted.kind, admitted.sequence), (wire::ADMITTED, 1));
+    assert!(
+        timeout(
+            Duration::from_millis(25),
+            wire::read(&mut fixture.stream, deadline())
+        )
+        .await
+        .is_err()
+    );
+    assert!(!fixture.joined.load(Ordering::SeqCst));
+    release.send(()).unwrap();
+    let frame = wire::read(&mut fixture.stream, deadline()).await.unwrap();
+    let value = wire::failure_body(&frame, 1).unwrap();
+    assert!(fixture.joined.load(Ordering::SeqCst));
+    assert_eq!(value["detail"]["code"], "compute_memory_budget");
+    assert!(!value.to_string().contains("PRIVATE_CANARY"));
+    assert_eq!(
+        value["cleanup"],
+        json!({"version":1,"child_reaped":true,"private_state_removed":true})
+    );
+    let error = fixture.serving.await.unwrap().unwrap_err();
+    assert_eq!(error.to_string(), "compute_native_session_execution_failed");
+    // The old reader's existing kind/order predicate still rejects this frame.
+    assert_ne!((frame.kind, frame.sequence), (wire::RESULT, 1));
+}
+
+#[tokio::test]
+async fn unconfirmed_cleanup_or_join_panic_cannot_emit_failure_frame() {
+    for end in [InertEnd::Unconfirmed, InertEnd::Panic] {
+        let mut fixture = Fixture::with_end(Some(end)).await;
+        fixture.admit().await;
+        wire::write(
+            &mut fixture.stream,
+            wire::frame(wire::SUBMIT, 1, inputs()[0].clone()),
+            deadline(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            wire::read(&mut fixture.stream, deadline())
+                .await
+                .unwrap()
+                .kind,
+            wire::ADMITTED
+        );
+        assert!(wire::read(&mut fixture.stream, deadline()).await.is_err());
+        let error = fixture.serving.await.unwrap().unwrap_err();
+        assert_eq!(error.to_string(), "resident_cleanup_unconfirmed");
+        assert!(!fixture.joined.load(Ordering::SeqCst));
+    }
+}
+
+#[tokio::test]
+async fn disconnect_before_native_finish_cannot_export_cancelled_worker_diagnostic() {
+    let (release, gate) = tokio::sync::oneshot::channel();
+    let (cancelled, cancellation) = tokio::sync::oneshot::channel();
+    let mut fixture = Fixture::with_end(Some(InertEnd::Abort(gate, cancelled))).await;
+    fixture.admit().await;
+    wire::write(
+        &mut fixture.stream,
+        wire::frame(wire::SUBMIT, 1, inputs()[0].clone()),
+        deadline(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        wire::read(&mut fixture.stream, deadline())
+            .await
+            .unwrap()
+            .kind,
+        wire::ADMITTED
+    );
+    drop(fixture.stream);
+    timeout(Duration::from_secs(5), cancellation)
+        .await
+        .unwrap()
+        .unwrap();
+    release.send(()).unwrap();
+    let error = fixture.serving.await.unwrap().unwrap_err();
+    assert_eq!(error.to_string(), "compute_native_session_execution_failed");
+    assert!(fixture.joined.load(Ordering::SeqCst));
+}
+
+#[tokio::test(start_paused = true)]
+async fn diagnostic_write_is_optional_and_never_renews_expired_budget() {
+    use tokio::io::AsyncReadExt as _;
+    let error =
+        native_session::public_fixture_test_failure(anyhow::anyhow!("compute_memory_budget"));
+    let (mut writer, mut reader) = tokio::io::duplex(1);
+    let started = Instant::now();
+    let stop = started + Duration::from_millis(50);
+    session::observe_native_failure(&mut writer, &error, 1, stop).await;
+    assert_eq!(Instant::now(), stop);
+    assert_eq!(error.to_string(), "compute_native_session_execution_failed");
+    assert_eq!(
+        native_session::cleanup(&error),
+        Some(json!({"version":1,"child_reaped":true,"private_state_removed":true}))
+    );
+    let mut bytes = [0];
+    reader.read_exact(&mut bytes).await.unwrap();
+    session::observe_native_failure(&mut writer, &error, 1, stop).await;
+    assert_eq!(Instant::now(), stop);
+}
+
+#[tokio::test]
+async fn failed_diagnostic_sink_or_unsealed_error_cannot_replace_owner_error() {
+    let error =
+        native_session::public_fixture_test_failure(anyhow::anyhow!("compute_memory_budget"));
+    let (mut writer, reader) = tokio::io::duplex(1024);
+    drop(reader);
+    session::observe_native_failure(&mut writer, &error, 1, deadline()).await;
+    assert_eq!(error.to_string(), "compute_native_session_execution_failed");
+    let (mut writer, mut reader) = tokio::io::duplex(1024);
+    session::observe_native_failure(
+        &mut writer,
+        &anyhow::anyhow!("PRIVATE_CANARY"),
+        1,
+        deadline(),
+    )
+    .await;
+    drop(writer);
+    assert!(wire::read(&mut reader, deadline()).await.is_err());
+}
+
+#[test]
+fn terminal_failure_schema_is_closed_canonical_and_turn_bound() {
+    let detail = json!({"code":"NATIVE_MODEL_LOAD_FAILED","io_kind":"none",
+        "exit_code":null,"signal":null,"stderr_class":null});
+    let frame = wire::failure(1, detail.clone()).unwrap();
+    assert!(wire::failure_body(&frame, 1).is_ok());
+    assert!(wire::failure(0, detail.clone()).is_err());
+    assert!(wire::failure(3, detail).is_err());
+    assert!(wire::failure_body(&frame, 2).is_err());
+    for (path, replacement) in [
+        (vec!["version"], json!(2)),
+        (vec!["scope"], json!("private")),
+        (vec!["extra"], json!("PRIVATE_CANARY")),
+        (
+            vec!["detail", "code"],
+            json!("NATIVE_MODEL_LOAD_FAILED PRIVATE_CANARY"),
+        ),
+        (vec!["detail", "io_kind"], json!("PRIVATE_CANARY")),
+        (vec!["detail", "exit_code"], json!(0)),
+        (vec!["cleanup", "private_state_removed"], json!(false)),
+    ] {
+        let mut value = wire::failure_body(&frame, 1).unwrap();
+        let mut field = &mut value;
+        for key in path {
+            field = &mut field[key];
+        }
+        *field = replacement;
+        let changed = wire::frame(wire::FAILURE, 1, serde_json::to_vec(&value).unwrap());
+        assert!(wire::failure_body(&changed, 1).is_err());
+    }
+    for bytes in [
+        [b" ".as_slice(), &frame.body].concat(),
+        [b"{\"version\":1,".as_slice(), &frame.body[1..]].concat(),
+        vec![b'x'; wire::MAX_FAILURE + 1],
+        b"{".to_vec(),
+    ] {
+        assert!(wire::failure_body(&wire::frame(wire::FAILURE, 1, bytes), 1).is_err());
+    }
+}
+
+#[tokio::test]
+async fn pending_protocol_abort_keeps_tls_open_and_cannot_emit_native_failure() {
+    let (release, gate) = tokio::sync::oneshot::channel();
+    let (cancelled, cancellation) = tokio::sync::oneshot::channel();
+    let mut fixture = Fixture::with_end(Some(InertEnd::Abort(gate, cancelled))).await;
+    fixture.admit().await;
+    wire::write(
+        &mut fixture.stream,
+        wire::frame(wire::SUBMIT, 1, inputs()[0].clone()),
+        deadline(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        wire::read(&mut fixture.stream, deadline())
+            .await
+            .unwrap()
+            .kind,
+        wire::ADMITTED
+    );
+    wire::write(
+        &mut fixture.stream,
+        wire::frame(wire::CLOSE, 2, vec![]),
+        deadline(),
+    )
+    .await
+    .unwrap();
+    timeout(Duration::from_secs(5), cancellation)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!fixture.joined.load(Ordering::SeqCst));
+    release.send(()).unwrap();
+    // Retain the authenticated reader: an accidentally sent kind9 would succeed.
+    assert!(wire::read(&mut fixture.stream, deadline()).await.is_err());
+    let error = fixture.serving.await.unwrap().unwrap_err();
+    assert_eq!(error.to_string(), "compute_native_session_execution_failed");
+    assert!(fixture.joined.load(Ordering::SeqCst));
 }
