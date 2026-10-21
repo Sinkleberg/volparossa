@@ -93,6 +93,35 @@ in-process assessment. Passing an already-authorized agent Unix-socket path afte
 deadline. Output contains quality/limitations only. The example acquires no real
 position; the administrative socket is not a mobile-app permission mechanism.
 
+### Next native Map adapter
+
+The first Android consumer will reuse `DpsAssessRequest::assess` through an
+app-owned, separately typed native bridge. Keep the shared assessment in Rust;
+isolate any required JNI/FFI unsafe boundary from the existing safe core. This
+does not require giving a mobile app access to the administrative control socket.
+The app remains responsible for its OS permissions and its own consent scope;
+an in-process consent object is not proof of cross-process app identity.
+
+The pinned Map
+[adapter plan](https://github.com/VOLPAROSSA/volparossa-map/blob/0bb33832f3c557c6db63e89f7a4f668cd9dceb30/docs/DPS_INTEGRATION.md#next-app-owned-android-slice)
+identifies the actual Organic Maps SDK/JNI/CMake seams. Its existing location
+listener can immediately replay a saved real fix, and starting its location
+helper can start sensors. A synthetic-only native quality fixture must therefore
+use a separate coordinator and stay outside both that helper and the GPS/track
+forwarding path. No Rust linkage or DPS coordinator exists in the pinned native
+app yet; the Python component is not an Android bridge.
+
+Before work and again before publication, check the app-owned consent generation,
+monotonic expiry and active lifecycle. Revocation, disable or backgrounding clears
+selected DPS state and invalidates pending results; an obsolete completion must
+not republish them. The initial Android fixture uses synthetic Cartesian data
+while location permission is denied, and must prove displayed quality, expiry,
+revocation during work, background/resume, late-result rejection, unavailable
+offline input, no sensor/network activity and joined owned work. This establishes
+only the native adapter boundary when actually exercised. Real sensor acquisition,
+frame conversion, location precision authorization, independent GNSS integrity and
+navigation remain required subsequent work.
+
 ## Research and implementation choices
 
 Primary sources were consulted on 2026-10-21. The following are candidates and

@@ -5,6 +5,7 @@ on:
     branches:
       - fix/storage-fixture-correlation
       - test/storage-request-stage-proof-20261021
+      - test/storage-request-stage-consumers-20261021
   workflow_dispatch:
 
 permissions:
@@ -322,3 +323,251 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
           path: storage-fixture-evidence/
+
+  consumer-contracts:
+    name: Request-stage consumer harness source and inert contracts
+    if: >-
+      github.repository == 'VOLPAROSSA/volparossa' &&
+      github.ref == 'refs/heads/test/storage-request-stage-consumers-20261021' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CONSUMER_SOURCE_BASE: 6e30834e6189c19163dcd799c5b4957f3e50ef5e
+    steps:
+      - name: Check out the exact consumer harness candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind exact consumer-only source scope
+        id: source
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ARCH" = X64
+          test "$GITHUB_REPOSITORY" = VOLPAROSSA/volparossa
+          test "$GITHUB_REF" = refs/heads/test/storage-request-stage-consumers-20261021
+          case "$GITHUB_EVENT_NAME" in push|workflow_dispatch) ;; *) exit 1 ;; esac
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          git merge-base --is-ancestor "$CONSUMER_SOURCE_BASE" HEAD
+          umask 077
+          mkdir storage-consumer-contract-evidence
+          python3 -B - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          base = os.environ['CONSUMER_SOURCE_BASE']
+          assert base == '6e30834e6189c19163dcd799c5b4957f3e50ef5e'
+          assert re.fullmatch('[0-9a-f]{40}', os.environ['GITHUB_SHA'])
+          allowed = {
+              '.github/workflows/storage-fixture-correlation.yml',
+              '.github/workflows/quality.yml',
+              'tests/integration/kvm-alpha-topology.sh',
+              'tests/integration/private-storage-maintenance-smoke.py',
+              'tests/integration/run-alpha-topology-vm.sh',
+              'tests/integration/storage-consumer-maintenance-smoke.py',
+              'tests/integration/storage-consumer-maintenance-smoke.sh',
+              'tests/integration/storage-consumer-maintenance.mjs',
+              'tests/integration/storage-fixture-correlation-sampler.py',
+              'tests/integration/test-storage-consumer-maintenance-shell.py',
+              'tests/integration/test-storage-consumer-maintenance.mjs',
+              'tests/integration/storage-consumer-provider-usage.py',
+              'tests/integration/storage-provider-usage-snapshot.py',
+              'tests/integration/test-storage-provider-usage-snapshot.py',
+              'tests/integration/test-storage-request-stage-consumers.py',
+              'tests/integration/test-storage-provider-activity-sampler.py',
+              'tests/integration/test-private-storage-maintenance-smoke.py',
+              'tests/integration/test-private-storage-maintenance-wiring.py',
+          }
+          changed = git('diff', '--name-only', base, 'HEAD').splitlines()
+          assert len(allowed) == 18 and len(changed) == 18 and set(changed) == allowed
+          dependencies = ('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
+              'crates/volparossa-agent/Cargo.toml', 'crates/volparossa-content/Cargo.toml',
+              'crates/volparossa-local-control/Cargo.toml', 'crates/volparossa/Cargo.toml',
+              'tests/integration/storage-consumer-maintenance-pins-v10.json')
+          for name in dependencies:
+              assert git('rev-parse', 'HEAD:' + name) == git('rev-parse', base + ':' + name)
+          receipt = dict(schema=1, source_commit=os.environ['GITHUB_SHA'],
+              source_tree=git('rev-parse', 'HEAD^{tree}'), base_commit=base,
+              workflow_commit=os.environ['GITHUB_WORKFLOW_SHA'],
+              source_blobs={name: git('rev-parse', 'HEAD:' + name) for name in sorted(allowed)},
+              dependency_blobs={name: git('rev-parse', 'HEAD:' + name) for name in dependencies},
+              scope='storage-request-stage-consumer-inert-contracts',
+              actual_consumer_acceptance=False, causal_attribution=False)
+          pathlib.Path('storage-consumer-contract-evidence/source.json').write_text(
+              json.dumps(receipt, sort_keys=True) + '\n')
+          PY
+
+      - name: Inventory and run bounded inert Python groups
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 300s python3 -B - <<'PY'
+          import json
+          import pathlib
+          import subprocess
+          import sys
+          groups = {
+              'storage-request-stage-consumers': 15,
+              'storage-provider-usage-snapshot': 10,
+              'storage-fixture-correlation-sampler': 33,
+              'storage-provider-activity-sampler': 17,
+              'storage-consumer-maintenance-smoke': 54,
+              'storage-consumer-maintenance-shell': 9,
+              'private-storage-maintenance-smoke': 85,
+              'private-storage-maintenance-wiring': 42,
+              'storage-consumer-maintenance-evidence': 31,
+              'alpha-vm-diagnostics': 10,
+              'storage-consumer-maintenance-provision': 14,
+          }
+          runner = '''
+          import json, pathlib, runpy, sys, types, unittest
+          name, expected, destination = sys.argv[1], int(sys.argv[2]), pathlib.Path(sys.argv[3])
+          module = types.ModuleType('consumer_contracts_' + name.replace('-', '_'))
+          module.__dict__.update(runpy.run_path('tests/integration/test-' + name + '.py'))
+          suite = unittest.defaultTestLoader.loadTestsFromModule(module)
+          def names(value):
+              for item in value:
+                  if isinstance(item, unittest.TestSuite):
+                      yield from names(item)
+                  else:
+                      yield item.id()
+          inventory = list(names(suite))
+          assert len(inventory) == expected and len(set(inventory)) == expected
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          assert result.wasSuccessful() and result.testsRun == expected
+          assert not (result.skipped or result.expectedFailures or result.unexpectedSuccesses)
+          destination.write_text(json.dumps(dict(tests=expected, test_names=sorted(inventory)), sort_keys=True) + '\\n')
+          '''
+          root = pathlib.Path('storage-consumer-contract-evidence')
+          for name, expected in groups.items():
+              with (root / (name + '.log')).open('wb') as output:
+                  subprocess.run([sys.executable, '-B', '-c', runner, name, str(expected),
+                      str(root / (name + '.json'))], stdout=output, stderr=subprocess.STDOUT,
+                      timeout=90, check=True)
+              receipt = json.loads((root / (name + '.json')).read_text())
+              assert receipt['tests'] == expected
+              print(name + ': ' + str(expected) + ' passed; no skips', flush=True)
+          assert len(groups) == 11 and sum(groups.values()) == 320
+          (root / 'python-tests.json').write_text(json.dumps(dict(group_counts=groups,
+              unique_tests=sum(groups.values()), actual_consumer_acceptance=False), sort_keys=True) + '\n')
+          PY
+          sh -n tests/integration/storage-consumer-maintenance-smoke.sh
+          sh -n tests/integration/run-alpha-topology-vm.sh
+          sh -n tests/integration/kvm-alpha-topology.sh
+          shellcheck --severity=warning tests/integration/storage-consumer-maintenance-smoke.sh
+
+      - name: Verify pinned profile-10 Node and run the complete inert JavaScript suite
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ARCH" = X64
+          umask 077
+          node_root=$(mktemp -d "$RUNNER_TEMP/storage-consumer-contract-node.XXXXXXXX")
+          trap 'rm -rf -- "$node_root"' EXIT
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --connect-timeout 20 --max-time 120 --max-filesize 31633904 \
+            https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz \
+            --output "$node_root/node.tar.xz"
+          python3 -B - "$node_root" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import tarfile
+          import sys
+          root = pathlib.Path(sys.argv[1])
+          pin = json.loads(pathlib.Path('tests/integration/storage-consumer-maintenance-pins-v10.json').read_text())['runtime']
+          assert pin['version'] == '24.19.0' and pin['bytes'] == 31633904
+          assert pin['url'] == 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz'
+          assert pin['sha256'] == '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647'
+          archive = root / 'node.tar.xz'
+          assert archive.stat().st_size == pin['bytes']
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == pin['sha256']
+          assert set(pin['files']) == {'bin/node', 'LICENSE'}
+          # Only fixed destinations; archive names are never used as output paths.
+          with tarfile.open(archive, 'r:xz') as bundle:
+              for relative, expected in pin['files'].items():
+                  member = bundle.getmember('node-v24.19.0-linux-x64/' + relative)
+                  assert member.isfile() and not member.mode & 0o6000 and member.size == expected['bytes']
+                  with bundle.extractfile(member) as source:
+                      data = source.read(expected['bytes'] + 1)
+                  assert len(data) == expected['bytes'] and hashlib.sha256(data).hexdigest() == expected['sha256']
+                  destination = root / ('node' if relative == 'bin/node' else 'LICENSE')
+                  with destination.open('xb') as output:
+                      output.write(data)
+                  destination.chmod(0o700 if relative == 'bin/node' else 0o600)
+          PY
+          test "$("$node_root/node" --version)" = v24.19.0
+          timeout --signal=TERM --kill-after=5s 120s \
+            "$node_root/node" --test --test-reporter=tap tests/integration/test-storage-consumer-maintenance.mjs \
+            > storage-consumer-contract-evidence/node-tests.log 2>&1
+          python3 -B - <<'PY'
+          import json
+          import pathlib
+          import re
+          root = pathlib.Path('storage-consumer-contract-evidence')
+          log = root / 'node-tests.log'
+          assert 0 < log.stat().st_size <= 1024 * 1024
+          output = log.read_text()
+          names = re.findall(r'^# Subtest: (.+)$', output, re.M)
+          assert len(names) == len(set(names)) == 53
+          for field, count in dict(tests=53, suites=0, pass_=53, fail=0, cancelled=0, skipped=0, todo=0).items():
+              label = field.rstrip('_')
+              assert re.findall(r'^# ' + label + r' (\d+)$', output, re.M) == [str(count)]
+          assert sum(name.startswith('request-stage ') for name in names) == 3
+          (root / 'node-tests.json').write_text(json.dumps(dict(node_version='24.19.0',
+              archive_sha256='14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647',
+              tests=53, test_names=sorted(names), actual_consumer_acceptance=False), sort_keys=True) + '\n')
+          PY
+
+      - name: Bind completed contracts to unchanged exact source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          git diff --exit-code HEAD
+          python3 -B - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          root = pathlib.Path('storage-consumer-contract-evidence')
+          source = json.loads((root / 'source.json').read_text())
+          assert source['source_commit'] == os.environ['GITHUB_SHA'] == git('rev-parse', 'HEAD')
+          assert source['workflow_commit'] == os.environ['GITHUB_WORKFLOW_SHA']
+          assert source['source_tree'] == git('rev-parse', 'HEAD^{tree}')
+          assert len(source['source_blobs']) == 18
+          for name, blob in {**source['source_blobs'], **source['dependency_blobs']}.items():
+              assert git('rev-parse', 'HEAD:' + name) == blob
+          untracked = git('ls-files', '--others', '--exclude-standard').splitlines()
+          assert all(name.startswith('storage-consumer-contract-evidence/') for name in untracked)
+          python = json.loads((root / 'python-tests.json').read_text())
+          node = json.loads((root / 'node-tests.json').read_text())
+          assert python['unique_tests'] == 320 and node['tests'] == 53 and node['node_version'] == '24.19.0'
+          receipt = dict(source, python_tests=320, node_tests=53, node_version=node['node_version'],
+              completed=True, actual_consumer_acceptance=False, causal_attribution=False)
+          (root / 'final.json').write_text(json.dumps(receipt, sort_keys=True) + '\n')
+          PY
+
+      - name: Retain source-bound inert contract receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: storage-request-stage-consumer-contracts-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: storage-consumer-contract-evidence/

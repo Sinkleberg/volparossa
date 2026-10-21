@@ -23,6 +23,7 @@ SAMPLER = runpy.run_path(str(HERE / 'private-storage-log-sampler.py'))
 ACTIVITY = runpy.run_path(str(HERE / 'storage-provider-activity-sampler.py'))
 CORRELATION = runpy.run_path(str(HERE / 'storage-fixture-correlation-sampler.py'))
 FIXTURE_CORRELATION = False
+REQUEST_STAGE = False
 PROVISIONER = runpy.run_path(str(HERE / 'storage-consumer-maintenance-provision.py'))
 NODE = Path('/opt/volparossa-node/bin/node')
 PROVISION = Path('/opt/volparossa-storage-consumers/provision.json')
@@ -462,15 +463,22 @@ def validate_node_report(value, phase, provision, prepared=None, *, profile_vers
     return value
 
 
-def run_child(command, deadline, *, limit=MAX_REPORT):
+def run_child(command, deadline, *, limit=MAX_REPORT, request_stage=None):
     """Bounded pipes, actual child join, graceful Node-owned descendant shutdown.
 
     A forced kill or undrained inherited pipe is failure, never a cleanup proof.
     No raw stdout/stderr escapes this private reader on failure.
     """
     require(not CANCELLED and time.monotonic() < deadline, 'deadline')
+    environment = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8'}
+    inherited = {}
+    if request_stage is not None:
+        descriptor = request_stage.child.fileno()
+        require(descriptor >= 3, 'fixture_request_stage')
+        environment['STORAGE_PROOF_REQUEST_STAGE_FD'] = str(descriptor)
+        inherited['pass_fds'] = (descriptor,)
     process = subprocess.Popen(list(map(str, command)), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, start_new_session=True, env={'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8'})
+        stderr=subprocess.PIPE, start_new_session=True, env=environment, **inherited)
     selector = None
     output, errors = bytearray(), bytearray()
     stopped, forced, stop_at, exited_at, sent = None, False, None, None, None
@@ -489,6 +497,7 @@ def run_child(command, deadline, *, limit=MAX_REPORT):
             pass
 
     try:
+        if request_stage is not None: request_stage.child.close()
         selector = selectors.DefaultSelector()
         for stream, target in ((process.stdout, output), (process.stderr, errors)):
             os.set_blocking(stream.fileno(), False)
@@ -565,11 +574,12 @@ def validate_locations(root, binary, client, providers=None):
     return binary, client
 
 
-def node_phase(root, phase, provision, deadline):
+def node_phase(root, phase, provision, deadline, request_stage=None):
     command = [NODE, HERE / 'storage-consumer-maintenance.mjs', phase, root]
     if PROFILE_VERSION in (2, 3, 4, 5, 6, 7, 8, 9, 10):
         command += ['--profile-version', str(PROFILE_VERSION)]
-    status, output, _ = run_child(command, deadline)
+    status, output, _ = (run_child(command, deadline) if request_stage is None else
+        run_child(command, deadline, request_stage=request_stage))
     value = json.loads(output)
     prepared = None if phase == 'prepare' else private_json(root / 'storage-consumer-prepare.json')
     if prepared is not None:
@@ -640,6 +650,10 @@ def phase(root, selected, exit_socket, flow_root, provision, deadline):
     cloud = private_json(root / 'cloud/storage.json')
     require(image['coreBinary'] == cloud['coreBinary'] and image['controlSocket'] == cloud['controlSocket'], 'shared_core')
     binary, client = validate_locations(root, image['coreBinary'], image['controlSocket'])
+    if REQUEST_STAGE:
+        with CORRELATION['capture_request'](binary, root.parents[1], root, deadline) as observer:
+            return phase_with_core(root, selected, exit_socket, flow_root, provision, deadline, binary, client,
+                request_stage=observer)
     correlation = CORRELATION['capture'](binary, root.parents[1], root, selected) if (
         FIXTURE_CORRELATION and PROFILE_VERSION in (9, 10) and NETWORK_VERSION == 2) else nullcontext()
     # Fix the original application/network/deadline outcome before optional
@@ -648,7 +662,7 @@ def phase(root, selected, exit_socket, flow_root, provision, deadline):
         return phase_with_core(root, selected, exit_socket, flow_root, provision, deadline, binary, client)
 
 
-def phase_with_core(root, selected, exit_socket, flow_root, provision, deadline, binary, client):
+def phase_with_core(root, selected, exit_socket, flow_root, provision, deadline, binary, client, request_stage=None):
     require(Path(exit_socket) == root.parents[1] / 'runtime-exit/control/agent.sock'
         and Path(flow_root) == root.parents[1] / 'client-fixtures/private-storage-user', 'flow_locations')
     private_directory(Path(flow_root))
@@ -672,7 +686,8 @@ def phase_with_core(root, selected, exit_socket, flow_root, provision, deadline,
         with activity, sampler['capture'](
                 binary, Path(exit_socket), baseline, minimum, client=client,
                 **{('scope' if NETWORK_VERSION == 1 else 'policy'): scope}, diagnostic=diagnostic) as coverage:
-            value, report_hash = node_phase(root, selected, provision, deadline)
+            value, report_hash = (node_phase(root, selected, provision, deadline) if request_stage is None else
+                node_phase(root, selected, provision, deadline, request_stage=request_stage))
     except sampler_failure:
         if NETWORK_VERSION == 2: raise NetworkPhaseFailure(selected, diagnostic) from None
         raise
@@ -768,9 +783,12 @@ def cleanup(root):
 
 
 def main(arguments):
-    global PROFILE_VERSION, NETWORK_VERSION, FIXTURE_CORRELATION
+    global PROFILE_VERSION, NETWORK_VERSION, FIXTURE_CORRELATION, REQUEST_STAGE
     PROFILE_VERSION = 1
     NETWORK_VERSION = 1
+    REQUEST_STAGE = bool(arguments and arguments[-1] == '--fixture-request-stage')
+    if REQUEST_STAGE:
+        arguments = arguments[:-1]
     FIXTURE_CORRELATION = bool(arguments and arguments[-1] == '--fixture-correlation')
     if FIXTURE_CORRELATION:
         arguments = arguments[:-1]
@@ -782,6 +800,8 @@ def main(arguments):
         arguments = arguments[:-2]
     require(not FIXTURE_CORRELATION or (PROFILE_VERSION in (9, 10) and NETWORK_VERSION == 2
         and arguments and arguments[0] in CORRELATION['PHASES']), 'fixture_correlation_scope')
+    require(not REQUEST_STAGE or (not FIXTURE_CORRELATION and PROFILE_VERSION == 10
+        and NETWORK_VERSION == 2 and arguments and arguments[0] == 'publish'), 'fixture_request_stage_scope')
     if len(arguments) == 2 and arguments[0] == 'flow-minimum':
         require(arguments[1] in FLOW_MINIMUM, 'phase')
         print(FLOW_MINIMUM[arguments[1]])
@@ -791,7 +811,10 @@ def main(arguments):
     require(len(arguments) >= 2, 'arguments')
     selected = arguments[0]
     root = owner_root(arguments[1], missing=selected == 'cleanup')
-    if selected == 'cleanup' and len(arguments) == 2:
+    if selected == 'quiesced' and len(arguments) == 2:
+        no_fixture_processes(root)
+        result = dict(version=1, consumer_processes_observed_quiesced=True, remote_cleanup_proven=False)
+    elif selected == 'cleanup' and len(arguments) == 2:
         result = cleanup(root)
     else:
         deadline = time.monotonic() + WORK_SECONDS

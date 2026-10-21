@@ -17,7 +17,7 @@ defaults:
     shell: bash
 
 env:
-  SOURCE_BASE: 6e30834e6189c19163dcd799c5b4957f3e50ef5e
+  SOURCE_BASE: 797f24fdf53ffcc39156bbf59507ef6be40792a4
   CARGO_BUILD_JOBS: '2'
   CARGO_TERM_COLOR: never
 
@@ -65,7 +65,7 @@ jobs:
           def git(*args):
               return subprocess.check_output(['git', *args], text=True).strip()
           base = os.environ['SOURCE_BASE']
-          assert base == '6e30834e6189c19163dcd799c5b4957f3e50ef5e'
+          assert base == '797f24fdf53ffcc39156bbf59507ef6be40792a4'
           assert re.fullmatch('[0-9a-f]{40}', os.environ['GITHUB_SHA'])
           prefix = 'crates/volparossa-dps-ffi/'
           files = {'Cargo.toml', 'README.md', 'src/lib.rs', 'src/ffi.rs', 'src/ffi/tests.rs',

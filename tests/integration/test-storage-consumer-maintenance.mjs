@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { mkdtemp, mkdir, writeFile, chmod, symlink, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,7 +13,79 @@ import { fileURLToPath } from 'node:url';
 import { boundedFile, fixtureBytes, ForegroundObservation, MAX_CIPHER, PHASES, PLAIN_BYTES,
   consumerFailureReport, depositDiagnostic, parseProcStat, replacementReady, requirePublishComplete, retainedSnapshot,
   retentionAdvanced, validateAppendProfile, validateCheckpoint, validateStorage,
-  createPublishCatalog, publish, withPublishCore } from './storage-consumer-maintenance.mjs';
+  createPublishCatalog, publish, withPublishCore, requestStageTarget, requestStageOutcome, withRequestStage } from './storage-consumer-maintenance.mjs';
+
+test('request-stage target uses the actual per-copy journal and manifest provider association', () => {
+  const providers = [1, 2, 3].map(value => ({ key: [...Buffer.alloc(32, value)] }));
+  for (let index = 0; index < 3; index++) {
+    const archive = [...Buffer.alloc(32, 44)];
+    const journal = { archive_id: archive, provider_key: providers[index].key };
+    const signed = { manifest: { providers, fragments: Array.from({ length: 4 }, () => ({ copies: [
+      { provider: index, archive_id: archive },
+    ] })) } };
+    const config = { providers: providers.map(value => ({ key: Buffer.from(value.key).toString('hex') })) };
+    assert.equal(requestStageTarget(journal, signed, config).provider_index, index);
+    assert.equal(requestStageTarget(journal, signed, config).target.provider_key, config.providers[index].key);
+    assert.throws(() => requestStageTarget({ ...journal, provider_key: providers[(index + 1) % 3].key }, signed, config));
+    assert.throws(() => requestStageTarget({ ...journal, archive_id: [...Buffer.alloc(32, 45)] }, signed, config));
+  }
+});
+
+test('request-stage disabled path preserves the exact operation result or error', async () => {
+  const result = { status: 'complete' }, error = new Error('private-canary');
+  assert.equal(await withRequestStage({ profileVersion: 10 }, '/unused', {}, async () => result), result);
+  await assert.rejects(withRequestStage({ profileVersion: 10 }, '/unused', {}, async () => { throw error; }), value => value === error);
+  assert.equal(requestStageOutcome(error), 'untargeted_failure');
+});
+
+test('request-stage observes only the exact failed reserve and freezes failure before diagnostic abort', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vp-request-stage-'));
+  const app = join(root, 'image'), archive = [...Buffer.alloc(32, 44)];
+  const providers = [1, 2, 3].map(value => ({ key: [...Buffer.alloc(32, value)] }));
+  await mkdir(join(app, 'archive/fragment-0002/copy-0'), { recursive: true, mode: 0o700 });
+  const data = [
+    ['archive/fragment-0002/copy-0/archive.json', { archive_id: archive, provider_key: providers[2].key }],
+    ['archive/fragments.json', { manifest: { providers, fragments: Array.from({ length: 4 }, () => ({
+      copies: [{ provider: 2, archive_id: archive }],
+    })) } }],
+  ];
+  for (const [name, value] of data) await writeFile(join(app, name), JSON.stringify(value), { mode: 0o600 });
+  const cancel = new AbortController(), events = [];
+  const ctx = { requestStageFd: 3, profileVersion: 10, provision: 'a'.repeat(64),
+    stage: 'image_publish', signal: cancel.signal, deadline: performance.now() + 1000 };
+  class Channel extends EventEmitter {
+    write(raw) {
+      const value = JSON.parse(raw);
+      if (value.target) {
+        events.push('arm');
+        queueMicrotask(() => this.emit('data', Buffer.from('{"version":3,"state":"armed"}\n')));
+      } else {
+        events.push(value.outcome);
+        cancel.abort(); // Diagnostic teardown crosses the original outcome boundary.
+      }
+      return true;
+    }
+    destroy() { this.emit('close'); }
+  }
+  try {
+    const invalid = closeDiagnostics(); invalid.failures[0].copy_index = 0;
+    let original;
+    try {
+      requirePublishComplete({ status: 'incomplete', local_process_joined: true,
+        storage: { operation_complete: false, deposit_diagnostics: invalid } }, 'image', 'deposit', 10);
+    } catch (error) { original = error; }
+    assert.equal(requestStageOutcome(original), 'targeted_failure');
+    await assert.rejects(withRequestStage(ctx, app, { providers: providers.map(value => ({
+      key: Buffer.from(value.key).toString('hex'),
+    })) }, async () => { events.push('deposit'); throw original; }, () => new Channel()), error => {
+      const report = consumerFailureReport(ctx, 'publish', error);
+      assert.equal(report.code, 'publish_operation');
+      assert.equal(report.publish_observation.deposit_diagnostics.failures[0].copy_index, 0);
+      return true;
+    });
+    assert.deepEqual(events, ['arm', 'deposit', 'targeted_failure']);
+  } finally { await rm(root, { recursive: true }); }
+});
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const keys = [1, 2, 3].map(v => Buffer.alloc(32, v).toString('hex'));
