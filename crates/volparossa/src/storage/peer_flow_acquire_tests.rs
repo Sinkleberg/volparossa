@@ -176,7 +176,8 @@ fn flow_acquire_v8_rejects_missing_unknown_and_private_fields() {
         value.pointer_mut(pointer).unwrap()["raw_error"] = json!("/private/canary");
         assert!(serde_json::from_value::<Diagnostics>(value).is_err());
     }
-    for invalid in [json!(0), json!(9), json!(true)] {
+    // Schema nine retains these flow fields; ten is still unsupported.
+    for invalid in [json!(0), json!(10), json!(true)] {
         let mut value = report();
         value["version"] = invalid;
         assert!(serde_json::from_value::<Diagnostics>(value).is_err());
