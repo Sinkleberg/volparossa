@@ -3444,6 +3444,7 @@ dependencies = [
  "time",
  "volparossa-discovery",
  "volparossa-inspection",
+ "volparossa-local-control",
  "volparossa-policy",
  "volparossa-protocol",
  "volparossa-quic",
@@ -3456,6 +3457,18 @@ dependencies = [
  "ring",
  "thiserror 2.0.19",
  "volparossa-policy",
+]
+
+[[package]]
+name = "volparossa-local-control"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "prost",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
 ]
 
 [[package]]

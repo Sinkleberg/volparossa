@@ -55,6 +55,14 @@ labels do not prove physical independence, and agreeing inputs do not establish
 truth. This first slice makes those limitations machine-readable; it does not
 implement the subsequent positioning estimator.
 
+The development example uses two synthetic position claims. In an approved
+disposable build environment, run
+`cargo run --locked -p volparossa-local-control --example dps_assess` for the
+in-process assessment. Passing an already-authorized agent Unix-socket path after
+`--` sends the same synthetic claims as one actual framed request, with a five-second
+deadline. Output contains quality/limitations only. The example acquires no real
+position; the administrative socket is not a mobile-app permission mechanism.
+
 ## Research and implementation choices
 
 Primary sources were consulted on 2026-10-21. The following are candidates and
@@ -126,7 +134,8 @@ continuation. They do not displace existing critical integrations.
 
 1. Verify the bounded stateless API, strict rejection, explicit uncertainty,
    conflicting/correlated claims, version compatibility and content-free errors.
-   Exercise real local-control framing and agent dispatch on a disposable runner.
+   Exercise real local-control framing and the production connection handler on a
+   disposable runner; test complete daemon startup/socket ownership separately.
 2. Join Map through a bounded app-owned adapter and demonstrate displayed quality,
    consent revocation, expiry and safe unavailability with synthetic fixtures.
    Label this as adapter evidence, not native sensor/navigation acceptance.

@@ -56,6 +56,10 @@ The [separate verbatim DPS addition](development/DPS_GOAL_20261021.md) preserves
 `df3ec2bab02272138e2713159959c925097780d49f73c805a11cbdc049bfc56b`.
 It ends mid-sentence in Map; the user's explicit continuation is now preserved
 separately in the same document, without rewriting the received attachment.
+The continuation contains 4,375 bytes, with SHA-256
+`26cca9ea1854ddb59920457275c5e852a646f226058f26dced5564bdf9313d6d`.
+Independent inspection also confirms that every byte of the entire pre-DPS
+`GOAL.md`, including all earlier clarifications, remains an unchanged prefix.
 The [service design and research](services/DPS.md) retains every received modality,
 privacy boundary, five-layer integration and measurement requirement.
 
@@ -66,8 +70,9 @@ privacy boundary, five-layer integration and measurement requirement.
   `aa9aee6edc639300f8f3747003297749e87e2ddc`, with source `39602631219` and
   CodeQL `39602632919` passing. Preserve unpublished Map
   `feature/native-traffic-lifecycle` at `ca7a4e59a057743f1903132588b6232bec0f6ea6`.
-- [ ] Verify the stateless bounded DPS assessment API and real local-control
-  dispatch on a disposable hosted runner. Candidate worktree:
+- [ ] Verify the stateless bounded DPS assessment API and framed production
+  connection handler on a disposable hosted runner. This scoped test does not
+  launch the complete daemon. Candidate worktree:
   `.volparossa-dev/worktrees/dps-core-20261021`, branch `feature/dps-core-20261021`.
   Observation consistency is not physical integrity or independently proven
   freshness, and a selected input is not a fused or improved position.
