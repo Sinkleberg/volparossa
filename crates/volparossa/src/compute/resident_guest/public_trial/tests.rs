@@ -305,6 +305,15 @@ fn public_fixture_stage_diagnostics_require_explicit_execution_opt_in() {
 
 #[test]
 fn public_fixture_stage_sink_is_fixed_optional_and_cannot_replace_failure() {
+    struct Broken;
+    impl std::io::Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("private-error-canary"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            panic!("no_extra_flush")
+        }
+    }
     let mut output = Vec::new();
     observe_stage(false, Stage::Configuration, &mut output);
     assert!(output.is_empty());
@@ -315,14 +324,5 @@ fn public_fixture_stage_sink_is_fixed_optional_and_cannot_replace_failure() {
         output,
         b"VP_PUBLIC_REQUESTER_STAGE_V1 configuration\nVP_PUBLIC_REQUESTER_STAGE_V1 turn_1_result\nVP_PUBLIC_REQUESTER_STAGE_V1 turn_2_result\n"
     );
-    struct Broken;
-    impl std::io::Write for Broken {
-        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::other("private-error-canary"))
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            panic!("no_extra_flush")
-        }
-    }
     observe_stage(true, Stage::Cleanup, Broken);
 }
