@@ -379,7 +379,7 @@ jobs:
           python3 -B - <<'PY'
           import json, pathlib, re
           root = pathlib.Path('storage-retirement-evidence')
-          groups = {'wire': ('volparossa-local-control', 16), 'bank': ('volparossa-agent', 42),
+          groups = {'wire': ('volparossa-local-control', 16), 'bank': ('volparossa-agent', 45),
               'observer': ('volparossa-agent', 7), 'cli': ('volparossa', 11),
               'helper': ('volparossa-agent', 4), 'helper-legacy': ('volparossa-agent', 3),
               'acquire': ('volparossa-agent', 7), 'retirement': ('volparossa-agent', 7),
@@ -400,10 +400,10 @@ jobs:
               assert not set(names).intersection(prior), label
               counts[label] = expected
               all_names.extend(package + ':' + name for name in names)
-          assert len(all_names) == len(set(all_names)) == 114
+          assert len(all_names) == len(set(all_names)) == 117
           (root / 'fixture-v2-tests.json').write_text(json.dumps(dict(version=1, counts=counts,
-              unique_tests=114, test_names=sorted(all_names), previous_contracts=52,
-              total_disjoint_contracts=166, fixture_versions=[1, 2, 3], legacy_fixture_version=1,
+              unique_tests=117, test_names=sorted(all_names), previous_contracts=52,
+              total_disjoint_contracts=169, fixture_versions=[1, 2, 3], legacy_fixture_version=1,
               causal_attribution=False, fragment_copy_binding=False,
               live_consumer_acceptance=False), sort_keys=True) + '\n')
           PY
