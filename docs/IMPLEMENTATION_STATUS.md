@@ -35,6 +35,17 @@ run `38717988016` remain immutable historical evidence.
   captions, source archives and provenance for user review.
 - [ ] Publish `weather-demo-0.1.0` only after separate explicit user approval.
 
+First new trial [39864237681](https://github.com/VOLPAROSSA/volparossa/actions/runs/39864237681)
+on Core `3b1e625f` / Weather `85e9eda9` remains **failed**: actual Android delivery,
+original joined acceptance and cleanup pass, then the additional media admission
+rejects with only `weather_demo_media_rejected`. No media or review package was
+exported. Five exact closed reports and archive provenance are preserved under
+`docs/demos/weather-demo-0/trials/39864237681/`. A separate synthetic tool probe
+`39869565948` demonstrates that distro ffprobe6.1.1 emits harmless `programs:[]`
+which the old parser rejects. That is a proven parser incompatibility, not proof
+that no other gate can fail. Correction and a new full trial remain required.
+The synthetic probe is not Android, pixel or network acceptance.
+
 [Demo runbook](demos/weather-demo-0/README.md) records exact baseline, boundaries
 and reproduction. Core runs externally to the Android emulator; this work does
 not establish a standalone phone release, physical-device support, concurrent

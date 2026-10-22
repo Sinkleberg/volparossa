@@ -1,0 +1,13 @@
+{
+  "schema": 6,
+  "kind": "weather-android-vm-cleanup",
+  "core_commit": "3b1e625f1cbb961379fd8bf49564e951067950cf",
+  "weather_commit": "85e9eda9bb6105866db2510758e76c9930fdde91",
+  "manifest_sha256": "8f6d92ecc4f6c05f58511d30754537ac5768b729166119704c3c96fd8ba639f1",
+  "driver_finished": true,
+  "qemu_started": true,
+  "qemu_joined": true,
+  "private_guest_state_removed": true,
+  "owner_exit_status": 0,
+  "joined_core_acceptance": false
+}

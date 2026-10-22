@@ -359,6 +359,7 @@ getfacl() { printf 'original inert ACL\\n'; }
             '${{ env.WEATHER_OUTPUT }}/weather-android-driver-diagnostic.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-vm-cleanup.json',
             '${{ env.WEATHER_OUTPUT }}/weather-android-hosted-acceptance.json',
+            '${{ env.WEATHER_OUTPUT }}/weather-demo-media-failure.json',
             '${{ env.WEATHER_INPUTS }}/kvm-cleanup.json',
             *['${{ env.WEATHER_INPUTS }}/provenance/' + name + '.json' for name in (
                 'decoder-run', 'decoder-artifact', 'abi-run', 'abi-artifact', 'capture',

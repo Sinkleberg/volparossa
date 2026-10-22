@@ -1,0 +1,43 @@
+{
+  "artifact_bytes": 10347,
+  "artifact_id": 12464139950,
+  "artifact_sha256": "8449031ea99456b7037c77cc74d4e7f449dbc816a33f53ea86afdc11fe58b5ee",
+  "core_commit": "3b1e625f1cbb961379fd8bf49564e951067950cf",
+  "failed_step": "Admit same-run public Android pixels after full acceptance",
+  "files": {
+    "kvm-cleanup.json": {
+      "bytes": 464,
+      "original_path": "_temp/weather-android-inputs/kvm-cleanup.json",
+      "sha256": "c23bfacb1eabacfd92aef8a603dbee9145868cc61ead4998167a77a832ef76b8"
+    },
+    "weather-android-delivery-evidence.json": {
+      "bytes": 4606,
+      "original_path": "volparossa/volparossa/.cache/weather-android-delivery/weather-android-delivery-evidence.json",
+      "sha256": "cb55f57ddb97750183888eee25741a2131feedeb4bd276b9b0cd9f5920e92c9f"
+    },
+    "weather-android-hosted-acceptance.json": {
+      "bytes": 2829,
+      "original_path": "volparossa/volparossa/.cache/weather-android-delivery/weather-android-hosted-acceptance.json",
+      "sha256": "a73a55e772baa1ad36a5f62e4950d0bad561024d7878e7292bba5cd83a3143f2"
+    },
+    "weather-android-owner-join.json": {
+      "bytes": 2774,
+      "original_path": "volparossa/volparossa/.cache/weather-android-delivery/weather-android-owner-join.json",
+      "sha256": "8dfad3704f49368e1b427a04f2b3eb84baa753f9cc4f82489a0466a7b2783352"
+    },
+    "weather-android-vm-cleanup.json": {
+      "bytes": 446,
+      "original_path": "volparossa/volparossa/.cache/weather-android-delivery/weather-android-vm-cleanup.json",
+      "sha256": "3dda3f7bdf2d219c37eeffbf8ccce60a484319004e37ef18d7d5ad83bb8cd9ab"
+    }
+  },
+  "media_accepted": false,
+  "observed_message": "weather_demo_media_rejected",
+  "original_delivery_cleanup_accepted": true,
+  "run_attempt": 1,
+  "run_id": "39864237681",
+  "schema": 1,
+  "video_exported": false,
+  "weather_commit": "85e9eda9bb6105866db2510758e76c9930fdde91",
+  "workflow_conclusion": "failure"
+}

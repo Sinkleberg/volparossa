@@ -47,7 +47,7 @@ jobs:
           test "$GITHUB_ACTIONS" = true
           test "$RUNNER_ENVIRONMENT" = github-hosted
           timeout 180s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
-          timeout 300s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ffmpeg
+          timeout 300s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ffmpeg fonts-dejavu-core
       - name: Observe serialization without Android or delivery claims
         run: |
           set -euo pipefail
@@ -475,6 +475,7 @@ jobs:
             ${{ env.WEATHER_OUTPUT }}/weather-android-driver-diagnostic.json
             ${{ env.WEATHER_OUTPUT }}/weather-android-vm-cleanup.json
             ${{ env.WEATHER_OUTPUT }}/weather-android-hosted-acceptance.json
+            ${{ env.WEATHER_OUTPUT }}/weather-demo-media-failure.json
             ${{ env.WEATHER_INPUTS }}/kvm-cleanup.json
             ${{ env.WEATHER_INPUTS }}/provenance/decoder-run.json
             ${{ env.WEATHER_INPUTS }}/provenance/decoder-artifact.json

@@ -82,6 +82,35 @@ def captions(duration, raw_duration):
     return "\n".join(lines), "\n\n".join(transcript) + "\n"
 
 
+def render_video(raw_video, stage, duration, raw_info, lines):
+    """Render only; callers separately establish whether the input is real demo media."""
+    require(FONT.is_file() and not FONT.is_symlink())
+    text_dir = stage / "text"
+    text_dir.mkdir()
+    overlays, y = [], 65
+    for index, (text, size, color) in enumerate(lines):
+        path = text_dir / f"line-{index:02}.txt"
+        path.write_text(text)
+        overlays.append(f"drawtext=fontfile={filter_path(FONT)}:textfile={filter_path(path)}:fontsize={size}:fontcolor={color}:x=650:y={y}")
+        y += 100 if index == 0 else 50
+    hold = text_dir / "held.txt"
+    hold.write_text("Held frame from this run")
+    overlays.append(f"drawtext=fontfile={filter_path(FONT)}:textfile={filter_path(hold)}:fontsize=24:fontcolor=000000:box=1:boxcolor=0xfbbf24:boxborderw=10:x=110:y=1020:enable='gte(t,{raw_info['duration_seconds']:.3f})'")
+    graph = ("[0:v]setpts=PTS-STARTPTS,fps=30,scale=480:960:force_original_aspect_ratio=decrease,"
+        "pad=480:960:(ow-iw)/2:(oh-ih)/2:color=0x09111f,tpad=stop_mode=clone:stop_duration=120[phone];"
+        f"color=c=0x09111f:s=1920x1080:r=30:d={duration}[bg];"
+        "[bg][phone]overlay=90:60:shortest=1," + ",".join(overlays) + "[out]")
+    video = stage / "weather-demo-0.mp4"
+    command(["/usr/bin/ffmpeg", "-nostdin", "-v", "error", "-i", str(raw_video),
+        "-filter_complex", graph, "-map", "[out]", "-an", "-t", str(duration),
+        "-c:v", "libx264", "-threads", "2", "-preset", "fast", "-crf", "20",
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-map_metadata", "-1", str(video)], seconds=1200)
+    info = video_info(video)
+    require(abs(info["duration_seconds"] - duration) < 0.1 and video.stat().st_size <= 128 * 1024**2)
+    shutil.rmtree(text_dir)
+    return video, info
+
+
 def prepare(evidence, output, execute=False):
     evidence, output = Path(evidence), Path(output)
     require(evidence.is_absolute() and evidence.resolve(strict=True) == evidence
@@ -135,29 +164,7 @@ def prepare(evidence, output, execute=False):
     ]
     stage = Path(tempfile.mkdtemp(prefix=".weather-demo-presentation-", dir=output.parent))
     try:
-        text_dir = stage / "text"
-        text_dir.mkdir()
-        overlays, y = [], 65
-        for index, (text, size, color) in enumerate(lines):
-            path = text_dir / f"line-{index:02}.txt"
-            path.write_text(text)
-            overlays.append(f"drawtext=fontfile={filter_path(FONT)}:textfile={filter_path(path)}:fontsize={size}:fontcolor={color}:x=650:y={y}")
-            y += 100 if index == 0 else 50
-        hold = text_dir / "held.txt"
-        hold.write_text("Held frame from this run")
-        overlays.append(f"drawtext=fontfile={filter_path(FONT)}:textfile={filter_path(hold)}:fontsize=24:fontcolor=000000:box=1:boxcolor=0xfbbf24:boxborderw=10:x=110:y=1020:enable='gte(t,{raw_info['duration_seconds']:.3f})'")
-        graph = ("[0:v]setpts=PTS-STARTPTS,fps=30,scale=480:960:force_original_aspect_ratio=decrease,"
-            "pad=480:960:(ow-iw)/2:(oh-ih)/2:color=0x09111f,tpad=stop_mode=clone:stop_duration=120[phone];"
-            f"color=c=0x09111f:s=1920x1080:r=30:d={duration}[bg];"
-            "[bg][phone]overlay=90:60:shortest=1," + ",".join(overlays) + "[out]")
-        video = stage / "weather-demo-0.mp4"
-        command(["/usr/bin/ffmpeg", "-nostdin", "-v", "error", "-i", str(raw_video),
-            "-filter_complex", graph, "-map", "[out]", "-an", "-t", str(duration),
-            "-c:v", "libx264", "-threads", "2", "-preset", "fast", "-crf", "20",
-            "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-map_metadata", "-1", str(video)], seconds=1200)
-        info = video_info(video)
-        require(abs(info["duration_seconds"] - duration) < 0.1 and video.stat().st_size <= 128 * 1024**2)
-        shutil.rmtree(text_dir)
+        video, info = render_video(raw_video, stage, duration, raw_info, lines)
         vtt, transcript = captions(duration, raw_info["duration_seconds"])
         (stage / "captions.vtt").write_text(vtt)
         (stage / "transcript.txt").write_text(transcript)
@@ -187,6 +194,8 @@ def prepare(evidence, output, execute=False):
             shutil.copyfile(evidence / name, stage / name)
         shutil.copytree(evidence / "demo-media", stage / "demo-media")
         shutil.copytree(DOCS / "reference", stage / "reference")
+        if (DOCS / "trials").is_dir():
+            shutil.copytree(DOCS / "trials", stage / "trials")
         files = {p.relative_to(stage).as_posix(): dict(bytes=p.stat().st_size, sha256=sha(p))
                  for p in sorted(stage.rglob("*")) if p.is_file()}
         result = dict(schema=1, kind="weather-demo-unpublished-presentation", identity=identity,

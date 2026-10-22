@@ -1,0 +1,11 @@
+{
+  "android_executed": false,
+  "artifact_id": 12466015525,
+  "artifact_sha256": "a3d70dcdf0792ca42129c2dd53404108d28f1079ba1901a381e9b1b24bdde3c1",
+  "media_accepted": false,
+  "probe_sha256": "fec3e9951daf38bb94d49e2cf1e121c8baf3b4ce644921d1701fa601db6e4a1f",
+  "run_id": "39869565948",
+  "schema": 1,
+  "source_revision": "dddd50244ae07727005385ae80cf04ef5d0416ca",
+  "synthetic_tool_input_only": true
+}

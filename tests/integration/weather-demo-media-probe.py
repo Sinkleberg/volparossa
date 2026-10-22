@@ -45,11 +45,19 @@ def main():
         record["serializer"] = value
         module = runpy.run_path(str(ROOT / "tests/integration/weather-demo-media.py"))
         try:
-            record["original_parser_result"] = module["probe_video"](video)
-            record["original_parser_accepted"] = True
+            record["parser_under_test_result"] = module["probe_video"](video)
+            record["parser_under_test_accepted"] = True
         except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
-            record["original_parser_result"] = None
-            record["original_parser_accepted"] = False
+            record["parser_under_test_result"] = None
+            record["parser_under_test_accepted"] = False
+        presentation = runpy.run_path(str(ROOT / "scripts/weather-demo-0-package.py"))
+        output = Path(temporary) / "synthetic-presentation"
+        output.mkdir(mode=0o700)
+        raw_info = presentation["video_info"](video)
+        _, rendered = presentation["render_video"](video, output, 120, raw_info,
+            [("SYNTHETIC TOOL TEST / NOT ANDROID EVIDENCE", 32, "ffffff")])
+        record["presentation_tool_probe"] = dict(completed=True, video=rendered,
+            synthetic_input_only=True, media_retained=False)
         version = subprocess.run(["/usr/bin/ffprobe", "-version"], stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=10, check=True)
         record["ffprobe_version"] = version.stdout.decode().splitlines()[0]
