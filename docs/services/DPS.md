@@ -122,9 +122,54 @@ It passed source gate `39664119379` with 13 inert tests. Actual hosted trial
 native execution. This historical result is superseded as the current source
 checkpoint below; the failure remains part of the evidence record.
 
-#### Current Map checkpoint — 2026-10-21
+#### Current Map checkpoint — 2026-10-22
 
-PR10's current published source is
+The current actual PR10 trial uses source
+[`f3296c21`](https://github.com/VOLPAROSSA/volparossa-map/commit/f3296c21f9787cb760e561954652158c7b21601d),
+tree `0002fa35860355a41541aa4563870909b03e7a5e`. Source gate `39694301016`
+passes 93 inert checks and Components `39694300657` passes 31. Actual run
+`39694570310` passes all eight Android/JNI instrumentation cases, including the
+real Rust/JNI golden and permission-boundary test; private process-group and
+cleanup controls also pass. The full fixture fails `KVM_DEVICE_CHANGED`, with
+only `ctime_ns` and `mtime_ns` changed. This does not identify whether udev,
+another process or the trial caused the metadata change. No normalization or
+waiver of this baseline failure is accepted.
+
+The preserved artifact `12390187577` is 97,745 bytes with SHA-256
+`e8a5320620919713895a5435e12826254719cb099cbe664fbb017459e1d0ac0e`.
+The instrumentation receipt is 5,558 bytes, SHA-256
+`f577b7780b302c55f93888d2ec617ea749f39b8a5e18e3108fca24a0d095e2e3`.
+The trial has no sensor exercise, physical accuracy, confidential execution or
+main Map navigation. Earlier actual trial `39690910102` on source
+`b64fba86d56ef1ac9e8d1afe89274c009bb7fffe` remains failed at its eighth test
+after seven passes; its KVM timestamp difference also left the host baseline
+unconfirmed. That earlier failure does not explain the current trial.
+
+A separate four-path KVM diagnostic candidate contains one query-only negative
+control followed by one empty-VM control. Its 112 total inert checks include 19
+new checks; independent Sol review passes all 20 focused checks. It is published
+as Map PR11, head
+[`f23d8a8b`](https://github.com/VOLPAROSSA/volparossa-map/commit/f23d8a8b31633bb62bc3f0581b6332d5273ff880),
+tree `a941a3c057caee886ca3bd6599fc24f803162b6e`, directly based on PR10
+source `f3296c21`. Source run `39696441858` passes 112 inert checks and Components
+`39696441713` passes 31. Actual control `39696546767` completes the bounded
+experiment: the original API12 query/close preserves all metadata after 250ms;
+one empty type-0 VM create/close then changes only ctime/mtime. VM/system
+descriptors close, the namespace group drains within its unchanged 10-second
+budget, and outer groups/state clean up. No SDK acquisition or Android execution
+occurs. The strict phase and overall host-baseline checks still fail. Artifact
+`12391605549` is 5,724 bytes, API/ZIP SHA-256
+`d7c6dee986c0673f8531bd353d33e08a4437913356c9211c12ccb8f8a331581a`;
+its committed source/pins and run/attempt match. This reproduction does not
+identify the timestamp actor, exclude delayed/transient changes, explain past
+runs or authorize normalization. Keep this diagnostic separate; do not merge it
+into PR10 or main as the app fixture. See the
+[implementation ledger](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
+for shared-core and current trial status.
+
+#### Earlier Map checkpoint — 2026-10-21
+
+At that snapshot PR10's published source was
 [`02cf65b9`](https://github.com/VOLPAROSSA/volparossa-map/commit/02cf65b9cea0fd9a09e51f434d8b55deccb40fb7),
 tree `5d5bbafa9a659ff81a046870b4f46af9cee3d7bd`. The independently reviewed
 change enables loopback in the verified private offline-build phase and adds inert checks;
@@ -175,12 +220,14 @@ the corrected exact dependency version is now in the candidate.
 The separate Map candidate lives in
 `.volparossa-dev/worktrees/map-native-dps-jni-20261021`, based on pinned Map
 source `e8fdcca87575e238894d579797379de9c3516384`. It is a standalone,
-permissionless debug/test path with an app-owned coordinator and C/JNI boundary;
+debug/test path designed to require no permissions, with an app-owned coordinator
+and C/JNI boundary;
 it does not load the Organic Maps framework or request location. Link the
 standalone native target to the new Rust static library and required Android
 system libraries; do not route it
-through Organic Maps' existing JNI helper or `JNI_OnLoad`. Thirteen inert tests pass,
-while Android remains unrun. Initial independent review found a SIGTERM
+through Organic Maps' existing JNI helper or `JNI_OnLoad`. At the initial source
+checkpoint, thirteen inert tests passed and Android had not run; subsequent
+partial native evidence is recorded above. Initial independent review found a SIGTERM
 cleanup bypass, background lifecycle tests that revoke/expire before entering
 background, and missing deterministic coverage of expiry between posting and
 display. The revised

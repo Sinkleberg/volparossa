@@ -14,11 +14,11 @@ detailed evidence ledger, including historical failures—not an installation gu
 [Original v1 scorecard](#fixed-alpha-v1-scorecard) ·
 [Completion requirements](#definition-of-done)
 
-Last updated: 2026-10-21
+Last updated: 2026-10-22
 
 ## Current integration and active work
 
-### Current resumption checkpoint — 2026-10-21
+### Current resumption checkpoint — 2026-10-22
 
 The complete [agreed goal](development/GOAL.md), every prior amendment and the
 [permanent joined DPS requirements](development/DPS_REQUIREMENTS.md) remain in
@@ -34,7 +34,119 @@ UI text. The user applied its exact three paragraphs to the existing active
 goal; independent readback confirmed exact equality and active status. No
 temporary attachment or previous conversation is required.
 
-Latest execution snapshot, 2026-10-21 21:32 UTC:
+Latest execution snapshot, observed 2026-10-22 00:00 UTC:
+
+- Main `9d456d7d6c0f6eca0ea03e75d280e3cbabdbc34a` (tree
+  `b7638c9757787d99f85c71f2a3373118f69fcfb6`) includes documentation PR319.
+  Exact-main Quality `39685018398` and CodeQL `39685018694` pass: workspace
+  4,244/0/12, standalone Storage 14/42, and one normal synthetic dormant-DPS
+  daemon execution with joined shutdown and unchanged bounded host observations.
+  Quality log SHA-256 is
+  `32e4782c026870c68c234ff864c268e71a515a4cadf88cbd6055bfe8454f8665`. The
+  complete goal and joined DPS requirements remain unchanged; the active goal
+  still equals the 1,767-character repository UI text.
+- Core combined source `c61c291e747765dac6cc93ba50aa016049c43c2b` corrects
+  only the old v8 test's v10 rejection while preserving all negative controls;
+  the original PR320 Quality `39689786519` remains failed on that obsolete test
+  after strict Clippy passed. Corrected Quality `39693355132` passes: workspace
+  4,253/0/12, standalone Storage 14 outcome/43 wire tests, formatting,
+  dependency/license checks, strict Clippy, namespace reporting and the
+  non-mutating harness. One completed synthetic DPS daemon execution reports
+  joined normal socket/fixture cleanup and unchanged bounded host observations.
+  CodeQL `39693350844` passes all four analyses. Quality log SHA-256 is
+  `af13cb2b811e38710e1cd2bf6f4dd9b22974a6e36030f733a8f04816b6937558`.
+  PR320 is merged as `becef3dd9e45a67eb6fd7f95a7b9fb6c95dd5b23`, with exact
+  parents `9d456d7d`/`c61c291e` and tested tree
+  `49534ec6bfc48f3d49c7158514ac452526077470`. Fetched committed goal
+  preservation passes. Exact-main Quality `39697005792` and CodeQL
+  `39697005948` are running. This is failure-localization functionality, not
+  full consumer acceptance, app location authority or physical positioning.
+  The earlier original failure log SHA-256
+  is `5da4e0f6b07e3fc285f0507d28b36e1f43a46d04e98409e56ece95f2ca8418bf`.
+- Storage source `54c752607c2340c1b3bd525c986a91c447c81e50` passes source gate
+  `39687575616`: 213 Rust tests, three retained MPTCP ignores, nine parser
+  controls, 283 Python and 55 Node tests, compilation, formatting and strict
+  lint. Consumer composition `f5892185003e04446719c3e65bf9b4835ef4c5c2`
+  passes `39689732732`: 331 Python, 58 core Node and 117 app Node tests, with
+  exact source/dependency bindings and complete pinned Image/Cloud manifests.
+  These source contracts do not resolve the observed failure or prove peer runtime
+  acceptance.
+  Original actual trial `39655116872` remains failed at fragment 3/copy 1
+  APPEND challenge verification; consumer usage was unavailable under the
+  former schema and remote deletion was unproved. The subsequent exact-source
+  trial `39690110300` also failed: Image `RESERVE`, fragment 1/copy 0,
+  `CONTENT_UNAVAILABLE`. Its nested `challenge_read_verify` observation is
+  `read.length_read`, `returned_outcome=null`, in challenge band
+  `90_to_120s`, versus `under_1s` before challenge. Null means no result was
+  returned; it does not prove timeout or cause. Fixed observer fragment 2/copy
+  0 is `untargeted_failure`. The 23 report source-pin rows match the committed
+  manifest. Provider usage was committed bytes 599359/399572/399574, leases
+  3/2/2, reserved bytes 0/0/0. Owner cleanup, remote deletion and owner
+  reconciliation are unproved; bounded local cleanup and unchanged host
+  observations passed. Artifact `12389789841` is 79,752 bytes with API-matched
+  SHA-256 `1a8aa8348c39859919e0717b0921cdaba66c2c52d068e408dea3632578adbb33`.
+- Image PR12 is merged as `78cc1d6cc7012ac64bbd07408990b63ed025d127`, tree
+  `313b9fe9ccfe89dd8e8085492cd01131d88092e0`. Source run `39693379596` and
+  exact-main run `39693725301` pass all 61 Node tests; CodeQL `39693725372`
+  passes all three analyses. Main source log SHA-256 is
+  `f230d0aa43dab9adfb237e1b33b4934b51867d33c602b8de0096b582bd06a78c`.
+- Cloud PR19 is merged as `4a6ac9630b86c0e2796db2b4c1a696fd238faefb`, with
+  verified parents `bdc9c914f4687f25396e23f322d5fa27e183ce8a` and
+  `75d2459ca8eef99d07d1a1f1679f3ea33b8e8984`, tree
+  `60ba20273e696e48b43fc9f7304d9099dc846aae`. The original source Quality
+  failure `39694577694` (103 pass, 5 fail, 3 skipped) is preserved; corrected
+  source Quality `39695541112` passes 108 tests, zero fail, three pre-existing
+  optional SDK skips, including all eight new diagnostics tests. Nine owner-
+  upload tests and provenance checks pass. Main component run `39696149635`
+  checks out the exact merge and runs 111 Node tests (108 pass, zero fail,
+  three skips), all eight new tests, nine owner-upload tests and provenance/
+  whitespace checks. Its 53,693-byte original log SHA-256 is
+  `6992930331eb74c65d134ec390e1bf9692230bf3bed8c06dc969d6e3fc2e274a`.
+  CodeQL `39696149509` passes all three analyses. These are source/component
+  checks, not peer storage runtime acceptance.
+- Map PR10 correction `f3296c21f9787cb760e561954652158c7b21601d` (tree
+  `0002fa35860355a41541aa4563870909b03e7a5e`) passes source gate `39694301016`
+  with 93 inert checks and Components `39694300657` with 31. Actual trial
+  `39694570310` passes all eight Android/JNI instrumentation cases, including
+  the actual Rust/JNI goldens and permission-boundary test; process-group and
+  cleanup checks pass. The full fixture still fails `KVM_DEVICE_CHANGED`, with
+  only `ctime_ns` and `mtime_ns` differing. No normalization, udev attribution
+  or physical accuracy is established. The separate four-path diagnostic
+  candidate adds one query-only negative control followed by one empty-VM
+  control; its 112 total inert checks include 19 new checks. Independent Sol
+  review passes all 20 focused checks. It is published separately as Map PR11,
+  head `f23d8a8b31633bb62bc3f0581b6332d5273ff880`, tree
+  `a941a3c057caee886ca3bd6599fc24f803162b6e`, with source gate `39696441858`
+  passing 112 and Components `39696441713` passing 31. Actual control
+  `39696546767` completes: query/close preserves metadata; one empty-VM
+  create/close changes only ctime/mtime. Both descriptors close and all owned
+  groups/state drain. No Android acquisition or execution occurs. Strict
+  baseline failure remains; the timestamp actor and historical causes remain
+  unproved. Artifact `12391605549` is 5,724 bytes, API/ZIP SHA-256
+  `d7c6dee986c0673f8531bd353d33e08a4437913356c9211c12ccb8f8a331581a`.
+  Keep this diagnostic-only branch separate from PR10/main; its deliberate
+  pre-acquisition stop is not the Android fixture implementation. Prior source
+  `b64fba86d56ef1ac9e8d1afe89274c009bb7fffe` actual trial `39690910102` remains
+  failed at the eighth Android instrumentation case after seven passed; its
+  KVM ctime/mtime changed and host baseline was unconfirmed. That historical
+  failure and the earlier source findings do not explain this newer timestamp
+  change. No sensor exercise, physical positioning accuracy, or native
+  navigation is proven.
+- Protected-model PR323 source `fac29210327740c482ba3afd9439bade56e1249c`
+  passes source run `39693126324`: 133 Rust and 438 Python tests, strict lint
+  and unchanged-source checks; 41 source, ten scoped and five dependency blobs
+  match. It is merged into retained PR276 as
+  `8b37a08bcf64a8d6e34932f0d0f4ee75082c813e`, tree
+  `e642416de57a1acef4aa9d91163761ffddb9d646`. Actual public-model trial
+  `39694353519` has passing source contracts and is currently executing the
+  model job; no trial result is yet established. The earlier manual attempt
+  `39690619275` failed stale branch-dependent inventory assertions and skipped
+  the actual model job. Earlier real trial `39679679524` remains failed at
+  first RESULT with stdout closed and generic Bubblewrap classification; no
+  model turn or cause was established. Narrow child/outer VM cleanup passed,
+  but complete guest-descendant cleanup remains unproved.
+
+Earlier execution snapshot, 2026-10-21 21:32 UTC:
 
 - Main code revision `0f15a349d3fe34131a806241c3efcb7c8a1cdb8d` (tree
   `985b9d834381701f19d05ae4c0a2a4e6353fe782`) includes PR316; Quality
@@ -618,16 +730,22 @@ hosted evidence. No new KVM, namespace, cancellation or Android trial has run.
 
 ### Execution priorities and next milestones
 
-Current next actions are to finish the Storage read-stage source gate, diagnose
-the actual APPEND challenge failure independently of the former observer/schema
-defect, and improve protected-model failure-stage evidence without treating a
-diagnostic as a fix. For Map, retain the offline-loopback correction as a narrow
-source change and keep IPv6 baseline uncertainty, Android JNI/runtime execution,
-permissions and hardware positioning open. Require joined cleanup and bounded
-host-state evidence in any subsequent actual trial. These steps establish only
-their stated source, adapter lifecycle and ABI boundaries. The full goal still
-requires real sensor adapters, frame integrity, fusion, physical evaluation and
-native navigation alongside the other shared core integrations.
+Current next actions are to audit PR320's exact-main checks and isolate the
+Storage challenge-length stall with a deterministic protected-stream/provider test.
+Separate selector delivery, provider dispatch and close propagation without
+changing production deadlines, retry behavior or the existing fixed observer.
+Image and Cloud's opt-in SDK source/component checks pass separately; retain the
+actual fixture pins and unfinished maintenance work until their own integration.
+Consume the original model trial after the accepted CI inventory correction;
+bounded failure labels do not fix Bubblewrap or establish inference. For Map,
+preserve all eight passing actual Android tests and proven process cleanup.
+The empty-VM control reproduces timestamp-only changes, but the actor and
+unchanged complete host baseline remain unproved. Resolve that boundary without
+normalization or attributing historical failures to this control. Require all
+eight tests and complete cleanup/host acceptance before native integration.
+The full goal still requires real sensor adapters, frame
+integrity, fusion, physical evaluation and native navigation alongside the other
+shared core integrations; partial synthetic JNI success does not satisfy them.
 
 The shared cache and actual Weather delivery into Drizz.li and Overmorrow are
 integrated. The installed Android app now also passes on-demand core delivery,
