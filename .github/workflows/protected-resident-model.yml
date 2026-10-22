@@ -36,6 +36,8 @@ jobs:
   contracts:
     if: >-
       github.repository == 'VOLPAROSSA/volparossa' &&
+      ((github.ref == 'refs/heads/fix/model-host-observation-20261022' &&
+      github.event_name == 'workflow_dispatch' && inputs.scenario == 'source-contracts') ||
       (github.ref == 'refs/heads/feature/protected-resident-model' ||
       ((github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' ||
       github.ref == 'refs/heads/fix/protected-requester-diagnostic-20261021' ||
@@ -45,7 +47,7 @@ jobs:
       github.ref == 'refs/heads/fix/protected-bwrap-stage-20261022' ||
       github.ref == 'refs/heads/fix/protected-model-root-transition-20261022' ||
       github.ref == 'refs/heads/fix/model-corruption-transition-20261022') &&
-      (github.event_name == 'push' || inputs.scenario == 'source-contracts')))
+      (github.event_name == 'push' || inputs.scenario == 'source-contracts'))))
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -258,10 +260,52 @@ jobs:
               actual_job_sha256=hashlib.sha256(actual+new.split(actual,1)[1]).hexdigest(),
               source_contracts_only=True,actual_model_execution=False,guest_boot=False,
               cleanup_semantics='all_launched_scopes_joined_before_payload_removal')
+          host_observation_scope=None
+          if os.environ['GITHUB_REF']=='refs/heads/fix/model-host-observation-20261022':
+            host_base='e4824ae3c9a3f606a6013540461f5d148e3a76b6'
+            subprocess.run(['git','merge-base','--is-ancestor',host_base,'HEAD'],check=True)
+            host_allowed={
+              '.github/workflows/protected-resident-model.yml',
+              'THIRD_PARTY_LICENSES.md',
+              'tests/integration/protected-resident-model-run.py',
+              'tests/integration/test-protected-resident-model-run.py',
+              'tests/integration/protected-resident-model-host-observation.py',
+              'tests/integration/test-protected-resident-model-host-observation.py'}
+            changed=git('diff','--name-only',host_base,'HEAD').splitlines()
+            assert len(changed)==len(set(changed))==len(host_allowed)==6 and set(changed)==host_allowed
+            dependencies=('Cargo.lock','Cargo.toml','rust-toolchain.toml',
+              'crates/volparossa/Cargo.toml','crates/volparossa-content/Cargo.toml',
+              'crates/volparossa/src/compute/resident_guest.rs',
+              'crates/volparossa/src/compute/resident_guest/public_trial.rs',
+              'crates/volparossa/src/compute/supervise/native_session.rs',
+              'packaging/protected-resident-model/init',
+              'packaging/protected-resident-model/entrypoint',
+              'packaging/protected-resident-model/profile-v1.json',
+              'tests/integration/protected-resident-image-pins-v1.json',
+              'tests/integration/protected-resident-model-debian-lock-v1.json',
+              'tests/integration/protected-resident-model-build.py',
+              'tests/integration/protected-resident-model-install.py',
+              'tests/integration/protected-resident-model-assemble.py',
+              'tests/integration/protected-resident-model-workload.py')
+            for name in dependencies:
+              assert git('rev-parse','HEAD:'+name)==git('rev-parse',host_base+':'+name),name
+            workflow='.github/workflows/protected-resident-model.yml'
+            original=subprocess.check_output(['git','show',host_base+':'+workflow])
+            candidate=pathlib.Path(workflow).read_bytes()
+            actual=b'\n  public-model:\n'
+            assert candidate.split(actual,1)[1]==original.split(actual,1)[1]
+            host_observation_scope=dict(base_commit=host_base,
+              source_blobs={name:git('rev-parse','HEAD:'+name) for name in sorted(host_allowed)},
+              dependency_blobs={name:git('rev-parse','HEAD:'+name) for name in dependencies},
+              actual_job_sha256=hashlib.sha256(actual+candidate.split(actual,1)[1]).hexdigest(),
+              source_contracts_only=True,actual_model_execution=False,
+              diagnostic_only=True,strict_raw_equality_unchanged=True,historical_cause_proven=False)
           names=git('diff','--name-only',base,'HEAD').splitlines()
           receipt=dict(version=1,source_commit=os.environ['GITHUB_SHA'],source_tree=git('rev-parse','HEAD^{tree}'),base=base,
             source_blobs={n:git('rev-parse','HEAD:'+n) for n in names},
             dependency_versions_unchanged=True,actual_model_execution=False,guest_boot=False,private_peer_admission=False)
+          if host_observation_scope is not None:
+            receipt['host_observation_scope']=host_observation_scope
           if requester_scope is not None:
             receipt['requester_diagnostic_scope']=requester_scope
           if result_failure_scope is not None:
@@ -433,7 +477,7 @@ jobs:
           python3 -B - <<'PY'
           import json,pathlib,re
           root=pathlib.Path('resident-model-evidence'); counts={}
-          expected={'install':58,'assemble':29,'run':224}
+          expected={'install':58,'assemble':29,'run':225}
           for name,count in expected.items():
             raw=(root/('model-'+name+'.log')).read_text()
             tests=re.findall(r'^Ran ([0-9]+) tests? in ',raw,re.M)
@@ -443,6 +487,20 @@ jobs:
             counts[name]=int(tests[0])
           (root/'controller-tests.json').write_text(json.dumps(dict(version=1,counts=counts,
             guest_execution=False,model_execution=False,private_peer_admission=False),sort_keys=True)+'\n')
+          PY
+
+      - name: Inert strict host-observation diagnostic contracts
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 -B tests/integration/test-protected-resident-model-host-observation.py -v \
+            2>&1 | tee resident-model-evidence/host-observation.log
+          python3 -B - <<'PY'
+          import pathlib,re
+          raw=pathlib.Path('resident-model-evidence/host-observation.log').read_text()
+          assert re.findall(r'^Ran ([0-9]+) tests? in ',raw,re.M)==['15']
+          assert re.findall(r'^OK(?: .*)?$',raw,re.M)==['OK']
+          assert not re.search(r'\bskipped\b|^FAILED',raw,re.M)
           PY
 
       - name: Model initrd and preserved boot contracts

@@ -229,7 +229,7 @@ FAILURE_CODES = frozenset(('controller_deadline', 'controller_cancelled', 'comma
     'guest_source_bundle', 'guest_package_bundle', 'installer_receipt', 'runtime_still_mounted',
     'runtime_kernel_binding', 'verity_root_hash', 'channel_path_length', 'model_vm_died',
     'console_bound', 'model_ready_timeout', 'model_guest_exit_timeout', 'sealed_inputs_changed',
-    'negative_guest_exit_timeout', 'host_network_observation_changed', 'source_changed',
+    'negative_guest_exit_timeout', 'host_network_observation_changed', 'host_observation_capture_failed', 'source_changed',
     'space_download', 'space_root_extract', 'space_build', 'space_asset_export', 'space_workload_stage'))
 
 
@@ -1617,8 +1617,11 @@ def execute_owned(args, pending):
         images = ImageTools(work, args.appliance_kernel, deadline)
         require(args.requester.resolve(strict=True).is_relative_to(ROOT / 'target'), 'requester_source_path')
         report['requester_binary'] = file_hash(args.requester, deadline, 256 * 1024 ** 2)
-        report['host_before'] = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest()
-                                 for name in ('/proc/net/route', '/proc/net/ipv6_route', '/etc/resolv.conf')}
+        host_observer = module('protected-resident-model-host-observation')
+        host_before = host_observer.capture()
+        report['host_before'] = host_observer.hashes(host_before)
+        report['host_observation'] = dict(schema=1, before=host_before, after=None, comparison=None)
+        require(host_observer.complete(host_before), 'host_observation_capture_failed')
         public_keys(work, deadline)
         bundle = source_bundle(work, args.expected_source, args.requester, deadline)
         lock_path = HERE / 'protected-resident-model-debian-lock-v1.json'
@@ -1828,7 +1831,11 @@ def execute_owned(args, pending):
         current.stop()
         current = None
         require(source_binding(args.expected_source, deadline) == source, 'source_changed')
-        after = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in report['host_before']}
+        host_after = host_observer.capture()
+        after = host_observer.hashes(host_after)
+        report['host_after'] = after
+        report['host_observation']['after'] = host_after
+        report['host_observation']['comparison'] = host_observer.compare(host_before, host_after)
         require(after == report['host_before'], 'host_network_observation_changed')
         report.update(state='passed', phase='complete', model_execution=True,
                       host_observed_routes_dns_unchanged=True, runtime_image_deliberately_corrupted=True)
