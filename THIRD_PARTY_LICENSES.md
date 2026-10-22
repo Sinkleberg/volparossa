@@ -85,6 +85,56 @@ that revision are therefore retained unchanged under
 URLs, sizes and hashes in the optional pins. Converted artifacts include all
 five notices; no notice is replaced by this summary.
 
+## Public immutable guest boot prerequisite
+
+The disposable boot candidate reuses the exact Debian 13 cloud image in
+[`debian13-amd64-image-v1.json`](tests/helper/debian13-amd64-image-v1.json).
+Its reviewed SHA-512 comes from Debian's published checksums, not a detached
+release signature. The kernel package is `6.12.105-1`, with release
+`6.12.105+deb13-cloud-amd64`. Image packages retain their own original notices
+and distribution patches; they are not relicensed as VOLPAROSSA code.
+
+The image downloader also permits the exact same-path HTTPS redirect to
+`saimei.ftp.acc.umu.se` observed from the pinned Debian URL. Debian lists
+`ftp.acc.umu.se` among its [registered image mirrors](https://www.debian.org/CD/http-ftp/).
+This transport exception does not change the original image SHA-512, permit
+arbitrary mirrors or replace the required content verification.
+
+The [additional package pins](tests/integration/protected-resident-image-pins-v1.json)
+bind each official Debian download by exact version, size and SHA-256:
+
+- `cryptsetup-bin` and `libcryptsetup12`, both `2:2.7.5-2`, supply veritysetup
+  and its library. The [original cryptsetup copyright record](https://metadata.ftp-master.debian.org/changelogs/main/c/cryptsetup/cryptsetup_2.7.5-2_copyright)
+  includes GPL-2-or-later with an OpenSSL exception and LGPL-2.1-or-later
+  components; the complete per-file notices remain authoritative.
+- `busybox-static`, `1:1.37.0-6+b9`, supplies the fixed initrd shell and utilities.
+  Its [original Debian copyright record](https://metadata.ftp-master.debian.org/changelogs/main/b/busybox/busybox_1.37.0-6_copyright)
+  specifies GPL version 2 and retains the component copyrights.
+
+Only authenticated package contents are extracted, without maintainer-script
+execution or local patches to these binaries. The staged root retains their
+`/usr/share/doc` notices and Debian's common license texts. VOLPAROSSA supplies
+its own fixed bootstrap and test entrypoint rather than running the image's
+original cloud initialization. No guest image, initrd or executable is published
+as a workflow artifact; the retained output is bounded public test evidence.
+A distributable guest requires a separate complete notice/source-compliance and
+release review. Observed hosted build-tool hashes are not a reproducible or
+independently approved production toolchain.
+
+### Resident model build package addition
+
+The separate [resident model package lock](tests/integration/protected-resident-model-debian-lock-v1.json)
+records exact Debian package versions, official download origins, sizes, hashes
+and authenticated index provenance. Its reviewed build-only addition is
+`curl 8.14.1-2+deb13u7`, SHA-256
+`135636bd8b713c582d33e50ec4e36ea55cc3c5da3f12bbeb6b87d2bcbd3a0649`,
+from Debian's Trixie security archive. It matches the already selected libcurl;
+the existing package pins and runtime selection are unchanged.
+Upstream curl 8.14.1 uses the [curl permission notice](https://github.com/curl/curl/blob/curl-8_14_1/COPYING).
+The Debian package retains its distribution patches and complete per-file
+copyright notices; VOLPAROSSA adds no patch to this binary and does not replace
+those notices. This is an isolated build input, not a published client update.
+
 ## Public SNP verifier fixture trial
 
 The disposable public-fixture workflow selects
@@ -449,6 +499,25 @@ The fixed Rust supervisor uses Debian's installed Bubblewrap and util-linux reso
 tools as separate executables, not vendored copies. The sandbox argument vector is part of our
 source; [upstream Bubblewrap](https://github.com/containers/bubblewrap) explicitly makes its
 security policy the caller's responsibility. No development-host package installation occurs.
+
+For the optional public-fixture startup stage classifier, the inspected source is
+[Bubblewrap v0.12.0](https://github.com/containers/bubblewrap/tree/2a76602a8c71f36c1527cf9fc3417d9149822e0c),
+commit `2a76602a8c71f36c1527cf9fc3417d9149822e0c` (annotated tag object
+`014a04330642e5c870418beb621532cb896e0002`). The inspected `bubblewrap.c` is
+SPDX `LGPL-2.0-or-later`, SHA-256
+`3f17ee26057cae9d660801ca8d9ba84722f1bafdcd072d5151ee1c64eeeb15f4`.
+It byte-matches the orig source for Debian `0.12.0-1~deb13u1` in the existing model lock.
+[Debian's source declaration](https://security.debian.org/pool/main/b/bubblewrap/bubblewrap_0.12.0-1~deb13u1.dsc)
+records `bubblewrap_0.12.0.orig.tar.xz`, 126452 bytes, SHA-256
+`9760d007363e3abba7c747489910f9f82d9fca53ba3bd3282e396fa3c97a3314`, and
+`bubblewrap_0.12.0-1~deb13u1.debian.tar.xz`, 13728 bytes, SHA-256
+`7b54f121aebf5d4b38360ea728274c26fa471582bc3e6658379b679ecd8b5a2f`.
+Both archives were checked against that declaration. Its sole patch changes the
+namespace-permission explanatory suffix; the classifier's stable prefix is unchanged.
+The source diagnostic emitters are `bubblewrap.c`, `utils.c` and `bind-mount.c`.
+Only closed source-family labels are projected: no upstream code is imported,
+no original license/notice is changed, and matching a prefix proves neither the
+actual failing branch nor its errno, timing or underlying cause.
 
 ## Native MPQUIC audit state
 
