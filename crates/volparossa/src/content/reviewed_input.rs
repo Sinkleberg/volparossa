@@ -103,7 +103,7 @@ mod tests {
             },
         )
         .unwrap();
-        let signed = publish(
+        let manifest = publish(
             &mut input,
             Publication {
                 metadata: Metadata {
@@ -121,7 +121,7 @@ mod tests {
             &mut store,
         )
         .unwrap();
-        let verified = signed.verify(&signer.verifying_key(), 1000).unwrap();
+        let verified = manifest.verify(&signer.verifying_key(), 1000).unwrap();
         assert_eq!(verified.object_sha256(), &expected);
         let mut output = Vec::new();
         reassemble(&verified, &mut [&mut store], 1000, &mut output).unwrap();
