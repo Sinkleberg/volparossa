@@ -1532,6 +1532,22 @@ def directory_identity(path):
     return meta.st_dev, meta.st_ino
 
 
+def remove_model_channel(work, scope):
+    """QEMU may already have removed its listener, but must first be joined."""
+    require(scope.label == 'model' and scope.started and scope.cleanup_confirmed
+            and scope.process is None, 'model_channel_cleanup_scope')
+    channel = work / 'channel.sock'
+    try:
+        meta = channel.lstat()
+    except FileNotFoundError:
+        return
+    require(stat.S_ISSOCK(meta.st_mode) and meta.st_uid == os.getuid(), 'model_channel_cleanup_path')
+    try:
+        channel.unlink()
+    except FileNotFoundError:
+        pass  # The joined QEMU may already have removed this fixed owned path.
+
+
 def remove_payload(work, parent_identity, payload_identity):
     """Remove only this invocation's payload; never its public evidence sibling."""
     require(work.name == 'payload' and shutil.rmtree.avoids_symlink_attacks, 'scratch_directory')
@@ -1596,6 +1612,7 @@ def execute_owned(args, pending):
                   build_boot_diagnostic=build_boot_diagnostic(), guest_package_diagnostics=[],
                   guest_builder_diagnostics=[])
     current = build_scope = None
+    scopes = []
     try:
         images = ImageTools(work, args.appliance_kernel, deadline)
         require(args.requester.resolve(strict=True).is_relative_to(ROOT / 'target'), 'requester_source_path')
@@ -1657,6 +1674,7 @@ def execute_owned(args, pending):
         with socket.socket() as test:
             test.bind(('127.0.0.1', 22223))
         current = build_scope = Scope(qemu_build(work), work, deadline, env, min(7500, int(remaining(deadline))), 'build')
+        scopes.append(current)
         current.start(report['memory_admissions'])
         guest = Guest(work, deadline)
         report['phase'] = 'guest_boot'
@@ -1757,6 +1775,7 @@ def execute_owned(args, pending):
         require(len(os.fsencode(channel)) < 104, 'channel_path_length')
         report['phase'] = 'model_boot'
         current = Scope(qemu_model(work, closure, channel), work, deadline, env, 2700, 'model')
+        scopes.append(current)
         current.start(report['memory_admissions'])
         end = time.monotonic() + remaining(deadline, 300)
         console = work / 'model-console.log'
@@ -1797,8 +1816,9 @@ def execute_owned(args, pending):
             image.flush()
             os.fsync(image.fileno())
         console.unlink()
-        channel.unlink()
+        remove_model_channel(work, scopes[-1])
         current = Scope(qemu_model(work, closure, channel), work, deadline, env, 360, 'corrupt')
+        scopes.append(current)
         current.start(report['memory_admissions'])
         end = time.monotonic() + remaining(deadline, 300)
         while current.alive() and time.monotonic() < end:
@@ -1810,20 +1830,23 @@ def execute_owned(args, pending):
         require(source_binding(args.expected_source, deadline) == source, 'source_changed')
         after = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in report['host_before']}
         require(after == report['host_before'], 'host_network_observation_changed')
-        report.update(state='passed', phase='complete', model_execution=True, vm_cleanup_confirmed=True,
+        report.update(state='passed', phase='complete', model_execution=True,
                       host_observed_routes_dns_unchanged=True, runtime_image_deliberately_corrupted=True)
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, CleanupUnconfirmed) as error:
         code = str(error) if type(error) is ValueError else ''
         report['failure'] = code if code in FAILURE_CODES else 'controller_stage_failed'
     finally:
-        scopes_safe = current is None
-        if current is not None:
+        for scope in scopes:
+            if scope.cleanup_confirmed:
+                continue
             try:
-                current.stop()
-                report['vm_cleanup_confirmed'] = True
-                scopes_safe = True
+                scope.stop()
             except (OSError, ValueError, subprocess.SubprocessError, CleanupUnconfirmed):
-                report['vm_cleanup_confirmed'] = False
+                pass  # Retain the primary failure and the scope's unconfirmed state.
+        scopes_safe = all(scope.process is None and
+                          (scope.cleanup_confirmed or (not scope.started and scope.group is None))
+                          for scope in scopes)
+        report['vm_cleanup_confirmed'] = scopes_safe
         if build_scope is not None and build_scope.cleanup_confirmed:
             try:
                 report['build_boot_diagnostic']['console'] = build_console_projection(work, payload_identity, deadline)
