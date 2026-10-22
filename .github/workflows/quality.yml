@@ -130,6 +130,7 @@ jobs:
 
   quality:
     name: Unprivileged quality gates
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.studio_export_pack) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
 
