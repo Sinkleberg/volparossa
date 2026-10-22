@@ -52,7 +52,9 @@ if [ "$test_backend" = studio-nonroot ]; then
     [ "$test_name:$test_marker:$test_network" = studio_export:VOLPAROSSA_HANDOFF_TEST_PARENT_NETNS:loopback ] ||
         fail 'Studio nonroot backend requires its fixed command label, marker and loopback'
     [ "$test_executable" = /usr/bin/python3 ] || fail 'Studio nonroot backend requires system Python'
-    [ "$#" -eq 2 ] && [ "$1" = -B ] || fail 'Studio nonroot backend requires its exact Python arguments'
+    if [ "$#" -ne 2 ] || [ "$1" != -B ]; then
+        fail 'Studio nonroot backend requires its exact Python arguments'
+    fi
     case "${RUNNER_TEMP:-}" in /?*) ;; *) fail 'Studio nonroot backend requires absolute runner temporary root' ;; esac
     case "$2" in
         "$RUNNER_TEMP"/studio-export-*/fixture/runtime.py) ;;
@@ -63,9 +65,12 @@ if [ "$test_backend" = studio-nonroot ]; then
     case "$test_studio_directory" in
         *[!a-zA-Z0-9_-]*|studio-export-) fail 'Studio nonroot temporary directory is invalid' ;;
     esac
-    [ -f "$2" ] && [ ! -L "$2" ] || fail 'Studio nonroot runtime script must be a regular file'
-    [ "${GITHUB_ACTIONS:-false}" = true ] && [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ] ||
+    if [ ! -f "$2" ] || [ -L "$2" ]; then
+        fail 'Studio nonroot runtime script must be a regular file'
+    fi
+    if [ "${GITHUB_ACTIONS:-false}" != true ] || [ "${RUNNER_ENVIRONMENT:-}" != github-hosted ]; then
         fail 'Studio nonroot backend requires the disposable hosted runner'
+    fi
     [ "${VOLPAROSSA_TEST_ALLOW_SUDO_NETNS:-0}" = 1 ] ||
         fail 'Studio nonroot backend requires explicit sudo namespace authorization'
 fi
