@@ -3,6 +3,11 @@ run-name: Exact v6 inputs — installed Android through protected Weather peers
 
 on:
   workflow_dispatch:
+    inputs:
+      record_demo:
+        description: Record genuine Android pixels for Weather Demo 0 after full acceptance
+        type: boolean
+        default: false
   push:
     branches: [feature/weather-android-core]
     paths:
@@ -21,7 +26,7 @@ defaults:
     shell: bash
 
 env:
-  VOLPAROSSA_WEATHER_SOURCE_SHA: 3b90442a9d5be4db73ccf83cba2028364980c3ca
+  VOLPAROSSA_WEATHER_SOURCE_SHA: 85e9eda9bb6105866db2510758e76c9930fdde91
 
 jobs:
   joined:
@@ -55,6 +60,9 @@ jobs:
           python3 -B tests/integration/test-weather-android-inner-diagnostic.py
           python3 -B tests/integration/test-weather-android-driver-diagnostic.py
           python3 -B tests/integration/test-weather-android-tunnel.py
+          python3 -B tests/integration/test-weather-demo-0-presentation.py
+          python3 -B tests/integration/test-weather-demo-0-sources.py
+          python3 -B tests/integration/test-weather-demo-media.py
           sh -n tests/integration/run-alpha-topology-vm.sh
           sh -n tests/integration/weather-android-delivery.sh
           record=tests/integration/weather-public-android-v6.json
@@ -74,7 +82,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: VOLPAROSSA/volparossa-weather
-          ref: 3b90442a9d5be4db73ccf83cba2028364980c3ca
+          ref: 85e9eda9bb6105866db2510758e76c9930fdde91
           path: .cache/weather-android-source
           persist-credentials: false
       - name: Check combined resources before acquiring toolchains
@@ -189,7 +197,7 @@ jobs:
             apparmor bubblewrap acl git python3 util-linux iproute2 ca-certificates curl unzip xz-utils zip \
             debianutils mawk openjdk-17-jdk-headless libglu1-mesa libgl1 libpulse0 libnss3 libxkbcommon0 \
             libxcb-cursor0 libxi6 libxrandr2 libxrender1 libxfixes3 libxcursor1 libasound2t64 libgbm1 libatomic1 \
-            build-essential cmake libevent-dev pkg-config qemu-system-x86 qemu-utils cloud-image-utils openssh-client jq
+            build-essential cmake libevent-dev pkg-config qemu-system-x86 qemu-utils cloud-image-utils openssh-client jq ffmpeg fonts-dejavu-core
           test -c /dev/kvm
           test "$(stat -Lc '%u' /dev/kvm)" = 0
           qemu-system-x86_64 -accel help | grep -Fx kvm
@@ -282,6 +290,8 @@ jobs:
             "$image" | sha512sum --check --strict -
           printf 'WEATHER_IMAGE=%s\n' "$image" >> "$GITHUB_ENV"
       - name: Run actual Android-triggered protected delivery
+        env:
+          VOLPAROSSA_WEATHER_RECORD_DEMO: ${{ inputs.record_demo && '1' || '0' }}
         run: |
           set -euo pipefail
           python3 -B - <<'PY'
@@ -370,9 +380,51 @@ jobs:
           python3 -B tests/integration/weather-android-owner.py accept --output "$WEATHER_OUTPUT" \
             --core-commit "$GITHUB_SHA" --weather-commit "$VOLPAROSSA_WEATHER_SOURCE_SHA" \
             --manifest "$WEATHER_MANIFEST" --kvm-cleanup "$WEATHER_INPUTS/kvm-cleanup.json"
+      - name: Admit same-run public Android pixels after full acceptance
+        if: inputs.record_demo
+        run: |
+          set -euo pipefail
+          python3 -B tests/integration/weather-demo-media.py export --evidence "$WEATHER_OUTPUT" \
+            --weather-root "$GITHUB_WORKSPACE/.cache/weather-android-source"
+      - name: Upload only accepted dedicated Android media
+        if: success() && inputs.record_demo
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: weather-demo-media-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+          # The preceding closed validator rejects extra entries in this exact
+          # dedicated directory. It never contains private runtime material.
+          path: ${{ env.WEATHER_OUTPUT }}/demo-media/
+      - name: Assemble an unpublished demonstration review package
+        if: success() && inputs.record_demo
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 -B scripts/weather-demo-0-package.py --evidence "$WEATHER_OUTPUT" \
+            --output "$GITHUB_WORKSPACE/.cache/weather-demo-presentation" --execute
+          python3 -B scripts/weather-demo-0-sources.py --core-revision "$GITHUB_SHA" \
+            --weather-repository "$GITHUB_WORKSPACE/.cache/weather-android-source" \
+            --weather-revision "$VOLPAROSSA_WEATHER_SOURCE_SHA" \
+            --output "$GITHUB_WORKSPACE/.cache/weather-demo-sources" --execute \
+            > "$WEATHER_OUTPUT/weather-demo-source-bundle.json"
+          (cd "$GITHUB_WORKSPACE/.cache/weather-demo-presentation" && sha256sum --check --strict SHA256SUMS)
+      - name: Upload unpublished review materials and exact source archives
+        if: success() && inputs.record_demo
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: weather-demo-review-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+          path: |
+            .cache/weather-demo-presentation/
+            .cache/weather-demo-sources/
       - name: Upload only closed evidence and pinned-input provenance
         if: always() && env.WEATHER_OUTPUT != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: weather-android-delivery-${{ github.sha }}
           retention-days: 14

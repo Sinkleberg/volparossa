@@ -31,7 +31,7 @@ class Interrupted(Exception):
 
 
 class Native(unittest.TestCase):
-    def launch(self, function, *, verify_error=None, load_error=None, snapshots=None):
+    def launch(self, function, *, verify_error=None, load_error=None, snapshots=None, record_demo=False):
         output, calls = io.StringIO(), []
         def load(path, **options):
             calls.append((path, options))
@@ -48,7 +48,7 @@ class Native(unittest.TestCase):
         with patch.dict(G, verified_script=verify), patch.object(N["runpy"], "run_path", side_effect=load), \
                 patch.dict(os.environ, GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="1"), \
                 patch.dict(K, snapshot=lambda: next(samples)), redirect_stdout(output):
-            status = N["main"](list(ARGS))
+            status = N["main"](list(ARGS) + (["--record-demo"] if record_demo else []))
         self.assertIs(sys.argv, original)
         raw = output.getvalue()
         value = None if status == 0 else json.loads(raw.splitlines()[-1].removeprefix(N["PREFIX"]))
@@ -63,6 +63,13 @@ class Native(unittest.TestCase):
         self.assertEqual((status, value), (0, None))
         self.assertEqual(K["validate_native"](json.loads(raw.splitlines()[-1][len(K["PREFIX"]):]))["baseline_state"], "rejected")
         self.assertEqual(calls, [[str(SCRIPT), "--run-protected-core", "--upstream-socket", ARGS[-1]]])
+        self.assertEqual(loaded, [(str(SCRIPT), dict(run_name="__volparossa_android_native__"))])
+
+    def test_opt_in_only_appends_fixed_recording_flag_to_original_guarded_main(self):
+        calls = []
+        status, _, _, loaded = self.launch(lambda: calls.append(list(sys.argv)), record_demo=True)
+        self.assertEqual(status, 0)
+        self.assertEqual(calls, [[str(SCRIPT), "--run-protected-core", "--upstream-socket", ARGS[-1], "--record-demo"]])
         self.assertEqual(loaded, [(str(SCRIPT), dict(run_name="__volparossa_android_native__"))])
 
     def test_original_early_guard_failure_is_recorded_without_skipping_finally(self):

@@ -272,9 +272,11 @@ def command(value, name, action=None):
         return ["/usr/bin/python3", "-B", str(HERE / "weather-android-tunnel.py"), "host", "--socket",
             str(run / "android-api/core-api.sock"), "--ssh-key", str(run / "guest-key"), "--known-hosts", str(run / "known-hosts")]
     same(name, "native")
+    recording = os.environ.get("VOLPAROSSA_WEATHER_RECORD_DEMO", "0")
+    require(recording in ("0", "1"))
     return ["/usr/bin/python3", "-B", str(HERE / "weather-android-native.py"),
         "--weather-root", str(weather), "--core-commit", value["core_commit"],
-        "--weather-commit", value["weather_commit"], "--upstream-socket", str(run / "android-api/core-api.sock")]
+        "--weather-commit", value["weather_commit"], "--upstream-socket", str(run / "android-api/core-api.sock")] + (["--record-demo"] if recording == "1" else [])
 
 
 @contextmanager

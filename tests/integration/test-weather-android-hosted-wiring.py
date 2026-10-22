@@ -23,7 +23,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / '.github/workflows/weather-android-delivery.yml').read_text()
-WEATHER = '3b90442a9d5be4db73ccf83cba2028364980c3ca'
+WEATHER = '85e9eda9bb6105866db2510758e76c9930fdde91'
 
 
 def embedded(name):
@@ -40,7 +40,7 @@ class AndroidHostedWiring(unittest.TestCase):
     def test_only_explicit_or_exact_workflow_branch_bounded_hosted_execution(self):
         self.assertIn('name: Weather Android protected core delivery\n', SOURCE)
         self.assertEqual(SOURCE.split('on:\n', 1)[1].split('\npermissions:', 1)[0].strip(),
-            'workflow_dispatch:\n  push:\n    branches: [feature/weather-android-core]\n    paths:\n'
+            'workflow_dispatch:\n    inputs:\n      record_demo:\n        description: Record genuine Android pixels for Weather Demo 0 after full acceptance\n        type: boolean\n        default: false\n  push:\n    branches: [feature/weather-android-core]\n    paths:\n'
             '      - .github/workflows/weather-android-delivery.yml')
         for item in ('    runs-on: ubuntu-24.04', '    timeout-minutes: 150', '  cancel-in-progress: false',
                 '  contents: read', '  actions: read'):
@@ -50,7 +50,7 @@ class AndroidHostedWiring(unittest.TestCase):
 
     def test_all_actions_and_weather_source_are_exact(self):
         actions = re.findall(r'uses: ([^\s]+)', SOURCE)
-        self.assertEqual(len(actions), 3)
+        self.assertEqual(len(actions), 5)
         self.assertTrue(all(re.fullmatch(r'actions/(?:checkout|upload-artifact)@[a-f0-9]{40}', item) for item in actions))
         self.assertEqual(SOURCE.count('persist-credentials: false'), 2)
         self.assertIn('  VOLPAROSSA_WEATHER_SOURCE_SHA: ' + WEATHER, SOURCE)
@@ -348,7 +348,7 @@ getfacl() { printf 'original inert ACL\\n'; }
     def test_artifact_upload_is_closed_not_a_directory_or_glob(self):
         section = block('Upload only closed evidence and pinned-input provenance')
         self.assertIn('          include-hidden-files: true\n', section)
-        self.assertEqual(SOURCE.count('include-hidden-files:'), 1)
+        self.assertEqual(SOURCE.count('include-hidden-files:'), 3)
         paths = section.split('          path: |\n', 1)[1].splitlines()
         self.assertEqual([path.strip() for path in paths if path.strip()], [
             '${{ env.WEATHER_OUTPUT }}/weather-android-delivery-evidence.json',
@@ -365,6 +365,35 @@ getfacl() { printf 'original inert ACL\\n'; }
                 'verify-runtime', 'runtime-version', 'native-preparation')]])
         for forbidden in ('*', '.log', '.acl', '.zip', '.tar', 'private', 'sdk', 'apk', 'proof/', 'run_directory', 'config'):
             self.assertNotIn(forbidden, '\n'.join(paths).lower())
+
+    def test_demo_pixels_are_default_off_and_only_export_after_original_acceptance(self):
+        execution = block('Run actual Android-triggered protected delivery')
+        self.assertIn("VOLPAROSSA_WEATHER_RECORD_DEMO: ${{ inputs.record_demo && '1' || '0' }}", execution)
+        admission = block('Admit same-run public Android pixels after full acceptance')
+        self.assertIn('if: inputs.record_demo', admission)
+        self.assertIn('weather-demo-media.py export --evidence', admission)
+        self.assertLess(SOURCE.index('- name: Require joined Android observations'), SOURCE.index('- name: Admit same-run public Android pixels'))
+        upload = block('Upload only accepted dedicated Android media')
+        self.assertIn('if: success() && inputs.record_demo', upload)
+        self.assertIn('path: ${{ env.WEATHER_OUTPUT }}/demo-media/', upload)
+        self.assertNotIn('always()', upload)
+        self.assertNotIn('*', upload)
+
+    def test_demo_review_package_is_local_and_upload_scope_is_dedicated(self):
+        package = block('Assemble an unpublished demonstration review package')
+        self.assertIn('if: success() && inputs.record_demo', package)
+        self.assertIn('scripts/weather-demo-0-package.py --evidence "$WEATHER_OUTPUT"', package)
+        self.assertIn('--core-revision "$GITHUB_SHA"', package)
+        self.assertIn('--weather-revision "$VOLPAROSSA_WEATHER_SOURCE_SHA"', package)
+        self.assertIn('sha256sum --check --strict SHA256SUMS', package)
+        self.assertLess(SOURCE.index('- name: Upload only accepted dedicated Android media'),
+            SOURCE.index('- name: Assemble an unpublished demonstration review package'))
+        upload = block('Upload unpublished review materials and exact source archives')
+        self.assertIn('if: success() && inputs.record_demo', upload)
+        self.assertEqual([line.strip() for line in upload.split('path: |\n', 1)[1].splitlines() if line.strip()],
+            ['.cache/weather-demo-presentation/', '.cache/weather-demo-sources/'])
+        for forbidden in ('gh release', 'releases/', 'contents: write', 'always()', '*'):
+            self.assertNotIn(forbidden, package + upload)
 
     def test_inner_diagnostic_is_optional_host_output_not_input_or_acceptance(self):
         parser_test = 'python3 -B tests/integration/test-weather-android-inner-diagnostic.py'

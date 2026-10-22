@@ -16,6 +16,30 @@ Last updated: 2026-10-15
 
 ## Current integration and active work
 
+### Weather Demo 0 isolated execution — 2026-10-23
+
+This branch derives from accepted Android/Core source `aac5be7f` solely to
+record a new, source-bound developer demonstration. It is not current main and
+must not replace or regress current Storage, Compute, DPS, Studio or helper work.
+The complete current [agreed goal](https://github.com/VOLPAROSSA/volparossa/blob/main/docs/development/GOAL.md)
+and every amendment remain in force. Original Weather source `3b90442a` and
+run `38717988016` remain immutable historical evidence.
+
+- [x] Recheck original source objects and original successful acceptance; preserve
+  the five exact closed reports with their original archive provenance.
+- [ ] Implement explicitly enabled same-run rendered-pixel recording without
+  changing product contracts, required guards, deadlines or original acceptance.
+- [ ] Execute new real-product delivery, recording and joined cleanup in the
+  approved disposable hosted environment; retain any failed trial unchanged.
+- [ ] Inspect actual media and assemble the approximately two-minute video,
+  captions, source archives and provenance for user review.
+- [ ] Publish `weather-demo-0.1.0` only after separate explicit user approval.
+
+[Demo runbook](demos/weather-demo-0/README.md) records exact baseline, boundaries
+and reproduction. Core runs externally to the Android emulator; this work does
+not establish a standalone phone release, physical-device support, concurrent
+bulk multipath or real expired-product recovery.
+
 ### Execution priorities and next milestones
 
 The shared cache and actual Weather delivery into Drizz.li and Overmorrow are

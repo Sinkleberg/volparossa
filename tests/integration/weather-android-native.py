@@ -20,15 +20,15 @@ HERE = Path(__file__).resolve().parent
 CORE = HERE.parents[1]
 K = runpy.run_path(str(HERE / "weather-android-kvm.py"))
 E = runpy.run_path(str(HERE / "weather-android-evidence.py"))
-WEATHER_COMMIT = "3b90442a9d5be4db73ccf83cba2028364980c3ca"
-ENTRYPOINT_SHA256 = "fdf07c912236ecc7f08bb2c63af97e2a2a799409d58b8a2736f172123ae5c490"
+WEATHER_COMMIT = "85e9eda9bb6105866db2510758e76c9930fdde91"
+ENTRYPOINT_SHA256 = "015c7c7ca8e10ac00d29f7a6db198752da66ad26e47ad56d252c31f2e3f35a56"
 PREFIX = "VOLPAROSSA_ANDROID_NATIVE_DIAGNOSTIC "
 CATEGORIES = frozenset(("interrupted", "value", "key", "type", "timeout", "process", "os", "system_exit", "unknown"))
 # Reviewed literal errors in f6's Android entrypoint and its pinned hosted
 # helpers. Do not derive an allowlist from runtime text or accept code-shaped
 # strings: unknown messages, filenames and exception details stay private.
 CODES = frozenset("""
-UNKNOWN NATIVE_LAUNCHER_ARGUMENTS NATIVE_LAUNCHER_IDENTITY NATIVE_LAUNCHER_SOURCE
+UNKNOWN ANDROID_DEMO_RECORDING_READY ANDROID_DEMO_RECORDING_FAILED ANDROID_DEMO_RECORDING_SCOPE NATIVE_LAUNCHER_ARGUMENTS NATIVE_LAUNCHER_IDENTITY NATIVE_LAUNCHER_SOURCE
 NATIVE_LAUNCHER_PATH NATIVE_LAUNCHER_RUNTIME
 HOSTED_PROFILE DISPOSABLE_HOSTED_ONLY EXACT_SOURCE CORE_CHECKOUT_SCOPE
 CORE_RUN_IDENTITY UBUNTU_24_REQUIRED SOURCE_HEAD POLICY_CHANGED
@@ -173,6 +173,8 @@ def main(arguments):
     observation, before, initial, selected_identity = None, None, None, None
     baseline_state = "absent"
     try:
+        record_demo = len(arguments) == 9 and arguments[-1] == "--record-demo"
+        if record_demo: arguments = arguments[:-1]
         require(len(arguments) == 8 and arguments[::2] == ["--weather-root", "--core-commit",
             "--weather-commit", "--upstream-socket"], "NATIVE_LAUNCHER_ARGUMENTS")
         weather, core_commit, weather_commit, socket = arguments[1::2]
@@ -191,7 +193,7 @@ def main(arguments):
             # Diagnostic failure is explicitly absent in the owner's receipt;
             # it must not become a replacement for the original native guard.
             observation = None
-        sys.argv = [str(script), "--run-protected-core", "--upstream-socket", socket]
+        sys.argv = [str(script), "--run-protected-core", "--upstream-socket", socket] + (["--record-demo"] if record_demo else [])
         # Invoke the original entrypoint, including every guard. Its generic
         # __main__ catch is the only bypassed layer; its internal finally and
         # cleanup still run before our exception handler sees any failure.

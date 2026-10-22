@@ -13,7 +13,7 @@ NAME = "weather-android-inner-diagnostic.json"
 MAX_BYTES = 8192
 LEGACY_WEATHER_COMMIT = "f6ee829961da387d9c0cd71b7163b47baab434fa"
 FIRST_DRIVER_WEATHER_COMMIT = "0a31bf180f1a42b96b0ceaec3715f56496a559a5"
-WEATHER_COMMIT = "3b90442a9d5be4db73ccf83cba2028364980c3ca"
+WEATHER_COMMIT = "85e9eda9bb6105866db2510758e76c9930fdde91"
 LEGACY_INPUTS = {
     "emulator": "build/overmorrow-hosted-android-live-proof/emulator-diagnostic.json",
     "guest_network": "build/overmorrow-hosted-android-live-proof/guest-network-diagnostic.json",

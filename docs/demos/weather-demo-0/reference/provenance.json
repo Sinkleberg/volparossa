@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "preserve_date": "2026-10-21",
+  "run": {
+    "url": "https://github.com/VOLPAROSSA/volparossa/actions/runs/38717988016",
+    "id": "38717988016",
+    "attempt": "1",
+    "created_at": "2026-10-15T10:07:20Z",
+    "updated_at": "2026-10-15T10:47:58Z",
+    "conclusion": "success",
+    "status": "completed"
+  },
+  "source": {
+    "core_commit": "aac5be7f602fae9754153cdcb5c401ecb9ee7cb6",
+    "core_url": "https://github.com/VOLPAROSSA/volparossa/tree/aac5be7f602fae9754153cdcb5c401ecb9ee7cb6",
+    "weather_commit": "3b90442a9d5be4db73ccf83cba2028364980c3ca",
+    "weather_url": "https://github.com/VOLPAROSSA/volparossa-weather/tree/3b90442a9d5be4db73ccf83cba2028364980c3ca"
+  },
+  "artifact": {
+    "id": "11966068479",
+    "url": "https://github.com/VOLPAROSSA/volparossa/actions/runs/38717988016/artifacts/11966068479",
+    "api_url": "https://api.github.com/repos/VOLPAROSSA/volparossa/actions/artifacts/11966068479",
+    "created_at": "2026-10-15T10:47:56Z",
+    "expires_at": "2026-10-29T10:47:56Z",
+    "bytes": 10346,
+    "sha256": "7a3f92eb5d921267ecffaeff82215bb2b6f32e9a3cdcfbf5d349a8eb7cae0232",
+    "github_api_digest": "sha256:7a3f92eb5d921267ecffaeff82215bb2b6f32e9a3cdcfbf5d349a8eb7cae0232"
+  },
+  "selection": "Five unchanged closed reports only; public fixture publication IDs and public publisher key retained. Raw receipts, logs, profiles and private keys are excluded. Hashes provide consistency, not independent runtime verification.",
+  "files": {
+    "weather-android-hosted-acceptance.json": {
+      "original_path": "volparossa/volparossa/.cache/weather-android-delivery/weather-android-hosted-acceptance.json",
+      "bytes": 2829,
+      "sha256": "4e3f0c8fe014bca4125249fbd0c0653a50730c68cceff073fc74ae68013fa099"
+    },
+    "weather-android-owner-join.json": {
+      "original_path": "volparossa/volparossa/.cache/weather-android-delivery/weather-android-owner-join.json",
+      "bytes": 2774,
+      "sha256": "ee27da2f3cabfb8808bac51125ed0d8b6b9f980f0f38b619a80380c3e9a5b5c7"
+    },
+    "weather-android-delivery-evidence.json": {
+      "original_path": "volparossa/volparossa/.cache/weather-android-delivery/weather-android-delivery-evidence.json",
+      "bytes": 4606,
+      "sha256": "a93a81f1860b7148520b0d6ed7692d15023410899375ec3ee663faa5bc20d0cb"
+    },
+    "weather-android-vm-cleanup.json": {
+      "original_path": "volparossa/volparossa/.cache/weather-android-delivery/weather-android-vm-cleanup.json",
+      "bytes": 446,
+      "sha256": "59fd535e57baaa3dd22076bd3c0fd87c5e6f1901bba420ab26cf26c0f963722d"
+    },
+    "kvm-cleanup.json": {
+      "original_path": "_temp/weather-android-inputs/kvm-cleanup.json",
+      "bytes": 464,
+      "sha256": "424c10464343f2e77591168264c0239c4455a7f1401750bcbd42b2496589d86b"
+    }
+  }
+}

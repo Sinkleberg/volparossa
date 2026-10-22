@@ -31,7 +31,7 @@ D = O["D"]
 KF = runpy.run_path(str(HERE / "test-weather-android-kvm.py"))
 DF = runpy.run_path(str(HERE / "test-weather-android-inner-diagnostic.py"))
 CORE_COMMIT = "a" * 40
-WEATHER_COMMIT = "3b90442a9d5be4db73ccf83cba2028364980c3ca"
+WEATHER_COMMIT = "85e9eda9bb6105866db2510758e76c9930fdde91"
 IDENTITY = dict(core_commit=CORE_COMMIT, weather_commit=WEATHER_COMMIT, run_id="123", run_attempt="1")
 ENV = dict(GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="1")
 NATIVE_RESULT = dict(schema=1, kind="hosted-android-protected-core-installed-trial", phase="complete", success=True,
@@ -747,6 +747,16 @@ class ContractTests(RecordFixture):
             str(HERE / "weather-android-native.py"), "--weather-root", str(self.weather),
             "--core-commit", CORE_COMMIT, "--weather-commit", WEATHER_COMMIT,
             "--upstream-socket", str(self.run / "android-api/core-api.sock")])
+
+    def test_recording_is_off_unless_explicit_closed_host_option_selects_it(self):
+        with patch.dict(os.environ, VOLPAROSSA_WEATHER_RECORD_DEMO="0"):
+            original = O["command"](self.config, "native")
+        self.assertNotIn("--record-demo", original)
+        with patch.dict(os.environ, VOLPAROSSA_WEATHER_RECORD_DEMO="1"):
+            self.assertEqual(O["command"](self.config, "native"), original + ["--record-demo"])
+        for invalid in ("true", "--command", "", "2"):
+            with patch.dict(os.environ, VOLPAROSSA_WEATHER_RECORD_DEMO=invalid), self.assertRaises(ValueError):
+                O["command"](self.config, "native")
 
     def test_configuration_has_exact_paths_pins_and_no_program_injection(self):
         for name in ("guest-key", "known-hosts"): save(self.run / name, b"inert\n")
