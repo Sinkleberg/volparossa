@@ -121,22 +121,20 @@ impl Fixture {
 
     async fn stop_joined(&mut self) -> bool {
         let _ = self.stop.send(true);
-        let stopped = match timeout(Duration::from_secs(5), &mut self.task).await {
-            Ok(result) => result.is_ok(),
-            Err(_) => {
-                self.task.abort();
-                let _ = (&mut self.task).await;
-                false
-            }
+        let stopped = if let Ok(result) = timeout(Duration::from_secs(5), &mut self.task).await {
+            result.is_ok()
+        } else {
+            self.task.abort();
+            let _ = (&mut self.task).await;
+            false
         };
         let actor_joined = if stopped {
-            match timeout(Duration::from_secs(5), &mut self.actor).await {
-                Ok(result) => result.is_ok(),
-                Err(_) => {
-                    self.actor.abort();
-                    let _ = (&mut self.actor).await;
-                    false
-                }
+            if let Ok(result) = timeout(Duration::from_secs(5), &mut self.actor).await {
+                result.is_ok()
+            } else {
+                self.actor.abort();
+                let _ = (&mut self.actor).await;
+                false
             }
         } else {
             self.actor.abort();

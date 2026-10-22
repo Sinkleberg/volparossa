@@ -994,8 +994,11 @@ fn provider_failure_event(
     // One fixed batch preserves the historical category and both closed diagnostic tuples.
     provider_events::Batch::new([
         Some(provider_error_code(error)),
-        storage_failure.map(|failure| failure.event_code()),
-        storage_failure.and_then(|failure| failure.payload_io_event_code()),
+        storage_failure
+            .map(volparossa_content::private_storage::wire::diagnostic::Failure::event_code),
+        storage_failure.and_then(
+            volparossa_content::private_storage::wire::diagnostic::Failure::payload_io_event_code,
+        ),
     ])
 }
 
