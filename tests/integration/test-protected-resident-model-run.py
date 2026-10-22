@@ -85,6 +85,14 @@ def fake_tool(*, join_error=None, returncode=0, pipe_bytes=None):
         yield process, join
 
 
+def inert_host_observer():
+    """Controller orchestration fixtures never read host routes or uname metadata."""
+    hashes = {name:'a'*64 for name in ('/proc/net/route','/proc/net/ipv6_route','/etc/resolv.conf')}
+    return types.SimpleNamespace(capture=lambda:dict(synthetic=True),
+        hashes=lambda _snapshot:dict(hashes),complete=lambda _snapshot:True,
+        compare=lambda *_:dict(diagnostic_only=True,acceptance_evidence=False,classification='UNCHANGED'))
+
+
 class Inert(unittest.TestCase):
     def setUp(self):
         # Any missed mock is an immediate test failure, never a real command.
@@ -93,6 +101,9 @@ class Inert(unittest.TestCase):
         mock.patch.object(R.time, 'monotonic', return_value=100.0).start()
         mock.patch.object(R.time, 'sleep').start()
         mock.patch.object(R, 'CANCELLED', False).start()
+        original_module = R.module
+        mock.patch.object(R,'module',side_effect=lambda name:
+            inert_host_observer() if name=='protected-resident-model-host-observation' else original_module(name)).start()
 
     def scope(self):
         value = R.Scope(['synthetic-qemu'], Path('/synthetic'), 200, {}, 50, 'test')
@@ -2472,11 +2483,11 @@ class ReceiptAndBindings(Inert):
             self.assertEqual(sum(groups.values()), 133)
             for stale in (dict(grant=22, guest=37, resident=39, local=30), dict(grant=22, guest=38, resident=41, local=30)):
                 with self.assertRaises(AssertionError): exec(rust_gate, dict(namespace, groups=stale))
-            for count in (224, 223, 222, 210):
+            for count in (225, 224, 223, 210):
                 current = dict(os=namespace['os'], root=Logs(count), re=re, counts={})
-                if count == 224:
+                if count == 225:
                     exec(controller_gate, current)
-                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=224))
+                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=225))
                 else:
                     with self.assertRaises(AssertionError): exec(controller_gate, current)
             for event, scenario in (('push', 'source-contracts'), ('workflow_dispatch', 'source-contracts'), ('workflow_dispatch', 'public-model')):
@@ -2490,6 +2501,35 @@ class ReceiptAndBindings(Inert):
             context = dict(github=types.SimpleNamespace(repository=repository, ref=branch, event_name='workflow_dispatch'),
                            inputs=types.SimpleNamespace(scenario='public-model'))
             self.assertFalse(eval(contracts, context)); self.assertFalse(eval(public, context))
+
+    def test_host_after_evidence_precedes_the_unchanged_strict_raw_gate(self):
+        tree = ast.parse(SOURCE.read_text())
+        function = next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='execute_owned')
+        owned = next(node for node in function.body if isinstance(node,ast.Try))
+        start = next(i for i,node in enumerate(owned.body) if isinstance(node,ast.Assign)
+                     and isinstance(node.targets[0],ast.Name) and node.targets[0].id=='host_after')
+        gate = owned.body[start:start+6]
+        self.assertEqual(ast.unparse(gate[-1]), "require(after == report['host_before'], 'host_network_observation_changed')")
+        compiled = compile(ast.Module(body=gate,type_ignores=[]),'inert-host-after-gate','exec')
+        before = {name:'a'*64 for name in ('/proc/net/route','/proc/net/ipv6_route','/etc/resolv.conf')}
+        for changed in (None,'/proc/net/route','/proc/net/ipv6_route','/etc/resolv.conf'):
+            after = dict(before)
+            if changed: after[changed] = 'b'*64
+            observation = dict(classification='REFERENCE_METADATA_ONLY',diagnostic_only=True,acceptance_evidence=False)
+            observer = types.SimpleNamespace(capture=mock.Mock(return_value=after),
+                hashes=lambda value:value,compare=lambda *_:observation)
+            report = dict(host_before=before,host_observation=dict(before=before,after=None,comparison=None),
+                state='failed',model_execution=False)
+            namespace = dict(host_observer=observer,host_before=before,report=report,require=R.require)
+            if changed:
+                with self.assertRaisesRegex(ValueError,'^host_network_observation_changed$'): exec(compiled,namespace)
+            else:
+                exec(compiled,namespace)
+            observer.capture.assert_called_once_with()
+            self.assertEqual(report['host_after'],after)
+            self.assertEqual(report['host_observation']['after'],after)
+            self.assertEqual(report['host_observation']['comparison'],observation)
+            self.assertEqual((report['state'],report['model_execution']),('failed',False))
 
     def test_inventory_diagnostic_branch_only_adds_exact_source_contract_authority(self):
         import textwrap
