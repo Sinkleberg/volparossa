@@ -124,47 +124,48 @@ checkpoint below; the failure remains part of the evidence record.
 
 #### Current Map checkpoint — 2026-10-22
 
-The latest fully audited actual trial uses PR10 source
-[`b64fba86`](https://github.com/VOLPAROSSA/volparossa-map/commit/b64fba86d56ef1ac9e8d1afe89274c009bb7fffe),
-tree `74d8267b8921165474a9cf6d000733a48d896f06`. Source gate
-`39690734517` passes 89 inert checks and Components `39690735396` passes 31.
-Original [actual trial 39690910102](https://github.com/VOLPAROSSA/volparossa-map/actions/runs/39690910102)
-is failed but establishes seven passing Android instrumentation cases, including
-the actual Rust/JNI goldens, consent generation, late-result rejection, expiry
-and background handling. The eighth case,
-`actualDebugActivityDisplayRevokeBackgroundAndPermissionBoundary`, fails an
-assertion; its exact assertion line and installed merged manifest were not
-retained. The eight-test acceptance predicate remains unchanged and unsatisfied.
+The current actual PR10 trial uses source
+[`f3296c21`](https://github.com/VOLPAROSSA/volparossa-map/commit/f3296c21f9787cb760e561954652158c7b21601d),
+tree `0002fa35860355a41541aa4563870909b03e7a5e`. Source gate `39694301016`
+passes 93 inert checks and Components `39694300657` passes 31. Actual run
+`39694570310` passes all eight Android/JNI instrumentation cases, including the
+real Rust/JNI golden and permission-boundary test; private process-group and
+cleanup controls also pass. The full fixture fails `KVM_DEVICE_CHANGED`, with
+only `ctime_ns` and `mtime_ns` changed. This does not identify whether udev,
+another process or the trial caused the metadata change. No normalization or
+waiver of this baseline failure is accepted.
 
-The real private PID-1 reaping control passes its negative, positive, adopted-child
-and independent-sentinel checks. Inner emulator/ADB groups drain in order,
-direct children are reaped and Android/AVD state is removed; outer groups and
-owned state also clean up. Final IPv6 and firewall configuration are unchanged
-(firewall counters only). KVM ctime/mtime differ, so the host baseline remains
-unconfirmed. This does not prove the cause of timestamp changes or identify
-historical surviving processes as zombies. Original artifact `12388379237`
-is 97,748 bytes, API/ZIP SHA-256
-`179a955fc498b474a7f0f5c552caabe6630f34dd808cc226d2bc3f8ae4530c57`.
-The tested and offline-rebuilt APK receipts agree: 2,742,899 bytes, SHA-256
-`b432f055fcbec19a657e4d206d19dabbbca5dcc6191d25f898d102ce6c2bdffa`.
+The preserved artifact `12390187577` is 97,745 bytes with SHA-256
+`e8a5320620919713895a5435e12826254719cb099cbe664fbb017459e1d0ac0e`.
+The instrumentation receipt is 5,558 bytes, SHA-256
+`f577b7780b302c55f93888d2ec617ea749f39b8a5e18e3108fca24a0d095e2e3`.
+The trial has no sensor exercise, physical accuracy, confidential execution or
+main Map navigation. Earlier actual trial `39690910102` on source
+`b64fba86d56ef1ac9e8d1afe89274c009bb7fffe` remains failed at its eighth test
+after seven passes; its KVM timestamp difference also left the host baseline
+unconfirmed. That earlier failure does not explain the current trial.
 
-Hash-checked official AndroidX test-core 1.7.0 declares `REORDER_TASKS`, while
-the fixture requires no requested permissions. Reviewed source
-`f3296c21f9787cb760e561954652158c7b21601d` removes exactly that inherited
-permission using a test-only manifest merger marker; the source gate allows no
-additional grant or wildcard removal. Source gate `39694301016` passes 93 inert
-checks and Components `39694300657` passes 31 on the exact source tree
-`0002fa35860355a41541aa4563870909b03e7a5e`. All eight Java tests and the
-runtime zero-permission assertion remain intact. The decoder adds only a closed
-exact-message observation, without retaining assertion text or changing any
-acceptance predicate. Actual trial `39694570310` is running on this source.
-This source incompatibility does not identify the original failing assertion,
-prove the final merged permission set, or justify removing unrelated receiver
-protection. All-eight native acceptance and unchanged host configuration remain
-required. No physical sensors, positioning improvement, navigation or GNSS
-integrity improvement is established. See the
+A separate four-path KVM diagnostic candidate contains one query-only negative
+control followed by one empty-VM control. Its 112 total inert checks include 19
+new checks; independent Sol review passes all 20 focused checks. It is published
+as Map PR11, head
+[`f23d8a8b`](https://github.com/VOLPAROSSA/volparossa-map/commit/f23d8a8b31633bb62bc3f0581b6332d5273ff880),
+tree `a941a3c057caee886ca3bd6599fc24f803162b6e`, directly based on PR10
+source `f3296c21`. Source run `39696441858` passes 112 inert checks and Components
+`39696441713` passes 31. Actual control `39696546767` completes the bounded
+experiment: the original API12 query/close preserves all metadata after 250ms;
+one empty type-0 VM create/close then changes only ctime/mtime. VM/system
+descriptors close, the namespace group drains within its unchanged 10-second
+budget, and outer groups/state clean up. No SDK acquisition or Android execution
+occurs. The strict phase and overall host-baseline checks still fail. Artifact
+`12391605549` is 5,724 bytes, API/ZIP SHA-256
+`d7c6dee986c0673f8531bd353d33e08a4437913356c9211c12ccb8f8a331581a`;
+its committed source/pins and run/attempt match. This reproduction does not
+identify the timestamp actor, exclude delayed/transient changes, explain past
+runs or authorize normalization. Keep this diagnostic separate; do not merge it
+into PR10 or main as the app fixture. See the
 [implementation ledger](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
-for current source, integration and trial state.
+for shared-core and current trial status.
 
 #### Earlier Map checkpoint — 2026-10-21
 
