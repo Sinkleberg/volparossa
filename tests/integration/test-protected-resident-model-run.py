@@ -4,6 +4,7 @@
 import ast
 import contextlib
 import copy
+import errno
 import hashlib
 import importlib.util
 import io
@@ -230,6 +231,327 @@ class ScopeCleanup(Inert):
             self.assertTrue(scope.stop()['scope_empty'])
         self.assertEqual(observed, [False])
         self.assertTrue(R.CANCELLED)
+
+
+class ModelChannelCleanup(Inert):
+    def joined_scope(self, **changes):
+        return types.SimpleNamespace(**dict(dict(label='model', started=True,
+            cleanup_confirmed=True, process=None), **changes))
+
+    def metadata(self, **changes):
+        return types.SimpleNamespace(**dict(dict(st_mode=stat.S_IFSOCK | 0o600,
+            st_uid=os.getuid()), **changes))
+
+    def test_owned_socket_removal_uses_only_fixed_path(self):
+        with mock.patch.object(Path, 'lstat', autospec=True, return_value=self.metadata()) as inspected, \
+                mock.patch.object(Path, 'unlink', autospec=True) as removed:
+            R.remove_model_channel(Path('/synthetic/payload'), self.joined_scope())
+        inspected.assert_called_once_with(Path('/synthetic/payload/channel.sock'))
+        removed.assert_called_once_with(Path('/synthetic/payload/channel.sock'))
+
+    def test_already_absent_or_disappearing_socket_is_safe(self):
+        for missing_at in ('inspection', 'removal'):
+            with self.subTest(missing_at=missing_at), \
+                    mock.patch.object(Path, 'lstat', return_value=self.metadata(),
+                        side_effect=FileNotFoundError if missing_at == 'inspection' else None), \
+                    mock.patch.object(Path, 'unlink', side_effect=FileNotFoundError) as removed:
+                R.remove_model_channel(Path('/synthetic/payload'), self.joined_scope())
+            self.assertEqual(removed.call_count, int(missing_at == 'removal'))
+
+    def test_wrong_type_symlink_or_foreign_owner_never_unlinks(self):
+        invalid = [self.metadata(st_mode=kind | 0o600)
+                   for kind in (stat.S_IFREG, stat.S_IFDIR, stat.S_IFLNK, stat.S_IFIFO)]
+        invalid.append(self.metadata(st_uid=os.getuid() + 1))
+        for meta in invalid:
+            with self.subTest(meta=meta), mock.patch.object(Path, 'lstat', return_value=meta), \
+                    mock.patch.object(Path, 'unlink') as removed:
+                with self.assertRaisesRegex(ValueError, '^model_channel_cleanup_path$'):
+                    R.remove_model_channel(Path('/synthetic/payload'), self.joined_scope())
+                removed.assert_not_called()
+
+    def test_permission_and_other_io_errors_propagate_at_both_operations(self):
+        for operation in ('lstat', 'unlink'):
+            for error in (PermissionError(errno.EACCES, 'private-canary'),
+                          OSError(errno.EIO, 'private-canary'),
+                          IsADirectoryError(errno.EISDIR, 'private-canary')):
+                with self.subTest(operation=operation, error=type(error).__name__), \
+                        mock.patch.object(Path, 'lstat', return_value=self.metadata()) as inspected, \
+                        mock.patch.object(Path, 'unlink') as removed:
+                    (inspected if operation == 'lstat' else removed).side_effect = error
+                    with self.assertRaises(type(error)) as caught:
+                        R.remove_model_channel(Path('/synthetic/payload'), self.joined_scope())
+                    self.assertIs(caught.exception, error)
+                    if operation == 'lstat':
+                        removed.assert_not_called()
+
+    def test_unjoined_active_unstarted_or_wrong_scope_never_inspects_path(self):
+        for changes in (dict(cleanup_confirmed=False), dict(started=False),
+                        dict(process=object()), dict(label='corrupt')):
+            with self.subTest(changes=changes), mock.patch.object(Path, 'lstat') as inspected, \
+                    mock.patch.object(Path, 'unlink') as removed:
+                with self.assertRaisesRegex(ValueError, '^model_channel_cleanup_scope$'):
+                    R.remove_model_channel(Path('/synthetic/payload'), self.joined_scope(**changes))
+                inspected.assert_not_called()
+                removed.assert_not_called()
+
+
+class CorruptionTransition(Inert):
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(os.umask, os.umask(0o077))
+
+    def execute_case(self, *, channel_present=False, channel_error=None, fsync_error=None,
+                     stop_error=None, start_error=None, negative=None, sealed_changed=False):
+        """Run the actual controller with tiny public files and inert VM/tool surfaces."""
+        pins = R.json.loads((R.HERE / 'protected-resident-image-pins-v1.json').read_bytes())
+        source = dict(commit='1' * 40, tree='2' * 40)
+        events, scopes = [], []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            work = root / 'payload'
+            channel, console = work / 'channel.sock', work / 'model-console.log'
+            requester_path = root / 'target/requester'
+            requester_path.parent.mkdir()
+            requester_path.write_bytes(b'inert public requester fixture')
+            manifest = root / pins['debian_image_manifest']
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_bytes(b'{}')
+            args = types.SimpleNamespace(work=root, appliance_kernel=Path('/not-opened'),
+                expected_source=source['commit'], requester=requester_path)
+            base = types.SimpleNamespace(fetch=mock.Mock(), root_device=lambda _raw: '/dev/sda1')
+            def fish(_image, ops, **_options):
+                if ops == [['inspect-os']]: return '/dev/sda1\n'
+                if ops[0][0] == 'inspect-os': return inspected_root()
+                if ops[0][0] == 'set-uuid': return ops[0][2]
+                self.fail('unexpected_inert_image_operation')
+            def command(argv, *_args, **_options):
+                if argv[:2] == ['qemu-img', 'create']:
+                    (work / 'build.qcow2').write_bytes(b'public build fixture')
+                elif argv[0] == 'veritysetup':
+                    events.append('seal_' + ('verify' if 'verify' in argv else 'format'))
+                    if 'format' in argv:
+                        (work / 'root.hash').write_text('a' * 64)
+                        (work / 'verity.raw').write_bytes(b'public verity fixture')
+                elif argv[0] == requester_path:
+                    events.append('requester')
+                    return R.encoded(requester()), b'', 0
+                else:
+                    self.assertEqual(argv[:2], ['qemu-img', 'resize'])
+                return b'', b'', 0
+            def ssh(argv, **_options):
+                if argv[:2] == ['python3', '-c']: return b'100', b'', 0
+                if argv[:2] in (['id', '-u'], ['id', '-g']): return b'1000', b'', 0
+                if argv[0] == 'sha256sum':
+                    path = work / ('inputs.tar' if 'inputs' in argv[1] else 'packages.tar')
+                    digest = 'a' * 64 if path.name == 'inputs.tar' else original_hash(path, 200)['sha256']
+                    return digest.encode(), b'', 0
+                if argv[:3] == ['sudo', '-n', 'cat']:
+                    mode = 'runtime' if 'runtime.json' in argv[-1] else 'build'
+                    receipt = dict(kind='protected-resident-offline-package-install', mode=mode,
+                        state='configured', package_lock_sha256=R.LOCK_SHA,
+                        packages_verified=199 if mode == 'build' else 65)
+                    receipt.update({key: True for key in ('archives_verified', 'status_verified',
+                        'triggers_clear', 'audit_clear', 'policy_restored', 'runtime_unmounted',
+                        'namespace_joined', 'direct_child_groups_joined')})
+                    return R.encoded(receipt), b'', 0
+                if argv[0] == 'readlink': return b'/dev/vda', b'', 0
+                return b'', b'', int(argv[0] == 'findmnt')
+            closure = dict(kernel_release=pins['kernel_release'], kernel=Path('/not-opened'),
+                root_tree=Path('/not-opened'), original_initrd=Path('/not-opened'),
+                staging_receipt=dict(workload_sha256='a' * 64))
+            assembler = types.SimpleNamespace(export_assets=lambda *_args:
+                dict(build_result={'public_fixture_only': True}), assemble_runtime=lambda *_args: closure)
+            def build_initrd(*_args):
+                (work / 'model-initrd.img').write_bytes(b'public initrd fixture')
+                return {'public_fixture_only': True}
+            initrd = types.SimpleNamespace(CMDLINE='inert readonly fixture', build=build_initrd)
+            original_module, original_init, original_stop = R.module, R.Scope.__init__, R.Scope.stop
+            original_read, original_stat, original_unlink = Path.read_bytes, Path.lstat, Path.unlink
+            original_hash = R.file_hash
+            def imported(name):
+                if name == 'protected-resident-model-assemble': return assembler
+                if name == 'protected-resident-model-initrd': return initrd
+                return original_module(name)
+            def initialized(scope, *args):
+                original_init(scope, *args)
+                scopes.append(scope)
+                events.append(scope.label + '_construct')
+            def started(scope, _observations):
+                events.append(scope.label + '_start')
+                if start_error == 'no_launch' and scope.label == 'corrupt':
+                    raise ValueError('host_memory_headroom')
+                scope.started, scope.process = True, object()
+                if start_error == 'partial' and scope.label == 'corrupt':
+                    raise ValueError('scope_start_timeout')
+                if scope.label == 'model':
+                    channel.write_bytes(b'inert socket pathname fixture')
+                    console.write_bytes(R.READY + R.encoded(dict(version=1, scope='public_fixture',
+                        privileges_dropped=True, hardware_attestation=False, private_inputs=False,
+                        model_execution=False, worker_execution=False)) + R.BOOT + R.encoded(boot()))
+                elif scope.label == 'corrupt':
+                    self.assertFalse(channel.exists(), 'channel_cleanup_must_precede_negative_launch')
+                    self.assertFalse(console.exists(), 'positive_console_must_not_satisfy_negative_boot')
+                    self.assertEqual((work / 'runtime-root.raw').read_bytes()[1024], 1)
+                    console.write_bytes(R.BOOT + R.encoded(boot('integrity_failure'))
+                                        if negative is None else negative)
+            def stopped(scope):
+                events.append(scope.label + '_stop')
+                if not scope.started:
+                    return original_stop(scope)
+                if stop_error in (scope.label, scope.label + '_process_only'):
+                    if stop_error.endswith('_process_only'):
+                        scope.process = None
+                    raise R.CleanupUnconfirmed('private-cleanup-canary')
+                scope.process, scope.cleanup_confirmed = None, True
+                events.append(scope.label + '_joined')
+                if scope.label == 'model' and not channel_present:
+                    original_unlink(channel)
+                return dict(qemu_process_joined=True, scope_empty=True)
+            def read(path):
+                if str(path) in ('/proc/net/route', '/proc/net/ipv6_route', '/etc/resolv.conf'):
+                    return b'inert public network observation'
+                return original_read(path)
+            def inspected(path):
+                if path == channel:
+                    events.append('channel_inspect')
+                    if channel_error is not None: raise channel_error
+                    meta = original_stat(path)
+                    return types.SimpleNamespace(st_mode=stat.S_IFSOCK | 0o600, st_uid=meta.st_uid)
+                return original_stat(path)
+            def unlinked(path, *args, **kwargs):
+                if path == channel: events.append('channel_remove')
+                if path == console: events.append('console_remove')
+                return original_unlink(path, *args, **kwargs)
+            def hashed(path, *args, **kwargs):
+                if path.name in ('runtime-root.raw', 'verity.raw', 'model-initrd.img'):
+                    events.append('hash_' + path.name)
+                    if len(scopes) > 1 and scopes[1].cleanup_confirmed and sealed_changed:
+                        return {'sha256': 'changed inert fixture'}
+                return original_hash(path, *args, **kwargs)
+            def synced(_fd):
+                events.append('corruption_fsync')
+                if fsync_error is not None: raise fsync_error
+            with contextlib.ExitStack() as patches:
+                for name, value in dict(ROOT=root, hosted=lambda *_args: (base, source, {}, {}),
+                    ImageTools=lambda *_args: types.SimpleNamespace(fish=fish),
+                    public_keys=lambda *_args: None, source_bundle=lambda *_args: {'sha256': 'a' * 64},
+                    memory_snapshot=lambda *_args: None, disk_memory_observation=lambda *_args: None,
+                    reserve_space=lambda *_args: {}, seed=lambda *_args: None,
+                    export_root=lambda *_args: (work / 'runtime-root.raw').write_bytes(bytes(2048)),
+                    Guest=lambda *_args: types.SimpleNamespace(ssh=ssh, upload=lambda *_args: None,
+                        unit=lambda *_args, **_kwargs: None), run=command, module=imported,
+                    source_binding=lambda *_args: source, build_console_projection=lambda *_args:
+                        R.build_boot_diagnostic()['console'], file_hash=hashed).items():
+                    patches.enter_context(mock.patch.object(R, name, value))
+                patches.enter_context(mock.patch.object(R.os, 'umask'))
+                patches.enter_context(mock.patch.object(R.os, 'fsync', side_effect=synced))
+                patches.enter_context(mock.patch.object(R.socket, 'socket'))
+                patches.enter_context(mock.patch.object(Path, 'read_bytes', read))
+                patches.enter_context(mock.patch.object(Path, 'lstat', inspected))
+                patches.enter_context(mock.patch.object(Path, 'unlink', unlinked))
+                patches.enter_context(mock.patch.object(R.Scope, '__init__', initialized))
+                patches.enter_context(mock.patch.object(R.Scope, 'start', started))
+                patches.enter_context(mock.patch.object(R.Scope, 'stop', stopped))
+                patches.enter_context(mock.patch.object(R.Scope, 'alive', autospec=True,
+                    side_effect=lambda scope: scope.label == 'model' and 'requester' not in events))
+                result = R.execute(args)
+            self.assertEqual((root / 'evidence/result.json').read_bytes(), R.encoded(result))
+            self.assertEqual(work.exists(), not result['scratch_removed'])
+            self.assertNotIn(b'private-cleanup-canary', R.encoded(result))
+            evidence = {path.name for path in (root / 'evidence').iterdir()}
+        R.subprocess.Popen.assert_not_called()
+        return result, events, scopes, evidence
+
+    def test_absent_and_present_socket_reach_negative_boot_after_join_hash_sync_cleanup(self):
+        for present in (False, True):
+            with self.subTest(channel_present=present):
+                result, events, scopes, evidence = self.execute_case(channel_present=present)
+                self.assertEqual((result['state'], result['phase']), ('passed', 'complete'))
+                self.assertTrue(result['vm_cleanup_confirmed'])
+                self.assertTrue(result['scratch_removed'])
+                self.assertIn('corrupt-boot.json', evidence)
+                self.assertTrue(all(scope.cleanup_confirmed and scope.process is None for scope in scopes))
+                start = events.index('model_joined')
+                order = ['model_joined', 'hash_runtime-root.raw', 'hash_verity.raw',
+                    'hash_model-initrd.img', 'corruption_fsync', 'console_remove', 'channel_inspect']
+                if present: order.append('channel_remove')
+                order += ['corrupt_construct', 'corrupt_start', 'corrupt_stop', 'corrupt_joined']
+                offsets = [events.index(event, start) for event in order]
+                self.assertEqual(offsets, sorted(offsets))
+
+    def test_socket_preparation_error_after_positive_join_is_failed_with_cleanup_confirmed(self):
+        result, events, scopes, evidence = self.execute_case(channel_error=PermissionError('private-path-canary'))
+        self.assertEqual((result['state'], result['phase'], result['failure']),
+                         ('failed', 'corruption_negative', 'controller_stage_failed'))
+        self.assertTrue(result['vm_cleanup_confirmed'])
+        self.assertTrue(result['scratch_removed'])
+        self.assertEqual([scope.label for scope in scopes], ['build', 'model'])
+        self.assertNotIn('corrupt_construct', events)
+        self.assertNotIn('corrupt-boot.json', evidence)
+        self.assertFalse(result['model_execution'])
+
+    def test_corruption_sync_failure_never_constructs_negative_scope(self):
+        result, events, _, _ = self.execute_case(fsync_error=OSError(errno.EIO, 'private-sync-canary'))
+        self.assertEqual(result['state'], 'failed')
+        self.assertTrue(result['vm_cleanup_confirmed'])
+        self.assertNotIn('console_remove', events)
+        self.assertNotIn('corrupt_construct', events)
+
+    def test_changed_sealed_inputs_fail_before_corruption_or_socket_cleanup(self):
+        result, events, _, _ = self.execute_case(sealed_changed=True)
+        self.assertEqual(result['failure'], 'sealed_inputs_changed')
+        self.assertTrue(result['vm_cleanup_confirmed'])
+        self.assertNotIn('corruption_fsync', events)
+        self.assertNotIn('channel_inspect', events)
+
+    def test_unconfirmed_positive_join_never_inspects_or_removes_channel(self):
+        result, events, _, evidence = self.execute_case(stop_error='model')
+        self.assertEqual(result['state'], 'failed')
+        self.assertFalse(result['vm_cleanup_confirmed'])
+        self.assertFalse(result['scratch_removed'])
+        self.assertNotIn('channel_inspect', events)
+        self.assertNotIn('corrupt_construct', events)
+        self.assertNotIn('corrupt-boot.json', evidence)
+
+    def test_unconfirmed_negative_scope_keeps_payload_and_does_not_accept_receipt(self):
+        for failure in ('corrupt', 'corrupt_process_only'):
+            with self.subTest(failure=failure):
+                result, events, scopes, evidence = self.execute_case(stop_error=failure)
+                self.assertEqual(result['state'], 'failed')
+                self.assertFalse(result['vm_cleanup_confirmed'])
+                self.assertFalse(result['scratch_removed'])
+                self.assertFalse(result['model_execution'])
+                self.assertIn('corrupt-boot.json', evidence)
+                self.assertEqual(events.count('corrupt_stop'), 2)
+                self.assertTrue(scopes[-1].started)
+                self.assertEqual(scopes[-1].process is None, failure == 'corrupt_process_only')
+
+    def test_start_failure_distinguishes_no_launch_from_unconfirmed_partial_start(self):
+        for failure in ('no_launch', 'partial'):
+            with self.subTest(failure=failure):
+                result, events, scopes, evidence = self.execute_case(start_error=failure,
+                    stop_error='corrupt' if failure == 'partial' else None)
+                self.assertEqual(result['state'], 'failed')
+                self.assertEqual(result['vm_cleanup_confirmed'], failure == 'no_launch')
+                self.assertEqual(result['scratch_removed'], failure == 'no_launch')
+                self.assertEqual(result['failure'], 'host_memory_headroom' if failure == 'no_launch'
+                                 else 'scope_start_timeout')
+                self.assertEqual([scope.label for scope in scopes], ['build', 'model', 'corrupt'])
+                self.assertIn('corrupt_stop', events)
+                self.assertNotIn('corrupt-boot.json', evidence)
+
+    def test_missing_or_execution_claiming_negative_receipt_stays_failed_after_cleanup(self):
+        invalid = [b'', R.BOOT + R.encoded(boot())]
+        invalid += [R.BOOT + R.encoded(dict(boot('integrity_failure'), **{flag: True}))
+                    for flag in ('entrypoint_invoked', 'model_execution', 'worker_execution')]
+        for raw in invalid:
+            with self.subTest(raw=raw):
+                result, _, _, evidence = self.execute_case(negative=raw)
+                self.assertEqual((result['state'], result['phase']), ('failed', 'corruption_negative'))
+                self.assertTrue(result['vm_cleanup_confirmed'])
+                self.assertTrue(result['scratch_removed'])
+                self.assertFalse(result['model_execution'])
+                self.assertNotIn('corrupt-boot.json', evidence)
 
 
 class MemoryObservation(Inert):
@@ -2142,6 +2464,7 @@ class ReceiptAndBindings(Inert):
         contracts, public = authority('contracts'), authority('public-model')
         groups = dict(grant=22, guest=38, resident=41, local=30, startup=2)
         for branch in ('refs/heads/fix/protected-model-root-transition-20261022',
+                       'refs/heads/fix/model-corruption-transition-20261022',
                        'refs/heads/fix/protected-bwrap-stage-20261022', 'refs/heads/feature/protected-resident-model'):
             namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}), groups=groups)
             exec(rust_gate, namespace)
@@ -2149,11 +2472,11 @@ class ReceiptAndBindings(Inert):
             self.assertEqual(sum(groups.values()), 133)
             for stale in (dict(grant=22, guest=37, resident=39, local=30), dict(grant=22, guest=38, resident=41, local=30)):
                 with self.assertRaises(AssertionError): exec(rust_gate, dict(namespace, groups=stale))
-            for count in (210, 209, 208, 204):
+            for count in (224, 223, 222, 210):
                 current = dict(os=namespace['os'], root=Logs(count), re=re, counts={})
-                if count == 210:
+                if count == 224:
                     exec(controller_gate, current)
-                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=210))
+                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=224))
                 else:
                     with self.assertRaises(AssertionError): exec(controller_gate, current)
             for event, scenario in (('push', 'source-contracts'), ('workflow_dispatch', 'source-contracts'), ('workflow_dispatch', 'public-model')):
@@ -2171,14 +2494,15 @@ class ReceiptAndBindings(Inert):
     def test_inventory_diagnostic_branch_only_adds_exact_source_contract_authority(self):
         import textwrap
         workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
-        self.assertIn('branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021, fix/protected-native-exit-observation-20261021, fix/protected-bwrap-stage-20261022, fix/protected-model-root-transition-20261022]', workflow)
+        self.assertIn('branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021, fix/protected-native-exit-observation-20261021, fix/protected-bwrap-stage-20261022, fix/protected-model-root-transition-20261022, fix/model-corruption-transition-20261022]', workflow)
         self.assertIn("github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' ||", workflow)
         self.assertIn("github.ref == 'refs/heads/fix/protected-requester-diagnostic-20261021' ||", workflow)
         self.assertIn("github.ref == 'refs/heads/fix/protected-result-failure-20261021' ||", workflow)
         self.assertIn("github.ref == 'refs/heads/fix/protected-socket-diagnostic-20261021' ||", workflow)
         self.assertIn("github.ref == 'refs/heads/fix/protected-native-exit-observation-20261021' ||", workflow)
         self.assertIn("github.ref == 'refs/heads/fix/protected-bwrap-stage-20261022' ||", workflow)
-        self.assertIn("github.ref == 'refs/heads/fix/protected-model-root-transition-20261022') &&", workflow)
+        self.assertIn("github.ref == 'refs/heads/fix/protected-model-root-transition-20261022' ||", workflow)
+        self.assertIn("github.ref == 'refs/heads/fix/model-corruption-transition-20261022') &&", workflow)
         self.assertIn("github.event_name == 'push' || inputs.scenario == 'source-contracts'", workflow)
         public = workflow.split('\n  public-model:\n', 1)[1]
         self.assertNotIn('diagnostic/protected-export-inventory', public)
@@ -2259,6 +2583,56 @@ class ReceiptAndBindings(Inert):
             else:
                 with self.assertRaises(AssertionError):
                     exec(compiled, namespace)
+
+    def test_corruption_transition_source_gate_preserves_actual_job_dependencies_and_exact_scope(self):
+        import textwrap
+        workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
+        code = textwrap.dedent(workflow.split("python3 -B - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
+        branch = 'refs/heads/fix/model-corruption-transition-20261022'
+        gate = next(node for node in ast.parse(code).body
+                    if isinstance(node, ast.If) and repr(branch) in ast.unparse(node.test))
+        compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-corruption-transition-gate', 'exec')
+        approved = {'.github/workflows/protected-resident-model.yml',
+            'tests/integration/protected-resident-model-run.py',
+            'tests/integration/test-protected-resident-model-run.py'}
+        base = 'a9737718688ec285a86acb7a4d330dbb444e10b5'
+        dependencies = ('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
+                        'crates/volparossa/Cargo.toml', 'crates/volparossa-content/Cargo.toml')
+        old = b'contracts: old\n  public-model:\n    unchanged actual job\n'
+        variants = ['valid', 'missing', 'extra', 'duplicate', 'ancestry', 'actual-job', *dependencies]
+        for change in variants:
+            with self.subTest(change=change):
+                changed = sorted(approved)
+                if change == 'missing': changed.pop()
+                if change == 'extra': changed.append('packaging/protected-resident-model/init')
+                if change == 'duplicate': changed.append(changed[0])
+                def git(*args):
+                    if args[0] == 'diff': return '\n'.join(changed)
+                    if change in dependencies and args == ('rev-parse', base + ':' + change):
+                        return 'b' * 40
+                    return 'a' * 40
+                command = mock.Mock(side_effect=AssertionError('ancestry') if change == 'ancestry' else None)
+                new = old.replace(b'contracts: old', b'contracts: new')
+                if change == 'actual-job': new += b'    changed actual authority\n'
+                namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}), git=git,
+                    hashlib=hashlib, subprocess=types.SimpleNamespace(run=command, check_output=lambda _: old),
+                    pathlib=types.SimpleNamespace(Path=lambda _: types.SimpleNamespace(read_bytes=lambda: new)))
+                if change == 'valid':
+                    exec(compiled, namespace)
+                    scope = namespace['corruption_transition_scope']
+                    self.assertEqual(namespace['corruption_allowed'], approved)
+                    self.assertEqual(scope['base_commit'], base)
+                    self.assertEqual(set(scope['source_blobs']), approved)
+                    self.assertEqual(set(scope['dependency_blobs']), set(dependencies))
+                    self.assertTrue(scope['source_contracts_only'])
+                    self.assertFalse(scope['actual_model_execution'])
+                    self.assertFalse(scope['guest_boot'])
+                    self.assertEqual(scope['actual_job_sha256'], hashlib.sha256(b'\n  public-model:\n' +
+                        new.split(b'\n  public-model:\n', 1)[1]).hexdigest())
+                    command.assert_called_once_with(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
+                else:
+                    with self.assertRaises(AssertionError):
+                        exec(compiled, namespace)
 
     def test_root_transition_source_gate_preserves_actual_job_dependencies_and_exact_scope(self):
         import textwrap
@@ -2556,7 +2930,7 @@ class ReceiptAndBindings(Inert):
             with self.subTest(size=len(data)), self.assertRaises(ValueError):
                 R.boot_record(data, 'guest_process_returned')
 
-    def test_execute_failure_is_closed_and_does_not_claim_vm_or_model_success(self):
+    def test_execute_failure_without_launched_scopes_confirms_cleanup_but_never_model_success(self):
         for error, expected in [('arbitrary_private_value', 'controller_stage_failed'),
                                 ('controller_deadline', 'controller_deadline')]:
             with self.subTest(error=error), tempfile.TemporaryDirectory() as temporary:
@@ -2570,8 +2944,9 @@ class ReceiptAndBindings(Inert):
                 self.assertEqual(result['phase'], 'prepare')
                 self.assertEqual(result['failure'], expected)
                 for field in ('model_execution', 'private_inputs', 'hardware_attestation',
-                              'confidential_execution', 'production_approval', 'vm_cleanup_confirmed'):
+                              'confidential_execution', 'production_approval'):
                     self.assertIs(result[field], False, field)
+                self.assertTrue(result['vm_cleanup_confirmed'])
                 self.assertTrue(result['scratch_removed'])
                 self.assertTrue(result['tool_cleanup_confirmed'])
                 self.assertIsNone(result['scratch_cleanup_failure'])
@@ -2732,7 +3107,7 @@ class ExecutionScratchCleanup(Inert):
                 self.assertTrue(result['tool_cleanup_confirmed'])
                 self.assertIsNone(result['scratch_cleanup_failure'])
                 self.assertEqual(result['failure'], reason)
-                self.assertFalse(result['vm_cleanup_confirmed'])
+                self.assertTrue(result['vm_cleanup_confirmed'])
         R.subprocess.Popen.assert_not_called()
 
     def test_removal_failure_keeps_failed_state_and_original_reason(self):
