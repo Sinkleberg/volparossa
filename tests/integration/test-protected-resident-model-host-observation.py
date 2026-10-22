@@ -214,13 +214,48 @@ class HostObservation(unittest.TestCase):
 
 class SourceBindings(unittest.TestCase):
     def test_reused_pure_bodies_and_exact_renderer_profiles_remain_bound(self):
-        expected = {'ipv6_route_snapshot':'da0633d77df1a3f43abfee28b91099b6df69330aefb9f5176df0a9a8d5fe32ee',
-            'ipv6_route_comparison':'c8bd7cce93966bf3fcf0d9e3e6cced652007279f5e5e938ed151adc070bf1ded'}
-        functions = {n.name:n for n in ast.parse(SOURCE.read_text()).body if isinstance(n,ast.FunctionDef)}
+        # Exact source slices from Map hosted.py blob d7e8015f8a0aa26e946e97890adb1259c43167fa,
+        # file SHA-256 6cc55f6d28ebe56e7b097e58c4cd0eb9737c46d04e69ce4c53ccb84875ea8b96.
+        # ast.dump's empty-field rendering differs between Python 3.12 and 3.13.
+        # Bind bytes instead; exclude only the snapshot's adapted docstring expression.
+        expected = {'ipv6_route_snapshot':'8fe2a7f986e941e6a770e07fb84d97db4f3c76099ee41478d694caeaefb26c52',
+            'ipv6_route_comparison':'dcd6a1bcb19d3bffafedcaf01de833c67a924358ad37befa43b295334edd59bf'}
+        def source_digest(raw,name):
+            functions = [n for n in ast.parse(raw).body if isinstance(n,ast.FunctionDef) and n.name==name]
+            self.assertEqual(len(functions),1)
+            node = functions[0]
+            rows = raw.splitlines(keepends=True)
+            start = min([node.lineno]+[decorator.lineno for decorator in node.decorator_list])-1
+            if name=='ipv6_route_snapshot':
+                doc = node.body[0]
+                self.assertTrue(isinstance(doc,ast.Expr) and isinstance(doc.value,ast.Constant)
+                    and type(doc.value.value) is str)
+                # Keep the exact prefix/suffix bytes, including any code after the string.
+                bound = (b''.join(rows[start:doc.lineno-1])+rows[doc.lineno-1][:doc.col_offset]
+                    +rows[doc.end_lineno-1][doc.end_col_offset:]+b''.join(rows[doc.end_lineno:node.end_lineno]))
+            else:
+                bound = b''.join(rows[start:node.end_lineno])
+            return hashlib.sha256(bound).hexdigest()
+        raw = SOURCE.read_bytes()
         for name,digest in expected.items():
-            node = functions[name]
-            node.body = node.body[1:]  # Only the contextual docstring is adapted.
-            self.assertEqual(hashlib.sha256(ast.dump(node,include_attributes=False).encode()).hexdigest(),digest)
+            self.assertEqual(source_digest(raw,name),digest)
+        contextual = raw.replace(b'Hash one bounded proc snapshot;',b'Contextual wording only;',1)
+        self.assertNotEqual(contextual,raw)
+        self.assertEqual(source_digest(contextual,'ipv6_route_snapshot'),expected['ipv6_route_snapshot'])
+        mutations = (
+            ('ipv6_route_snapshot',b'len(rows) <= IPV6_ROUTE_ROWS',b'len(rows) < IPV6_ROUTE_ROWS'),
+            ('ipv6_route_snapshot',b'def ipv6_route_snapshot(raw):',b'def ipv6_route_snapshot(raw=None):'),
+            ('ipv6_route_snapshot',b'match.span("reference")',b'match.span("device")'),
+            ('ipv6_route_snapshot',b'def ipv6_route_snapshot(raw):',b'@changed\ndef ipv6_route_snapshot(raw):'),
+            ('ipv6_route_snapshot',b'    """\n    require(type(raw)',b'    """; changed()\n    require(type(raw)'),
+            ('ipv6_route_comparison',b'before["raw"] != after["raw"]',b'before["raw"] == after["raw"]'),
+            ('ipv6_route_comparison',b'"REFERENCE_METADATA_ONLY"',b'"UNCHANGED"'),
+            ('ipv6_route_comparison',b'if valid else None',b'if valid else False'),
+            ('ipv6_route_comparison',b'Closed fingerprints only;',b'Changed comparison docstring;'))
+        for name,before,after in mutations:
+            with self.subTest(function=name,mutation=before):
+                self.assertEqual(raw.count(before),1)
+                self.assertNotEqual(source_digest(raw.replace(before,after,1),name),expected[name])
         self.assertEqual(H.IPV6_ROUTE_RENDERER_PROFILES,{
             'linux-6.8-native-seq-v1':r'6\.8\.0-[0-9]{1,6}-(?:generic|azure)',
             'linux-6.17-azure-native-seq-v1':r'6\.17\.0-[0-9]{1,6}-azure',
