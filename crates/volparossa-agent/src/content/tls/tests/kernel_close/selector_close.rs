@@ -98,7 +98,9 @@ async fn correlated(runtime: &ContentRuntime, released: bool) -> bool {
     .unwrap_or(false);
     // Disarm joins the collector's existing cleanup task before any assertion,
     // including when an I/O assertion already failed inside a joined child task.
-    let disarmed = runtime.fixture_correlation(UID, &query(Action::Disarm)).await;
+    let disarmed = runtime
+        .fixture_correlation(UID, &query(Action::Disarm))
+        .await;
     valid && matches!(disarmed, Ok(response) if response.state == State::Disarmed as i32)
 }
 
