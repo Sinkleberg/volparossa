@@ -1044,3 +1044,36 @@ versions, locked upstream dependencies and audit/license obligations are retaine
   distribution/network-source obligations and asset licenses before activation.
 - Primary files and adapter/telemetry/update boundaries are linked in
   [Studio hosting](docs/services/STUDIO_HOSTING.md#silex-source-selection-and-interfaces).
+
+
+## Resident model host-observation diagnostics
+
+The pure IPv6 proc-row parser/comparator in
+`tests/integration/protected-resident-model-host-observation.py` reuses original
+VOLPAROSSA Map code from `https://github.com/VOLPAROSSA/volparossa-map`, commit
+`8a227709e99f25b1b07ed0eaf88999e1a0dfc1fc`, `integrations/dps-native/hosted.py`
+blob `d7e8015f8a0aa26e946e97890adb1259c43167fa`, file SHA-256
+`6cc55f6d28ebe56e7b097e58c4cd0eb9737c46d04e69ce4c53ccb84875ea8b96`.
+The Map repository's unchanged GPLv3 license remains authoritative. The reused
+function bodies are unchanged; only the snapshot docstring describes this
+controller's strict diagnostic scope. New surrounding code is GPL-3.0-only.
+No Map configuration-acceptance exception or upstream Linux code is imported.
+
+Primary renderer evidence is `net/ipv6/ip6_fib.c` at these exact upstream commits:
+
+- [Linux v6.8](https://github.com/torvalds/linux/blob/e8f897f4afef0031fe618a8e94127a0934896aba/net/ipv6/ip6_fib.c),
+  whole-file SHA-256 `85d34af1d3fee187c8da53989c3e143ac9b4be2e20f78fe85b8831b07319fdb6`.
+- [Linux v6.17](https://github.com/torvalds/linux/blob/e5f0a698b34ed76002dc5cff3804a61c80233a7a/net/ipv6/ip6_fib.c),
+  whole-file SHA-256 `45d20b9c0713d7173909424b760e0ddd1e7ae9aae8e9f9f735bee9f26f9ba5a2`.
+- [Linux v7.0](https://github.com/torvalds/linux/blob/028ef9c96e96197026887c0f092424679298aae8/net/ipv6/ip6_fib.c),
+  whole-file SHA-256 `05b965a73f3e07dd110530a751e847ebb1314cb6bd574a5050d9e130bc8e8dc8`.
+
+These files retain SPDX `GPL-2.0-or-later`. The exact 918-byte
+`ipv6_route_native_seq_show` function slices are identical, SHA-256
+`93ca160d4d293117f2064e48065d5d6b75956d177744cf0a5ea2fdbd518ab120`.
+The selected column reads `fib6_ref` through `refcount_read`; retained Map source
+review also binds its `refcount_t` declaration and atomic-read helper. This
+supports the three narrow renderer profiles, with strict observed-layout checks.
+It does not verify Ubuntu Azure's downstream patch lineage, attest the running
+kernel's source, identify a historical changed field/actor, or permit a model
+trial to pass after any raw route/resolver fingerprint mismatch.

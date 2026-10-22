@@ -36,7 +36,8 @@ jobs:
   contracts:
     if: >-
       github.repository == 'VOLPAROSSA/volparossa' &&
-      ((github.ref == 'refs/heads/integration/resident-model-main-20261022' &&
+      (((github.ref == 'refs/heads/integration/resident-model-main-20261022' ||
+      github.ref == 'refs/heads/fix/model-host-observation-20261022') &&
       github.event_name == 'workflow_dispatch' && inputs.scenario == 'source-contracts') ||
       (github.ref == 'refs/heads/feature/protected-resident-model' ||
       ((github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' ||
@@ -262,11 +263,51 @@ jobs:
               actual_job_sha256=hashlib.sha256(actual+new.split(actual,1)[1]).hexdigest(),
               source_contracts_only=True,actual_model_execution=False,guest_boot=False,
               cleanup_semantics='all_launched_scopes_joined_before_payload_removal')
+          host_observation_scope=None
+          if os.environ['GITHUB_REF']=='refs/heads/fix/model-host-observation-20261022':
+            host_base='e4824ae3c9a3f606a6013540461f5d148e3a76b6'
+            subprocess.run(['git','merge-base','--is-ancestor',host_base,'HEAD'],check=True)
+            host_allowed={
+              '.github/workflows/protected-resident-model.yml',
+              'THIRD_PARTY_LICENSES.md',
+              'tests/integration/protected-resident-model-run.py',
+              'tests/integration/test-protected-resident-model-run.py',
+              'tests/integration/protected-resident-model-host-observation.py',
+              'tests/integration/test-protected-resident-model-host-observation.py'}
+            changed=git('diff','--name-only',host_base,'HEAD').splitlines()
+            assert len(changed)==len(set(changed))==len(host_allowed)==6 and set(changed)==host_allowed
+            dependencies=('Cargo.lock','Cargo.toml','rust-toolchain.toml',
+              'crates/volparossa/Cargo.toml','crates/volparossa-content/Cargo.toml',
+              'crates/volparossa/src/compute/resident_guest.rs',
+              'crates/volparossa/src/compute/resident_guest/public_trial.rs',
+              'crates/volparossa/src/compute/supervise/native_session.rs',
+              'packaging/protected-resident-model/init',
+              'packaging/protected-resident-model/entrypoint',
+              'packaging/protected-resident-model/profile-v1.json',
+              'tests/integration/protected-resident-image-pins-v1.json',
+              'tests/integration/protected-resident-model-debian-lock-v1.json',
+              'tests/integration/protected-resident-model-build.py',
+              'tests/integration/protected-resident-model-install.py',
+              'tests/integration/protected-resident-model-assemble.py',
+              'tests/integration/protected-resident-model-workload.py')
+            for name in dependencies:
+              assert git('rev-parse','HEAD:'+name)==git('rev-parse',host_base+':'+name),name
+            workflow='.github/workflows/protected-resident-model.yml'
+            original=subprocess.check_output(['git','show',host_base+':'+workflow])
+            candidate=pathlib.Path(workflow).read_bytes()
+            actual=b'\n  public-model:\n'
+            assert candidate.split(actual,1)[1]==original.split(actual,1)[1]
+            host_observation_scope=dict(base_commit=host_base,
+              source_blobs={name:git('rev-parse','HEAD:'+name) for name in sorted(host_allowed)},
+              dependency_blobs={name:git('rev-parse','HEAD:'+name) for name in dependencies},
+              actual_job_sha256=hashlib.sha256(actual+candidate.split(actual,1)[1]).hexdigest(),
+              source_contracts_only=True,actual_model_execution=False,
+              diagnostic_only=True,strict_raw_equality_unchanged=True,historical_cause_proven=False)
           main_integration_scope=None
           if os.environ['GITHUB_REF']=='refs/heads/integration/resident-model-main-20261022':
             integration_main='157908ad1e4a3dc9050179be30a970beff1ef061'
-            retained_feature='e4824ae3c9a3f606a6013540461f5d148e3a76b6'
-            retained_tree='c5aafd962cea11dee3a8783f01e9fb7debccf3b5'
+            retained_feature='291e94938ebefb828fa05f30515205424ccec925'
+            retained_tree='07a67f0b24c6c33a9bbb5e98e91cd8d91c88bff6'
             feature_base='7d0f9f0b492c5e692cc9d26f23d95f55f2c1e651'
             assert base==integration_main
             assert git('rev-parse',retained_feature+'^{tree}')==retained_tree
@@ -274,10 +315,10 @@ jobs:
             subprocess.run(['git','merge-base','--is-ancestor',integration_main,'HEAD'],check=True)
             feature_paths=git('diff','--name-only',feature_base,retained_feature).splitlines()
             excluded={'docs/IMPLEMENTATION_STATUS.md'}
-            assert len(feature_paths)==len(set(feature_paths))==51 and excluded<=set(feature_paths)
+            assert len(feature_paths)==len(set(feature_paths))==53 and excluded<=set(feature_paths)
             included=set(feature_paths)-excluded
             changed=git('diff','--name-only',integration_main,'HEAD').splitlines()
-            assert len(changed)==len(set(changed))==50 and set(changed)==included
+            assert len(changed)==len(set(changed))==52 and set(changed)==included
             reconciled={'Cargo.lock','THIRD_PARTY_LICENSES.md',
               '.github/workflows/protected-resident-model.yml',
               'tests/integration/test-protected-resident-model-run.py',
@@ -325,6 +366,8 @@ jobs:
           receipt=dict(version=1,source_commit=os.environ['GITHUB_SHA'],source_tree=git('rev-parse','HEAD^{tree}'),base=base,
             source_blobs={n:git('rev-parse','HEAD:'+n) for n in names},
             dependency_versions_unchanged=True,actual_model_execution=False,guest_boot=False,private_peer_admission=False)
+          if host_observation_scope is not None:
+            receipt['host_observation_scope']=host_observation_scope
           if main_integration_scope is not None:
             receipt['main_integration_scope']=main_integration_scope
           if requester_scope is not None:
@@ -498,7 +541,7 @@ jobs:
           python3 -B - <<'PY'
           import json,pathlib,re
           root=pathlib.Path('resident-model-evidence'); counts={}
-          expected={'install':58,'assemble':29,'run':225}
+          expected={'install':58,'assemble':29,'run':226}
           for name,count in expected.items():
             raw=(root/('model-'+name+'.log')).read_text()
             tests=re.findall(r'^Ran ([0-9]+) tests? in ',raw,re.M)
@@ -508,6 +551,20 @@ jobs:
             counts[name]=int(tests[0])
           (root/'controller-tests.json').write_text(json.dumps(dict(version=1,counts=counts,
             guest_execution=False,model_execution=False,private_peer_admission=False),sort_keys=True)+'\n')
+          PY
+
+      - name: Inert strict host-observation diagnostic contracts
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 -B tests/integration/test-protected-resident-model-host-observation.py -v \
+            2>&1 | tee resident-model-evidence/host-observation.log
+          python3 -B - <<'PY'
+          import pathlib,re
+          raw=pathlib.Path('resident-model-evidence/host-observation.log').read_text()
+          assert re.findall(r'^Ran ([0-9]+) tests? in ',raw,re.M)==['15']
+          assert re.findall(r'^OK(?: .*)?$',raw,re.M)==['OK']
+          assert not re.search(r'\bskipped\b|^FAILED',raw,re.M)
           PY
 
       - name: Model initrd and preserved boot contracts

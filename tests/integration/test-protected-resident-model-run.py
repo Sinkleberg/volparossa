@@ -85,6 +85,14 @@ def fake_tool(*, join_error=None, returncode=0, pipe_bytes=None):
         yield process, join
 
 
+def inert_host_observer():
+    """Controller orchestration fixtures never read host routes or uname metadata."""
+    hashes = {name:'a'*64 for name in ('/proc/net/route','/proc/net/ipv6_route','/etc/resolv.conf')}
+    return types.SimpleNamespace(capture=lambda:dict(synthetic=True),
+        hashes=lambda _snapshot:dict(hashes),complete=lambda _snapshot:True,
+        compare=lambda *_:dict(diagnostic_only=True,acceptance_evidence=False,classification='UNCHANGED'))
+
+
 class Inert(unittest.TestCase):
     def setUp(self):
         # Any missed mock is an immediate test failure, never a real command.
@@ -93,6 +101,9 @@ class Inert(unittest.TestCase):
         mock.patch.object(R.time, 'monotonic', return_value=100.0).start()
         mock.patch.object(R.time, 'sleep').start()
         mock.patch.object(R, 'CANCELLED', False).start()
+        original_module = R.module
+        mock.patch.object(R,'module',side_effect=lambda name:
+            inert_host_observer() if name=='protected-resident-model-host-observation' else original_module(name)).start()
 
     def scope(self):
         value = R.Scope(['synthetic-qemu'], Path('/synthetic'), 200, {}, 50, 'test')
@@ -2472,11 +2483,11 @@ class ReceiptAndBindings(Inert):
             self.assertEqual(sum(groups.values()), 133)
             for stale in (dict(grant=22, guest=37, resident=39, local=30), dict(grant=22, guest=38, resident=41, local=30)):
                 with self.assertRaises(AssertionError): exec(rust_gate, dict(namespace, groups=stale))
-            for count in (225, 224, 223, 210):
+            for count in (226, 225, 224, 210):
                 current = dict(os=namespace['os'], root=Logs(count), re=re, counts={})
-                if count == 225:
+                if count == 226:
                     exec(controller_gate, current)
-                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=225))
+                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=226))
                 else:
                     with self.assertRaises(AssertionError): exec(controller_gate, current)
             for event, scenario in (('push', 'source-contracts'), ('workflow_dispatch', 'source-contracts'), ('workflow_dispatch', 'public-model')):
@@ -2502,14 +2513,14 @@ class ReceiptAndBindings(Inert):
                     if isinstance(node, ast.If) and repr(branch) in ast.unparse(node.test))
         compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-main-integration-gate', 'exec')
         main = '157908ad1e4a3dc9050179be30a970beff1ef061'
-        feature = 'e4824ae3c9a3f606a6013540461f5d148e3a76b6'
+        feature = '291e94938ebefb828fa05f30515205424ccec925'
         feature_base = '7d0f9f0b492c5e692cc9d26f23d95f55f2c1e651'
-        feature_tree = 'c5aafd962cea11dee3a8783f01e9fb7debccf3b5'
+        feature_tree = '07a67f0b24c6c33a9bbb5e98e91cd8d91c88bff6'
         reconciled = {'Cargo.lock','THIRD_PARTY_LICENSES.md','.github/workflows/protected-resident-model.yml',
             'tests/integration/test-protected-resident-model-run.py',
             'crates/volparossa/src/compute/resident_guest/public_trial.rs',
             'crates/volparossa/src/compute/resident_guest/public_trial/tests.rs'}
-        allowed = reconciled | {f'source-{i}' for i in range(44)}
+        allowed = reconciled | {f'source-{i}' for i in range(46)}
         dependencies = {'prost','rcgen','rustls','tokio-rustls','x509-cert'}
         old_lock = {'package': [dict(name='volparossa',version='0.1.0',dependencies=['tokio']),
             dict(name='hpke',version='0.14.1',checksum='reviewed'),
@@ -2574,6 +2585,35 @@ class ReceiptAndBindings(Inert):
                     context = dict(github=types.SimpleNamespace(repository='VOLPAROSSA/volparossa',ref=branch,event_name=event),
                         inputs=types.SimpleNamespace(scenario=scenario))
                     self.assertEqual(eval(expression,context),job=='contracts' and event=='workflow_dispatch' and scenario=='source-contracts')
+
+    def test_host_after_evidence_precedes_the_unchanged_strict_raw_gate(self):
+        tree = ast.parse(SOURCE.read_text())
+        function = next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='execute_owned')
+        owned = next(node for node in function.body if isinstance(node,ast.Try))
+        start = next(i for i,node in enumerate(owned.body) if isinstance(node,ast.Assign)
+                     and isinstance(node.targets[0],ast.Name) and node.targets[0].id=='host_after')
+        gate = owned.body[start:start+6]
+        self.assertEqual(ast.unparse(gate[-1]), "require(after == report['host_before'], 'host_network_observation_changed')")
+        compiled = compile(ast.Module(body=gate,type_ignores=[]),'inert-host-after-gate','exec')
+        before = {name:'a'*64 for name in ('/proc/net/route','/proc/net/ipv6_route','/etc/resolv.conf')}
+        for changed in (None,'/proc/net/route','/proc/net/ipv6_route','/etc/resolv.conf'):
+            after = dict(before)
+            if changed: after[changed] = 'b'*64
+            observation = dict(classification='REFERENCE_METADATA_ONLY',diagnostic_only=True,acceptance_evidence=False)
+            observer = types.SimpleNamespace(capture=mock.Mock(return_value=after),
+                hashes=lambda value:value,compare=lambda *_:observation)
+            report = dict(host_before=before,host_observation=dict(before=before,after=None,comparison=None),
+                state='failed',model_execution=False)
+            namespace = dict(host_observer=observer,host_before=before,report=report,require=R.require)
+            if changed:
+                with self.assertRaisesRegex(ValueError,'^host_network_observation_changed$'): exec(compiled,namespace)
+            else:
+                exec(compiled,namespace)
+            observer.capture.assert_called_once_with()
+            self.assertEqual(report['host_after'],after)
+            self.assertEqual(report['host_observation']['after'],after)
+            self.assertEqual(report['host_observation']['comparison'],observation)
+            self.assertEqual((report['state'],report['model_execution']),('failed',False))
 
     def test_inventory_diagnostic_branch_only_adds_exact_source_contract_authority(self):
         import textwrap
