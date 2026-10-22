@@ -46,14 +46,13 @@ async fn entered(activity: &provider_activity::Activity, stage: ProviderActivity
 
 struct AuthenticatedSession {
     client: tokio_rustls::client::TlsStream<TcpStream>,
-    tasks: JoinSet<()>,
+    tasks: JoinSet<Option<provider_events::Batch>>,
     server: tokio::task::AbortHandle,
     before_handshake: Instant,
 }
 
 async fn authenticated_session(
     registry: &Arc<Mutex<PublicationRegistry>>,
-    state: &Arc<RwLock<AgentState>>,
     activity: &Arc<provider_activity::Activity>,
 ) -> AuthenticatedSession {
     let session = activity.begin();
@@ -68,7 +67,6 @@ async fn authenticated_session(
         .unwrap();
     let tls = tls::ContentTlsServer::new(identity.keypair(), endpoint.hostname()).unwrap();
     let mut tasks = JoinSet::new();
-    let events = Arc::clone(state);
     let server_registry = Arc::clone(registry);
     // JoinSet aborts the owned task if setup or an assertion panics.
     let server = tasks.spawn(async move {
@@ -78,11 +76,10 @@ async fn authenticated_session(
             stream,
             tls,
             server_registry,
-            Some(events),
             session,
             fixture_correlation::Guard::default(),
         )
-        .await;
+        .await
     });
     let socket = timeout(Duration::from_secs(5), TcpStream::connect(address))
         .await
@@ -112,7 +109,7 @@ async fn rejected_session_closes_before_event_lock(hold_registry: bool) {
     let state = Arc::new(RwLock::new(
         AgentState::new(&config, config.roles, None, MetricsRegistry::new()).unwrap(),
     ));
-    // The production error handler must block here after closing the socket.
+    // Diagnostics cannot acquire this lock before the rejected session releases its slot.
     let state_guard = state.write().await;
     let registry = Arc::new(Mutex::new(PublicationRegistry::default()));
     let registry_guard = if hold_registry {
@@ -126,7 +123,7 @@ async fn rejected_session_closes_before_event_lock(hold_registry: bool) {
         mut tasks,
         server,
         before_handshake,
-    } = authenticated_session(&registry, &state, &activity).await;
+    } = authenticated_session(&registry, &activity).await;
     let close_deadline = Instant::now() + Duration::from_secs(if hold_registry { 8 } else { 25 });
     let expected_stage = if hold_registry {
         ProviderActivityStage::RegistrySnapshot
@@ -150,19 +147,27 @@ async fn rejected_session_closes_before_event_lock(hold_registry: bool) {
         ),
         _ => false,
     };
-    // Capture these while logging is still blocked and the client is still owned.
-    let server_blocked = !server.is_finished();
-    let closing = activity.snapshot();
-    let logs_before_release = state_guard.logs(10).records;
-    // Release logging only after recording the peer's closure (or its failure).
-    drop(state_guard);
+    // Join the production network session before releasing the held log lock.
     let joined = timeout(Duration::from_secs(5), tasks.join_next()).await;
     if joined.is_err() {
         tasks.abort_all();
         while tasks.join_next().await.is_some() {}
     }
+    let released = server.is_finished();
+    let active_before_release = activity.snapshot().active_sessions;
+    let logs_before_release = state_guard.logs(10).records;
+    drop(state_guard);
     drop(registry_guard);
     drop(client);
+    let mut drain = provider_events::Drain::default();
+    if let Ok(Some(Ok(Some(batch)))) = joined {
+        drain.enqueue(batch);
+    } else {
+        panic!(
+            "PROVIDER_SESSION_RETAINED_BEHIND_EVENT_LOCK: rejected network task did not return its closed diagnostic batch"
+        );
+    }
+    drain.flush(Some(&state)).await;
     let logs = state.read().await.logs(10).records;
 
     assert!(
@@ -170,16 +175,12 @@ async fn rejected_session_closes_before_event_lock(hold_registry: bool) {
         "authenticated server did not enter the expected stage"
     );
     assert!(
-        server_blocked,
-        "server must still wait for the held event lock"
+        released,
+        "rejected network task must release its admission slot"
     );
     assert!(logs_before_release.is_empty());
-    assert!(
-        matches!(joined, Ok(Some(Ok(())))),
-        "server must join after lock release"
-    );
     assert!(tasks.is_empty());
-    assert_eq!(activity.snapshot().active_sessions, Some(0));
+    assert_eq!(active_before_release, Some(0));
     assert_eq!(logs.len(), 1);
     assert_eq!(
         logs[0].event_code,
@@ -190,12 +191,6 @@ async fn rejected_session_closes_before_event_lock(hold_registry: bool) {
         }
     );
     assert!(logs[0].session_id.is_empty());
-    assert_eq!(closing.active_sessions, Some(1));
-    assert_eq!(closing.groups.len(), 1);
-    assert_eq!(
-        closing.groups[0].stage,
-        ProviderActivityStage::Closing as i32
-    );
     assert!(
         elapsed >= Duration::from_secs(if hold_registry { 2 } else { 15 }),
         "the existing production deadline must elapse before rejecting the session"
