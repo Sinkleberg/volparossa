@@ -1401,5 +1401,105 @@ class ChallengeReadTests(unittest.TestCase):
         with self.assertRaises(ValueError): M['validate_deposit_diagnostics'](value, 10)
 
 
+class CatalogRestoreSchema(unittest.TestCase):
+    @staticmethod
+    def observation(**delta):
+        return dict(version=1, scope='cloud_catalog_storage_restore_call', diagnostic_only=True,
+            acceptance_evidence=False, causal_attribution=False, invocation='once', completion='returned',
+            result_state='observed', result=dict(status='complete', code='ok', local_process_joined=True,
+                restore_verified=True, core_report_state='observed', core_operation_complete=True),
+            error_state='unavailable', error_code=None, **delta)
+
+    def failure(self, observation=None):
+        return dict(version=13, kind='storage-consumer-maintenance', phase='publish', passed=False,
+            provision_sha256=PROVISION, stage='cloud_catalog_create', code='catalog_materialization_failed',
+            cleanup_confirmed=False, catalog_restore=self.observation() if observation is None else observation,
+            publish_cleanup=dict(app='cloud', state='complete'))
+
+    def test_actual_call_scope_and_explicit_missing_invalid_unavailable_states(self):
+        observations = [self.observation()]
+        for invocation in ('unavailable', 'not_invoked', 'multiple', 'once'):
+            value = self.observation()
+            value.update(invocation=invocation, completion='unavailable', result_state='unavailable', result=None)
+            observations.append(value)
+        for state in ('missing', 'invalid'):
+            value = self.observation(); value.update(result_state=state, result=None)
+            observations.append(value)
+        for state in ('missing', 'invalid', 'observed'):
+            value = self.observation()
+            value.update(completion='threw', result_state='unavailable', result=None, error_state=state,
+                error_code='local_input_unavailable' if state == 'observed' else None)
+            observations.append(value)
+        for observation in observations:
+            for close in ('complete', 'failed'):
+                value = self.failure(observation); value['publish_cleanup']['state'] = close
+                self.assertEqual(M['validate_node_report'](value, 'publish', PROVISION, profile_version=10), value)
+                self.assertIs(value['cleanup_confirmed'], False)
+                self.assertIs(observation['acceptance_evidence'], False)
+
+    def test_result_projection_is_closed_and_never_promotes_partial_restore(self):
+        value = self.observation(); result = value['result']
+        for status, code, report_state, complete in [('incomplete', 'retained_operation_incomplete', 'observed', False),
+            ('failed', 'invalid_core_report', 'missing', None), ('failed', 'core_failed', 'invalid', None),
+            ('cancelled', 'cancelled', 'missing', None), ('timed_out', 'timed_out', 'missing', None)]:
+            result.update(status=status, code=code, restore_verified=False, core_report_state=report_state,
+                core_operation_complete=complete)
+            M['validate_catalog_restore'](value)
+        for mutate in [lambda r: r.update(status='PRIVATE' * 100000), lambda r: r.update(code='PRIVATE'),
+            lambda r: r.update(local_process_joined=1), lambda r: r.update(restore_verified=1),
+            lambda r: r.update(core_operation_complete=1), lambda r: r.update(core_report_state='PRIVATE'),
+            lambda r: r.update(raw='PRIVATE-PATH-KEY-JOURNAL'), lambda r: r.update(core_report_state='missing'),
+            lambda r: r.update(status='complete', restore_verified=False), lambda r: r.update(code='core_failed'),
+            lambda r: r.pop('status')]:
+            invalid = self.observation(); mutate(invalid['result'])
+            with self.assertRaises(ValueError): M['validate_catalog_restore'](invalid)
+
+    def test_invalid_combinations_and_private_unknown_fields_are_rejected(self):
+        mutations = [lambda v: v.update(version=True), lambda v: v.update(scope='PRIVATE'),
+            lambda v: v.update(diagnostic_only=False), lambda v: v.update(acceptance_evidence=True),
+            lambda v: v.update(causal_attribution=True), lambda v: v.update(invocation='not_invoked'),
+            lambda v: v.update(completion='unavailable'), lambda v: v.update(result_state='invalid'),
+            lambda v: v.update(error_state='observed', error_code='PRIVATE' * 100000),
+            lambda v: v.update(error_state='unavailable', error_code='core_spawn_failed'),
+            lambda v: v.update(error_state='missing'), lambda v: v.update(raw='PRIVATE'),
+            lambda v: v.pop('result')]
+        for mutate in mutations:
+            value = self.observation(); mutate(value)
+            with self.assertRaises(ValueError): M['validate_catalog_restore'](value)
+
+    def test_generation13_requires_exact_catalog_lifecycle_and_keeps_historical12(self):
+        original = self.failure()
+        for profile in range(1, 10):
+            with self.assertRaises(ValueError): M['validate_node_report'](original, 'publish', PROVISION, profile_version=profile)
+        for mutate in [lambda v: v.update(version=12), lambda v: v.update(version=True),
+            lambda v: v.update(stage='cloud_policy_read'), lambda v: v.update(stage='cloud_core_close'),
+            lambda v: v.update(phase='exercise'), lambda v: v.update(passed=True),
+            lambda v: v.update(cleanup_confirmed=True), lambda v: v.pop('publish_cleanup'),
+            lambda v: v['publish_cleanup'].update(app='image'), lambda v: v.update(publish_observation={}),
+            lambda v: v.update(raw='PRIVATE'), lambda v: v.pop('catalog_restore')]:
+            value = copy.deepcopy(original); mutate(value)
+            with self.assertRaises(ValueError): M['validate_node_report'](value, value['phase'], PROVISION, profile_version=10)
+        old = copy.deepcopy(original); old.pop('catalog_restore'); old['version'] = 12
+        self.assertEqual(M['validate_node_report'](old, 'publish', PROVISION, profile_version=10), old)
+
+    def test_generation13_failure_survives_actual_orchestrator_validation_and_hash_binding(self):
+        value = self.failure()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); raw = (json.dumps(value) + '\n').encode()
+            write(root / 'storage-consumer-publish.json', raw)
+            write(root / 'storage-consumer-prepare.json', json.dumps(prepared()).encode())
+            for app in ('image', 'cloud'):
+                (root / app).mkdir(mode=0o700)
+                write(root / app / 'storage.json', json.dumps(dict(challengeReadDiagnosticsV10=True)).encode())
+            with patch.dict(G, PROFILE_VERSION=10, run_child=lambda *_: (1, raw, b'PRIVATE-STDERR')):
+                with self.assertRaises(M['NodePhaseFailure']) as caught:
+                    M['node_phase'](root, 'publish', PROVISION, time.monotonic() + 1)
+            retained = caught.exception.report
+            self.assertEqual(retained['node'], value)
+            self.assertEqual(retained['node_report_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertIs(retained['cleanup_confirmed'], False)
+            self.assertNotIn('PRIVATE', json.dumps(retained))
+
+
 if __name__ == '__main__':
     unittest.main()
