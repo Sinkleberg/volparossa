@@ -81,6 +81,20 @@ age, provenance and unavailable states and must not replace OS location services
 without separate authorization. The first stateless local-control contract is not
 yet native Map integration, measured sensor fusion or proven attack detection.
 
+## Studio and shared hosting
+
+The permanent [Studio/hosting addition](../development/STUDIO_HOSTING_REQUIREMENTS.md)
+uses the same five layers and existing signed content/site/name/custody interfaces.
+[Studio's design and audit](../services/STUDIO_HOSTING.md) separates editor and AI
+tool rights from publication identity, retention responsibilities and visitor access.
+Silex provides visual editing and portable export; Core owns hosting and shared AI.
+Private drafts and dynamic application state use authorized Storage/Compute, never
+automatic public caching or training. Static replication does not establish domain
+ownership, HTTPS, dynamic execution or guaranteed availability. Complete static
+publication is followed by useful dynamic functionality with separate verification.
+This application UI does not add a GUI to the network daemon or weaken relay/exit
+privacy, participation, resource or release-authorization requirements.
+
 ## Trust and process boundaries
 
 The [cooperative AI extension](../services/DECENTRALIZED_AGENTS.md) uses isolated training/task workers

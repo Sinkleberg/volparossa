@@ -4,7 +4,8 @@ Resume from durable repository sources, not a previous chat transcript or
 attachment. [AGENTS.md](../../AGENTS.md) contains engineering and host-safety
 rules; the [complete goal](GOAL.md), including its amendments, defines full
 project scope; [DPS_REQUIREMENTS.md](DPS_REQUIREMENTS.md) is the permanent joined
-normative DPS scope; and the [implementation ledger](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
+normative DPS scope; [STUDIO_HOSTING_REQUIREMENTS.md](STUDIO_HOSTING_REQUIREMENTS.md)
+is the complete permanent Studio/hosting/AI addition; and the [implementation ledger](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work)
 defines current evidence and execution priorities. The
 [DPS_GOAL_20261021 archive](DPS_GOAL_20261021.md) preserves original received
 bytes for provenance only, while [services/DPS.md](../services/DPS.md) records
@@ -17,7 +18,8 @@ engineering coordination, not the VOLPAROSSA product's decentralized agent sched
    Restart or reload the extension first if it was open during a configuration change.
    A saved default does not change the model of an existing conversation.
 2. Read [AGENTS.md](../../AGENTS.md), the complete [GOAL.md](GOAL.md),
-   [DPS_REQUIREMENTS.md](DPS_REQUIREMENTS.md), and the ledger's current-work and
+   [DPS_REQUIREMENTS.md](DPS_REQUIREMENTS.md),
+   [STUDIO_HOSTING_REQUIREMENTS.md](STUDIO_HOSTING_REQUIREMENTS.md), and the ledger's current-work and
    retained-branches sections. Review [GOAL_VERIFICATION.md](GOAL_VERIFICATION.md)
    and run the inert [goal preservation verifier](../../scripts/verify-goal-preservation.py)
    as documented there. Follow relevant technical links; do not load the entire

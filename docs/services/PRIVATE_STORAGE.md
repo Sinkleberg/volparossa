@@ -9,6 +9,17 @@ finished cloud-storage service. It is **separate from the public cache and messa
 mailbox**: a cache may evict reusable content, a mailbox may acknowledge delivery, but
 restoring a backup must leave its retained copies intact.
 
+## Studio drafts and dynamic website state
+
+The [permanent Studio/hosting requirements](../development/STUDIO_HOSTING_REQUIREMENTS.md)
+add authorized project, draft, asset, template and revision synchronization through
+this same Storage-layer. Retain user/app isolation, encryption, uniform redundancy,
+recovery and deletion accounting. A draft is not a public publication: the selected
+export requires separate explicit publication authority. Dynamic website databases,
+sessions and private application state require real consistency and recovery, not
+merely an encrypted backup connector. [Hosting design](STUDIO_HOSTING.md) records
+these integration boundaries; no Studio Storage runtime has yet been verified.
+
 ## How storage works
 
 1. **Encrypt locally.** The application produces the encrypted archive. The core's

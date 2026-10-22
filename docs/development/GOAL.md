@@ -209,3 +209,31 @@ Use [PURSUING_GOAL.md](PURSUING_GOAL.md) for the self-contained replacement UI
 text and [GOAL_VERIFICATION.md](GOAL_VERIFICATION.md) for reproducible preservation
 and completeness checks. A fresh conversation needs only the repository and live
 branch/run state; historical attachment paths identify provenance, not dependencies.
+
+
+### Studio and decentralized hosting addition (2026-10-22)
+
+The entire [STUDIO_HOSTING_REQUIREMENTS.md](STUDIO_HOSTING_REQUIREMENTS.md)
+is incorporated as a permanent, normative addition to the complete objective.
+It preserves the original goal, every earlier amendment including DPS, all five
+infrastructure layers and active integrations. Read its complete ten sections;
+this paragraph is navigation, not a substitute or reduced acceptance criterion.
+
+Build shared Core website publishing and hosting through existing signed content,
+site packages, names, protected delivery, retention and repair. Integrate Silex as
+VOLPAROSSA Studio for portable visual editing, explicit publication, revision and
+availability management, and shared decentralized AI through supported adapters
+and MCP interfaces. Preserve non-AI editing, private drafts, protected computation,
+application permissions, existing relay/exit policy and upstream license obligations.
+Static hosting comes first; useful dynamic execution and durable application state
+remain required progressive work with their own evidence. Export and conventional
+hosting remain explicit alternatives. No editor action or AI result grants publication,
+account, domain, certificate, financial or deployment authority.
+
+The [hosting design and audit](../services/STUDIO_HOSTING.md) separates reused
+implementation from missing functionality and maps all fifteen acceptance criteria.
+The [application scope](../applications/APPLICATIONS.md#studio) and
+[execution plan](../IMPLEMENTATION_STATUS.md#execution-priorities-and-next-milestones)
+retain cross-application boundaries and dependency-based priorities. This addition
+does not authorize changes to the development host, DNS, accounts or public-site
+hosting, and documentation is not functional completion.

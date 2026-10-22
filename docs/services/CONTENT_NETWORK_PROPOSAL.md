@@ -10,6 +10,17 @@ requested work; the bounded checkpoints do not remove them from the functional s
 This is additional functional scope, not evidence that the VPN/local-link alpha is finished.
 Continue from the scoped downlink/mixed-link passes into the application/content runtime.
 
+## Permanent Studio and hosting extension
+
+The [complete 2026-10-22 amendment](../development/STUDIO_HOSTING_REQUIREMENTS.md)
+requires this existing substrate to support Silex-based Studio and shared decentralized
+website hosting. [The hosting audit](STUDIO_HOSTING.md) maps actual site-pack,
+named-publication, protected retrieval and custody/retention capabilities to missing
+editor integration, owner-offline continuity, verified availability, domain/TLS,
+authorized updates/rollback/withdrawal and dynamic execution/state. Reuse these
+facilities; do not create a competing publication system. The original scoped
+checkpoints below remain evidence only for their documented conditions.
+
 ## Requested result
 
 Every capable participant contributes bounded local storage as well as its agreed network

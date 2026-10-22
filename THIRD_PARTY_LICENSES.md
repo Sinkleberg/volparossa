@@ -958,3 +958,20 @@ There are no local upstream patches or vendored action binaries. This is externa
 CI tooling, not a VOLPAROSSA runtime dependency. Only this workflow's checked,
 source-built `cargo-deny 0.18.6` and `cargo-audit 0.22.1` are cached; their build
 versions, locked upstream dependencies and audit/license obligations are retained.
+
+
+## Silex Studio baseline research (2026-10-22; no source imported)
+
+- Origin: https://github.com/silexlabs/Silex
+- Selected release: v3.9.0; exact commit `672efed69dda04c0a1e968859239e042f00d9538`.
+- Inspected editor/Node server and Rust `silex-server` source notices:
+  AGPL-3.0-or-later; root package uses the shorthand AGPL-3.0.
+- Desktop Tauri wrapper: GPL-3.0-or-later in its package/source notices, separate GPL file.
+- The pre-existing Studio GPLv3 license file is preserved. Do not use it to
+  relabel upstream AGPL components or infer fulfilled network-service/source obligations.
+- No downloaded executable, vendored source, local patch or build in this slice.
+  Studio's `upstream.lock.json` binds reviewed file blobs; dependency/build/runtime
+  acceptance remains outstanding. Preserve notices and record any future patches,
+  distribution/network-source obligations and asset licenses before activation.
+- Primary files and adapter/telemetry/update boundaries are linked in
+  [Studio hosting](docs/services/STUDIO_HOSTING.md#silex-source-selection-and-interfaces).
