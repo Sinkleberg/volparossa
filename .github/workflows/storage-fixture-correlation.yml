@@ -4,8 +4,10 @@ on:
   push:
     branches:
       - fix/storage-fixture-correlation
+      - fix/storage-challenge-read-20261021
       - test/storage-request-stage-proof-20261021
       - test/storage-request-stage-consumers-20261021
+      - test/storage-challenge-read-consumers-20261021
   workflow_dispatch:
 
 permissions:
@@ -29,7 +31,8 @@ jobs:
     name: Opt-in RAM observation, local authority and closed export
     if: >-
       github.repository == 'VOLPAROSSA/volparossa' &&
-      (github.ref == 'refs/heads/fix/storage-fixture-correlation' ||
+      (github.ref == 'refs/heads/fix/storage-challenge-read-20261021' ||
+      github.ref == 'refs/heads/fix/storage-fixture-correlation' ||
       github.ref == 'refs/heads/test/storage-request-stage-proof-20261021')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -49,7 +52,7 @@ jobs:
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$GITHUB_REPOSITORY" = VOLPAROSSA/volparossa
           case "$GITHUB_REF" in
-            refs/heads/fix/storage-fixture-correlation|refs/heads/test/storage-request-stage-proof-20261021) ;;
+            refs/heads/fix/storage-fixture-correlation|refs/heads/test/storage-request-stage-proof-20261021|refs/heads/fix/storage-challenge-read-20261021) ;;
             *) exit 1 ;;
           esac
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
@@ -68,6 +71,9 @@ jobs:
           base = os.environ['SOURCE_BASE']
           if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-request-stage-proof-20261021':
               base = 'e3b78c6376ccfe6ca9a4af1a60ffe65771ab1feb'
+              subprocess.run(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
+          if os.environ['GITHUB_REF'] == 'refs/heads/fix/storage-challenge-read-20261021':
+              base = '0f15a349d3fe34131a806241c3efcb7c8a1cdb8d'
               subprocess.run(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
           changed = git('diff', '--name-only', base, 'HEAD').splitlines()
           assert changed and len(changed) == len(set(changed))
@@ -92,6 +98,39 @@ jobs:
                   'crates/volparossa/src/content/fixture_correlation_tests.rs',
               }
               assert set(changed) == allowed and len(changed) == len(allowed)
+          if os.environ['GITHUB_REF'] == 'refs/heads/fix/storage-challenge-read-20261021':
+              allowed = {
+                  '.github/workflows/storage-fixture-correlation.yml',
+                  'crates/volparossa-agent/src/content/private_storage.rs',
+                  'crates/volparossa-agent/src/content/private_storage/observation.rs',
+                  'crates/volparossa-agent/src/content/private_storage/observation/challenge.rs',
+                  'crates/volparossa-agent/src/content/private_storage/observation/challenge/tests.rs',
+                  'crates/volparossa-agent/src/content/private_storage/tests.rs',
+                  'crates/volparossa-content/src/private_storage/wire.rs',
+                  'crates/volparossa-content/src/private_storage/wire/begin_observation.rs',
+                  'crates/volparossa-content/src/private_storage/wire/tests/begin_observation.rs',
+                  'crates/volparossa-local-control/src/lib.rs',
+                  'crates/volparossa-local-control/src/private_storage.rs',
+                  'crates/volparossa-local-control/src/private_storage_detail.rs',
+                  'crates/volparossa-local-control/src/private_storage_detail/challenge.rs',
+                  'crates/volparossa-local-control/src/private_storage_detail/flow_acquire/tests.rs',
+                  'crates/volparossa-local-control/src/private_storage_detail/tests/challenge.rs',
+                  'crates/volparossa/src/control_tests.rs',
+                  'crates/volparossa/src/storage.rs',
+                  'crates/volparossa/src/storage/peer.rs',
+                  'crates/volparossa/src/storage/peer_challenge_diagnostics_tests.rs',
+                  'crates/volparossa/src/storage/peer_challenge_read.rs',
+                  'crates/volparossa/src/storage/peer_challenge_read_tests.rs',
+                  'crates/volparossa/src/storage/peer_diagnostics.rs',
+                  'crates/volparossa/src/storage/peer_diagnostics_tests.rs',
+                  'crates/volparossa/src/storage/peer_tls_close_tests.rs',
+                  'crates/volparossa/src/storage/peer_transfer.rs',
+                  'tests/integration/storage-consumer-maintenance-smoke.py',
+                  'tests/integration/storage-consumer-maintenance.mjs',
+                  'tests/integration/test-storage-consumer-maintenance-smoke.py',
+                  'tests/integration/test-storage-consumer-maintenance.mjs',
+              }
+              assert len(allowed) == 29 and set(changed) == allowed
           dependencies = ('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
               'crates/volparossa-agent/Cargo.toml',
               'crates/volparossa-content/Cargo.toml',
@@ -104,7 +143,9 @@ jobs:
               workflow_commit=os.environ['GITHUB_WORKFLOW_SHA'],
               source_blobs={name: git('rev-parse', 'HEAD:' + name) for name in changed},
               dependency_blobs={name: git('rev-parse', 'HEAD:' + name) for name in dependencies},
-              scope='development-only-storage-fixture-correlation-local-contracts',
+              scope=('private-storage-challenge-read-local-contracts'
+                  if os.environ['GITHUB_REF'] == 'refs/heads/fix/storage-challenge-read-20261021' else
+                  'development-only-storage-fixture-correlation-local-contracts'),
               live_consumer_acceptance=False, causal_attribution=False,
               feature_equivalence_to_full_workspace_proven=False)
           pathlib.Path('storage-fixture-evidence/source.json').write_text(json.dumps(receipt, sort_keys=True) + '\n')
@@ -126,6 +167,73 @@ jobs:
           sh -n tests/integration/kvm-alpha-topology.sh
           shellcheck --severity=warning tests/integration/storage-consumer-maintenance-smoke.sh
 
+      - name: Verify pinned profile-10 Node and run the complete inert JavaScript suite
+        if: github.ref == 'refs/heads/fix/storage-challenge-read-20261021'
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ARCH" = X64
+          umask 077
+          node_root=$(mktemp -d "$RUNNER_TEMP/storage-consumer-contract-node.XXXXXXXX")
+          trap 'rm -rf -- "$node_root"' EXIT
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --connect-timeout 20 --max-time 120 --max-filesize 31633904 \
+            https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz \
+            --output "$node_root/node.tar.xz"
+          python3 -B - "$node_root" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import tarfile
+          import sys
+          root = pathlib.Path(sys.argv[1])
+          pin = json.loads(pathlib.Path('tests/integration/storage-consumer-maintenance-pins-v10.json').read_text())['runtime']
+          assert pin['version'] == '24.19.0' and pin['bytes'] == 31633904
+          assert pin['url'] == 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz'
+          assert pin['sha256'] == '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647'
+          archive = root / 'node.tar.xz'
+          assert archive.stat().st_size == pin['bytes']
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == pin['sha256']
+          assert set(pin['files']) == {'bin/node', 'LICENSE'}
+          # Only fixed destinations; archive names are never used as output paths.
+          with tarfile.open(archive, 'r:xz') as bundle:
+              for relative, expected in pin['files'].items():
+                  member = bundle.getmember('node-v24.19.0-linux-x64/' + relative)
+                  assert member.isfile() and not member.mode & 0o6000 and member.size == expected['bytes']
+                  with bundle.extractfile(member) as source:
+                      data = source.read(expected['bytes'] + 1)
+                  assert len(data) == expected['bytes'] and hashlib.sha256(data).hexdigest() == expected['sha256']
+                  destination = root / ('node' if relative == 'bin/node' else 'LICENSE')
+                  with destination.open('xb') as output:
+                      output.write(data)
+                  destination.chmod(0o700 if relative == 'bin/node' else 0o600)
+          PY
+          test "$("$node_root/node" --version)" = v24.19.0
+          timeout --signal=TERM --kill-after=5s 120s \
+            "$node_root/node" --test --test-reporter=tap tests/integration/test-storage-consumer-maintenance.mjs \
+            > storage-fixture-evidence/node-tests.log 2>&1
+          python3 -B - <<'PY'
+          import json
+          import pathlib
+          import re
+          root = pathlib.Path('storage-fixture-evidence')
+          log = root / 'node-tests.log'
+          assert 0 < log.stat().st_size <= 1024 * 1024
+          output = log.read_text()
+          names = re.findall(r'^# Subtest: (.+)$', output, re.M)
+          assert len(names) == len(set(names)) == 55
+          for field, count in dict(tests=55, suites=0, pass_=55, fail=0, cancelled=0, skipped=0, todo=0).items():
+              label = field.rstrip('_')
+              assert re.findall(r'^# ' + label + r' (\d+)$', output, re.M) == [str(count)]
+          assert sum(name.startswith('request-stage ') for name in names) == 3
+          assert sum(name.startswith('challenge-read v10 ') for name in names) == 2
+          (root / 'node-tests.json').write_text(json.dumps(dict(node_version='24.19.0',
+              archive_sha256='14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647',
+              tests=55, test_names=sorted(names), actual_consumer_acceptance=False), sort_keys=True) + '\n')
+          PY
+
       - name: Install the existing pinned Rust toolchain
         id: toolchain
         run: |
@@ -134,6 +242,38 @@ jobs:
           rustup show active-toolchain
           rustc --version --verbose
           cargo --version --verbose
+
+      - name: Check formatting before compilation and retain a correction on failure
+        id: format
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code HEAD
+          umask 077
+          if cargo fmt --all -- --check > storage-fixture-evidence/format.log 2>&1; then
+            git diff --exit-code HEAD
+          else
+            restore_source() {
+              git restore --source=HEAD --worktree -- .
+            }
+            trap restore_source EXIT
+            trap 'exit 130' INT
+            trap 'exit 143' TERM
+            if cargo fmt --all > storage-fixture-evidence/format-write.log 2>&1; then
+              formatter_status=0
+            else
+              formatter_status=$?
+            fi
+            git diff --binary --full-index --no-ext-diff --no-color HEAD -- \
+              > storage-fixture-evidence/format.patch
+            restore_source
+            trap - EXIT INT TERM
+            git diff --exit-code HEAD
+            printf 'Formatting check failed; correction captured; formatter exit: %s\n' "$formatter_status"
+            exit 1
+          fi
 
       - name: Install reviewed Protobuf on the disposable hosted runner
         run: |
@@ -186,6 +326,14 @@ jobs:
           if test "$GITHUB_REF" = refs/heads/test/storage-request-stage-proof-20261021; then
             contract_group content-request volparossa-content fixture_request_
           fi
+          if test "$GITHUB_REF" = refs/heads/fix/storage-challenge-read-20261021; then
+            contract_group wire-challenge volparossa-local-control private_storage_detail::tests::challenge::
+            contract_group wire-storage volparossa-local-control private_storage::tests::
+            contract_group content-challenge volparossa-content private_storage::wire::tests::begin_observation::
+            contract_group cli-challenge volparossa storage::peer::diagnostics::challenge_read_tests::
+            contract_group cli-legacy volparossa storage::peer::diagnostics::tests::
+            contract_group cli-close volparossa storage::peer::diagnostics::tls_close_tests::
+          fi
           python3 -B - <<'PY'
           import json
           import os
@@ -201,6 +349,8 @@ jobs:
           }
           if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-request-stage-proof-20261021':
               groups['content-request'] = 'volparossa-content'
+          if os.environ['GITHUB_REF'] == 'refs/heads/fix/storage-challenge-read-20261021':
+              groups.update({'wire-challenge': 'volparossa-local-control', 'wire-storage': 'volparossa-local-control', 'content-challenge': 'volparossa-content', 'cli-challenge': 'volparossa', 'cli-legacy': 'volparossa', 'cli-close': 'volparossa'})
           # Retain these exact opt-in kernel tests in the inventory, separately
           # from executed contracts. This job does not supply their namespaces.
           tls_prefix = 'content::tls::tests::'
@@ -286,6 +436,9 @@ jobs:
                   'content-request': 5}
               assert {group: count for group, count in new_counts.items() if count} == expected_new
               assert sum(new_counts.values()) == 22
+          if os.environ['GITHUB_REF'] == 'refs/heads/fix/storage-challenge-read-20261021':
+              read_tests = [name for name in executed_names if name.rsplit('::', 1)[-1].startswith('challenge_read_')]
+              assert len(read_tests) == 9, read_tests
           assert len(ignored_names) == 3 and len(executed_names) + len(ignored_names) == len(all_names)
           receipt = dict(schema=2, unique_tests=len(all_names), group_counts=counts,
               executed_tests=len(executed_names), executed_group_counts=executed_counts,
@@ -303,12 +456,6 @@ jobs:
             -p volparossa-content -p volparossa-agent -p volparossa --all-targets --all-features -- -D warnings \
             2>&1 | tee storage-fixture-evidence/clippy.log
 
-      - name: Check formatting without modifying tested source
-        if: ${{ always() && steps.source.outcome == 'success' && steps.toolchain.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          cargo fmt --all -- --check 2>&1 | tee storage-fixture-evidence/format.log
-
       - name: Recheck source even after failure
         if: always()
         run: |
@@ -325,15 +472,16 @@ jobs:
           path: storage-fixture-evidence/
 
   consumer-contracts:
-    name: Request-stage consumer harness source and inert contracts
+    name: Scoped consumer source and synthetic contract checks
     if: >-
       github.repository == 'VOLPAROSSA/volparossa' &&
-      github.ref == 'refs/heads/test/storage-request-stage-consumers-20261021' &&
+      (github.ref == 'refs/heads/test/storage-request-stage-consumers-20261021' ||
+      github.ref == 'refs/heads/test/storage-challenge-read-consumers-20261021') &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      CONSUMER_SOURCE_BASE: 6e30834e6189c19163dcd799c5b4957f3e50ef5e
+      CONSUMER_SOURCE_BASE: ${{ github.ref == 'refs/heads/test/storage-challenge-read-consumers-20261021' && '54c752607c2340c1b3bd525c986a91c447c81e50' || '6e30834e6189c19163dcd799c5b4957f3e50ef5e' }}
     steps:
       - name: Check out the exact consumer harness candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -351,7 +499,10 @@ jobs:
           test "$RUNNER_OS" = Linux
           test "$RUNNER_ARCH" = X64
           test "$GITHUB_REPOSITORY" = VOLPAROSSA/volparossa
-          test "$GITHUB_REF" = refs/heads/test/storage-request-stage-consumers-20261021
+          case "$GITHUB_REF" in
+            refs/heads/test/storage-request-stage-consumers-20261021|refs/heads/test/storage-challenge-read-consumers-20261021) ;;
+            *) exit 1 ;;
+          esac
           case "$GITHUB_EVENT_NAME" in push|workflow_dispatch) ;; *) exit 1 ;; esac
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
@@ -368,7 +519,8 @@ jobs:
           def git(*args):
               return subprocess.check_output(['git', *args], text=True).strip()
           base = os.environ['CONSUMER_SOURCE_BASE']
-          assert base == '6e30834e6189c19163dcd799c5b4957f3e50ef5e'
+          read = os.environ['GITHUB_REF'] == 'refs/heads/test/storage-challenge-read-consumers-20261021'
+          assert base == ('54c752607c2340c1b3bd525c986a91c447c81e50' if read else '6e30834e6189c19163dcd799c5b4957f3e50ef5e')
           assert re.fullmatch('[0-9a-f]{40}', os.environ['GITHUB_SHA'])
           allowed = {
               '.github/workflows/storage-fixture-correlation.yml',
@@ -390,12 +542,32 @@ jobs:
               'tests/integration/test-private-storage-maintenance-smoke.py',
               'tests/integration/test-private-storage-maintenance-wiring.py',
           }
+          if read:
+              allowed = {
+                  '.github/workflows/storage-fixture-correlation.yml',
+                  'tests/integration/storage-consumer-maintenance-smoke.py',
+                  'tests/integration/storage-consumer-maintenance.mjs',
+                  'tests/integration/test-storage-consumer-maintenance-smoke.py',
+                  'tests/integration/test-storage-consumer-maintenance.mjs',
+                  'tests/integration/storage-consumer-maintenance-provision.py',
+                  'tests/integration/storage-consumer-maintenance-pins-v10.json',
+                  'tests/integration/test-storage-consumer-maintenance-provision.py',
+              }
           changed = git('diff', '--name-only', base, 'HEAD').splitlines()
-          assert len(allowed) == 18 and len(changed) == 18 and set(changed) == allowed
+          assert len(allowed) == len(changed) == (8 if read else 18) and set(changed) == allowed
           dependencies = ('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
               'crates/volparossa-agent/Cargo.toml', 'crates/volparossa-content/Cargo.toml',
               'crates/volparossa-local-control/Cargo.toml', 'crates/volparossa/Cargo.toml',
               'tests/integration/storage-consumer-maintenance-pins-v10.json')
+          if read:
+              dependencies = tuple(name for name in git('ls-tree', '-r', '--name-only', base).splitlines()
+                  if name.endswith('.rs') or pathlib.PurePosixPath(name).name in
+                  ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml'))
+              assert len(dependencies) == 1170
+              pin_path = 'tests/integration/storage-consumer-maintenance-pins-v10.json'
+              current, previous = pathlib.Path(pin_path).read_text(), git('show', base + ':' + pin_path) + '\n'
+              assert json.loads(current)['runtime'] == json.loads(previous)['runtime']
+              assert current[current.index('  "runtime":'):] == previous[previous.index('  "runtime":'):]
           for name in dependencies:
               assert git('rev-parse', 'HEAD:' + name) == git('rev-parse', base + ':' + name)
           receipt = dict(schema=1, source_commit=os.environ['GITHUB_SHA'],
@@ -403,7 +575,7 @@ jobs:
               workflow_commit=os.environ['GITHUB_WORKFLOW_SHA'],
               source_blobs={name: git('rev-parse', 'HEAD:' + name) for name in sorted(allowed)},
               dependency_blobs={name: git('rev-parse', 'HEAD:' + name) for name in dependencies},
-              scope='storage-request-stage-consumer-inert-contracts',
+              scope='storage-challenge-read-consumer-contracts' if read else 'storage-request-stage-consumer-inert-contracts',
               actual_consumer_acceptance=False, causal_attribution=False)
           pathlib.Path('storage-consumer-contract-evidence/source.json').write_text(
               json.dumps(receipt, sort_keys=True) + '\n')
@@ -415,6 +587,7 @@ jobs:
           timeout --signal=TERM --kill-after=5s 300s python3 -B - <<'PY'
           import json
           import pathlib
+          import os
           import subprocess
           import sys
           groups = {
@@ -422,7 +595,7 @@ jobs:
               'storage-provider-usage-snapshot': 16,
               'storage-fixture-correlation-sampler': 33,
               'storage-provider-activity-sampler': 17,
-              'storage-consumer-maintenance-smoke': 54,
+              'storage-consumer-maintenance-smoke': 59 if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-challenge-read-consumers-20261021' else 56,
               'storage-consumer-maintenance-shell': 9,
               'private-storage-maintenance-smoke': 85,
               'private-storage-maintenance-wiring': 42,
@@ -458,7 +631,7 @@ jobs:
               receipt = json.loads((root / (name + '.json')).read_text())
               assert receipt['tests'] == expected
               print(name + ': ' + str(expected) + ' passed; no skips', flush=True)
-          assert len(groups) == 11 and sum(groups.values()) == 320
+          assert len(groups) == 11 and sum(groups.values()) == (331 if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-challenge-read-consumers-20261021' else 328)
           (root / 'python-tests.json').write_text(json.dumps(dict(group_counts=groups,
               unique_tests=sum(groups.values()), actual_consumer_acceptance=False), sort_keys=True) + '\n')
           PY
@@ -467,7 +640,7 @@ jobs:
           sh -n tests/integration/kvm-alpha-topology.sh
           shellcheck --severity=warning tests/integration/storage-consumer-maintenance-smoke.sh
 
-      - name: Verify pinned profile-10 Node and run the complete inert JavaScript suite
+      - name: Verify pinned Node and run source-bound JavaScript contracts
         run: |
           set -euo pipefail
           test "$GITHUB_ACTIONS" = true
@@ -476,7 +649,8 @@ jobs:
           test "$RUNNER_ARCH" = X64
           umask 077
           node_root=$(mktemp -d "$RUNNER_TEMP/storage-consumer-contract-node.XXXXXXXX")
-          trap 'rm -rf -- "$node_root"' EXIT
+          app_root=$(mktemp -d "$RUNNER_TEMP/storage-consumer-contract-apps.XXXXXXXX")
+          trap 'rm -rf -- "$node_root" "$app_root"' EXIT
           curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
             --connect-timeout 20 --max-time 120 --max-filesize 31633904 \
             https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz \
@@ -516,21 +690,243 @@ jobs:
           python3 -B - <<'PY'
           import json
           import pathlib
+          import os
           import re
           root = pathlib.Path('storage-consumer-contract-evidence')
           log = root / 'node-tests.log'
           assert 0 < log.stat().st_size <= 1024 * 1024
           output = log.read_text()
           names = re.findall(r'^# Subtest: (.+)$', output, re.M)
-          assert len(names) == len(set(names)) == 53
-          for field, count in dict(tests=53, suites=0, pass_=53, fail=0, cancelled=0, skipped=0, todo=0).items():
+          expected = 58 if os.environ['GITHUB_REF'] == 'refs/heads/test/storage-challenge-read-consumers-20261021' else 55
+          assert len(names) == len(set(names)) == expected
+          for field, count in dict(tests=expected, suites=0, pass_=expected, fail=0, cancelled=0, skipped=0, todo=0).items():
               label = field.rstrip('_')
               assert re.findall(r'^# ' + label + r' (\d+)$', output, re.M) == [str(count)]
+          assert not re.findall(r'^ +# Subtest: (.+)$', output, re.M)
+          results = re.findall(r'^( *)(ok|not ok) [0-9]+ - (.+)$', output, re.M)
+          assert sorted(results) == sorted(('', 'ok', name) for name in names)
+          assert not re.search(r'^ *(?:not )?ok [^\n]+ #\s*(SKIP|TODO)\b|^Bail out!', output, re.M | re.I)
+          assert re.findall(r'^1\.\.([0-9]+)$', output, re.M) == [str(expected)]
           assert sum(name.startswith('request-stage ') for name in names) == 3
           (root / 'node-tests.json').write_text(json.dumps(dict(node_version='24.19.0',
               archive_sha256='14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647',
-              tests=53, test_names=sorted(names), actual_consumer_acceptance=False), sort_keys=True) + '\n')
+              tests=expected, top_level_tests=expected, nested_tests=0,
+              top_level_test_names=sorted(names), nested_test_names=[],
+              test_names=sorted(names), actual_consumer_acceptance=False), sort_keys=True) + '\n')
           PY
+
+          if test "$GITHUB_REF" = refs/heads/test/storage-challenge-read-consumers-20261021; then
+            python3 -B - "$app_root" "$node_root/node" <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import shutil
+          import subprocess
+          import sys
+          app_root, node = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+          evidence = pathlib.Path('storage-consumer-contract-evidence').resolve()
+          pins = json.loads(pathlib.Path('tests/integration/storage-consumer-maintenance-pins-v10.json').read_text())
+          expected = {
+              'image': dict(repository='https://github.com/VOLPAROSSA/volparossa-image',
+                  revision='f51b8ace0352377c7068a93fc8f4544f18e52978',
+                  tree='97c4865149b26a66571f698f48754db4849a613b', files=17, manifest_bytes=3201,
+                  manifest_sha256='b56f67cb32b0f7802bb95b8f1f5d2fa4e622ec2d83d350cfb2a8279c614913ea'),
+              'cloud': dict(repository='https://github.com/VOLPAROSSA/volparossa-cloud',
+                  revision='5f143725fd18c98848beb61c9198a82066bfec13',
+                  tree='f964bc03dd5fb1d535ffec671ab628aee154b11e', files=63, manifest_bytes=12208,
+                  manifest_sha256='d91cfffb11890a06fda0aef7010d8f5ea3b4f82fd7f29f3f58e628b51451d463'),
+          }
+          environment = dict(os.environ, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null',
+              GIT_CONFIG_COUNT='0', GIT_TERMINAL_PROMPT='0', GIT_ASKPASS='/bin/false',
+              GIT_NO_REPLACE_OBJECTS='1')
+          def git(root, *args):
+              command = ['git', '-c', 'credential.helper=', '-c', 'http.extraHeader=',
+                  '-c', 'core.hooksPath=/dev/null', '-c', 'core.autocrlf=false',
+                  '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', '-C', str(root), *args]
+              return subprocess.check_output(command, env=environment, stderr=subprocess.STDOUT, timeout=120)
+          def canonical(value):
+              return (json.dumps(value, sort_keys=True, separators=(',', ':')) + '\n').encode()
+          sources = {}
+          for app, record in expected.items():
+              source = pins['sources'][app]
+              assert source['repository'] == record['repository'] and source['revision'] == record['revision']
+              destination = app_root / app
+              destination.mkdir(mode=0o700)
+              git(destination, 'init', '--quiet')
+              git(destination, 'fetch', '--quiet', '--no-tags', '--depth=1', '--no-recurse-submodules',
+                  record['repository'], record['revision'])
+              assert git(destination, 'rev-parse', 'FETCH_HEAD').decode().strip() == record['revision']
+              git(destination, 'checkout', '--quiet', '--detach', 'FETCH_HEAD')
+              assert git(destination, 'rev-parse', 'HEAD^{tree}').decode().strip() == record['tree']
+              assert not git(destination, 'remote').strip()  # No remote or credential is persisted.
+              assert not git(destination, 'status', '--porcelain', '--untracked-files=all').strip()
+              files = []
+              for raw in git(destination, 'ls-tree', '-rz', '--full-tree', 'HEAD').split(b'\0'):
+                  if not raw:
+                      continue
+                  entry, path = raw.split(b'\t', 1)
+                  mode, kind, blob = entry.decode().split()
+                  relative = pathlib.PurePosixPath(path.decode())
+                  assert mode in ('100644', '100755') and kind == 'blob'
+                  assert not relative.is_absolute() and '..' not in relative.parts
+                  local = destination / relative
+                  assert local.is_file() and not local.is_symlink() and local.stat().st_size <= 4 * 1024 * 1024
+                  data = local.read_bytes()
+                  files.append(dict(path=str(relative), mode=mode, blob=blob, bytes=len(data),
+                      sha256=hashlib.sha256(data).hexdigest()))
+              files.sort(key=lambda value: value['path'])
+              manifest = canonical(files)
+              assert len(files) == record['files'] and sum(value['bytes'] for value in files) <= 8 * 1024 * 1024
+              assert len(manifest) == record['manifest_bytes']
+              assert hashlib.sha256(manifest).hexdigest() == record['manifest_sha256']
+              by_path = {value['path']: value for value in files}
+              for path, pin in source['files'].items():
+                  assert {key: by_path[path][key] for key in ('bytes', 'sha256')} == pin
+              (evidence / (app + '-source-manifest.json')).write_bytes(manifest)
+              sources[app] = dict(record)
+          cloud = app_root / 'cloud'
+          vendor = json.loads((cloud / 'third_party/volparossa-image-source.json').read_text())
+          assert vendor['revision'] == expected['image']['revision'] and vendor['local_modifications'] is False
+          assert vendor['repository'] == expected['image']['repository'] and vendor['license'] == 'GPL-3.0-only'
+          assert set(vendor['files']) == {'LICENSE', 'scripts/immich_snapshot.py', 'src/core-storage.mjs'}
+          for original, record in vendor['files'].items():
+              data = (cloud / record['local']).read_bytes()
+              assert data == (app_root / 'image' / original).read_bytes()
+              assert len(data) == record['bytes'] and hashlib.sha256(data).hexdigest() == record['sha256']
+          # Observed runner tools, not pinned executable identity or peer-storage proof.
+          tools = {}
+          for name in ('gpg', 'gpg-agent', 'gpgconf'):
+              executable = shutil.which(name)
+              assert executable is not None
+              version = subprocess.check_output([executable, '--version'], stderr=subprocess.STDOUT, timeout=10)
+              assert 0 < len(version) <= 8192
+              tools[name] = dict(version=version.decode(), executable_pinned=False)
+          (evidence / 'app-tools.json').write_bytes(canonical(tools))
+          nested_private = (
+              'two actual decryptions publish only fully verified output without consuming input',
+              'existing destination and tampered ciphertext never publish or overwrite plaintext',
+              'actual GPG authentication failure keeps requested output absent',
+              'OpenPGP rejects changed encrypted data even when the outer receipt is replaced',
+              'core contract fixture sees ciphertext only; actual decryption survives local cipher removal',
+              'incomplete core restore fails visibly without source or local fallback',
+          )
+          groups = {
+              'image-sdk': ('image', ['tests/core-storage.test.mjs'], 79, ()),
+              'cloud-diagnostics': ('cloud', ['test/storage-deposit-diagnostics.test.mjs'], 27, ()),
+              'cloud-private-file': ('cloud', ['test/private-file.test.mjs'], 5, nested_private),
+          }
+          def source_inventory(destination, paths, count, nested):
+              top, children = [], []
+              for path in paths:
+                  source = (destination / path).read_text()
+                  top.extend(re.findall(r"^test\('([^'\n]+)',", source, re.M))
+                  children.extend(re.findall(r"^  await t\.test\('([^'\n]+)',", source, re.M))
+                  assert len(re.findall(r'\bt\.test\(', source)) == len(children)
+              assert len(top) == len(set(top)) == count
+              assert len(children) == len(set(children)) == len(nested)
+              assert children == list(nested) and not set(top) & set(children)
+              return top, children
+          def verify_tap(output, top, nested):
+              assert len(top) == len(set(top)) and len(nested) == len(set(nested))
+              assert not set(top) & set(nested)
+              declarations = re.findall(r'^( *)# Subtest: (.+)$', output, re.M)
+              expected_names = [('', name) for name in top] + [('    ', name) for name in nested]
+              assert sorted(declarations) == sorted(expected_names)
+              results = re.findall(r'^( *)(ok|not ok) [0-9]+ - (.+)$', output, re.M)
+              assert sorted(results) == sorted((indent, 'ok', name) for indent, name in expected_names)
+              assert not re.search(r'^ *(?:not )?ok [^\n]+ #\s*(SKIP|TODO)\b|^Bail out!', output, re.M | re.I)
+              assert re.findall(r'^1\.\.([0-9]+)$', output, re.M) == [str(len(top))]
+              assert re.findall(r'^ +1\.\.([0-9]+)$', output, re.M) == ([str(len(nested))] if nested else [])
+              total = len(top) + len(nested)
+              for field, value in dict(tests=total, suites=0, pass_=total, fail=0, cancelled=0, skipped=0, todo=0).items():
+                  assert re.findall(r'^# ' + field.rstrip('_') + r' (\d+)$', output, re.M) == [str(value)]
+              return dict(tests=total, top_level_tests=len(top), nested_tests=len(nested),
+                  top_level_test_names=sorted(top), nested_test_names=sorted(nested),
+                  test_names=sorted(top + nested))
+          inventories = {group: source_inventory(app_root / app, paths, count, nested)
+              for group, (app, paths, count, nested) in groups.items()}
+          # Exercise the real parser inertly before running published test code.
+          # These fabricated TAP records prove parser rejection, not test execution.
+          def parser_controls(top, nested):
+              lines = ['TAP version 13']
+              for index, name in enumerate(top, 1):
+                  lines.append('# Subtest: ' + name)
+                  if index == 3:
+                      for child, title in enumerate(nested, 1):
+                          lines.extend(['    # Subtest: ' + title, '    ok ' + str(child) + ' - ' + title])
+                      if nested:
+                          lines.append('    1..' + str(len(nested)))
+                  lines.append('ok ' + str(index) + ' - ' + name)
+              lines.append('1..' + str(len(top)))
+              total = len(top) + len(nested)
+              lines.extend('# ' + key + ' ' + str(value) for key, value in
+                  dict(tests=total, suites=0, pass_=total, fail=0, cancelled=0, skipped=0, todo=0).items())
+              valid = '\n'.join(lines).replace('# pass_ ', '# pass ') + '\n'
+              assert verify_tap(valid, top, nested)['tests'] == 11
+              declaration = '    # Subtest: ' + nested[0] + '\n'
+              result = '    ok 1 - ' + nested[0] + '\n'
+              cases = {
+                  'five_only_summary': valid.replace('# tests 11', '# tests 5').replace('# pass 11', '# pass 5'),
+                  'missing_nested_name': valid.replace(declaration, ''),
+                  'duplicate_nested_name': valid + declaration,
+                  'extra_nested_name': valid + '    # Subtest: unlisted nested test\n',
+                  'wrong_nested_name': valid.replace(nested[0], 'unlisted nested test'),
+                  'missing_nested_result': valid.replace(result, ''),
+                  'duplicate_nested_result': valid + result,
+                  'failed_nested_result': valid.replace(result, result.replace('ok 1', 'not ok 1')),
+                  'skipped_nested_result': valid.replace(result, result.rstrip() + ' # SKIP private\n'),
+                  'todo_nested_result': valid.replace(result, result.rstrip() + ' # TODO private\n'),
+                  'cancelled_summary': valid.replace('# cancelled 0', '# cancelled 1'),
+                  'missing_top_name': valid.replace('# Subtest: ' + top[0] + '\n', ''),
+                  'duplicate_top_name': valid + '# Subtest: ' + top[0] + '\n',
+                  'extra_top_name': valid + '# Subtest: unlisted top test\n',
+                  'nested_wrong_depth': valid.replace(declaration, declaration.replace('    #', '        #')),
+              }
+              for label, output in cases.items():
+                  try:
+                      verify_tap(output, top, nested)
+                  except AssertionError:
+                      continue
+                  raise AssertionError('parser accepted ' + label)
+              # The other groups explicitly have no nested tests.
+              flat = '# Subtest: flat\nok 1 - flat\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n'
+              assert verify_tap(flat, ['flat'], [])['nested_tests'] == 0
+              try:
+                  verify_tap(flat + '    # Subtest: unlisted nested test\n', ['flat'], [])
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError('parser accepted nested test in flat group')
+              return sorted([*cases, 'nested_in_flat_group'])
+          controls = parser_controls(*inventories['cloud-private-file'])
+          (evidence / 'app-parser-controls.json').write_bytes(canonical(dict(
+              negative_controls=controls, controls=len(controls), actual_test_execution=False)))
+          results = {}
+          for group, (app, paths, count, nested) in groups.items():
+              destination = app_root / app
+              log = evidence / (group + '-tests.log')
+              with log.open('wb') as output:
+                  subprocess.run(['timeout', '--signal=TERM', '--kill-after=5s', '240s', str(node),
+                      '--test', '--test-reporter=tap', *paths], cwd=destination,
+                      stdout=output, stderr=subprocess.STDOUT, timeout=250, check=True)
+              assert 0 < log.stat().st_size <= 1024 * 1024
+              results[group] = dict(verify_tap(log.read_text(), *inventories[group]),
+                  source_commit=expected[app]['revision'])
+              assert not git(destination, 'diff', '--name-only', 'HEAD').strip()
+              (evidence / (group + '-tests.json')).write_bytes(canonical(results[group]))
+          # Cloud private-file: five top-level tests plus six named nested tests.
+          # Synthetic GPG/loopback and owned-child checks do not prove the overlay.
+          assert sum(value['tests'] for value in results.values()) == 117
+          assert sum(value['top_level_tests'] for value in results.values()) == 111
+          assert sum(value['nested_tests'] for value in results.values()) == 6
+          (evidence / 'app-tests.json').write_bytes(canonical(dict(schema=2, sources=sources, groups=results,
+              tests=117, top_level_tests=111, nested_tests=6, parser_negative_controls=controls,
+              node_version='24.19.0', runner_tools_pinned=False, actual_consumer_acceptance=False,
+              peer_or_overlay_acceptance=False, causal_attribution=False)))
+          PY
+          fi
 
       - name: Bind completed contracts to unchanged exact source
         run: |
@@ -550,20 +946,45 @@ jobs:
           assert source['source_commit'] == os.environ['GITHUB_SHA'] == git('rev-parse', 'HEAD')
           assert source['workflow_commit'] == os.environ['GITHUB_WORKFLOW_SHA']
           assert source['source_tree'] == git('rev-parse', 'HEAD^{tree}')
-          assert len(source['source_blobs']) == 18
+          read = os.environ['GITHUB_REF'] == 'refs/heads/test/storage-challenge-read-consumers-20261021'
+          assert len(source['source_blobs']) == (8 if read else 18)
           for name, blob in {**source['source_blobs'], **source['dependency_blobs']}.items():
               assert git('rev-parse', 'HEAD:' + name) == blob
           untracked = git('ls-files', '--others', '--exclude-standard').splitlines()
           assert all(name.startswith('storage-consumer-contract-evidence/') for name in untracked)
           python = json.loads((root / 'python-tests.json').read_text())
           node = json.loads((root / 'node-tests.json').read_text())
-          assert python['unique_tests'] == 320 and node['tests'] == 53 and node['node_version'] == '24.19.0'
-          receipt = dict(source, python_tests=320, node_tests=53, node_version=node['node_version'],
+          assert python['unique_tests'] == (331 if read else 328) and node['tests'] == (58 if read else 55) and node['node_version'] == '24.19.0'
+          apps = None
+          if read:
+              apps = json.loads((root / 'app-tests.json').read_text())
+              assert apps['node_version'] == '24.19.0' and apps['peer_or_overlay_acceptance'] is False
+              assert node['top_level_tests'] == 58 and node['nested_tests'] == 0
+              assert node['top_level_test_names'] == node['test_names'] and node['nested_test_names'] == []
+              assert {key: (value['top_level_tests'], value['nested_tests'], value['tests'])
+                  for key, value in apps['groups'].items()} == {
+                  'image-sdk': (79, 0, 79), 'cloud-diagnostics': (27, 0, 27), 'cloud-private-file': (5, 6, 11)}
+              assert apps['schema'] == 2 and apps['tests'] == 117 and apps['top_level_tests'] == 111 and apps['nested_tests'] == 6
+              for group in apps['groups'].values():
+                  top, nested = group['top_level_test_names'], group['nested_test_names']
+                  assert len(top) == len(set(top)) == group['top_level_tests']
+                  assert len(nested) == len(set(nested)) == group['nested_tests']
+                  assert not set(top) & set(nested)
+                  assert sorted(top + nested) == group['test_names'] and len(top + nested) == group['tests']
+              controls = json.loads((root / 'app-parser-controls.json').read_text())
+              assert controls['controls'] == len(set(controls['negative_controls'])) == 16
+              assert controls['negative_controls'] == apps['parser_negative_controls']
+              assert controls['actual_test_execution'] is False
+              assert apps['sources']['image']['revision'] == 'f51b8ace0352377c7068a93fc8f4544f18e52978'
+              assert apps['sources']['cloud']['revision'] == '5f143725fd18c98848beb61c9198a82066bfec13'
+          receipt = dict(source, python_tests=python['unique_tests'], node_tests=node['tests'], node_version=node['node_version'],
               completed=True, actual_consumer_acceptance=False, causal_attribution=False)
+          if apps is not None:
+              receipt['app_tests'] = apps
           (root / 'final.json').write_text(json.dumps(receipt, sort_keys=True) + '\n')
           PY
 
-      - name: Retain source-bound inert contract receipts
+      - name: Retain source-bound contract receipts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
         with:

@@ -1128,3 +1128,118 @@ test('entrypoint preserves actual app APIs, no runtime injection or reenrollment
   assert.doesNotMatch(exercise, /enrollMaintenance|storePrivateFile|\.deposit\(|\.create\(|spawnProcess|openMaintenance:/u);
   assert.doesNotMatch(source, /npm|sudo|execSync|shell: true/u);
 });
+
+
+test('challenge-read v10 preserves attempt binding and whole-challenge buckets with finite returned outcomes', () => {
+  const allowed = { length_read: [null, 'io_eof', 'io_other', 'invalid', 'wire_timeout'],
+    body_read: [null, 'io_eof', 'io_other', 'wire_timeout'], verification: [null, 'invalid', 'verification_rejected'] };
+  for (const step of Object.keys(allowed)) for (const returned_outcome of [null, 'io_eof', 'io_other', 'invalid', 'verification_rejected', 'wire_timeout']) {
+    const d = challengeDiagnostics(); d.version = 10;
+    const f = d.failures[0]; Object.assign(f, { fragment_index: 3, copy_index: 1, operation: 'append' });
+    f.agent_detail.flow_acquire = null;
+    Object.assign(f.agent_detail.challenge, { before_challenge: '1_to_5s', in_challenge: '90_to_120s', read: { step, returned_outcome } });
+    if (allowed[step].includes(returned_outcome)) assert.deepEqual(depositDiagnostic(d, 10), d);
+    else assert.throws(() => depositDiagnostic(d, 10), /deposit_diagnostics/u);
+  }
+});
+
+test('challenge-read v10 rejects legacy reinterpretation, private extras and wrong phase', () => {
+  const make = () => {
+    const d = challengeDiagnostics(); d.version = 10;
+    d.failures[0].agent_detail.flow_acquire = null;
+    d.failures[0].agent_detail.challenge.read = { step: 'body_read', returned_outcome: null };
+    return d;
+  };
+  for (let version = 1; version <= 9; version++) {
+    const d = make(); d.version = version;
+    assert.throws(() => depositDiagnostic(d, version), /deposit_diagnostics/u);
+  }
+  for (const read of [{ step: 'PRIVATE', returned_outcome: null }, { step: 'body_read' },
+    { step: 'body_read', returned_outcome: true }, { step: 'body_read', returned_outcome: null, raw: 'PRIVATE' }]) {
+    const d = make(); d.failures[0].agent_detail.challenge.read = read;
+    assert.throws(() => depositDiagnostic(d, 10), /deposit_diagnostics/u);
+  }
+  const d = make(); d.failures[0].agent_detail.challenge.phase = 'grant_write_flush';
+  assert.throws(() => depositDiagnostic(d, 10), /deposit_diagnostics/u);
+});
+
+function readDiagnostics() {
+  const d = challengeDiagnostics(); d.version = 10;
+  Object.assign(d.failures[0], { fragment_index: 3, copy_index: 1, operation: 'append' });
+  d.failures[0].agent_detail.flow_acquire = null;
+  Object.assign(d.failures[0].agent_detail.challenge, { before_challenge: '1_to_5s', in_challenge: '90_to_120s',
+    read: { step: 'body_read', returned_outcome: null } });
+  return d;
+}
+
+test('profile10 challenge read opt-in is strict and exclusive while absence preserves v9 selection', () => {
+  assert.doesNotThrow(() => validateAppendProfile({ challengeReadDiagnosticsV10: true }, 10));
+  for (const value of [null, 0, 1, 'true', {}, []]) {
+    assert.throws(() => validateAppendProfile({ challengeReadDiagnosticsV10: value }, 10), /configuration/u);
+  }
+  for (const previous of ['appendDiagnosticsV7', 'flowAcquireDiagnosticsV8', 'tlsCloseDiagnosticsV9']) {
+    for (const value of [true, false]) assert.throws(() => validateAppendProfile({
+      challengeReadDiagnosticsV10: true, [previous]: value }, 10), /configuration/u);
+  }
+  for (let profile = 1; profile < 10; profile++) {
+    for (const value of [true, false]) assert.throws(() => validateAppendProfile({
+      challengeReadDiagnosticsV10: value }, profile), /configuration/u);
+  }
+  assert.doesNotThrow(() => validateAppendProfile({ tlsCloseDiagnosticsV9: true }, 10));
+  assert.doesNotThrow(() => validateAppendProfile({ tlsCloseDiagnosticsV9: true, challengeReadDiagnosticsV10: false }, 10));
+  assert.throws(() => validateAppendProfile({ challengeReadDiagnosticsV10: false }, 10), /configuration/u);
+});
+
+test('profile10 failure projection binds v10 only to explicit opt-in and rejects downgrade', () => {
+  const observe = (diagnostics, enabled) => {
+    try {
+      requirePublishComplete({ status: 'incomplete', code: 'retained_operation_incomplete', local_process_joined: true,
+        storage: { operation_complete: false, deposit_diagnostics: diagnostics } }, 'image', 'deposit', 10, enabled);
+      assert.fail('expected publish failure');
+    } catch (error) { assert.equal(error.code, 'publish_operation'); return error; }
+  };
+  const current = observe(readDiagnostics(), true);
+  assert.equal(current.observation.diagnostic_version, 10);
+  assert.equal(current.observation.deposit_diagnostics_state, 'observed');
+  assert.deepEqual(current.observation.deposit_diagnostics, readDiagnostics());
+  assert.equal(requestStageOutcome(current), 'untargeted_failure');
+  assert.equal(observe(closeDiagnostics(), true).observation.deposit_diagnostics_state, 'invalid');
+  assert.equal(observe(readDiagnostics(), false).observation.deposit_diagnostics_state, 'invalid');
+  const legacy = observe(closeDiagnostics(), false);
+  assert.equal(legacy.observation.deposit_diagnostics_state, 'observed');
+  assert.equal(Object.hasOwn(legacy.observation, 'diagnostic_version'), false);
+  for (const invalid of [null, 1, 'true']) assert.throws(() => requirePublishComplete({}, 'image', 'deposit', 10, invalid), /arguments/u);
+  assert.throws(() => requirePublishComplete({}, 'image', 'deposit', 9, true), /arguments/u);
+  assert.doesNotThrow(() => requirePublishComplete({ status: 'complete', local_process_joined: true,
+    storage: { operation_complete: true, deposit_diagnostics: { version: 10, failures: [], omitted_failures: 0 } } },
+  'image', 'deposit', 10, true));
+});
+
+test('profile10 opted-in JS failures pass Python with original lifecycle precedence and fixed target unchanged', async () => {
+  const records = [];
+  for (const app of ['image', 'cloud']) for (const closeFailed of [false, true]) {
+    const ctx = { ...publishContext(10), stage: `${app}_publish` };
+    const value = { status: 'incomplete', code: 'retained_operation_incomplete', local_process_joined: true,
+      storage: { operation_complete: false, deposit_diagnostics: readDiagnostics() } };
+    const { report } = await lifecycleFailure(ctx, () => requirePublishComplete(value, app, 'deposit', 10, true),
+      async () => { if (closeFailed) throw new Error('PRIVATE-CLOSE'); }, app);
+    assert.equal(report.code, 'publish_operation');
+    assert.equal(report.cleanup_confirmed, false);
+    assert.equal(report.publish_observation.diagnostic_version, 10);
+    assert.doesNotMatch(JSON.stringify(report), /PRIVATE-CLOSE/u);
+    records.push(report);
+  }
+  const source = 'import json, runpy, sys\n' +
+    'm = runpy.run_path(sys.argv[1])\n' +
+    'for v in json.load(sys.stdin):\n' +
+    '    assert m["validate_node_report"](v, "publish", "a" * 64, profile_version=10, challenge_read_diagnostics_v10=True) == v\n' +
+    '    v["publish_observation"].pop("diagnostic_version")\n' +
+    '    try: m["validate_node_report"](v, "publish", "a" * 64, profile_version=10, challenge_read_diagnostics_v10=True)\n' +
+    '    except ValueError: pass\n' +
+    '    else: raise AssertionError("v10 accepted without mode")\n';
+  const child = spawnSync('/usr/bin/python3', ['-I', '-B', '-c', source,
+    fileURLToPath(new URL('./storage-consumer-maintenance-smoke.py', import.meta.url))], {
+    input: JSON.stringify(records), encoding: 'utf8', timeout: 10000, maxBuffer: 16384,
+  });
+  assert.equal(child.status, 0, child.stderr); assert.equal(child.stdout, '');
+});
