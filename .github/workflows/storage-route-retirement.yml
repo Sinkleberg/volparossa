@@ -2,7 +2,7 @@ name: Storage retirement and closed TLS diagnostics
 
 on:
   push:
-    branches: [fix/storage-route-retirement]
+    branches: [fix/storage-route-retirement, fix/storage-provider-close-before-log-20261022]
   workflow_dispatch:
 
 permissions:
@@ -557,5 +557,183 @@ jobs:
         with:
           name: storage-route-retirement-${{ github.run_id }}
           path: storage-retirement-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  provider-close:
+    if: >-
+      github.repository == 'VOLPAROSSA/volparossa' &&
+      github.ref == 'refs/heads/fix/storage-provider-close-before-log-20261022'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PROVIDER_CLOSE_BASE: c730617af48bf2d1771b24bc91fd450afb140db4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind the provider lifecycle change and unchanged dependencies
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(id -u)" != 0
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          git merge-base --is-ancestor "$PROVIDER_CLOSE_BASE" HEAD
+          umask 077
+          mkdir provider-close-evidence
+          python3 -B - <<'PYCODE'
+          import json, os, pathlib, subprocess
+          def git(*args): return subprocess.check_output(['git', *args], text=True).strip()
+          base = os.environ['PROVIDER_CLOSE_BASE']
+          allowed = {'.github/workflows/storage-route-retirement.yml',
+              'crates/volparossa-agent/src/content.rs',
+              'crates/volparossa-agent/src/content/provider_session_tests.rs'}
+          changed = git('diff', '--name-only', base, 'HEAD').splitlines()
+          assert len(changed) == len(allowed) and set(changed) == allowed
+          dependencies = ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml',
+              'crates/volparossa-agent/Cargo.toml', 'crates/volparossa-content/Cargo.toml',
+              'crates/volparossa-agent/src/content/tls.rs',
+              'crates/volparossa-content/src/provider.rs', 'scripts/run-isolated-test.sh',
+              'tests/integration/storage-consumer-maintenance-pins-v10.json',
+              '.github/workflows/alpha-topology.yml')
+          for name in dependencies:
+              assert git('rev-parse', 'HEAD:' + name) == git('rev-parse', base + ':' + name), name
+          pathlib.Path('provider-close-evidence/source.json').write_text(json.dumps(dict(
+              version=1, source_commit=git('rev-parse', 'HEAD'), source_tree=git('rev-parse', 'HEAD^{tree}'),
+              workflow_commit=os.environ['GITHUB_WORKFLOW_SHA'], base_commit=base,
+              source_blobs={name: git('rev-parse', 'HEAD:' + name) for name in sorted(allowed)},
+              dependency_blobs={name: git('rev-parse', 'HEAD:' + name) for name in dependencies},
+              scope='actual-provider-session-close-before-event-lock',
+              live_consumer_acceptance=False, historical_cause_proven=False,
+              full_relay_datapath=False), sort_keys=True) + '\n')
+          PYCODE
+      - name: Prepare the existing pinned hosted toolchain
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(dpkg --print-architecture)" = amd64
+          rustup toolchain install 1.85.0 --profile minimal --component clippy --component rustfmt
+          sudo -n apt-get update
+          sudo -n apt-get install --yes --no-install-recommends \
+            protobuf-compiler=3.21.12-8.2ubuntu0.4 \
+            libprotoc32t64=3.21.12-8.2ubuntu0.4 libprotobuf32t64=3.21.12-8.2ubuntu0.4
+          test "$(protoc --version)" = 'libprotoc 3.21.12'
+          cargo fmt --all -- --check
+          cargo fetch --locked
+      - name: Record host observations before the isolated regression
+        run: |
+          set -euo pipefail
+          readlink /proc/self/ns/net > provider-close-evidence/parent-netns.txt
+          {
+            ip -4 -j route show table all | sha256sum
+            ip -6 -j route show table all | sha256sum
+            sha256sum /etc/resolv.conf
+            sudo -n env LC_ALL=C iptables-save | awk "$FIREWALL_NORMALIZER" | sha256sum
+            sudo -n env LC_ALL=C ip6tables-save | awk "$FIREWALL_NORMALIZER" | sha256sum
+          } > provider-close-evidence/host-before.sha256
+      - name: Require fixed-session success and original-session failure under the held log lock
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PYCODE'
+          import hashlib, json, os, pathlib, re, subprocess
+          root = pathlib.Path('provider-close-evidence')
+          source = pathlib.Path('crates/volparossa-agent/src/content.rs')
+          candidate = source.read_bytes()
+          original = subprocess.check_output(['git', 'show', os.environ['PROVIDER_CLOSE_BASE'] + ':' + str(source)])
+          start, end = b'async fn serve_provider_session(\n', b'\n/// FIFO admission'
+          def span(raw):
+              assert raw.count(start) == raw.count(end) == 1
+              first = raw.index(start)
+              return first, raw.index(end, first)
+          a, b = span(candidate); x, y = span(original)
+          negative = candidate[:a] + original[x:y] + candidate[b:]
+          assert negative != candidate and negative[a:a+y-x] == original[x:y]
+          names = None
+          results = {}
+          try:
+              for variant, data in (('candidate', candidate), ('original-session', negative)):
+                  source.write_bytes(data)
+                  with (root / (variant + '-build.jsonl')).open('wb') as out, (root / (variant + '-build.log')).open('wb') as err:
+                      subprocess.run(['cargo', 'test', '--locked', '--offline', '-p', 'volparossa-agent', '--lib',
+                          '--no-run', '--message-format=json'], stdout=out, stderr=err, check=True, timeout=1200)
+                  records = [json.loads(line) for line in (root / (variant + '-build.jsonl')).read_text().splitlines()]
+                  binaries = [row['executable'] for row in records if row.get('reason') == 'compiler-artifact'
+                      and row.get('target', {}).get('name') == 'volparossa_agent'
+                      and row.get('profile', {}).get('test') and row.get('executable')]
+                  assert len(binaries) == 1
+                  binary = pathlib.Path(binaries[0]).resolve(strict=True)
+                  assert binary.is_relative_to(pathlib.Path.cwd() / 'target')
+                  inventory = subprocess.check_output([str(binary), 'content::provider_session_tests::', '--ignored', '--list'], text=True, timeout=15)
+                  selected = re.findall(r'^([^\n]+): test$', inventory, re.M)
+                  assert len(selected) == len(set(selected)) == 2
+                  assert all(name.startswith('content::provider_session_tests::') for name in selected)
+                  if names is None: names = selected
+                  else: assert names == selected
+                  (root / (variant + '-inventory.log')).write_text(inventory)
+                  results[variant] = []
+                  for index, name in enumerate(names):
+                      log = root / f'{variant}-{index}.log'
+                      with log.open('wb') as out:
+                          run = subprocess.run(['scripts/run-isolated-test.sh', '--command', str(binary), name,
+                              'VOLPAROSSA_EXACT_CONTENT_PARENT_NETNS', 'loopback', '--ignored', '--exact', name, '--nocapture'],
+                              env={**os.environ, 'VOLPAROSSA_TEST_ALLOW_SUDO_NETNS': '1'},
+                              stdout=out, stderr=subprocess.STDOUT, timeout=135)
+                      (root / f'{variant}-{index}.exit').write_text(str(run.returncode) + '\n')
+                      text = log.read_text()
+                      if variant == 'candidate':
+                          assert run.returncode == 0, (variant, name)
+                          assert re.findall(r'^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; [0-9]+ filtered out;', text, re.M)
+                          assert re.findall(r'^test (.+) \.\.\. ok$', text, re.M) == [name]
+                      else:
+                          assert run.returncode == 101, (variant, name, run.returncode)
+                          assert 'PROVIDER_STREAM_RETAINED_BEHIND_EVENT_LOCK' in text
+                          assert re.findall(r'^test result: FAILED\. 0 passed; 1 failed; 0 ignored; 0 measured; [0-9]+ filtered out;', text, re.M)
+                      results[variant].append(dict(test=name, exit=run.returncode,
+                          log_sha256=hashlib.sha256(log.read_bytes()).hexdigest()))
+          finally:
+              source.write_bytes(candidate)
+          assert source.read_bytes() == candidate
+          (root / 'results.json').write_text(json.dumps(dict(version=1, results=results,
+              candidate_function_sha256=hashlib.sha256(candidate[a:b]).hexdigest(),
+              original_function_sha256=hashlib.sha256(original[x:y]).hexdigest(),
+              same_tests=True, actual_provider_session=True, disposable_loopback_tcp_tls=True,
+              negative_control='original-function-with-same-new-tests',
+              live_consumer_acceptance=False, historical_cause_proven=False,
+              full_relay_datapath=False), sort_keys=True) + '\n')
+          PYCODE
+      - name: Lint the restored candidate
+        run: cargo clippy --locked --offline -p volparossa-agent --all-targets --all-features -- -D warnings
+      - name: Restore source and verify host observations even after failure
+        if: always()
+        run: |
+          set -euo pipefail
+          # This runner checkout was proven clean; restore only the deliberate negative-control edit.
+          git show HEAD:crates/volparossa-agent/src/content.rs > crates/volparossa-agent/src/content.rs
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code HEAD
+          if test -f provider-close-evidence/host-before.sha256; then
+            read -r parent_namespace < provider-close-evidence/parent-netns.txt
+            test "$(readlink /proc/self/ns/net)" = "$parent_namespace"
+            {
+              ip -4 -j route show table all | sha256sum
+              ip -6 -j route show table all | sha256sum
+              sha256sum /etc/resolv.conf
+              sudo -n env LC_ALL=C iptables-save | awk "$FIREWALL_NORMALIZER" | sha256sum
+              sudo -n env LC_ALL=C ip6tables-save | awk "$FIREWALL_NORMALIZER" | sha256sum
+            } > provider-close-evidence/host-after.sha256
+            cmp provider-close-evidence/host-before.sha256 provider-close-evidence/host-after.sha256
+          fi
+      - name: Retain bounded source and lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: provider-close-before-log-${{ github.run_id }}
+          path: provider-close-evidence/
           if-no-files-found: warn
           retention-days: 14
