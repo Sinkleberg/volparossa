@@ -4,6 +4,12 @@ on:
   push:
     branches: [fix/storage-route-retirement, fix/storage-provider-close-before-log-20261022]
   workflow_dispatch:
+    inputs:
+      provider_event_drain:
+        description: Run bounded provider event-drain regressions and original-behavior controls
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -735,5 +741,239 @@ jobs:
         with:
           name: provider-close-before-log-${{ github.run_id }}
           path: provider-close-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  provider-event-drain:
+    if: >-
+      github.repository == 'VOLPAROSSA/volparossa' &&
+      github.event_name == 'workflow_dispatch' && inputs.provider_event_drain &&
+      github.ref == 'refs/heads/fix/storage-provider-event-drain-20261022'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PROVIDER_DRAIN_BASE: 157908ad1e4a3dc9050179be30a970beff1ef061
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind bounded provider drain source and unchanged authority and fixture dependencies
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(id -u)" != 0
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          git merge-base --is-ancestor "$PROVIDER_DRAIN_BASE" HEAD
+          umask 077
+          mkdir provider-drain-evidence
+          python3 -B - <<'PYCODE'
+          import json, os, pathlib, subprocess
+          def git(*args): return subprocess.check_output(['git', *args], text=True).strip()
+          base = os.environ['PROVIDER_DRAIN_BASE']
+          allowed = {'.github/workflows/storage-route-retirement.yml',
+              'crates/volparossa-agent/src/content.rs',
+              'crates/volparossa-agent/src/content/provider_events.rs',
+              'crates/volparossa-agent/src/content/provider_loop_tests.rs',
+              'crates/volparossa-agent/src/content/provider_session_tests.rs'}
+          changed = git('diff', '--name-only', base, 'HEAD').splitlines()
+          assert len(changed) == len(allowed) and set(changed) == allowed
+          dependencies = ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml',
+              'crates/volparossa-agent/Cargo.toml', 'crates/volparossa-content/Cargo.toml',
+              'crates/volparossa-agent/src/content/tls.rs',
+              'crates/volparossa-agent/src/content/refresh_tests.rs',
+              'crates/volparossa-agent/src/content/private_storage.rs',
+              'crates/volparossa-agent/src/route_setup.rs',
+              'crates/volparossa-agent/src/state.rs',
+              'crates/volparossa-content/src/provider.rs',
+              'crates/volparossa-content/src/private_storage/wire/diagnostic.rs',
+              'scripts/run-isolated-test.sh', '.github/workflows/alpha-topology.yml',
+              'tests/integration/storage-consumer-maintenance-pins.json',
+              *(f'tests/integration/storage-consumer-maintenance-pins-v{i}.json' for i in range(2, 11)))
+          for name in dependencies:
+              assert git('rev-parse', 'HEAD:' + name) == git('rev-parse', base + ':' + name), name
+          pathlib.Path('provider-drain-evidence/source.json').write_text(json.dumps(dict(
+              version=1, source_commit=git('rev-parse', 'HEAD'), source_tree=git('rev-parse', 'HEAD^{tree}'),
+              workflow_commit=os.environ['GITHUB_WORKFLOW_SHA'], base_commit=base,
+              source_blobs={name: git('rev-parse', 'HEAD:' + name) for name in sorted(allowed)},
+              dependency_blobs={name: git('rev-parse', 'HEAD:' + name) for name in dependencies},
+              queue_capacity_batches=64, maximum_codes_per_batch=3,
+              overflow='omit-newest-saturating-counter-later-closed-marker',
+              stop_loss='discard-undrained-volatile-batches-with-count-only-tracing-warning',
+              timestamp='post-lock-emission-as-before',
+              scope='provider-session-admission-and-serving-loop-independent-of-event-lock',
+              live_consumer_acceptance=False, historical_cause_proven=False,
+              full_relay_datapath=False), sort_keys=True) + '\n')
+          PYCODE
+      - name: Prepare the existing pinned hosted toolchain
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(dpkg --print-architecture)" = amd64
+          rustup toolchain install 1.85.0 --profile minimal --component clippy --component rustfmt
+          sudo -n apt-get update
+          sudo -n apt-get install --yes --no-install-recommends \
+            protobuf-compiler=3.21.12-8.2ubuntu0.4 \
+            libprotoc32t64=3.21.12-8.2ubuntu0.4 libprotobuf32t64=3.21.12-8.2ubuntu0.4
+          test "$(protoc --version)" = 'libprotoc 3.21.12'
+          cargo fmt --all -- --check
+          cargo fetch --locked
+      - name: Record host observations before the isolated regressions
+        run: |
+          set -euo pipefail
+          readlink /proc/self/ns/net > provider-drain-evidence/parent-netns.txt
+          {
+            ip -4 -j route show table all | sha256sum
+            ip -6 -j route show table all | sha256sum
+            sha256sum /etc/resolv.conf
+            sudo -n env LC_ALL=C iptables-save | awk "$FIREWALL_NORMALIZER" | sha256sum
+            sudo -n env LC_ALL=C ip6tables-save | awk "$FIREWALL_NORMALIZER" | sha256sum
+          } > provider-drain-evidence/host-before.sha256
+      - name: Require candidate passes and original-behavior controls with identical tests
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PYCODE'
+          import difflib, hashlib, json, os, pathlib, re, subprocess
+          root = pathlib.Path('provider-drain-evidence')
+          source = pathlib.Path('crates/volparossa-agent/src/content.rs')
+          candidate = source.read_text()
+          original = subprocess.check_output(['git', 'show', os.environ['PROVIDER_DRAIN_BASE'] + ':' + str(source)], text=True)
+          # These controls deliberately reintroduce the ORIGINAL BLOCKING BEHAVIOR at
+          # adapted ownership boundaries. They are not exact original function/source copies.
+          original_session_wait = 'provider_failure_event(events.as_ref(), &error, storage_failure).await;'
+          assert original.count(original_session_wait) == 1
+          original_refresh_wait = 'provider_event(events.as_ref(), "CONTENT_PROVIDER_REGISTRATION_RETRY_PENDING").await;'
+          assert original.count(original_refresh_wait) == 1
+          session_spawn = """                    sessions.spawn(serve_provider_session(
+                                  stream, tls, registry, activity, fixture,
+                              ));"""
+          assert candidate.count(session_spawn) == 1
+          blocked_session_spawn = """                    let events = events.clone();
+                              sessions.spawn(async move {
+                                  let batch = serve_provider_session(stream, tls, registry, activity, fixture).await;
+                                  if let (Some(events), Some(batch)) = (events, batch) {
+                                      let mut state = events.write().await;
+                                      batch.log(&mut state);
+                                  }
+                                  None
+                              });"""
+          refresh_enqueue = 'event_drain.enqueue(provider_events::Batch::one("CONTENT_PROVIDER_REGISTRATION_RETRY_PENDING"));'
+          assert candidate.count(refresh_enqueue) == 1
+          blocked_refresh = """if let Some(events) = events.as_ref() {
+                                  let mut state = events.write().await;
+                                  provider_events::Batch::one("CONTENT_PROVIDER_REGISTRATION_RETRY_PENDING")
+                                      .log(&mut state);
+                              }"""
+          variants = (
+              ('candidate', candidate, None),
+              ('original-session-wait-behavior', candidate.replace(session_spawn, blocked_session_spawn), 'admission'),
+              ('original-refresh-wait-behavior', candidate.replace(refresh_enqueue, blocked_refresh), 'refresh'))
+          prefix = 'content::provider_loop_tests::'
+          refresh_names = [prefix + item + '_refresh_log_lock_keeps_accept_and_stop_pollable' for item in ('busy', 'timeout')]
+          admission_name = prefix + 'four_rejected_sessions_release_admission_before_event_lock'
+          legacy_names = ['content::provider_session_tests::' + item + '_timeout_closes_before_event_lock'
+              for item in ('registry', 'selector')]
+          all_names = sorted(refresh_names + [admission_name] + legacy_names)
+          results = {}
+          try:
+              for variant, data, control in variants:
+                  patch = ''.join(difflib.unified_diff(candidate.splitlines(True), data.splitlines(True),
+                      fromfile='candidate/content.rs', tofile=variant + '/content.rs'))
+                  assert (not patch) is (control is None)
+                  (root / (variant + '.patch')).write_text(patch)
+                  source.write_text(data)
+                  with (root / (variant + '-build.jsonl')).open('wb') as out, (root / (variant + '-build.log')).open('wb') as err:
+                      subprocess.run(['cargo', 'test', '--locked', '--offline', '-p', 'volparossa-agent', '--lib',
+                          '--no-run', '--message-format=json'], stdout=out, stderr=err, check=True, timeout=1200)
+                  records = [json.loads(line) for line in (root / (variant + '-build.jsonl')).read_text().splitlines()]
+                  binaries = [row['executable'] for row in records if row.get('reason') == 'compiler-artifact'
+                      and row.get('target', {}).get('name') == 'volparossa_agent'
+                      and row.get('profile', {}).get('test') and row.get('executable')]
+                  assert len(binaries) == 1
+                  binary = pathlib.Path(binaries[0]).resolve(strict=True)
+                  assert binary.is_relative_to(pathlib.Path.cwd() / 'target')
+                  inventory = subprocess.check_output([str(binary), 'content::provider_', '--ignored', '--list'], text=True, timeout=15)
+                  assert sorted(re.findall(r'^([^\n]+): test$', inventory, re.M)) == all_names
+                  (root / (variant + '-inventory.log')).write_text(inventory)
+                  if control is None:
+                      unit = subprocess.run([str(binary), 'content::provider_events::tests::', '--nocapture'],
+                          capture_output=True, text=True, timeout=30)
+                      (root / 'queue-tests.log').write_text(unit.stdout + unit.stderr)
+                      assert unit.returncode == 0
+                      assert re.findall(r'^test result: ok\. 2 passed; 0 failed; 0 ignored;', unit.stdout, re.M)
+                  names = all_names if control is None else ([admission_name] if control == 'admission' else refresh_names)
+                  rows = []
+                  for index, name in enumerate(names):
+                      log = root / f'{variant}-{index}.log'
+                      with log.open('wb') as out:
+                          run = subprocess.run(['scripts/run-isolated-test.sh', '--command', str(binary), name,
+                              'VOLPAROSSA_EXACT_CONTENT_PARENT_NETNS', 'loopback', '--ignored', '--exact', name, '--nocapture'],
+                              env={**os.environ, 'VOLPAROSSA_TEST_ALLOW_SUDO_NETNS': '1'},
+                              stdout=out, stderr=subprocess.STDOUT, timeout=135)
+                      (root / f'{variant}-{index}.exit').write_text(str(run.returncode) + '\n')
+                      text = log.read_text()
+                      if control is None:
+                          assert run.returncode == 0, (variant, name)
+                          assert re.findall(r'^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; [0-9]+ filtered out;', text, re.M)
+                          # --nocapture may print a success marker between libtest's prefix and its ok.
+                          clean = text.replace('PROVIDER_EVENT_DRAIN_REFRESH_PASS\n', '').replace('PROVIDER_EVENT_DRAIN_ADMISSION_PASS\n', '')
+                          assert re.findall(r'^test (.+) \.\.\. ok$', clean, re.M) == [name]
+                          if name in refresh_names: assert 'PROVIDER_EVENT_DRAIN_REFRESH_PASS' in text
+                          if name == admission_name: assert 'PROVIDER_EVENT_DRAIN_ADMISSION_PASS' in text
+                      else:
+                          marker = 'PROVIDER_EVENT_DRAIN_' + control.upper() + '_BLOCKED'
+                          assert run.returncode == 101, (variant, name, run.returncode)
+                          assert marker in text
+                          assert 'PROVIDER_EVENT_DRAIN_' + control.upper() + '_PASS' not in text
+                          assert re.findall(r'^test result: FAILED\. 0 passed; 1 failed; 0 ignored; 0 measured; [0-9]+ filtered out;', text, re.M)
+                      rows.append(dict(test=name, exit=run.returncode,
+                          log_sha256=hashlib.sha256(log.read_bytes()).hexdigest()))
+                  results[variant] = dict(results=rows,
+                      patch_sha256=hashlib.sha256(patch.encode()).hexdigest(),
+                      source_sha256=hashlib.sha256(data.encode()).hexdigest())
+          finally:
+              source.write_text(candidate)
+          assert source.read_text() == candidate
+          (root / 'results.json').write_text(json.dumps(dict(version=1, results=results,
+              same_new_tests=True, actual_provider_serving_loop=True, diagnostic_sink_present=True,
+              disposable_loopback_tcp_tls=True, held_event_lock=True,
+              negative_controls='original-behavior-reintroduction-not-original-function-copies',
+              prior_exact_original_function_proof='a41030a51471c7d7393612afe28f973d98e2301f-separate-evidence',
+              live_consumer_acceptance=False, historical_cause_proven=False,
+              full_relay_datapath=False), sort_keys=True) + '\n')
+          PYCODE
+      - name: Lint the restored candidate
+        run: cargo clippy --locked --offline -p volparossa-agent --all-targets --all-features -- -D warnings
+      - name: Restore source and verify host observations even after failure
+        if: always()
+        run: |
+          set -euo pipefail
+          # Restore only this runner's deliberate, clean-checkout control mutation.
+          git show HEAD:crates/volparossa-agent/src/content.rs > crates/volparossa-agent/src/content.rs
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code HEAD
+          if test -f provider-drain-evidence/host-before.sha256; then
+            read -r parent_namespace < provider-drain-evidence/parent-netns.txt
+            test "$(readlink /proc/self/ns/net)" = "$parent_namespace"
+            {
+              ip -4 -j route show table all | sha256sum
+              ip -6 -j route show table all | sha256sum
+              sha256sum /etc/resolv.conf
+              sudo -n env LC_ALL=C iptables-save | awk "$FIREWALL_NORMALIZER" | sha256sum
+              sudo -n env LC_ALL=C ip6tables-save | awk "$FIREWALL_NORMALIZER" | sha256sum
+            } > provider-drain-evidence/host-after.sha256
+            cmp provider-drain-evidence/host-before.sha256 provider-drain-evidence/host-after.sha256
+          fi
+      - name: Retain bounded source and provider admission evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: provider-event-drain-${{ github.run_id }}
+          path: provider-drain-evidence/
           if-no-files-found: warn
           retention-days: 14
