@@ -2,7 +2,11 @@
 //! Real Silex ZIP output is supplied only by the opt-in hosted browser fixture.
 //! Offline packaging/decoding proves neither signing nor network publication.
 
-use std::{fs, path::PathBuf, process::Command};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use sha2::{Digest as _, Sha256};
 use volparossa_content::site::{SITE_CONTENT_TYPE, SiteBundle};
@@ -65,12 +69,18 @@ fn actual_silex_export_packs_and_decodes_without_publication() {
             expected["sha256"].as_str(),
             Some(hex::encode(Sha256::digest(asset.bytes)).as_str())
         );
-        if path.ends_with(".html") {
+        if Path::new(path)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("html"))
+        {
             assert_eq!(asset.content_type, "text/html");
             edited_html |= String::from_utf8_lossy(asset.bytes)
                 .contains("VOLPAROSSA Studio manual export 20261022");
         }
-        if path.ends_with(".css") {
+        if Path::new(path)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("css"))
+        {
             assert_eq!(asset.content_type, "text/css");
             stylesheets += 1;
             edited_style |= String::from_utf8_lossy(asset.bytes).contains("37px");
