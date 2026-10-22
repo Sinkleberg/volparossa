@@ -18,6 +18,81 @@ Last updated: 2026-10-22
 
 ## Current integration and active work
 
+### Studio/hosting scope and preserved work — 2026-10-22
+
+The complete [Studio/hosting/AI amendment](development/STUDIO_HOSTING_REQUIREMENTS.md)
+is permanent agreed functionality alongside the original goal, every earlier
+amendment and DPS. [GOAL](development/GOAL.md) incorporates the full text;
+[verification](development/GOAL_VERIFICATION.md) retains every historical hash
+and adds the complete pre-Studio GOAL and new 18,793-byte payload. The updated
+[UI text](development/PURSUING_GOAL.md) is repository-backed; the unfinished goal's
+older displayed wording still includes every amendment through GOAL. It has not
+been completed, restarted or overwritten with an attachment reference.
+The latest goal-tool read reports `usageLimited`, and delegated agents returned
+service usage-limit errors. This limits autonomous execution and new independent
+agent review; it does not remove any requirement. Recheck service availability
+when resuming. The principal's documentation/source checks are not a new Sol review.
+
+The [hosting audit/design](services/STUDIO_HOSTING.md) records existing signed
+site/named-publication/retention capabilities, bounded historical evidence, all
+fifteen Studio acceptance cases and the missing work. Initial Studio main
+`97ddafa6a317e151c1352e0ac61978ddc3bd79f0` contains README/license only. Silex
+v3.9.0 at `672efed69dda04c0a1e968859239e042f00d9538` is selected following source,
+interface and component-license inspection; it has not been built or accepted
+as a working VOLPAROSSA integration. Static publishing, shared protected AI,
+useful cross-app integration and progressive dynamic hosting remain unchecked.
+
+Preserved active technical work at consolidation:
+
+- PR324 is merged as `96f81fdd506a72533f11a7c5b4891ac15ff62320`, exact reviewed
+  tree `adf2400fe4832d2551d71361f284b94032becb1d`. Quality39697404460 and all four
+  CodeQL39697400835 analyses pass. Actual Quality checkout `70d9032cba8af9a0bfd4e46f76c47ac7f841b5cc`
+  has that same tree: 4,253 workspace tests passed/0 failed/12 ignored, separate
+  Storage14/43, one synthetic daemon DPS request with joined cleanup and bounded
+  unchanged host observations. Original log SHA-256
+  `bd630729d15a52244581d4d40ffab3c554962b0d9c759f2f61d64afe84764ec9`.
+  Prior exact-main becef Quality39697005792/CodeQL39697005948 also pass;
+  main96f81 checks are separate and must be rechecked live.
+- Map PR12 remains separate from PR10 and diagnostic-only PR11. Source
+  `058532d8569759c7cbcb63d7546b7c006574b8b7` passes independent review and hosted
+  105/31 tests. It explicitly separates completed-emulator host configuration
+  from retained raw KVM timestamps; quiet/cancelled/incomplete controls stay strict.
+  Actual39699719553 is terminal failure. Its emulator/native-JNI receipts and
+  owned process/state cleanup report success, but the outer IPv6-route fingerprint
+  differs; KVM configuration matches with timestamps retained and firewall changes
+  are counters-only. No complete host-baseline or physical-positioning acceptance.
+  Artifact12392318675 SHA-256
+  `6170ba89686be41fabb75d1121bfda58357646be3165426b5caaa02c5006eb34`.
+- Storage branch `test/storage-selector-close-20261022`, source
+  `d1f3f4d3b8fce97f5fad8b8e07ac69f1ffdedfbb`, preserves the reviewed test-only
+  selector gate/ObservedTls cases and all original production deadlines/pins.
+  Run39699910087 failed formatting before compilation; the exact993-byte
+  formatter correction was applied. New39700094433 failed the current-fixture
+  bank inventory assertion: the observed inventory has 45 cases versus expected 42.
+  Compile/format succeeded; isolated cases were not reached. Verify exact inventory
+  membership before correcting expectations. Artifact12392244021 SHA-256
+  `6dd5dfade1121f957fa98c92c6fd500605b69375d18281e5038d957a202b84ed`.
+  No real-case pass or historical consumer failure cause is inferred.
+- Retained model PR276 head `8b37a08bcf64a8d6e34932f0d0f4ee75082c813e` remains
+  separate from main. Actual39694353519 failed first-turn stdout closure with
+  exit1/signal0 and closed class `bubblewrap_namespace_setup`; no model turn or
+  confidential execution is accepted. Artifact12392111989 SHA-256
+  `7b41cbcafc4e83fc9518fe342e445630726532c0ce3f44247a6724a9cca51ce0`.
+  Narrow child/session and outer VM/tool/scratch cleanup pass; full guest-descendant
+  cleanup remains unproved. Source inspection identifies chroot/user-namespace
+  incompatibility as a likely cause, not an observed syscall proof. A preserved
+  clean worktree/branch `fix/protected-model-root-transition-20261022` starts at8b
+  for a reviewed private-child mount-root transition; no implementation/runtime
+  correction exists yet. Delegated implementation stopped on a service usage
+  limit, not because this amendment cancels that work.
+
+Prioritize shared Storage/protected Compute/network dependencies, the real Silex
+export-to-Core contract, complete static publication and independently verified
+publisher-offline availability, then shared AI/useful app integrations and dynamic
+execution/state. This adaptable order does not replace existing priorities or
+remove any requirement. Preserve all dated failures, source branches and ongoing
+checks below. No new host, account, DNS, paid-service or deployment authority.
+
 ### Current resumption checkpoint — 2026-10-22
 
 The complete [agreed goal](development/GOAL.md), every prior amendment and the

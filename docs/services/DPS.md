@@ -313,6 +313,7 @@ continuation. They do not displace existing critical integrations.
 | Chat / Mail | Only explicit encrypted location sharing with the selected recipient and precision/expiry. Preserve the Signal Protocol and limited retention in Chat, including future local positioning features. Receiving DPS help does not authorize sharing. |
 | Browser | Origin-scoped permission and precision controls through a future browser adapter. No background geographic fingerprint or bypass of browser geolocation consent. |
 | Cloud | Optional private storage/synchronisation of explicitly retained records; no automatic location history. |
+| Studio / hosted websites | The [permanent hosting addition](../development/STUDIO_HOSTING_REQUIREMENTS.md) permits useful optional map/location components only within explicit purpose and precision permissions. A map does not authorize publication of coordinates, movement history or private media metadata; use the existing DPS/Map and browser boundaries. |
 | Code | Reuse service contracts and synthetic evaluation tools; no default need for the developer's physical location. |
 | Bank / Citizen | No default positioning dependency. Location is not identity, residence, citizenship, financial authority or voting eligibility. Any concrete future use needs its own justified authorisation and threat analysis. |
 

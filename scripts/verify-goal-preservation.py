@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Verify archived goal bytes, DPS consolidation and explicit resume references.
+"""Verify archived goal bytes, DPS/Studio additions and explicit resume references.
 
 This is an inert repository check, not a semantic completeness or implementation
 acceptance proof. No attachments, network access, native builds or writes are
@@ -25,6 +25,9 @@ GOAL = "docs/development/GOAL.md"
 ARCHIVE = "docs/development/DPS_GOAL_20261021.md"
 CONSOLIDATED = "docs/development/DPS_REQUIREMENTS.md"
 PROMPT = "docs/development/PURSUING_GOAL.md"
+STUDIO = "docs/development/STUDIO_HOSTING_REQUIREMENTS.md"
+STUDIO_SHA = "a9fc3d875a48083720941aa74d1c00c506038f7550bbe983e6f0e91e2fe2dc50"
+PRE_STUDIO_SHA = "d8155106a231be9863be613e03594ca2838c8d57bbe9ddfcd00a32d27e758a40"
 ORIGINAL_SHA = "2bebaf9e27860115e64f5b93f50cc1e5bc17d34b22c45fe83106d200b86b54c7"
 PREFIX_SHA = "d746ce39c645a226cf85b426a2ea9991f43bba4e2bacca4c6f53865d71bfe287"
 ARCHIVE_SHA = "df3ec2bab02272138e2713159959c925097780d49f73c805a11cbdc049bfc56b"
@@ -143,7 +146,7 @@ def verify(root, revision=None):
             return result
 
     documents = {}
-    for path in (GOAL, ARCHIVE, CONSOLIDATED, PROMPT, "docs/development/GOAL_VERIFICATION.md", "AGENTS.md",
+    for path in (GOAL, ARCHIVE, CONSOLIDATED, STUDIO, PROMPT, "docs/development/GOAL_VERIFICATION.md", "AGENTS.md",
                  "docs/IMPLEMENTATION_STATUS.md", "docs/development/CODEX_WORKFLOW.md"):
         value = check("read:" + path, lambda path=path: read_document(root, path, revision))
         if value is not None:
@@ -164,6 +167,16 @@ def verify(root, revision=None):
     first = check("received_dps_payload", lambda: payload("received_dps", ARCHIVE, "RECEIVED DPS GOAL", 10495, ARCHIVE_SHA))
     continuation = check("dps_continuation_payload", lambda: payload("dps_continuation", ARCHIVE, "DPS CONTINUATION", 4375, CONTINUATION_SHA))
     consolidated = check("consolidated_dps_markers", lambda: payload("consolidated_dps", CONSOLIDATED, "CONSOLIDATED DPS REQUIREMENTS"))
+    check("studio_hosting_payload", lambda: payload(
+        "studio_hosting", STUDIO, "STUDIO HOSTING REQUIREMENTS", 18793, STUDIO_SHA))
+
+    def pre_studio_prefix():
+        require(GOAL in documents, "GOAL document unavailable")
+        raw = documents[GOAL][:33913]
+        result["payloads"]["complete_pre_studio_goal"] = digest(raw)
+        require(len(raw) == 33913 and hashlib.sha256(raw).hexdigest() == PRE_STUDIO_SHA,
+                "first 33913 GOAL bytes differ from the complete pre-Studio goal")
+    check("complete_pre_studio_goal_preserved", pre_studio_prefix)
 
     def original_prefix():
         require(GOAL in documents, "GOAL document unavailable")
@@ -192,16 +205,21 @@ def verify(root, revision=None):
         require(GOAL in documents, "GOAL document unavailable")
         references(documents[GOAL], ("DPS_REQUIREMENTS.md",))
     check("goal_references_consolidated_dps", goal_reference)
+    check("goal_references_studio_hosting", lambda: references(
+        documents.get(GOAL, b""), ("STUDIO_HOSTING_REQUIREMENTS.md",)))
 
     def prompt_references():
         require(PROMPT in documents, "PURSUING_GOAL document unavailable")
         references(documents[PROMPT], ("GOAL.md", "AGENTS.md", "IMPLEMENTATION_STATUS.md",
-                                      "CODEX_WORKFLOW.md", "DPS_REQUIREMENTS.md"))
+                                      "CODEX_WORKFLOW.md", "DPS_REQUIREMENTS.md",
+                                      "STUDIO_HOSTING_REQUIREMENTS.md"))
         text = documents[PROMPT].decode("utf-8")
         phrase = r"\b(?:(?:all|every)\s+(?:(?:earlier|previous|agreed|subsequent|later)\s+)*(?:amendments?|clarifications?)|alle\s+(?:(?:eerdere|latere|afgesproken|bestaande)\s+)*(?:aanvullingen|verduidelijkingen|wijzigingen))\b"
         require(re.search(phrase, text, re.IGNORECASE),
                 "resume prompt must explicitly retain all amendments/clarifications")
         require(re.search(r"\bDPS\b", text), "resume prompt must explicitly name DPS")
+        require(re.search(r"\bStudio\b", text) and re.search(r"\bhosting\b", text, re.IGNORECASE),
+                "resume prompt must explicitly name Studio and hosting")
     check("resume_prompt_explicit_scope_and_references", prompt_references)
     result["success"] = all(result["checks"].values())
     return result

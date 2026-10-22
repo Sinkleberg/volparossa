@@ -10,6 +10,20 @@ Public peer tasks and model-transfer milestones exist. **Reliable general reason
 private execution on other people's devices and complete automatic governance remain unfinished.**
 Network/content checkpoints do not establish those compute capabilities.
 
+## Studio editing and website maintenance
+
+The [permanent Studio/hosting requirements](../development/STUDIO_HOSTING_REQUIREMENTS.md)
+add bounded Silex editing and maintenance tasks to the existing shared model and
+agent infrastructure. Reuse Core scheduling/resource control and Code's OpenCode
+integration, with a scoped Silex MCP/tool adapter rather than a second AI network.
+Editing, code/assets, review and publication have distinct permissions. Private
+projects/customer data/credentials require protected processing or explicit waiting
+or authorized local fallback; no arbitrary-peer disclosure or silent training.
+AI/MCP/template output stays untrusted, and cannot authorize its own publication,
+accounts, credentials or permission expansion. [The hosting acceptance plan](STUDIO_HOSTING.md)
+requires a real shared Core task and independent review; local MCP connectivity
+alone does not complete decentralized AI integration.
+
 ## How the pieces fit together
 
 There are two connected activities:

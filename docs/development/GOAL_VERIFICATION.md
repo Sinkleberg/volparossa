@@ -125,3 +125,52 @@ PURSUING_GOAL.md exactly, with the goal still active. This session therefore has
 no remaining temporary-attachment dependency in its active objective. The
 repository remains the portable requirements source; verify client state again
 when resuming in another session.
+
+
+## Permanent Studio and hosting amendment — 2026-10-22
+
+The complete user amendment is preserved, without paraphrase or omitted sections,
+inside `BEGIN/END STUDIO HOSTING REQUIREMENTS` in
+[STUDIO_HOSTING_REQUIREMENTS.md](STUDIO_HOSTING_REQUIREMENTS.md), incorporated
+by an appended section of GOAL. The original attachment name is provenance only;
+the repository payload is sufficient to reproduce every requirement.
+
+| Additional preserved material | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Entire GOAL before Studio, including all DPS incorporation and instruction boundaries | 33,913 | `d8155106a231be9863be613e03594ca2838c8d57bbe9ddfcd00a32d27e758a40` |
+| Complete received normative Studio/hosting payload | 18,793 | `a9fc3d875a48083720941aa74d1c00c506038f7550bbe983e6f0e91e2fe2dc50` |
+
+The closing-marker newline is a delimiter, as for the historical payloads. All
+original-goal, 30,249-byte pre-DPS and both DPS source hashes above are unchanged;
+the full 33,913-byte preceding GOAL is now also an immutable prefix. The current
+verifier additionally requires the new payload, its incorporation and explicit
+Studio/hosting UI references. Historical revisions retain their original verifier
+and recorded results; a pre-Studio revision is not claimed to contain this addition.
+
+All ten received sections remain normative: preservation; shared hosting Core;
+Silex visual workflow; shared protected AI; static and progressive dynamic hosting;
+Browser/Cloud/Code/Image/Mail/DPS/Map/other integrations; security/privacy/licenses;
+all fifteen functional acceptance cases; dependency-based priorities; and durable
+incorporation/resumption. [The design/audit](../services/STUDIO_HOSTING.md) maps
+these to existing Core mechanisms, missing implementation and acceptance evidence.
+No existing application, DPS requirement, network contract or pending integration
+is replaced. Existing v1 restrictions on the daemon's GUI, network payments or
+transport remain in force; Studio is an application and hosting uses the existing
+five layers. Product publication approval is distinct from this authorized
+repository documentation workflow. The initial Studio repository license remains
+unchanged; upstream AGPL/GPL notices need component-specific handling.
+
+Fresh-session verification must include the new normative file alongside the
+previous verifier inputs. Export the committed files with their repository paths,
+include the verifier, and run it outside Git without attachments. Then follow
+GOAL, CODEX_WORKFLOW, the implementation ledger, the hosting design and the Studio
+repository's own AGENTS/status. Hash verification establishes byte preservation,
+not semantic correctness, complete hosting, shared AI or license compliance.
+
+
+Run `python3 -B scripts/test-goal-preservation.py` for eleven inert controls:
+a fresh export without Git/attachments passes, while changed original/earlier/DPS/
+Studio payloads, duplicate Studio markers, a missing normative file, missing GOAL
+incorporation and a missing UI reference fail. The existing Quality workflow runs
+both the committed-blob verifier on its actual checkout and these controls before
+toolchain installation. These checks add no runtime, download or publication authority.

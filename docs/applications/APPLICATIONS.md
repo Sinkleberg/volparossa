@@ -19,6 +19,26 @@ or storage ledgers. Closing one frontend must not stop another application's wor
 is scoped by user and application; system-wide operation requires an explicit choice.
 See the [shared-service contract](../architecture/APPLICATION_LIFECYCLE.md).
 
+## Studio
+
+[volparossa-studio](https://github.com/VOLPAROSSA/volparossa-studio) is the required
+Silex-based visual website editor, portable export and shared decentralized hosting
+integration. The [complete amendment](../development/STUDIO_HOSTING_REQUIREMENTS.md)
+requires visual/manual editing, preview, explicit publication, actual independent
+availability, updates/recovery/withdrawal and shared protected AI through Core and
+supported Silex interfaces. [The architecture and initial audit](../services/STUDIO_HOSTING.md)
+separate static publishing from progressive dynamic execution and durable state.
+The initial repository is only a README/license scaffold; no working Studio
+integration or hosted-site acceptance is claimed.
+
+Reuse Browser discovery/rendering with existing TLS/fallback/killswitch policy;
+Cloud private project storage; Code/OpenCode editing/testing/review; explicitly
+published Image assets; authorized Mail delivery; and optional permission-scoped
+DPS/Map components. Useful Chat/Weather/Citizen/Bank integrations add no implicit
+financial, identity, voting or transaction authority. Preserve source licenses,
+Silex functionality and conventional export/hosting alternatives. Private drafts,
+photos, geographic metadata and credentials never become public automatically.
+
 ## Browser
 
 [volparossa-browser](https://github.com/VOLPAROSSA/volparossa-browser) integrates **Firefox**
