@@ -284,7 +284,9 @@ def contact_sheets(evidence_root, output, media):
     STATE['stage'] = 'actual-video-sampling'
     ffmpeg = tool('/usr/bin/ffmpeg')
     tool('/usr/bin/ffprobe')
-    tool(FONT)
+    # Font data is not an executable. Match the fixed-font check of the
+    # already exercised presentation renderer; keep executable checks strict.
+    require(FONT.is_file() and not FONT.is_symlink(), 'fixed distro font required')
     duration = media['video']['duration_seconds']
     require(type(duration) in {int, float} and math.isfinite(duration) and 0 < duration <= 180,
             'video duration rejected')
@@ -318,7 +320,7 @@ def contact_sheets(evidence_root, output, media):
     poster_frame = frames[len(frames) // 2]
     shutil.copyfile(poster_frame, output / 'poster.png')
     (output / 'poster.png').chmod(0o600)
-    return dict(sample_hz=1, sampling='FFmpeg fps=1 at normal clip timing; nominal times, no semantic stage labels',
+    return dict(font_sha256=digest(FONT), sample_hz=1, sampling='FFmpeg fps=1 at normal clip timing; nominal times, no semantic stage labels',
                 sampled_frames=len(frames), contact_sheets=sheets,
                 poster_source='samples/' + poster_frame.name, synthesized_app_pixels=False,
                 exact_action_timestamps_asserted=False)

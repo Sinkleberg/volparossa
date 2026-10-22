@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "run_id": "39874201029",
+  "source_revision": "1d000e684508dc120575a1e447db65dda12255df",
+  "synthetic_tool_probe_only": true,
+  "android_executed": false,
+  "genuine_app_pixels": false,
+  "failed_stage": "contact_sheets fixed font file guard",
+  "public_error": "ValueError: root-owned distro tool required",
+  "precise_font_attribute_cause_unproven": true
+}

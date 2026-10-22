@@ -258,6 +258,8 @@ class Review(unittest.TestCase):
         evidence.mkdir()
         output = self.root / 'render'
         output.mkdir()
+        font = self.root / 'font-data'
+        font.write_bytes(b'inert font data')
         calls = []
         def render(args, **kwargs):
             calls.append(args)
@@ -266,7 +268,8 @@ class Review(unittest.TestCase):
                     (output / 'samples' / f'frame-{i:03d}.png').write_bytes(b'synthetic stub PNG')
             else:
                 Path(args[-1]).write_bytes(b'synthetic sheet stub')
-        with patch.object(R, 'tool', side_effect=str), patch.object(R, 'command', side_effect=render):
+        with patch.object(R, 'tool', side_effect=str), patch.object(R, 'command', side_effect=render), \
+                patch.object(R, 'FONT', font):
             result = R.contact_sheets(evidence, output, dict(video=dict(duration_seconds=3.0)))
         self.assertEqual(result['poster_source'], 'samples/frame-001.png')
         self.assertTrue(all(args[0] == '/usr/bin/ffmpeg' for args in calls))
