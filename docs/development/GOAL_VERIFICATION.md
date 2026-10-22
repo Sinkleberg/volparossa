@@ -174,3 +174,35 @@ Studio payloads, duplicate Studio markers, a missing normative file, missing GOA
 incorporation and a missing UI reference fail. The existing Quality workflow runs
 both the committed-blob verifier on its actual checkout and these controls before
 toolchain installation. These checks add no runtime, download or publication authority.
+
+The subsequent 2026-10-22 continuation read the same existing goal as `active`
+and compared its objective to the exact copyable repository text: all 2,044
+characters match, including the explicit Studio/hosting/AI amendment. Core PR325
+is integrated at `c730617af48bf2d1771b24bc91fd450afb140db4`, reviewed tree
+`117b725273e9171f49f690d23be2899149619207`; the fetched committed-blob verifier
+passes, as did an actual export without Git/attachments. Complete GOAL bytes:
+35,724, SHA-256 `302af13b29e0cc1ce9ac09889669ff3866a233403134aca3bf6c25f6ce091393`.
+Studio PR1 is integrated at `0268d2488cbbda7edbb95071221deb504fb3ace3`, with
+its original LICENSE unchanged. This verifies durable publication and scope;
+all fifteen Studio functional acceptance cases remain pending.
+
+### Current conversation status — 2026-10-22
+
+The previous continuation's `active`/2,044-character comparison is a historical
+record, not the current client-state read. The previous goal thread is paused;
+the current conversation reads its goal as active and retains the complete
+agreed objective. Do not claim byte-for-byte equality between the UI objective
+and `PURSUING_GOAL.md`: Markdown escaping changes the raw representation. The
+current text covers the full preserved goal, all amendments, DPS and
+Studio/hosting/shared AI. No goal was completed, restarted or reduced.
+
+This resumed checkpoint adds evidence only; it does not alter requirements or
+goal status. Storage PR327's exact-source candidate passes both production
+provider-session lock-contention regressions and rejects the original behavior
+with the same tests. Its hosted receipt still sets historical-cause proof,
+full-relay datapath and live-consumer acceptance false. Map's exact-source
+actual run retains its failed strict host-baseline verdict even though the new
+closed projection narrows this run's IPv6 raw difference to reference metadata.
+The public protected-model run and private Storage consumer run remain in
+progress, with no outcome claimed. See the current checkpoint and evidence links
+in [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work).

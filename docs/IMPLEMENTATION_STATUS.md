@@ -18,6 +18,166 @@ Last updated: 2026-10-22
 
 ## Current integration and active work
 
+### Resumed full objective and dependency work — 2026-10-22
+
+The current conversation reads the existing full goal as active. Its objective
+retains the original scope, every amendment, complete DPS and
+Studio/hosting/shared AI. The repository-backed UI copy has the same agreed
+content, but raw byte equality is not asserted because Markdown escaping changes
+the representation. The previous conversation was verified paused before changes.
+Its old agents held no writer locks, and no active Git operation was found;
+stale `inProgress` history rows were not treated as live execution. The other
+live conversation concerned the separate n8n dashboard. No goal was completed
+or reduced.
+Core PR325 is merged as `c730617af48bf2d1771b24bc91fd450afb140db4` (tree
+`117b725273e9171f49f690d23be2899149619207`); Studio PR1 is merged as
+`0268d2488cbbda7edbb95071221deb504fb3ace3`. Committed preservation and the
+fresh export checks pass. The earlier usage-limit snapshot below is historical;
+Sol implementation/review and Luna support have resumed without changing the
+goal or granting new execution permissions.
+
+The initial read-only inventory covered 126 registered core worktrees and the
+application checkouts. Dirty files, untracked proof scripts, unpublished Map
+work, old recovery locks and the unrelated `error.log` remain preserved.
+After refreshing core remote refs, 310 local commits across 182 branch tips
+were not reachable from recorded remote refs; this is a reachability inventory,
+not a claim that their changes are absent from squash-integrated history.
+No branch was reset or removed. The previous three-file unpublished handover
+patch is retained under `.git/ci-evidence/resumption-20261022-1820/`, SHA-256
+`1705b1192de49f990d8c345a84a0e635f8db05d8524730f36101dfa8de3d3222`.
+
+The current Storage production candidate is
+`fix/storage-provider-close-before-log-20261022`, source
+`a41030a51471c7d7393612afe28f973d98e2301f`, tree
+`421a700a076147b2a812e6a21c9e8efd186c6c73`, based on c730617. It releases a
+rejected provider TLS socket before awaiting the shared event-log lock, covering
+selector and registry rejection without changing their 15-second/2-second
+deadlines or success behavior. Two regressions invoke the actual production
+session while holding that lock. PR327 is ready for review, not merged.
+Exact-source hosted run `39832609493` succeeded on the recorded commit/tree. Its
+artifact `12449267668` is 60,743 bytes, SHA-256
+`25b455eeade5a1cfa94c414f634ece1fd5a1c2d43eaa60c817c88d9fb268929d`; it is
+retained with extracted receipts under
+`.git/ci-evidence/provider-close-39832609493/`. The receipt binds the three
+changed paths and ten unchanged dependency blobs. Both actual provider-session
+TLS/loopback regressions pass with the candidate and intentionally fail against
+the original function using the same tests: selector timeout 1/1 at 15.04 s
+versus the `PROVIDER_STREAM_RETAINED_BEHIND_EVENT_LOCK` negative control at
+25.03 s; registry timeout 1/1 at 2.04 s versus the same marker at 8.03 s.
+While the state log lock remains held, each candidate test observes peer EOF or
+I/O failure; after release, the sanitized timeout log is written, the server
+task joins and active sessions return to zero. The disposable namespace tests
+report test-task cleanup; normalized IPv4/IPv6 route, resolver and firewall
+snapshots match byte-for-byte before/after (five lines, snapshot SHA-256
+`5b12785ee370382bfe26bc90d0542de0010524d936db8add3fe11b9181d42d92`). Source
+restoration and clean diff checks pass. `cargo fmt --all -- --check` and strict
+agent Clippy pass. This verifies the ordering defect under imposed lock
+contention, not the historical consumer stall cause, live consumer acceptance,
+or the full relay datapath. No production deadline or telemetry changed.
+
+Exact-source Quality `39833357470` and CodeQL `39833354720` on a41030a5 also
+succeed. Quality records 4,253 passed, 0 failed and 14 ignored across 105
+workspace result lines; independent Storage outcome 14 and wire outcome 43 pass.
+The synthetic DPS IPC test passes without proving sensors. Namespace-wrapper
+success retains its skipped-case boundary and is not a claim that every network
+case ran. Quality log ZIP: 655,051 bytes, SHA-256
+`9caf8dc1ba10f99253c0d514e0b648a56ceafe72c52c7cd162fb01c5a25be082`. CodeQL's
+four analyses pass on this exact source.
+
+Exact-main Quality run `39825055366` is terminal success on c730617, with its actual
+checkout bound to the reviewed tree: 4,253 workspace tests passed/0 failed/12
+ignored (105 summaries), separate Storage outcome 14/14 and wire 43/43. One normal
+synthetic DPS daemon request completes with joined socket/fixture removal and
+unchanged bounded DNS/routes/firewall/sysctl/parent-namespace observations;
+hardware positioning and mobile app authority remain false. Original job log:
+3,439,685 bytes, SHA-256
+`6813c168579bc8f431c3ef9feaadc7862531fd24c14cb2091f070e44769efced`.
+The namespace proof commands explicitly report denied user-namespace setup;
+their passing wrappers do not establish live egress or QUIC datapaths. CodeQL
+39825061283 (main) and39824103788 (PR) each pass four analyses on their exact
+sources. Superseded automatic PR Quality run `39824106191` was cancelled after
+verifying that its test-merge `1cacdce` and main have the same tree. It retains passed committed
+preservation/11 export controls but no complete workspace count or PASS verdict.
+No explicit acceptance run was cancelled or restarted.
+
+The reviewed Storage selector source keeps production code, deadlines and
+historical consumer pins unchanged. At `d1f3f4d3b8fce97f5fad8b8e07ac69f1ffdedfbb`,
+artifact `12392244021` contains 45 bank tests, 117 fixture tests and 52 disjoint
+prior contracts, all individually named and passing without ignored cases. The
+old expected 42-name list was unavailable: this was a verified incorrect
+expectation, not evidence identifying three added tests. Count-only commit
+`e44e085d4b69b0019c57ec96b4eb3d346d26b1e3`, tree
+`cb4ac8caa81ce4bea09e5c3068571e97a32e7095`, corrected the inventory gate.
+Exact-source run `39827774691` on e44 is terminal success. Its 99,301-byte
+artifact `12447299415` has API/ZIP SHA-256
+`2092452baded498d11cec542e47f114db7169736fb37f11ef8498286f0148264` and passes
+ZIP integrity. All eight changed-file blobs, 22 dependency blobs and the
+isolated-test runner binding independently match the source. The run passes 169
+disjoint Rust contracts, 302 Python tests, 58 Node tests, compilation, strict
+Clippy and formatting. All five disposable kernel TLS/MPTCP cases pass, including
+the released-selector challenge/reserve case and held-selector provider-deadline
+to client `LengthRead` I/O propagation case. Test-owned tasks/sockets return to
+their baselines, and route, DNS and normalized firewall hashes match before and
+after. Raw evidence is retained under
+`.git/ci-evidence/storage-selector-close-39827774691/`. This narrows the
+challenge-stall boundary; the receipt explicitly leaves
+live consumer acceptance and original timeout-cause proof false. Earlier runs
+`39699910087` (formatting) and `39700094433` (wrong 42-case inventory; isolated
+tests not reached) remain historical failures. Preserve them. This selector
+result alone does not establish full Image/Cloud acceptance or a historical
+failure cause.
+
+Protected-model correction PR326 is merged into retained PR276, not main, as
+`a9737718688ec285a86acb7a4d330dbb444e10b5`; its tree
+`6cd86edf2ee8ccdd04d040ef8eccd63cd1cfe461` is identical to reviewed source
+`ab3149db6816466558da1969373bfff570e0f5c1`. The change moves the verified
+read-only guest root over `/` in a private child mount namespace before
+cwd-relative BusyBox chroot. Source run `39829507734` contracts passes 133 Rust
+and 443 Python tests with 41 source blobs independently verified. All jobs are
+terminal, although the aggregate API response lagged at `in_progress`; artifact
+`12449345423` is 36,017 bytes with SHA-256
+`c28f39c0403c9dbd9a51851bedc332b890583685f011551bf73dadba3d6e9044`. Parent
+initialization, result and shutdown bytes, privilege dropping, Bubblewrap,
+builder and dependency pins are unchanged. Actual public model run
+`39831364171` remains bound to exact source a973 and is now executing the public
+trial beyond requester compilation; there is no model outcome yet.
+Neither inert tests nor source acceptance prove the real transition, signal
+delivery, sandbox startup, two model turns or guest-descendant cleanup. Private
+execution is separate.
+
+Map's earlier actual39699719553 failure remains unchanged. Its 900-byte before/after
+IPv6 route fingerprints differ; raw route records were not retained, so the
+changed field cannot be reconstructed. Linux's
+[v6.8 proc route producer](https://github.com/torvalds/linux/blob/v6.8/net/ipv6/ip6_fib.c#L2339)
+includes a live reference count alongside route fields. That is a possible
+explanation, not evidence about the trial's unknown exact kernel/field change.
+Any next diagnostic must retain raw fingerprints, distinguish configuration
+from reference metadata using a closed parser, and fail closed on unsupported
+input. The reviewed four-file follow-up fixes the helper's mandatory IPv6
+omission; all 115 inert tests and source/diff checks pass. Draft Map PR13 at
+`5aa77806f3ecda6b5e0d10ac6822cc6fc0f0f29a` is stacked on PR12. Its source run
+`39831507929` passes 115 inert tests and Components run `39831507850` passes
+31 tests, independently counted in the original logs. Their actual test-merge
+`6c85177c2311c489af5f0666a1034a55d2a65d9c` has the same tree as 5aa77806,
+`ac5fc661485345146760f9880a7b187d4429df54`. The guarded exact-source actual
+diagnostic run `39831818416` is terminal failure, with artifact
+`12449471982` (99,898 bytes, SHA-256
+`79554ee10752624dbe4ea31fb91c090ff3090e300bfddbc031f78318d37cbdeb`) retained
+under `.git/ci-evidence/map-ipv6-39831818416/`. Source job passes all 115 inert
+tests; the synthetic-JNI job fails `CLEANUP_UNCONFIRMED`. Its Android
+instrumentation receipt records 8/8 JNI cases passing, and controlled owned
+state/process cleanup passes, but aggregate host baseline is unconfirmed
+(`host_routes_dns_firewall_unchanged=false`, `success=false`). The six-row,
+900-byte raw IPv6 route fingerprint differs before/after. The closed projection
+classifies this run `REFERENCE_METADATA_ONLY`: non-refcount projection is
+identical at 852 bytes, SHA-256
+`651e17ca03aa4e9ab13585696e7641559122820a2ac81b769a32b22290039728`; the
+54-byte reference metadata differs. Kernel identity is missing from the receipt,
+so this narrows only the observed fields on this run and does not identify the
+historical cause or actor. The raw hash mismatch still fails the strict gate;
+do not waive it or relabel the earlier run. Production Android acceptance,
+sensors and navigation remain unproven.
+
 ### Studio/hosting scope and preserved work — 2026-10-22
 
 The complete [Studio/hosting/AI amendment](development/STUDIO_HOSTING_REQUIREMENTS.md)
@@ -28,10 +188,11 @@ and adds the complete pre-Studio GOAL and new 18,793-byte payload. The updated
 [UI text](development/PURSUING_GOAL.md) is repository-backed; the unfinished goal's
 older displayed wording still includes every amendment through GOAL. It has not
 been completed, restarted or overwritten with an attachment reference.
-The latest goal-tool read reports `usageLimited`, and delegated agents returned
-service usage-limit errors. This limits autonomous execution and new independent
-agent review; it does not remove any requirement. Recheck service availability
-when resuming. The principal's documentation/source checks are not a new Sol review.
+An earlier 2026-10-22 goal-tool read reported `usageLimited`, and delegated agents
+returned service usage-limit errors. That is a historical execution snapshot,
+not the current goal status. The current conversation reads the goal as active;
+all agreed requirements remain in force. The principal's documentation/source
+checks are not a new Sol review.
 
 The [hosting audit/design](services/STUDIO_HOSTING.md) records existing signed
 site/named-publication/retention capabilities, bounded historical evidence, all
@@ -805,19 +966,35 @@ hosted evidence. No new KVM, namespace, cancellation or Android trial has run.
 
 ### Execution priorities and next milestones
 
-Current next actions are to audit PR320's exact-main checks and isolate the
-Storage challenge-length stall with a deterministic protected-stream/provider test.
-Separate selector delivery, provider dispatch and close propagation without
-changing production deadlines, retry behavior or the existing fixed observer.
+Current next actions prioritize Storage consumer integration and the public
+protected-model milestone. Storage run `39827774691` narrows the controlled
+held-length-read boundary but proves neither live consumer acceptance nor the
+historical timeout cause. The bounded production slice has an isolated
+worktree at `.volparossa-dev/worktrees/storage-provider-close-before-log-20261022`,
+branch `fix/storage-provider-close-before-log-20261022`, source a41030a5 based on
+c730617. It targets `serve_provider_session` retaining a failed TLS stream
+across an `AgentState` log-lock await, with explicit close-before-log behavior
+and a real production-session lock-contention regression. It makes no deadline
+or telemetry change. The exact-source production regression verifies the ordering
+defect under imposed contention, not the cause of the historical consumer failure.
+Consumer run `39837551972` is now active for
+private-storage-maintenance on a41030a5; no result or acceptance is available.
+Its guarded dispatch found no active alpha run or duplicate matching manual run.
+The integration harness, fixture pins and alpha workflow are unchanged from
+failed run39690110300. Preserve that earlier failure and hypothesis without
+inferring causality. Evaluate its existing full acceptance after this run
+terminates, preserving pins, deadlines, retry behavior and privacy. For
+protected Compute, public run `39831364171` is executing the public trial beyond
+requester compilation; await a terminal result. Contract acceptance on
+`39829507734` is not model execution or guest-cleanup evidence. For Map, retain
+run39831818416 as a strict raw-baseline failure despite its reference-metadata
+diagnosis; kernel identity and historical actor/cause remain unknown. Its eight
+JNI cases and owned cleanup passed, but aggregate host baseline did not. The
+empty-VM control's timestamp-only classification does not prove the actor or
+unchanged complete host baseline. Continue draft PR13 with strict raw-hash
+comparison; its 115 inert tests do not establish hosted runtime acceptance.
 Image and Cloud's opt-in SDK source/component checks pass separately; retain the
 actual fixture pins and unfinished maintenance work until their own integration.
-Consume the original model trial after the accepted CI inventory correction;
-bounded failure labels do not fix Bubblewrap or establish inference. For Map,
-preserve all eight passing actual Android tests and proven process cleanup.
-The empty-VM control reproduces timestamp-only changes, but the actor and
-unchanged complete host baseline remain unproved. Resolve that boundary without
-normalization or attributing historical failures to this control. Require all
-eight tests and complete cleanup/host acceptance before native integration.
 The full goal still requires real sensor adapters, frame
 integrity, fusion, physical evaluation and native navigation alongside the other
 shared core integrations; partial synthetic JNI success does not satisfy them.

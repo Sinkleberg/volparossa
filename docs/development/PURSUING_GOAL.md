@@ -34,7 +34,13 @@ Available goal tools cannot edit an active objective. Use this updated text when
 that field is editable or in a fresh conversation; do not finish or recreate the
 unfinished goal to change it. No temporary attachment is required.
 
-The latest 2026-10-22 goal-tool read reports `usageLimited`; delegated agents also
-returned service usage-limit errors. This is an execution constraint, not completion,
-cancellation or loss of scope. Recheck availability and live work before resuming;
-do not reset the goal or bypass the service limit.
+An earlier 2026-10-22 goal-tool read reported `usageLimited`; delegated agents also
+returned service usage-limit errors. That execution snapshot is historical and
+does not change the requirements or current goal state.
+
+A later continuation in the previous thread reported the existing goal `active`
+and recorded an exact 2,044-character comparison with the copyable text above.
+That comparison is historical. In the current conversation, the prior goal thread
+is paused and the current goal is active with the complete agreed scope, including
+Studio/hosting/AI. Markdown escaping means raw byte-for-byte equality with this
+file is not claimed. The goal was not completed, restarted or reduced.
