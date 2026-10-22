@@ -857,15 +857,17 @@ jobs:
                               sessions.spawn(async move {
                                   let batch = serve_provider_session(stream, tls, registry, activity, fixture).await;
                                   if let (Some(events), Some(batch)) = (events, batch) {
-                                      batch.log(&mut events.write().await);
+                                      let mut state = events.write().await;
+                                      batch.log(&mut state);
                                   }
                                   None
                               });"""
           refresh_enqueue = 'event_drain.enqueue(provider_events::Batch::one("CONTENT_PROVIDER_REGISTRATION_RETRY_PENDING"));'
           assert candidate.count(refresh_enqueue) == 1
           blocked_refresh = """if let Some(events) = events.as_ref() {
+                                  let mut state = events.write().await;
                                   provider_events::Batch::one("CONTENT_PROVIDER_REGISTRATION_RETRY_PENDING")
-                                      .log(&mut events.write().await);
+                                      .log(&mut state);
                               }"""
           variants = (
               ('candidate', candidate, None),
