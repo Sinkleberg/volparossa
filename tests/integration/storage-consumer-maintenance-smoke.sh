@@ -54,6 +54,14 @@ private_storage_consumer_phase() {
             rm -f -- "$WORK/fixture-correlation.part" || true
         fi
     fi
+    if [ "$consumer_status" -ne 0 ]; then
+        # Optional early snapshot; never replace the primary failure or cleanup.
+        # This distinct no-clobber receipt survives the later cleanup captures.
+        (umask 077; timeout --signal=TERM --kill-after=1s 20s python3 -B \
+            "$WORK/bin/storage-consumer-failure-boundary.py" capture "$WORK" \
+            "$binary_directory/volparossa" "$consumer_phase" "${provider_baseline_ms:-0}") \
+            >/dev/null 2>&1 || true
+    fi
     [ "$consumer_status" -eq 0 ] || fail CONSUMER_APPLICATION_FAILED
     # These are independent actual route, packet/control and completion checks,
     # not an inference from the application's successful process exit.

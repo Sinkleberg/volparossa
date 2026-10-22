@@ -45,6 +45,7 @@ EXPORT_NAMES = tuple(name for name in F['EXPORT_NAMES'] if name not in
     'private-storage-provider-activity.json',
     'private-storage-fixture-correlation.json',
     'storage-consumer-provider-usage.json',
+    'storage-consumer-failure-boundary.json',
     'private-storage-maintenance-inventory.json',
     'private-storage-maintenance-supervisor.json',
     'private-storage-fragments-lifecycle-live-selection.json',
