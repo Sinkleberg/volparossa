@@ -92,13 +92,16 @@ jobs:
           shellcheck core/scripts/run-isolated-test.sh
 
       - name: Prepare pinned Core compiler and Protobuf on disposable runner
+        timeout-minutes: 10
         run: |
           set -euo pipefail
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$(dpkg --print-architecture)" = amd64
           rustup toolchain install 1.85.0 --profile minimal
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+            -o Acquire::Retries=2 -o APT::Update::Error-Mode=any update
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+            -o Acquire::Retries=2 install --yes --no-install-recommends \
             protobuf-compiler=3.21.12-8.2ubuntu0.4 \
             libprotoc32t64=3.21.12-8.2ubuntu0.4 \
             libprotobuf32t64=3.21.12-8.2ubuntu0.4
