@@ -7,6 +7,9 @@ use volparossa_core::Bandwidth;
 use volparossa_exit::{ExitService, ExitServiceConfig, TcpEgressLimits};
 use volparossa_udp::ExitResolver;
 
+#[path = "selector_close.rs"]
+mod selector_close;
+
 const EXCHANGES: usize = 3;
 // Assigned only to lo in the explicit disposable harness before privileges are dropped.
 // There is no external interface/default route or relaxation of permitted_egress.
@@ -117,7 +120,11 @@ fn dns_answer(query: &[u8], evidence: &Evidence) -> Vec<u8> {
 }
 
 async fn dns_server(listener: TcpListener, evidence: Arc<Evidence>) {
-    for _ in 0..2 * EXCHANGES {
+    dns_queries(listener, evidence, EXCHANGES).await;
+}
+
+async fn dns_queries(listener: TcpListener, evidence: Arc<Evidence>, exchanges: usize) {
+    for _ in 0..2 * exchanges {
         let (mut stream, _) = listener.accept().await.unwrap();
         let length = usize::from(stream.read_u16().await.unwrap());
         assert!((12..=1024).contains(&length));
@@ -139,11 +146,20 @@ async fn reserve(
     index: u8,
 ) -> Vec<u8> {
     let challenge = wire::begin(inner, &fixture.grant).await.unwrap();
+    reserve_challenged(fixture, inner, index, &challenge).await
+}
+
+async fn reserve_challenged(
+    fixture: &Fixture,
+    inner: &mut (impl AsyncRead + AsyncWrite + Unpin),
+    index: u8,
+    challenge: &volparossa_content::private_storage::protocol::StorageChallenge,
+) -> Vec<u8> {
     let now = crate::content::now();
     let request = SignedStorageRequest::sign(
         &fixture.owner,
         &fixture.grant,
-        &challenge,
+        challenge,
         StorageTarget {
             archive_id: [index + 1; 32],
             lease_id: None,
@@ -161,8 +177,8 @@ async fn reserve(
     .unwrap();
     let (mut owner, mut agent) = duplex(128);
     let (received, bridged) = tokio::join!(
-        wire::finish(&mut owner, &fixture.grant, &challenge, &request, &[]),
-        wire::bridge(&mut agent, inner, &fixture.grant, &challenge),
+        wire::finish(&mut owner, &fixture.grant, challenge, &request, &[]),
+        wire::bridge(&mut agent, inner, &fixture.grant, challenge),
     );
     let received = received.unwrap();
     assert_eq!(received.receipt.encode(), bridged.unwrap().receipt.encode());

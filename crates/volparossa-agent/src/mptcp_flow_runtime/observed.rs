@@ -18,6 +18,12 @@ pub(crate) struct ObservedTls {
     observation: Option<ObservationSlot>,
 }
 
+// Same owned observation-slot attachment as production clients; no new FD.
+#[cfg(test)]
+pub(crate) fn tls_for_test(stream: Tls13MptcpStream) -> io::Result<ObservedTls> {
+    ObservationSlot::new().0.attach_owned(stream)
+}
+
 type SocketObservation = Mutex<Option<Weak<Mutex<Tls13MptcpStream>>>>;
 
 // This guard belongs to one accepted flow even while TLS/OPEN_TCP is still pending. The route

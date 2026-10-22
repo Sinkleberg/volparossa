@@ -2,7 +2,7 @@ name: Storage retirement and closed TLS diagnostics
 
 on:
   push:
-    branches: [fix/storage-route-retirement]
+    branches: [test/storage-selector-close-20261022]
   workflow_dispatch:
 
 permissions:
@@ -17,7 +17,7 @@ defaults:
     shell: bash
 
 env:
-  SOURCE_BASE: a7b15bdea48d64f31849bfb7ee2bbee6995bc957
+  SOURCE_BASE: becef3dd9e45a67eb6fd7f95a7b9fb6c95dd5b23
   CARGO_BUILD_JOBS: '2'
   CARGO_TERM_COLOR: never
   PYTHONDONTWRITEBYTECODE: '1'
@@ -51,7 +51,7 @@ jobs:
   contracts:
     if: >-
       github.repository == 'VOLPAROSSA/volparossa' &&
-      github.ref == 'refs/heads/fix/storage-route-retirement'
+      github.ref == 'refs/heads/test/storage-selector-close-20261022'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -79,67 +79,13 @@ jobs:
               return subprocess.check_output(['git', *args], text=True).strip()
           allowed = set('''
           .github/workflows/storage-route-retirement.yml
-          .github/workflows/alpha-topology.yml
-          docs/IMPLEMENTATION_STATUS.md
-          crates/volparossa-agent/src/route_setup.rs
-          crates/volparossa-agent/src/helper_v3.rs
-          crates/volparossa-agent/src/mptcp_transport.rs
-          crates/volparossa-agent/src/mptcp_transport/acquire_diagnostic.rs
-          crates/volparossa-agent/src/mptcp_transport/acquire_diagnostic/tests.rs
-          crates/volparossa-agent/src/mptcp_transport/retirement/diagnostic_tests.rs
-          crates/volparossa-agent/src/route_setup/content_stream.rs
-          crates/volparossa-agent/src/content/fixture_correlation.rs
-          crates/volparossa-agent/src/content/fixture_correlation/tests.rs
-          crates/volparossa-agent/src/content/private_storage/observation.rs
-          crates/volparossa-agent/src/content/private_storage/observation/fixture_correlation_tests.rs
-          crates/volparossa-agent/src/content/private_storage/observation/flow_acquire.rs
-          crates/volparossa-agent/src/content/private_storage/observation/flow_acquire/tests.rs
-          crates/volparossa-local-control/src/fixture_correlation.rs
-          crates/volparossa-local-control/src/fixture_correlation/tests.rs
-          crates/volparossa/src/content/fixture_correlation.rs
-          crates/volparossa/src/content/fixture_correlation_tests.rs
-          tests/integration/storage-fixture-correlation-sampler.py
-          tests/integration/test-storage-fixture-correlation-sampler.py
-          crates/volparossa-agent/src/route_setup/tests/lost_helper_retirement_tests.rs
-          crates/volparossa-agent/src/route_setup/tests/tcp_flow_admission_tests.rs
-          crates/volparossa-agent/src/content/tls.rs
-          crates/volparossa-agent/src/content/tls/tests/kernel_close.rs
+          .github/workflows/storage-fixture-correlation.yml
           crates/volparossa-agent/src/content/tls/tests/kernel_close/repeated_egress.rs
+          crates/volparossa-agent/src/content/tls/tests/kernel_close/selector_close.rs
+          crates/volparossa-agent/src/content/tls/tests/kernel_close/selector_gate.rs
+          crates/volparossa-agent/src/mptcp_flow_runtime.rs
+          crates/volparossa-agent/src/mptcp_flow_runtime/observed.rs
           scripts/run-isolated-test.sh
-          crates/volparossa-agent/src/content/tls/close_diagnostic_tests.rs
-          crates/volparossa-agent/src/content/private_storage.rs
-          crates/volparossa-agent/src/content/private_storage/outcome.rs
-          crates/volparossa-agent/src/content/private_storage/outcome/tests.rs
-          crates/volparossa-agent/src/content/private_storage/tests.rs
-          crates/volparossa-local-control/src/lib.rs
-          crates/volparossa-local-control/src/private_storage_outcome.rs
-          crates/volparossa/src/storage.rs
-          crates/volparossa/src/storage/peer.rs
-          crates/volparossa/src/storage/peer_diagnostics.rs
-          crates/volparossa/src/storage/peer_flow_acquire.rs
-          crates/volparossa/src/storage/peer_flow_acquire_tests.rs
-          crates/volparossa/src/storage/peer_outcome.rs
-          crates/volparossa/src/storage/peer_outcome_tests.rs
-          crates/volparossa/src/storage/peer_outcome_transfer_tests.rs
-          crates/volparossa/src/storage/peer_tls_close.rs
-          crates/volparossa/src/storage/peer_tls_close_tests.rs
-          tests/integration/kvm-alpha-topology.sh
-          tests/integration/run-alpha-topology-vm.sh
-          tests/integration/private-storage-maintenance-smoke.py
-          tests/integration/private-storage-maintenance-smoke.sh
-          tests/integration/storage-consumer-maintenance-evidence.py
-          tests/integration/storage-consumer-maintenance-provision.py
-          tests/integration/storage-consumer-maintenance-smoke.py
-          tests/integration/storage-consumer-maintenance-smoke.sh
-          tests/integration/storage-consumer-maintenance.mjs
-          tests/integration/storage-consumer-maintenance-pins-v10.json
-          tests/integration/test-private-storage-maintenance-smoke.py
-          tests/integration/test-private-storage-maintenance-wiring.py
-          tests/integration/test-storage-consumer-maintenance-evidence.py
-          tests/integration/test-storage-consumer-maintenance-provision.py
-          tests/integration/test-storage-consumer-maintenance-shell.py
-          tests/integration/test-storage-consumer-maintenance-smoke.py
-          tests/integration/test-storage-consumer-maintenance.mjs
           '''.split())
           changed = git('diff', '--name-only', os.environ['SOURCE_BASE'], 'HEAD').splitlines()
           assert len(changed) == len(set(changed)) and set(changed) == allowed
@@ -154,22 +100,22 @@ jobs:
               'tests/helper/debian13-amd64-image-v1.json',
               'tests/integration/storage-consumer-maintenance-pins.json',
               *(f'tests/integration/storage-consumer-maintenance-pins-v{version}.json'
-                for version in range(2, 10)))
+                for version in range(2, 11)))
           for name in dependencies:
               assert git('rev-parse', 'HEAD:' + name) == git('rev-parse', os.environ['SOURCE_BASE'] + ':' + name)
           runner = 'scripts/run-isolated-test.sh'
-          assert git('rev-parse', os.environ['SOURCE_BASE'] + ':' + runner) == 'ba5c00260f42777c7fa72f46c6f9029f530a41aa'
-          assert git('rev-parse', 'HEAD:' + runner) == '14e551d91b4ac5bf8feb7a3275b6ce6e86d7f99b'
+          assert git('rev-parse', os.environ['SOURCE_BASE'] + ':' + runner) == '14e551d91b4ac5bf8feb7a3275b6ce6e86d7f99b'
+          assert git('rev-parse', 'HEAD:' + runner) == '19b0ac341e9208e7856eafef85062b1aba38a62d'
           record = dict(version=1, source_commit=os.environ['GITHUB_SHA'],
               workflow_commit=os.environ['GITHUB_WORKFLOW_SHA'], source_tree=git('rev-parse', 'HEAD^{tree}'),
               base_commit=os.environ['SOURCE_BASE'],
               source_blobs={name:git('rev-parse', 'HEAD:' + name) for name in changed},
               dependency_blobs={name:git('rev-parse', 'HEAD:' + name) for name in dependencies},
               runner_blob=git('rev-parse', 'HEAD:' + runner),
-              scope='retained-route-retirement-tls-close-v9-and-consumer-profile-10-contracts',
-              kernel_test_scope='signed-reserve-close-order-and-repeated-production-sni-dns-egress',
-              tls_production_diagnostic_changed=True, historical_consumer_pins_unchanged=True,
-              fixture_helper_diagnostic_version=2, fixture_fragment_copy_binding=False,
+              scope='test-only-selector-gate-observed-tls-close-propagation',
+              kernel_test_scope='three-historical-and-two-gated-selector-production-egress-contracts',
+              test_only_selector_gate=True, tls_production_diagnostic_changed=False, historical_consumer_pins_unchanged=True,
+              fixture_helper_diagnostic_version=1, fixture_fragment_copy_binding=False,
               live_consumer_acceptance=False, original_timeout_cause_proven=False,
               full_relay_datapath_execution=False, feature_equivalence_to_full_workspace_proven=False)
           pathlib.Path('storage-retirement-evidence/source.json').write_text(json.dumps(record, sort_keys=True) + '\n')
@@ -181,6 +127,38 @@ jobs:
           rustup toolchain install 1.85.0 --profile minimal --component clippy --component rustfmt
           rustc --version --verbose
           cargo --version --verbose
+      - name: Check formatting before compilation and retain a correction on failure
+        id: format
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code HEAD
+          umask 077
+          if cargo fmt --all -- --check > storage-retirement-evidence/format.log 2>&1; then
+            git diff --exit-code HEAD
+          else
+            restore_source() {
+              git restore --source=HEAD --worktree -- .
+            }
+            trap restore_source EXIT
+            trap 'exit 130' INT
+            trap 'exit 143' TERM
+            if cargo fmt --all > storage-retirement-evidence/format-write.log 2>&1; then
+              formatter_status=0
+            else
+              formatter_status=$?
+            fi
+            git diff --binary --full-index --no-ext-diff --no-color HEAD -- \
+              > storage-retirement-evidence/format.patch
+            restore_source
+            trap - EXIT INT TERM
+            git diff --exit-code HEAD
+            printf 'Formatting check failed; correction captured; formatter exit: %s\n' "$formatter_status"
+            exit 1
+          fi
+
       - name: Install reviewed Protobuf on disposable hosted runner
         run: |
           set -euo pipefail
@@ -188,7 +166,11 @@ jobs:
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$(dpkg --print-architecture)" = amd64
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends protobuf-compiler=3.21.12-8.2ubuntu0.3
+          # Reuse the complete reviewed Noble security family from main Quality.
+          sudo apt-get install --yes --no-install-recommends \
+            protobuf-compiler=3.21.12-8.2ubuntu0.4 \
+            libprotoc32t64=3.21.12-8.2ubuntu0.4 \
+            libprotobuf32t64=3.21.12-8.2ubuntu0.4
           test "$(protoc --version)" = 'libprotoc 3.21.12'
       - name: Stage only the existing verified Node runtime on the hosted runner
         run: |
@@ -283,6 +265,8 @@ jobs:
               'content::tls::tests::kernel_close::signed_reserve_survives_tcp_provider_and_proxy_drop_before_outer_finish',
               'content::tls::tests::kernel_close::signed_reserve_rejects_abrupt_outer_drop_after_inner_finish',
               'content::tls::tests::kernel_close::repeated_egress::three_signed_reserves_use_reusable_production_egress_and_fragmented_hello',
+              'content::tls::tests::kernel_close::repeated_egress::selector_close::released_selector_reaches_verified_challenge_and_signed_reserve',
+              'content::tls::tests::kernel_close::repeated_egress::selector_close::held_selector_default_provider_deadline_propagates_io_before_operation_deadline',
           )
           for index, name in enumerate(tests):
               inventory = subprocess.check_output([str(binary), '--ignored', '--exact', name, '--list'], text=True)
@@ -310,6 +294,7 @@ jobs:
           python3 -B - <<'PY'
           import json, pathlib, re
           root = pathlib.Path('storage-retirement-evidence')
+          # Current exact-base inventories include the later post-acquire tests.
           counts, all_names = {}, []
           for label in ('new', 'admission', 'disconnect', 'expiry', 'classification'):
               inventory = (root / (label + '-inventory.log')).read_text()
@@ -322,8 +307,8 @@ jobs:
                   assert len(re.findall(r'^test ' + re.escape(name) + r' \.\.\. ok$', output, re.M)) == 1
               counts[label] = len(names)
               all_names.extend(names)
-          assert counts == dict(new=7, admission=8, disconnect=3, expiry=2, classification=1)
-          assert len(all_names) == 21
+          assert counts == dict(new=7, admission=15, disconnect=3, expiry=2, classification=1)
+          assert len(all_names) == 28
           assert len(all_names) == len(set(all_names))
           (root / 'rust-tests.json').write_text(json.dumps(dict(version=1, counts=counts,
               unique_tests=len(all_names), test_names=sorted(all_names), live_consumer_acceptance=False,
@@ -363,11 +348,11 @@ jobs:
           assert len(all_names) == len(set(all_names)) == 24
           assert not set(all_names).intersection(previous)
           (root / 'tls-v9-tests.json').write_text(json.dumps(dict(version=1, counts=counts,
-              unique_tests=24, test_names=sorted(all_names), previous_contracts=21,
-              total_disjoint_contracts=45, live_consumer_acceptance=False,
+              unique_tests=24, test_names=sorted(all_names), previous_contracts=28,
+              total_disjoint_contracts=52, live_consumer_acceptance=False,
               original_timeout_cause_proven=False), sort_keys=True) + '\n')
           PY
-      - name: Inventory and execute fixture v2 and unchanged acquisition contracts
+      - name: Inventory and execute current fixture and unchanged acquisition contracts
         run: |
           set -euo pipefail
           export RUST_BACKTRACE=1
@@ -394,8 +379,8 @@ jobs:
           python3 -B - <<'PY'
           import json, pathlib, re
           root = pathlib.Path('storage-retirement-evidence')
-          groups = {'wire': ('volparossa-local-control', 12), 'bank': ('volparossa-agent', 33),
-              'observer': ('volparossa-agent', 7), 'cli': ('volparossa', 10),
+          groups = {'wire': ('volparossa-local-control', 16), 'bank': ('volparossa-agent', 42),
+              'observer': ('volparossa-agent', 7), 'cli': ('volparossa', 11),
               'helper': ('volparossa-agent', 4), 'helper-legacy': ('volparossa-agent', 3),
               'acquire': ('volparossa-agent', 7), 'retirement': ('volparossa-agent', 7),
               'retirement-diagnostic': ('volparossa-agent', 4),
@@ -415,10 +400,10 @@ jobs:
               assert not set(names).intersection(prior), label
               counts[label] = expected
               all_names.extend(package + ':' + name for name in names)
-          assert len(all_names) == len(set(all_names)) == 100
+          assert len(all_names) == len(set(all_names)) == 114
           (root / 'fixture-v2-tests.json').write_text(json.dumps(dict(version=1, counts=counts,
-              unique_tests=100, test_names=sorted(all_names), previous_contracts=45,
-              total_disjoint_contracts=145, fixture_version=2, legacy_fixture_version=1,
+              unique_tests=114, test_names=sorted(all_names), previous_contracts=52,
+              total_disjoint_contracts=166, fixture_versions=[1, 2, 3], legacy_fixture_version=1,
               causal_attribution=False, fragment_copy_binding=False,
               live_consumer_acceptance=False), sort_keys=True) + '\n')
           PY
@@ -477,12 +462,12 @@ jobs:
           } > storage-retirement-evidence/host-before.sha256
           read -r binary < storage-retirement-evidence/binary.txt
           mapfile -t kernel_tests < <(python3 -B -c 'import json; print(*json.load(open("storage-retirement-evidence/kernel-tests.json")), sep="\n")')
-          test "${#kernel_tests[@]}" = 3
+          test "${#kernel_tests[@]}" = 5
           kernel_status=0
-          for index in 0 1 2; do
+          for index in 0 1 2 3 4; do
             test_name=${kernel_tests[$index]}
             network=loopback
-            if test "$index" = 2; then network=content-egress; fi
+            if test "$index" -ge 2; then network=content-egress; fi
             set +e
             VOLPAROSSA_TEST_ALLOW_SUDO_NETNS=1 scripts/run-isolated-test.sh --command \
               "$binary" "$test_name" VOLPAROSSA_EXACT_CONTENT_PARENT_NETNS "$network" \
@@ -498,7 +483,7 @@ jobs:
           import json, pathlib, re
           root = pathlib.Path('storage-retirement-evidence')
           tests = json.loads((root / 'kernel-tests.json').read_text())
-          assert len(tests) == len(set(tests)) == 3
+          assert len(tests) == len(set(tests)) == 5
           for index, name in enumerate(tests):
               assert (root / f'kernel-{index}-exit.txt').read_text().strip() == '0'
               output = (root / f'kernel-{index}-test.log').read_text()
@@ -507,11 +492,15 @@ jobs:
               assert re.fullmatch(r'test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; [0-9]+ filtered out; finished in [0-9.]+s', summaries[0])
               assert re.findall(r'^test (.+) \.\.\. ok$', output, re.M) == [name]
           (root / 'kernel-results.json').write_text(json.dumps(dict(version=1,
-              unique_tests=3, test_names=tests, passed=True,
+              unique_tests=5, test_names=tests, passed=True,
               genuine_loopback_kernel_mptcp=True, real_loopback_tcp_provider=True,
               production_nested_tls_and_proxy=True, signed_reserve_receipt_verified=True,
               normal_close_after_peer_drop=True, abrupt_outer_close_rejected=True,
               repeated_production_egress=True, signed_reserve_exchanges=3,
+              released_selector_signed_reserve_exchanges=1,
+              released_selector_verified_reserve=True, default_selector_deadline_io_propagated_while_gate_held=True,
+              production_observed_tls=True, fixture_correlation_adapters=True,
+              provider_selector_seconds=15, client_operation_seconds=120, close_test_ceiling_seconds=25,
               real_synthetic_dns_tcp=True, production_sni_prefix_inspection=True,
               public_fixture_address_only_in_disposable_namespace=True,
               full_relay_datapath_proven=False, multiple_live_subflows_proven=False,
@@ -524,11 +513,6 @@ jobs:
           set -euo pipefail
           cargo clippy --locked --offline -p volparossa-agent -p volparossa-local-control -p volparossa --all-targets --all-features -- -D warnings \
             2>&1 | tee storage-retirement-evidence/clippy.log
-      - name: Check formatting without changing source
-        if: ${{ always() && steps.source.outcome == 'success' && steps.toolchain.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          cargo fmt --all -- --check 2>&1 | tee storage-retirement-evidence/format.log
       - name: Verify host network configuration after isolated tests
         if: always()
         run: |

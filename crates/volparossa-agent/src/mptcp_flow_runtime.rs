@@ -27,6 +27,8 @@ use crate::{
 
 pub(crate) mod client_refill;
 mod observed;
+#[cfg(test)]
+pub(crate) use observed::tls_for_test;
 mod path_extension;
 pub(crate) mod path_growth;
 pub(crate) use path_extension::MptcpExitPathControl;

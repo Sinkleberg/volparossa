@@ -37,6 +37,8 @@ case "$test_network" in
     content-egress)
         case "$test_mode:$test_marker:$test_name" in
             command:VOLPAROSSA_EXACT_CONTENT_PARENT_NETNS:content::tls::tests::kernel_close::repeated_egress::three_signed_reserves_use_reusable_production_egress_and_fragmented_hello) ;;
+            command:VOLPAROSSA_EXACT_CONTENT_PARENT_NETNS:content::tls::tests::kernel_close::repeated_egress::selector_close::released_selector_reaches_verified_challenge_and_signed_reserve) ;;
+            command:VOLPAROSSA_EXACT_CONTENT_PARENT_NETNS:content::tls::tests::kernel_close::repeated_egress::selector_close::held_selector_default_provider_deadline_propagates_io_before_operation_deadline) ;;
             *) fail 'content-egress is restricted to its exact production-egress regression' ;;
         esac ;;
     *) fail 'unsupported disposable network setup' ;;

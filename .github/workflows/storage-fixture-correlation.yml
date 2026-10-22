@@ -360,6 +360,8 @@ jobs:
               tls_prefix + 'kernel_close::signed_reserve_rejects_abrupt_outer_drop_after_inner_finish': tls_isolation,
               tls_prefix + 'kernel_close::signed_reserve_survives_tcp_provider_and_proxy_drop_before_outer_finish': tls_isolation,
               tls_prefix + 'kernel_close::repeated_egress::three_signed_reserves_use_reusable_production_egress_and_fragmented_hello': tls_egress_isolation,
+              tls_prefix + 'kernel_close::repeated_egress::selector_close::released_selector_reaches_verified_challenge_and_signed_reserve': tls_egress_isolation,
+              tls_prefix + 'kernel_close::repeated_egress::selector_close::held_selector_default_provider_deadline_propagates_io_before_operation_deadline': tls_egress_isolation,
           }
           tls_names = set(tls_ignored) | {
               tls_prefix + 'provider_tls_has_visible_policy_sni_and_fresh_client_identity_each_session',
@@ -372,7 +374,7 @@ jobs:
               assert 1 <= len(names) <= 512 and len(names) == len(set(names)), group
               ignored = tls_ignored if group == 'agent-tls' else {}
               if group == 'agent-tls':
-                  assert set(names) == tls_names and len(names) == 6, group
+                  assert set(names) == tls_names and len(names) == 8, group
               expected = {name: 'ignored, ' + ignored[name] if name in ignored else 'ok' for name in names}
               observations = re.findall(r'^test ([^\n]+) \.\.\. ([^\n]+)$', output, re.M)
               assert sorted(observations) == sorted(expected.items()), group
@@ -439,7 +441,7 @@ jobs:
           if os.environ['GITHUB_REF'] == 'refs/heads/fix/storage-challenge-read-20261021':
               read_tests = [name for name in executed_names if name.rsplit('::', 1)[-1].startswith('challenge_read_')]
               assert len(read_tests) == 9, read_tests
-          assert len(ignored_names) == 3 and len(executed_names) + len(ignored_names) == len(all_names)
+          assert len(ignored_names) == 5 and len(executed_names) + len(ignored_names) == len(all_names)
           receipt = dict(schema=2, unique_tests=len(all_names), group_counts=counts,
               executed_tests=len(executed_names), executed_group_counts=executed_counts,
               ignored_group_counts=ignored_counts, ignored_tests=ignored_names,
