@@ -21,6 +21,8 @@ mod object_policy;
 mod parallel;
 mod private_storage;
 mod provider_activity;
+#[cfg(all(test, target_os = "linux"))]
+mod provider_session_tests;
 mod quote;
 mod quote_remote;
 mod recent;
@@ -145,6 +147,8 @@ async fn serve_provider_session(
     let Ok(registry) = provider_snapshot(&registry, REGISTRY_SNAPSHOT_TIMEOUT).await else {
         fixture.finish(Terminal::OperationError);
         observer.enter(Stage::Closing);
+        // Event-state contention must not retain an already rejected connection.
+        drop(stream);
         provider_event(events.as_ref(), "CONTENT_PROVIDER_REGISTRY_TIMEOUT").await;
         return;
     };
@@ -170,7 +174,11 @@ async fn serve_provider_session(
                 Terminal::OperationError
             });
         }
-        Err(error) => provider_failure_event(events.as_ref(), &error, storage_failure).await,
+        Err(error) => {
+            // Close before logging: its state lock has no network deadline.
+            drop(stream);
+            provider_failure_event(events.as_ref(), &error, storage_failure).await;
+        }
     }
 }
 
