@@ -1,0 +1,44 @@
+{
+  "android_executed": false,
+  "ffprobe_version": "ffprobe version 6.1.1-3ubuntu5 Copyright (c) 2007-2023 the FFmpeg developers",
+  "genuine_app_pixels": false,
+  "joined_core_acceptance": false,
+  "kind": "weather-demo-synthetic-media-tool-probe",
+  "parser_under_test_accepted": true,
+  "parser_under_test_result": {
+    "codec": "h264",
+    "duration_seconds": 1.0,
+    "has_audio": false,
+    "height": 1280,
+    "width": 720
+  },
+  "presentation_tool_probe": {
+    "completed": true,
+    "media_retained": false,
+    "synthetic_input_only": true,
+    "video": {
+      "codec": "h264",
+      "duration_seconds": 120.0,
+      "height": 1080,
+      "width": 1920
+    }
+  },
+  "production_authority": false,
+  "run_id": "39870350875",
+  "schema": 1,
+  "serializer": {
+    "format": {
+      "duration": "1.000000"
+    },
+    "programs": [],
+    "streams": [
+      {
+        "codec_name": "h264",
+        "codec_type": "video",
+        "height": 1280,
+        "width": 720
+      }
+    ]
+  },
+  "source_revision": "0eaff79d0bd5ca7c785f5e20ea4512fd9ca92d39"
+}

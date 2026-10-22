@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import shutil
 import subprocess
 import tempfile
 
@@ -57,6 +58,16 @@ def main():
         _, rendered = presentation["render_video"](video, output, 120, raw_info,
             [("SYNTHETIC TOOL TEST / NOT ANDROID EVIDENCE", 32, "ffffff")])
         record["presentation_tool_probe"] = dict(completed=True, video=rendered,
+            synthetic_input_only=True, media_retained=False)
+        review = runpy.run_path(str(ROOT / "scripts/weather-demo-0-review.py"))
+        sample_evidence = Path(temporary) / "synthetic-sampling-input"
+        (sample_evidence / "demo-media").mkdir(parents=True)
+        shutil.copyfile(video, sample_evidence / "demo-media/screen.mp4")
+        sample_output = Path(temporary) / "synthetic-sampling-output"
+        sample_output.mkdir()
+        sampled = review["contact_sheets"](sample_evidence, sample_output,
+            dict(video=dict(duration_seconds=1.0)))
+        record["contact_sheet_tool_probe"] = dict(completed=True, rendered=sampled,
             synthetic_input_only=True, media_retained=False)
         version = subprocess.run(["/usr/bin/ffprobe", "-version"], stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=10, check=True)

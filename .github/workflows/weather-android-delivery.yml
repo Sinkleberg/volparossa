@@ -12,6 +12,18 @@ on:
         description: Inspect distro media-tool serialization with synthetic input only
         type: boolean
         default: false
+      review_run_id:
+        description: Review retained accepted media from this exact completed run; no Android execution
+        type: string
+        default: ''
+      review_attempt:
+        description: Exact completed attempt whose accepted media is reviewed
+        type: string
+        default: '1'
+      review_core_revision:
+        description: Full original Core revision of the accepted recording
+        type: string
+        default: ''
   push:
     branches: [feature/weather-android-core]
     paths:
@@ -34,7 +46,7 @@ env:
 
 jobs:
   media-tool-probe:
-    if: inputs.media_probe_only
+    if: inputs.media_probe_only && inputs.review_run_id == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -62,8 +74,45 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           path: .cache/weather-media-tool-probe/probe.json
+  retained-media-review:
+    if: inputs.review_run_id != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install review tools only on the disposable hosted runner
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          timeout 180s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
+          timeout 300s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ffmpeg fonts-dejavu-core
+      - name: Inspect existing accepted recording without rerunning Android
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_RUN_ID: ${{ inputs.review_run_id }}
+          REVIEW_ATTEMPT: ${{ inputs.review_attempt }}
+          REVIEW_CORE_REVISION: ${{ inputs.review_core_revision }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$GITHUB_WORKSPACE/.cache"
+          python3 -B tests/integration/test-weather-demo-0-review.py
+          python3 -B scripts/weather-demo-0-review.py --run-id "$REVIEW_RUN_ID" \
+            --attempt "$REVIEW_ATTEMPT" --core-revision "$REVIEW_CORE_REVISION" \
+            --output "$GITHUB_WORKSPACE/.cache/weather-demo-visual-review" --execute
+      - name: Retain actual sampled frames and review provenance
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: weather-demo-visual-review-${{ inputs.review_run_id }}-${{ inputs.review_attempt }}-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+          path: .cache/weather-demo-visual-review/
   joined:
-    if: ${{ !inputs.media_probe_only }}
+    if: ${{ !inputs.media_probe_only && inputs.review_run_id == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     steps:

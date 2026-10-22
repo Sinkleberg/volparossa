@@ -104,7 +104,7 @@ source builds and a newly recorded admission if inputs must be renewed.
 - App/forward/process/VM/policy cleanup and exact KVM ACL restoration must pass.
 - Sources, dependencies, original reports, media hashes and edits must be inspectable.
 - The external-Core boundary remains visible throughout the presentation.
-- No APK, SDK, emulator userdata, private keys, raw captures or private logs enter
+- No APK, SDK, emulator userdata, private keys, packet captures or private logs enter
   the public presentation bundle.
 
 The proposed prerelease is `weather-demo-0.1.0`. Prepare materials locally and as

@@ -1,0 +1,11 @@
+{
+  "run_id": "39870500157",
+  "attempt": 1,
+  "source_revision": "0eaff79d0bd5ca7c785f5e20ea4512fd9ca92d39",
+  "failed_step": "Install declared tools only on this disposable hosted runner",
+  "exit_status": 124,
+  "ubuntu_package_download_timeout": true,
+  "android_executed": false,
+  "artifact_id": 12467190152,
+  "archive_sha256": "e99118613ce41ad7f07716a9c5c419bc6d77aa776b5c46c625e537d1f6235723"
+}

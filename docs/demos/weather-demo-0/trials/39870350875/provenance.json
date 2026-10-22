@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "run_id": "39870350875",
+  "artifact_id": 12466310926,
+  "archive_sha256": "13ef0f40f5eb42090092e8078ed781d1c5413f4dba1aa08b6a0ef42b2bfc29c4",
+  "source_revision": "0eaff79d0bd5ca7c785f5e20ea4512fd9ca92d39",
+  "synthetic_tool_probe_only": true,
+  "parser_under_test_accepted": true,
+  "presentation_tool_probe_completed": true,
+  "android_acceptance": false
+}
