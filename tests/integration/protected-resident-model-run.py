@@ -52,6 +52,7 @@ ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.
        'PYTHONDONTWRITEBYTECODE': '1', 'GIT_CONFIG_NOSYSTEM': '1',
        'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0'}
 CANCELLED = False
+CLEANUP_ACTIVE = contextvars.ContextVar('resident_model_cleanup_active', default=False)
 TOOL_PROCESSES = contextvars.ContextVar('resident_model_tool_processes', default=None)
 REQUESTER_STAGE_PREFIX = b'VP_PUBLIC_REQUESTER_STAGE_V1 '
 REQUESTER_STAGES = ('configuration', 'socket', 'certificate', 'connect', 'tls',
@@ -263,7 +264,7 @@ def write_new(path, raw, mode=0o600):
 
 
 def remaining(deadline, cap=MAX_SECONDS):
-    require(not CANCELLED, 'controller_cancelled')
+    require(not CANCELLED or CLEANUP_ACTIVE.get(), 'controller_cancelled')
     value = deadline - time.monotonic()
     require(0 < value <= MAX_SECONDS and 0 < cap <= MAX_SECONDS, 'controller_deadline')
     return min(value, cap)
@@ -537,7 +538,7 @@ def run(argv, deadline, *, cap=300, maximum=16 * 1024 ** 2, env=None, check=True
                 os.set_blocking(pipe.fileno(), False)
                 events.register(pipe, selectors.EVENT_READ)
             while events.get_map():
-                require(not CANCELLED, 'controller_cancelled')
+                require(not CANCELLED or CLEANUP_ACTIVE.get(), 'controller_cancelled')
                 require(time.monotonic() < end, 'command_timeout')
                 for key, _ in events.select(.1):
                     block = os.read(key.fd, 65536)
@@ -547,7 +548,7 @@ def run(argv, deadline, *, cap=300, maximum=16 * 1024 ** 2, env=None, check=True
                     (stdout if key.fileobj is process.stdout else stderr).extend(block)
                     require(len(stdout) + len(stderr) <= maximum, 'command_output_bound')
             while os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
-                require(not CANCELLED, 'controller_cancelled')
+                require(not CANCELLED or CLEANUP_ACTIVE.get(), 'controller_cancelled')
                 require(time.monotonic() < end, 'command_timeout')
                 time.sleep(.02)
     except BaseException as error:
@@ -826,17 +827,15 @@ class Scope:
         return os.waitid(os.P_PID, self.process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None
 
     def stop(self):
-        global CANCELLED
         if self.process is None:
             if self.started and not self.cleanup_confirmed:
                 raise CleanupUnconfirmed('scope_cleanup_unconfirmed')
             return {'qemu_process_joined': True, 'scope_empty': True}
-        cancelled = CANCELLED
-        CANCELLED = False
+        token = CLEANUP_ACTIVE.set(True)
         try:
             return self._stop()
         finally:
-            CANCELLED = cancelled
+            CLEANUP_ACTIVE.reset(token)
 
     def _stop(self):
         # Cleanup has its own finite grace, even when the original work expired.
@@ -1658,11 +1657,16 @@ def execute_owned(args, pending):
                   private_inputs=False, hardware_attestation=False, confidential_execution=False,
                   production_approval=False, vm_cleanup_confirmed=False, scratch_removed=False,
                   tool_cleanup_confirmed=False, scratch_cleanup_failure=None,
+                  host_observed_routes_dns_unchanged=False,
+                  host_configuration_checkpoint=dict(version=1, mode='supported_ipv6_reference_metadata_v1',
+                      eligible=False, classification='UNAVAILABLE', raw_equal=None),
+                  host_configuration_checkpoint_accepted=False,
                   memory_admissions=[], disk_memory_observations=[],
                   build_boot_diagnostic=build_boot_diagnostic(), guest_package_diagnostics=[],
                   guest_builder_diagnostics=[])
     current = build_scope = None
     scopes = []
+    workload_complete = False
     try:
         images = ImageTools(work, args.appliance_kernel, deadline)
         require(args.requester.resolve(strict=True).is_relative_to(ROOT / 'target'), 'requester_source_path')
@@ -1886,9 +1890,10 @@ def execute_owned(args, pending):
         report['host_after'] = after
         report['host_observation']['after'] = host_after
         report['host_observation']['comparison'] = host_observer.compare(host_before, host_after)
-        require(after == report['host_before'], 'host_network_observation_changed')
-        report.update(state='passed', phase='complete', model_execution=True,
-                      host_observed_routes_dns_unchanged=True, runtime_image_deliberately_corrupted=True)
+        report['host_observed_routes_dns_unchanged'] = after == report['host_before']
+        report['host_configuration_checkpoint'] = host_observer.configuration_checkpoint(host_before, host_after)
+        require(report['host_configuration_checkpoint']['eligible'], 'host_network_observation_changed')
+        workload_complete = True
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, CleanupUnconfirmed) as error:
         code = str(error) if type(error) is ValueError else ''
         report['failure'] = code if code in FAILURE_CODES else 'controller_stage_failed'
@@ -1921,6 +1926,17 @@ def execute_owned(args, pending):
         if not report['scratch_removed']:
             report['state'] = 'failed'
             report.setdefault('failure', report['scratch_cleanup_failure'])
+        # No workload/host observation is an aggregate success until all owned
+        # processes and scratch are gone and late cancellation/expiry is checked.
+        if (workload_complete and 'failure' not in report and scopes_safe and not pending
+                and report['scratch_removed'] and report['host_configuration_checkpoint']['eligible'] is True):
+            try:
+                remaining(deadline)
+                report.update(state='passed', phase='complete', model_execution=True,
+                              host_configuration_checkpoint_accepted=True,
+                              runtime_image_deliberately_corrupted=True)
+            except ValueError as error:
+                report.setdefault('failure', str(error) if str(error) in FAILURE_CODES else 'controller_stage_failed')
         write_new(evidence / 'result.json', encoded(report))
     return report
 
