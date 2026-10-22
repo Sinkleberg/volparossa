@@ -322,7 +322,7 @@ pub async fn begin_observed<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    timeout(IO_TIMEOUT, async {
+    let result = timeout(IO_TIMEOUT, async {
         grant.current(unix_now()?)?;
         observer.phase(begin_observation::Phase::SelectorWriteFlush);
         write_frame(
@@ -338,14 +338,37 @@ where
         observer.phase(begin_observation::Phase::GrantWriteFlush);
         write_frame(stream, &grant.signed().encode()).await?;
         observer.phase(begin_observation::Phase::ChallengeReadVerify);
+        observer.read_step(begin_observation::ReadStep::LengthRead);
+        let length = stream.read_u32().await? as usize;
+        if length == 0 || length > MAX_CHALLENGE_BYTES {
+            return Err(WireError::Invalid);
+        }
+        let mut bytes = vec![0; length];
+        observer.read_step(begin_observation::ReadStep::BodyRead);
+        stream.read_exact(&mut bytes).await?;
+        observer.read_step(begin_observation::ReadStep::Verification);
         Ok(StorageChallenge::decode_and_verify(
-            &read_frame(stream, MAX_CHALLENGE_BYTES).await?,
+            &bytes,
             grant,
             unix_now()?,
         )?)
     })
     .await
-    .map_err(|_| WireError::Timeout)?
+    .unwrap_or(Err(WireError::Timeout));
+    if let Err(error) = &result {
+        use begin_observation::ReadFailure as Failure;
+        let failure = match error {
+            WireError::Io(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                Failure::IoEof
+            }
+            WireError::Io(_) => Failure::IoOther,
+            WireError::Protocol(_) => Failure::VerificationRejected,
+            WireError::Timeout => Failure::WireTimeout,
+            WireError::Invalid | WireError::Busy | WireError::Store => Failure::Invalid,
+        };
+        observer.read_failure(failure);
+    }
+    result
 }
 
 /// Finish the sole owner-signed operation on the connection that issued this challenge.
