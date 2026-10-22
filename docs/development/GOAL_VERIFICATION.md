@@ -203,6 +203,8 @@ with the same tests. Its hosted receipt still sets historical-cause proof,
 full-relay datapath and live-consumer acceptance false. Map's exact-source
 actual run retains its failed strict host-baseline verdict even though the new
 closed projection narrows this run's IPv6 raw difference to reference metadata.
-The public protected-model run and private Storage consumer run remain in
-progress, with no outcome claimed. See the current checkpoint and evidence links
+The public protected-model trial subsequently failed at its corruption-negative
+phase after two observed public outputs; VM cleanup remains unconfirmed. The
+private Storage consumer trial remains in progress, with no outcome claimed.
+See the current checkpoint and evidence links
 in [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work).

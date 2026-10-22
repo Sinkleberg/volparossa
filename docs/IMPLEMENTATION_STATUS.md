@@ -139,11 +139,19 @@ terminal, although the aggregate API response lagged at `in_progress`; artifact
 `c28f39c0403c9dbd9a51851bedc332b890583685f011551bf73dadba3d6e9044`. Parent
 initialization, result and shutdown bytes, privilege dropping, Bubblewrap,
 builder and dependency pins are unchanged. Actual public model run
-`39831364171` remains bound to exact source a973 and is now executing the public
-trial beyond requester compilation; there is no model outcome yet.
-Neither inert tests nor source acceptance prove the real transition, signal
-delivery, sandbox startup, two model turns or guest-descendant cleanup. Private
-execution is separate.
+`39831364171` is terminal failure on exact source a973. Its original artifact
+`12452221417` is 8,363 bytes, API/ZIP SHA-256
+`a12749c50b2ff5f2264cd639bc0a745eaf8c043523c3edb01cf07dcb16416717`, retained
+under `.git/ci-evidence/protected-model-39831364171/`. The requester records two
+public outputs (`READY`, `4`), per-turn request removal, exit zero and final
+`child_reaped`/`private_state_removed` true. The boot receipt records verified
+verity, read-only root, denied writes and invoked entrypoint. The aggregate
+controller then fails at `corruption_negative` with `controller_stage_failed`;
+scratch removal and tool cleanup are true, but `vm_cleanup_confirmed` is false.
+Its aggregate model/worker acceptance flags remain false. This is useful partial
+execution evidence, not accepted corruption rejection, full guest-descendant
+cleanup, confidential execution or private-workload authority. Investigate that
+exact phase before another trial; preserve the original failed verdict.
 
 Map's earlier actual39699719553 failure remains unchanged. Its 900-byte before/after
 IPv6 route fingerprints differ; raw route records were not retained, so the
@@ -984,9 +992,12 @@ The integration harness, fixture pins and alpha workflow are unchanged from
 failed run39690110300. Preserve that earlier failure and hypothesis without
 inferring causality. Evaluate its existing full acceptance after this run
 terminates, preserving pins, deadlines, retry behavior and privacy. For
-protected Compute, public run `39831364171` is executing the public trial beyond
-requester compilation; await a terminal result. Contract acceptance on
-`39829507734` is not model execution or guest-cleanup evidence. For Map, retain
+protected Compute, investigate run `39831364171`'s corruption-negative failure
+and unconfirmed VM cleanup after its two observed public outputs. Contract
+acceptance on `39829507734` does not clear that failure. Studio adapter planning
+is temporarily deferred while this concrete integration blocker and Map's
+reviewed renderer-profile correction proceed; its full requirements remain
+active. For Map, retain
 run39831818416 as a strict raw-baseline failure despite its reference-metadata
 diagnosis; kernel identity and historical actor/cause remain unknown. Its eight
 JNI cases and owned cleanup passed, but aggregate host baseline did not. The
