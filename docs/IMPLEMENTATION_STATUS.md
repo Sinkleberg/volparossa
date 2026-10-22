@@ -141,8 +141,27 @@ The independently reviewed workflow-only correction is published at
 write guard locally before logging. Production code, test cases, deadlines,
 source/dependency guards and all other workflow steps remain unchanged. One
 follow-up scoped run, `39849045970`, is pending on that exact revision; the
-original failed run remains retained. No corrected control execution or final
-Clippy result is inferred from the source-only correction review.
+original failed run remains retained. The follow-up is terminal failure at
+strict Clippy after both queue units, all five actual candidate cases and all
+three expected original-behavior failures pass. Artifact `12457775030`, 92,733
+bytes, API/ZIP SHA-256
+`0c66c2069245ddd0a717ef08b8164639c121d510b7d651fdce2e130e55ff6d17`, is retained
+under `.git/ci-evidence/provider-event-drain-39849045970/`. Restored source is
+clean; five normalized host-observation hashes match before/after (snapshot
+SHA-256 `201c8c5b4fb251706fe10e777f612a2f329b6c82c84d1f9ec9f9b0e7962c5382`).
+Clippy rejects two redundant method closures and two single-pattern matches in
+test cleanup. Correct these without lint suppression, preserving all behavior
+controls and cleanup; the run remains failed until the new exact source clears
+the complete gate. This strengthens the controlled blocking evidence without
+establishing the historical consumer cause or complete Cloud/Image acceptance.
+The independently reviewed lint-only correction is published at
+`c111114b65a511ebfd8cc4c90afd958018f575f6`, tree
+`76d7b851638fa76a68bd38c4dfb0c216c75c3e9d`. Its two method references and two
+`if let` cleanup rewrites preserve all code paths, deadlines, abort/join behavior
+and fixed diagnostics. The unchanged workflow still constructs and parses all
+three variants with the same five tests. Scoped run `39851344008` is pending on
+that exact source; no new runtime or strict-Clippy result is inferred from the
+source review.
 
 Exact-main Quality run `39825055366` is terminal success on c730617, with its actual
 checkout bound to the reviewed tree: 4,253 workspace tests passed/0 failed/12
@@ -236,7 +255,36 @@ exact tested tree. Guarded public trial `39842391908` is dispatched once on that
 revision, with all corruption rejection and cleanup gates preserved. Redundant
 automatic source-only push run `39842308038` is terminal `cancelled`, after
 verifying the accepted manual run has the identical source. No earlier actual acceptance trial was cancelled or
-restarted. The new public trial remains pending, not accepted private execution.
+restarted. The new public trial is terminal failure at
+`host_network_observation_changed`. Artifact `12456488013`, 8,731 bytes,
+API/ZIP SHA-256 `c3f3719e1f12b635c043709149a868b3f6c40d8ea1e9add773ad8ff5a879844f`,
+is retained under `.git/ci-evidence/protected-model-39842391908/`. It binds the
+same e482 source/tree. Both public answers (`READY`, `4`) and per-turn/final
+requester cleanup pass. The positive boot records verified verity, read-only root,
+denied writes and exit zero. The corrupted-image receipt now records
+`integrity_failure` at `verity_read` with entrypoint invocation false. Final VM,
+tool and scratch cleanup are all confirmed. The aggregate verdict and
+`model_execution` acceptance remain false because the final host fingerprint
+comparison fails. Only before hashes for IPv4 routes, IPv6 routes and resolver
+configuration were retained; the changed field and actor/cause are unknown.
+Do not infer the Map trial's reference-count explanation or waive the strict gate.
+Retain bounded before/after diagnostics for the next investigation. Neither this
+public fixture nor the passing source checks accept confidential execution.
+
+Resident-model-only integration PR332 is published on main 157908ad at
+`d2a1ab5b3f73998a0baf0eaea4cd5e5d3f193da7`, tree
+`276f17b9f8007e08aac346d3658bce650e9e5677`, in
+`integration/resident-model-main-20261022`. It preserves the retained feature,
+excludes its historical status-document snapshot, and reconciles main's existing
+hpke/zeroize/DPS dependencies and licenses. Exact blob comparison finds the eight
+shared Compute/manifest paths unchanged since their merge base, so the feature
+patches apply cleanly there. Fifty feature paths are included; 46 match e482
+byte-for-byte. Four reconciliations cover the lockfile, license additions,
+source-only workflow binding and its inert tests. The actual public-model job
+remains byte-identical, and the new branch grants source-contract execution only.
+Independent reconciliation review passes, including dependency and source
+preservation. Guarded source-contract run `39850563569` is pending. Compilation
+and main integration remain unaccepted; the retained feature remains unchanged.
 
 Map's earlier actual39699719553 failure remains unchanged. Its 900-byte before/after
 IPv6 route fingerprints differ; raw route records were not retained, so the
@@ -415,11 +463,42 @@ full ShellCheck and unchanged ordinary Quality semantics pass. Original receipt
 cannot identify the failed await or prove completed initialization. Navigation,
 readiness and frame failures now use separate closed stage names; no deadline,
 pin, sandbox or real UI operation is relaxed. Exact-source follow-up
-`39848640073` is dispatched once and remains pending. Redundant automatic PR
+`39848640073` was dispatched once. Redundant automatic PR
 Quality `39848562984` is cancelled only after accepting that run and confirming
 its test-merge `1b184a1dd3a0ab35f582f1b3aeaed5bd534b385a` has the same Core
-tree. CodeQL remains independent. All fifteen full Studio acceptance cases
-remain open.
+tree. CodeQL remains independent. The follow-up's actual Studio job is now
+terminal failure at `editor_ready/TimeoutError`; ordinary Quality is still
+running. Its original artifact `12455893482`, 773 bytes, matches API/ZIP SHA-256
+`18ecd38d8ae48f189acee81cd6e0b6fb6b0e3fbfc10d9bedb7956988a1f1a15c`, retained
+under `.git/ci-evidence/studio-export-39848640073/`. Navigation returned before
+readiness failed; which readiness predicate timed out and the startup cause are
+not established. No manual edit, preview, ZIP or actual pack/decode is accepted.
+Reported nonroot isolation, capability removal, process-group cleanup and
+private temporary-output removal succeed with no cleanup error. Investigate
+startup using closed bounded diagnostics, preserving all pins, deadlines and
+sandbox authority. The next independently reviewed Studio correction is
+`d5103c7cea96bdbd973b74666be9e7f8fbc77d96`, tree
+`e2acecdeab730f3ca769bcdf211d9390de195940`, paired with unchanged Core 721e867d.
+The pinned fonts plugin rejects an empty API key synchronously; the fixture now
+supplies an explicit synthetic token, with both font URLs still restricted to
+loopback. Three pinned dependency source hashes verify that contract. Closed
+startup diagnostics retain only fixed categories, capped counts and read-only
+DOM booleans, validated before retention. Fifteen inert tests and independent
+review pass; original manual UI steps, pins, deadlines and sandbox remain
+unchanged. The earlier receipt lacks the evidence to attribute its exact
+exception retrospectively. New exact-source trial `39850757186` fails its
+actual job at `manual_text/TimeoutError`; ordinary Quality remains separate.
+Artifact `12456039695`, 963 bytes, API/ZIP SHA-256
+`da35b2a608b2a13445d8938e6072f1435f45ec2ff34dd16dd4f0cd4bf254f881`, is retained
+under `.git/ci-evidence/studio-export-39850757186/`. Startup and the create-page
+UI actions return before failure. The bounded snapshot records a visible editor
+and frame, hidden loader, nonempty synthetic font key, and zero reported page,
+console, bad-response, failed-request or blocked-external-request counts. It
+does not identify which manual-text operation timed out. Isolation and owned
+cleanup are reported successful. Text/style editing, preview, export and actual
+pack/decode remain unaccepted. Investigate the pinned rendered-DOM interaction
+contract without injecting project content or replacing real UI operations.
+All fifteen full Studio acceptance cases remain open.
 
 Preserved active technical work at consolidation:
 
@@ -1195,25 +1274,34 @@ preserved without claiming a common cause.
 Provider event-drain PR331 addresses independently demonstrated admission and
 refresh blocking. Its first scoped run passes the five candidate runtime cases
 but fails compiling a generated negative-control variant. The reviewed harness
-correction is published at `60b1a154`; consume pending `39849045970` for all
-behavior controls, lint and cleanup before accepting this production slice.
+correction is published at `60b1a154`; `39849045970` passes behavior controls
+and cleanup but fails four strict lint findings. Complete the reviewed syntax-only
+correction at `c111114b` and pending exact-source `39851344008` before accepting
+this production slice. A separate fixture-only failure-boundary diagnostic is
+designed, but not implemented: query existing provider rings before cleanup
+stops them, retaining only closed bounded projections and the original failure.
 Do not infer historical consumer causality from controlled lock contention.
 After the scoped gate, use the actual consumer/route lifecycle evidence to select
 the next integration trial rather than increasing deadlines or retries.
 
-For protected Compute, consume exact-source public trial `39842391908` after it
-terminates. Source checks and retained-branch integration do not prove actual
-corruption rejection or complete guest cleanup. Earlier `39831364171` remains
-failed despite two public outputs. Before main integration, isolate the resident
-model feature from retained PR276's unfinished Storage ancestry and reconcile
-shared Compute lifecycle changes against current main; preserve the original
-branch and avoid importing its old status-document snapshot.
+For protected Compute, public trial `39842391908` now proves the bounded public
+answers, corruption rejection and owned VM/tool/scratch cleanup, but retains a
+failed aggregate host-fingerprint comparison with the changed field unknown.
+Preserve the earlier `39831364171` failure and strict comparison gate. Independent
+review accepts the isolated main-based resident candidate; consume its hosted
+source checks, then investigate with bounded before/after host diagnostics. Preserve
+the original feature branch and current main dependencies; no confidential or
+private-workload acceptance follows from this public fixture.
 
 Studio follow-up `39848640073` exercises reviewed readiness and shell corrections
 with the same real pinned editor, manual edit/preview/export and offline Core
-packer/decoder. Preserve explicit publication authority; this fixture is not
-signed publication, hosting or shared-AI acceptance. Consume its actual result
-before extending the integration.
+packer/decoder. Its actual job now fails at editor readiness before manual work;
+the next reviewed font-startup correction and closed diagnostics are running
+in `39850757186`. That trial gets through startup and the create-page actions
+but fails during manual text interaction. Narrow the actual UI operation before
+claiming edit/export acceptance or dispatching another trial.
+Preserve explicit publication authority; this fixture is not signed publication,
+hosting or shared-AI acceptance.
 
 Map's synthetic debug Activity/JNI slice is accepted by `39844370003` and merged
 into Map main, with the documentation checkpoint also integrated. Preserve the
