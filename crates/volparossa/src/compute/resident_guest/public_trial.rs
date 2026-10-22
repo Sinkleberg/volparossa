@@ -166,6 +166,105 @@ fn observe_socket_failure(
     }
 }
 
+// A separate failure-only observation after preflight, never a connection,
+// authentication, execution or cleanup success receipt.
+const MAX_CONNECT_DIAGNOSTIC: usize = 512;
+
+#[derive(Clone, Copy, Debug, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum ConnectCondition {
+    ConnectDeadline,
+    ConnectIo,
+    PeerCredentialIo,
+    PeerUidMismatch,
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum ConnectIoKind {
+    None,
+    NotFound,
+    PermissionDenied,
+    ConnectionRefused,
+    ConnectionReset,
+    ConnectionAborted,
+    NotConnected,
+    AddrInUse,
+    AddrNotAvailable,
+    TimedOut,
+    Interrupted,
+    WouldBlock,
+    InvalidInput,
+    InvalidData,
+    Other,
+}
+
+fn connect_io_kind(error: Option<&std::io::Error>) -> ConnectIoKind {
+    match error.map(std::io::Error::kind) {
+        None => ConnectIoKind::None,
+        Some(std::io::ErrorKind::NotFound) => ConnectIoKind::NotFound,
+        Some(std::io::ErrorKind::PermissionDenied) => ConnectIoKind::PermissionDenied,
+        Some(std::io::ErrorKind::ConnectionRefused) => ConnectIoKind::ConnectionRefused,
+        Some(std::io::ErrorKind::ConnectionReset) => ConnectIoKind::ConnectionReset,
+        Some(std::io::ErrorKind::ConnectionAborted) => ConnectIoKind::ConnectionAborted,
+        Some(std::io::ErrorKind::NotConnected) => ConnectIoKind::NotConnected,
+        Some(std::io::ErrorKind::AddrInUse) => ConnectIoKind::AddrInUse,
+        Some(std::io::ErrorKind::AddrNotAvailable) => ConnectIoKind::AddrNotAvailable,
+        Some(std::io::ErrorKind::TimedOut) => ConnectIoKind::TimedOut,
+        Some(std::io::ErrorKind::Interrupted) => ConnectIoKind::Interrupted,
+        Some(std::io::ErrorKind::WouldBlock) => ConnectIoKind::WouldBlock,
+        Some(std::io::ErrorKind::InvalidInput) => ConnectIoKind::InvalidInput,
+        Some(std::io::ErrorKind::InvalidData) => ConnectIoKind::InvalidData,
+        Some(_) => ConnectIoKind::Other,
+    }
+}
+
+fn observe_connect_failure(
+    enabled: bool,
+    condition: ConnectCondition,
+    error: Option<&std::io::Error>,
+    mut output: impl std::io::Write,
+) {
+    if enabled {
+        let value = json!({"version":1,"condition":condition,"io_kind":connect_io_kind(error)});
+        let body = value.to_string();
+        if body.len() <= MAX_CONNECT_DIAGNOSTIC {
+            let _ = writeln!(output, "VP_PUBLIC_REQUESTER_CONNECT_FAILURE_V1 {body}");
+        }
+    }
+}
+
+fn check_peer_uid(
+    credential: std::io::Result<u32>,
+    owner: u32,
+    mut observe: impl FnMut(ConnectCondition, Option<&std::io::Error>),
+) -> Result<()> {
+    let uid =
+        credential.inspect_err(|error| observe(ConnectCondition::PeerCredentialIo, Some(error)))?;
+    if uid != owner {
+        observe(ConnectCondition::PeerUidMismatch, None);
+    }
+    ensure!(uid == owner, "resident_socket_peer");
+    Ok(())
+}
+
+async fn connect_socket(
+    socket: &Path,
+    deadline: Instant,
+    mut observe: impl FnMut(ConnectCondition, Option<&std::io::Error>),
+) -> Result<UnixStream> {
+    let stream = timeout_at(deadline, UnixStream::connect(socket))
+        .await
+        .inspect_err(|_| observe(ConnectCondition::ConnectDeadline, None))?
+        .inspect_err(|error| observe(ConnectCondition::ConnectIo, Some(error)))?;
+    check_peer_uid(
+        stream.peer_cred().map(|credential| credential.uid()),
+        nix::unistd::geteuid().as_raw(),
+        observe,
+    )?;
+    Ok(stream)
+}
+
 fn socket_preflight(
     socket: &Path,
     owner: u32,
@@ -274,11 +373,12 @@ pub(in crate::compute) async fn run(options: Options) -> Result<()> {
     stage(diagnostics, Stage::Certificate);
     let (connector, spki) = client_config(crate::compute::read_file(&options.certificate, 8192)?)?;
     stage(diagnostics, Stage::Connect);
-    let stream = timeout_at(deadline, UnixStream::connect(&options.socket)).await??;
-    ensure!(
-        stream.peer_cred()?.uid() == nix::unistd::geteuid().as_raw(),
-        "resident_socket_peer"
-    );
+    let stream = connect_socket(&options.socket, deadline, |condition, error| {
+        if diagnostics {
+            observe_connect_failure(true, condition, error, std::io::stderr().lock());
+        }
+    })
+    .await?;
     stage(diagnostics, Stage::Tls);
     let tls = timeout_at(
         deadline.min(Instant::now() + Duration::from_secs(30)),

@@ -696,3 +696,139 @@ fn socket_diagnostic_is_optional_and_cannot_replace_the_original_error() {
     .unwrap_err();
     assert_eq!(error.to_string(), "resident_socket_owner");
 }
+
+#[test]
+fn connect_diagnostic_io_kinds_are_closed_and_never_include_raw_errors() {
+    use std::io::ErrorKind as K;
+    for (kind, expected) in [
+        (K::NotFound, ConnectIoKind::NotFound),
+        (K::PermissionDenied, ConnectIoKind::PermissionDenied),
+        (K::ConnectionRefused, ConnectIoKind::ConnectionRefused),
+        (K::ConnectionReset, ConnectIoKind::ConnectionReset),
+        (K::ConnectionAborted, ConnectIoKind::ConnectionAborted),
+        (K::NotConnected, ConnectIoKind::NotConnected),
+        (K::AddrInUse, ConnectIoKind::AddrInUse),
+        (K::AddrNotAvailable, ConnectIoKind::AddrNotAvailable),
+        (K::TimedOut, ConnectIoKind::TimedOut),
+        (K::Interrupted, ConnectIoKind::Interrupted),
+        (K::WouldBlock, ConnectIoKind::WouldBlock),
+        (K::InvalidInput, ConnectIoKind::InvalidInput),
+        (K::InvalidData, ConnectIoKind::InvalidData),
+        (K::UnexpectedEof, ConnectIoKind::Other),
+    ] {
+        let error = std::io::Error::new(kind, "/private/PATH_UID_PID_ERROR_CANARY");
+        assert_eq!(connect_io_kind(Some(&error)), expected);
+        let mut output = Vec::new();
+        observe_connect_failure(true, ConnectCondition::ConnectIo, Some(&error), &mut output);
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.len() <= MAX_CONNECT_DIAGNOSTIC);
+        assert!(!output.contains("CANARY") && !output.contains("/private"));
+    }
+    assert_eq!(connect_io_kind(None), ConnectIoKind::None);
+}
+
+#[test]
+fn connect_diagnostic_is_optional_and_cannot_replace_original_peer_error() {
+    struct Broken;
+    impl std::io::Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("PRIVATE_CANARY"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            panic!("no_extra_flush")
+        }
+    }
+    let mut output = Vec::new();
+    observe_connect_failure(false, ConnectCondition::PeerUidMismatch, None, &mut output);
+    assert!(output.is_empty());
+    observe_connect_failure(true, ConnectCondition::ConnectDeadline, None, &mut output);
+    assert_eq!(output, b"VP_PUBLIC_REQUESTER_CONNECT_FAILURE_V1 {\"condition\":\"connect_deadline\",\"io_kind\":\"none\",\"version\":1}\n");
+    let error = check_peer_uid(Ok(123), 456, |condition, error| {
+        observe_connect_failure(true, condition, error, Broken);
+    })
+    .unwrap_err();
+    assert_eq!(error.to_string(), "resident_socket_peer");
+    let error = check_peer_uid(
+        Err(std::io::Error::from_raw_os_error(libc::EACCES)),
+        456,
+        |condition, error| observe_connect_failure(true, condition, error, Broken),
+    )
+    .unwrap_err();
+    assert_eq!(
+        error
+            .downcast_ref::<std::io::Error>()
+            .unwrap()
+            .raw_os_error(),
+        Some(libc::EACCES)
+    );
+}
+
+#[test]
+fn connect_peer_check_preserves_original_io_owner_guard_and_success() {
+    let mut observed = Vec::new();
+    check_peer_uid(Ok(123), 123, |_, _| {
+        panic!("success is never an observation")
+    })
+    .unwrap();
+    let error = check_peer_uid(Ok(123), 456, |condition, error| {
+        observed.push((condition, connect_io_kind(error)));
+    })
+    .unwrap_err();
+    assert_eq!(error.to_string(), "resident_socket_peer");
+    assert_eq!(
+        observed,
+        vec![(ConnectCondition::PeerUidMismatch, ConnectIoKind::None)]
+    );
+    observed.clear();
+    let error = check_peer_uid(
+        Err(std::io::Error::from_raw_os_error(libc::EBADF)),
+        456,
+        |condition, error| observed.push((condition, connect_io_kind(error))),
+    )
+    .unwrap_err();
+    assert_eq!(
+        error
+            .downcast_ref::<std::io::Error>()
+            .unwrap()
+            .raw_os_error(),
+        Some(libc::EBADF)
+    );
+    assert_eq!(
+        observed,
+        vec![(ConnectCondition::PeerCredentialIo, ConnectIoKind::Other)]
+    );
+}
+
+#[tokio::test]
+async fn connect_socket_preserves_original_io_and_success_guards() {
+    let directory = private_socket_directory();
+    let path = directory.path().join("channel.sock");
+    let original = UnixStream::connect(&path).await.unwrap_err();
+    let mut observed = Vec::new();
+    let error = connect_socket(
+        &path,
+        Instant::now() + Duration::from_secs(5),
+        |condition, error| {
+            observed.push((condition, connect_io_kind(error)));
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error
+            .downcast_ref::<std::io::Error>()
+            .unwrap()
+            .raw_os_error(),
+        original.raw_os_error()
+    );
+    assert_eq!(
+        observed,
+        vec![(ConnectCondition::ConnectIo, ConnectIoKind::NotFound)]
+    );
+    let _listener = tokio::net::UnixListener::bind(&path).unwrap();
+    connect_socket(&path, Instant::now() + Duration::from_secs(5), |_, _| {
+        panic!("successful same-owner connection has no failure observation");
+    })
+    .await
+    .unwrap();
+}
