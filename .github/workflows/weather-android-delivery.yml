@@ -8,6 +8,10 @@ on:
         description: Record genuine Android pixels for Weather Demo 0 after full acceptance
         type: boolean
         default: false
+      media_probe_only:
+        description: Inspect distro media-tool serialization with synthetic input only
+        type: boolean
+        default: false
   push:
     branches: [feature/weather-android-core]
     paths:
@@ -29,7 +33,37 @@ env:
   VOLPAROSSA_WEATHER_SOURCE_SHA: 85e9eda9bb6105866db2510758e76c9930fdde91
 
 jobs:
+  media-tool-probe:
+    if: inputs.media_probe_only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install media tools only on the disposable hosted runner
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          timeout 180s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
+          timeout 300s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ffmpeg
+      - name: Observe serialization without Android or delivery claims
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$GITHUB_WORKSPACE/.cache"
+          python3 -B tests/integration/weather-demo-media-probe.py --output "$GITHUB_WORKSPACE/.cache/weather-media-tool-probe"
+      - name: Retain only the closed synthetic tool observation
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: weather-demo-media-tool-probe-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+          path: .cache/weather-media-tool-probe/probe.json
   joined:
+    if: ${{ !inputs.media_probe_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     steps:

@@ -40,7 +40,7 @@ class AndroidHostedWiring(unittest.TestCase):
     def test_only_explicit_or_exact_workflow_branch_bounded_hosted_execution(self):
         self.assertIn('name: Weather Android protected core delivery\n', SOURCE)
         self.assertEqual(SOURCE.split('on:\n', 1)[1].split('\npermissions:', 1)[0].strip(),
-            'workflow_dispatch:\n    inputs:\n      record_demo:\n        description: Record genuine Android pixels for Weather Demo 0 after full acceptance\n        type: boolean\n        default: false\n  push:\n    branches: [feature/weather-android-core]\n    paths:\n'
+            'workflow_dispatch:\n    inputs:\n      record_demo:\n        description: Record genuine Android pixels for Weather Demo 0 after full acceptance\n        type: boolean\n        default: false\n      media_probe_only:\n        description: Inspect distro media-tool serialization with synthetic input only\n        type: boolean\n        default: false\n  push:\n    branches: [feature/weather-android-core]\n    paths:\n'
             '      - .github/workflows/weather-android-delivery.yml')
         for item in ('    runs-on: ubuntu-24.04', '    timeout-minutes: 150', '  cancel-in-progress: false',
                 '  contents: read', '  actions: read'):
@@ -50,9 +50,9 @@ class AndroidHostedWiring(unittest.TestCase):
 
     def test_all_actions_and_weather_source_are_exact(self):
         actions = re.findall(r'uses: ([^\s]+)', SOURCE)
-        self.assertEqual(len(actions), 5)
+        self.assertEqual(len(actions), 7)
         self.assertTrue(all(re.fullmatch(r'actions/(?:checkout|upload-artifact)@[a-f0-9]{40}', item) for item in actions))
-        self.assertEqual(SOURCE.count('persist-credentials: false'), 2)
+        self.assertEqual(SOURCE.count('persist-credentials: false'), 3)
         self.assertIn('  VOLPAROSSA_WEATHER_SOURCE_SHA: ' + WEATHER, SOURCE)
         self.assertIn('          ref: ' + WEATHER, SOURCE)
         self.assertNotIn('ref: main', SOURCE)
@@ -78,7 +78,7 @@ class AndroidHostedWiring(unittest.TestCase):
 
     def test_nested_checkout_and_vm_output_are_ignored_and_socket_bound_is_checked(self):
         paths = re.findall(r'(?m)^          path: ([.a-zA-Z0-9_/-]+)$', SOURCE)
-        self.assertEqual(paths, ['.cache/weather-android-source'])
+        self.assertEqual(paths, ['.cache/weather-media-tool-probe/probe.json', '.cache/weather-android-source'])
         ignored = subprocess.run(['git', 'check-ignore', '--no-index', '--stdin'], cwd=ROOT,
             input='\n'.join(paths + ['.cache/weather-android-delivery']) + '\n', text=True, capture_output=True, timeout=5)
         self.assertEqual(ignored.returncode, 0, ignored.stderr)
@@ -348,7 +348,7 @@ getfacl() { printf 'original inert ACL\\n'; }
     def test_artifact_upload_is_closed_not_a_directory_or_glob(self):
         section = block('Upload only closed evidence and pinned-input provenance')
         self.assertIn('          include-hidden-files: true\n', section)
-        self.assertEqual(SOURCE.count('include-hidden-files:'), 3)
+        self.assertEqual(SOURCE.count('include-hidden-files:'), 4)
         paths = section.split('          path: |\n', 1)[1].splitlines()
         self.assertEqual([path.strip() for path in paths if path.strip()], [
             '${{ env.WEATHER_OUTPUT }}/weather-android-delivery-evidence.json',
@@ -394,6 +394,15 @@ getfacl() { printf 'original inert ACL\\n'; }
             ['.cache/weather-demo-presentation/', '.cache/weather-demo-sources/'])
         for forbidden in ('gh release', 'releases/', 'contents: write', 'always()', '*'):
             self.assertNotIn(forbidden, package + upload)
+
+    def test_synthetic_media_probe_cannot_dispatch_the_android_trial(self):
+        self.assertIn('  media-tool-probe:\n    if: inputs.media_probe_only\n', SOURCE)
+        self.assertIn('  joined:\n    if: ${{ !inputs.media_probe_only }}\n', SOURCE)
+        section = SOURCE.split('  media-tool-probe:\n', 1)[1].split('  joined:\n', 1)[0]
+        self.assertIn('weather-demo-media-probe.py --output', section)
+        self.assertIn('path: .cache/weather-media-tool-probe/probe.json', section)
+        for forbidden in ('--execute', 'run-alpha-topology', 'emulator', 'record_demo: true'):
+            self.assertNotIn(forbidden, section)
 
     def test_inner_diagnostic_is_optional_host_output_not_input_or_acceptance(self):
         parser_test = 'python3 -B tests/integration/test-weather-android-inner-diagnostic.py'
