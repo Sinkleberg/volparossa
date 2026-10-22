@@ -9,7 +9,12 @@ fail() {
 }
 
 test_mode=exact
-if [ "${1:-}" = --command ]; then test_mode='command'; shift; fi
+test_backend=auto
+if [ "${1:-}" = --studio-nonroot-command ]; then
+    test_mode='command'
+    test_backend=studio-nonroot
+    shift
+elif [ "${1:-}" = --command ]; then test_mode='command'; shift; fi
 [ "$#" -ge 4 ] || fail 'expected [--command] EXECUTABLE LABEL PARENT_NETNS_MARKER none|loopback|content-egress [COMMAND_ARGS...]'
 test_executable=$1
 test_name=$2
@@ -41,6 +46,29 @@ case "$test_network" in
         esac ;;
     *) fail 'unsupported disposable network setup' ;;
 esac
+if [ "$test_backend" = studio-nonroot ]; then
+    # Fixed opt-in for sandboxed Chrome: a mapped UID 0 is deliberately avoided.
+    # Default exact/command callers retain the existing userns-first behavior.
+    [ "$test_name:$test_marker:$test_network" = studio_export:VOLPAROSSA_HANDOFF_TEST_PARENT_NETNS:loopback ] ||
+        fail 'Studio nonroot backend requires its fixed command label, marker and loopback'
+    [ "$test_executable" = /usr/bin/python3 ] || fail 'Studio nonroot backend requires system Python'
+    [ "$#" -eq 2 ] && [ "$1" = -B ] || fail 'Studio nonroot backend requires its exact Python arguments'
+    case "${RUNNER_TEMP:-}" in /?*) ;; *) fail 'Studio nonroot backend requires absolute runner temporary root' ;; esac
+    case "$2" in
+        "$RUNNER_TEMP"/studio-export-*/fixture/runtime.py) ;;
+        *) fail 'Studio nonroot backend requires its temporary runtime script' ;;
+    esac
+    test_studio_directory=${2#"$RUNNER_TEMP"/}
+    test_studio_directory=${test_studio_directory%/fixture/runtime.py}
+    case "$test_studio_directory" in
+        *[!a-zA-Z0-9_-]*|studio-export-) fail 'Studio nonroot temporary directory is invalid' ;;
+    esac
+    [ -f "$2" ] && [ ! -L "$2" ] || fail 'Studio nonroot runtime script must be a regular file'
+    [ "${GITHUB_ACTIONS:-false}" = true ] && [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ] ||
+        fail 'Studio nonroot backend requires the disposable hosted runner'
+    [ "${VOLPAROSSA_TEST_ALLOW_SUDO_NETNS:-0}" = 1 ] ||
+        fail 'Studio nonroot backend requires explicit sudo namespace authorization'
+fi
 for test_tool in /usr/bin/unshare /usr/bin/setpriv /usr/bin/readlink /usr/bin/id /usr/bin/env /usr/bin/timeout /bin/sh; do
     [ -x "$test_tool" ] || fail "required tool is unavailable: $test_tool"
 done
@@ -133,13 +161,17 @@ exec /usr/bin/setpriv --reuid="$target_uid" --regid="$target_gid" "$group_option
     "$marker" "$executable" "$expected_groups" "$@"
 '
 
-printf 'isolated-test: new disposable user/network/PID namespaces; loopback=%s; preserve kernel-restricted mapped groups, clear capabilities; %s %s\n' \
-    "$test_network" "$test_mode" "$test_name"
+if [ "$test_backend" = studio-nonroot ]; then
+    printf 'isolated-test: explicit Studio nonroot backend; disposable loopback/network/PID namespaces; original UID/GID, no capabilities, no new privileges\n'
+else
+    printf 'isolated-test: new disposable user/network/PID namespaces; loopback=%s; preserve kernel-restricted mapped groups, clear capabilities; %s %s\n' \
+        "$test_network" "$test_mode" "$test_name"
+fi
 if [ "$test_network" = content-egress ]; then
     printf 'isolated-test: add only synthetic 93.184.216.34/32 to disposable lo before dropping privileges; no external interface or default route\n'
 fi
 # Probe only namespace creation, never the actual test: a test failure cannot cause a rerun.
-if /usr/bin/timeout --kill-after=1s 5s /usr/bin/unshare --user --map-root-user --net --pid --fork --kill-child=KILL -- /usr/bin/true; then
+if [ "$test_backend" = auto ] && /usr/bin/timeout --kill-after=1s 5s /usr/bin/unshare --user --map-root-user --net --pid --fork --kill-child=KILL -- /usr/bin/true; then
     exec /usr/bin/timeout --kill-after=5s 120s /usr/bin/unshare --user --map-root-user --net --pid --fork --kill-child=KILL -- \
         /bin/sh -c "$test_trampoline" isolated-test 0 0 "$test_parent" "$test_marker" \
         "$test_network" "$test_executable" "$test_name" "$test_verify" keep "$@"
