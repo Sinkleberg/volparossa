@@ -46,14 +46,19 @@ No branch was reset or removed. The previous three-file unpublished handover
 patch is retained under `.git/ci-evidence/resumption-20261022-1820/`, SHA-256
 `1705b1192de49f990d8c345a84a0e635f8db05d8524730f36101dfa8de3d3222`.
 
-The current Storage production candidate is
+The reviewed Storage production change is
 `fix/storage-provider-close-before-log-20261022`, source
 `a41030a51471c7d7393612afe28f973d98e2301f`, tree
 `421a700a076147b2a812e6a21c9e8efd186c6c73`, based on c730617. It releases a
 rejected provider TLS socket before awaiting the shared event-log lock, covering
 selector and registry rejection without changing their 15-second/2-second
 deadlines or success behavior. Two regressions invoke the actual production
-session while holding that lock. PR327 is ready for review, not merged.
+session while holding that lock. PR327 is merged into main as
+`157908ad1e4a3dc9050179be30a970beff1ef061`, with the exact tested tree above;
+the principal verified the fetched tree and fast-forwarded the main checkout,
+preserving its unrelated `error.log`. Independent technical review, scoped
+regressions, Quality and CodeQL passed before integration. Full consumer trial
+`39837551972` remains a separate pending acceptance gate.
 Exact-source hosted run `39832609493` succeeded on the recorded commit/tree. Its
 artifact `12449267668` is 60,743 bytes, SHA-256
 `25b455eeade5a1cfa94c414f634ece1fd5a1c2d43eaa60c817c88d9fb268929d`; it is
@@ -153,6 +158,31 @@ execution evidence, not accepted corruption rejection, full guest-descendant
 cleanup, confidential execution or private-workload authority. Investigate that
 exact phase before another trial; preserve the original failed verdict.
 
+Model correction PR329 targets retained PR276, not main, at
+`6bf9d0e8c17ef89145c7e2065267213ac98c9709`, tree
+`c5aafd962cea11dee3a8783f01e9fb7debccf3b5`. It tolerates only an absent fixed
+QEMU listener after confirmed positive-scope cleanup, rejecting other I/O,
+type and ownership errors. It also retains every scope before start so final
+cleanup reflects every launched scope even after `current` is cleared.
+Unconfirmed scopes retain payloads and fail acceptance. These demonstrated
+source defects are not an attribution of the original trial's unknown error.
+All 224 inert controller tests pass, including 14 additions; independent Sol
+review passes 26 focused cases. Dependency blobs and the actual public-model
+job bytes are unchanged; the latter SHA-256 is
+`e44d67525c0d12f1711064c8f674f35fce559e85b679c6f30fd715fbdf4c90f2`.
+Source-only run `39840725146` succeeds: 133 Rust and 457 Python tests, formatting,
+compilation and strict Clippy. Artifact `12452793819`, 36,682 bytes, has API/ZIP
+SHA-256 `0392f77be8b03a6a7865d1a96a1f6a41e9db5235e8a2bec8368852b09714b714`;
+independent review binds all source/dependency blobs and unchanged actual-job
+bytes. Evidence is retained under
+`.git/ci-evidence/model-corruption-source-39840725146/`. PR329 is merged into
+retained PR276 as `e4824ae3c9a3f606a6013540461f5d148e3a76b6`, with the same
+exact tested tree. Guarded public trial `39842391908` is dispatched once on that
+revision, with all corruption rejection and cleanup gates preserved. Redundant
+automatic source-only push run `39842308038` is terminal `cancelled`, after
+verifying the accepted manual run has the identical source. No earlier actual acceptance trial was cancelled or
+restarted. The new public trial remains pending, not accepted private execution.
+
 Map's earlier actual39699719553 failure remains unchanged. Its 900-byte before/after
 IPv6 route fingerprints differ; raw route records were not retained, so the
 changed field cannot be reconstructed. Linux's
@@ -186,6 +216,52 @@ historical cause or actor. The raw hash mismatch still fails the strict gate;
 do not waive it or relabel the earlier run. Production Android acceptance,
 sensors and navigation remain unproven.
 
+Map draft PR14 is a separate reviewed configuration criterion, stacked on PR13,
+at `bcba6e111fbe0533765bb6e4c689c8c1598e52f8`, tree
+`26485e9d340187ba896d897023a1f189187fd9d8`. It preserves raw strict verdicts and
+only permits the validated live-reference column to differ after a completed
+emulator workload with full owned cleanup and no cancellation. Quiet, failed and
+incomplete controls remain strict. A conservative Linux 6.8.0 generic/Azure
+renderer profile requires bounded kernel provenance; unsupported identity stops
+before acquisition. This compares represented configuration at checkpoints,
+not transient mutation or complete kernel-resource absence. Downstream vendor
+patch lineage is not attested. All 120 inert tests and independent Sol review
+pass. Source run `39839903361` passes 120 tests; Components `39839903042` passes
+31. Their actual test-merge `de0c07c378d478d8cce0cdfb8cdadcf564e570f2` has the
+same tree. Original logs are retained under
+`.git/ci-evidence/map-configuration-source-39839903361/`. Exact-source actual
+run `39840088275` fails closed before acquisition as
+`IPV6_RENDERER_UNSUPPORTED`: this runner reports Linux `7.0.0-1017-azure`,
+x86_64. Artifact `12452513438`, 3,482 bytes, API/ZIP SHA-256
+`eff4afa03e9a2c221e70aa03d82cfc0678f0217221f61dd3d08110c59d1a818e`, is retained
+under `.git/ci-evidence/map-configuration-39840088275/`. The closed receipts
+record no KVM open, VM creation or emulator work. No baseline was captured;
+this is neither an unchanged-host proof nor evidence of a changed host. Verify
+the actual 7.0 renderer from primary source before considering a separate
+supported profile; never infer compatibility from the desired CI result.
+
+The follow-up independently verifies Linux v7.0 commit
+`028ef9c96e96197026887c0f092424679298aae8`: its complete IPv6 renderer matches
+the reviewed 6.8 function byte-for-byte. PR14 now adds only a separate 7.0 Azure
+profile at `65a08400c5288264429c13c760b9f51fc358af35`, tree
+`0596a921c288524abe15474519ccc70057a389a5`; no baseline, finalizer or acquisition
+semantics changed. All 122 inert tests and independent Sol review pass. Hosted
+source `39841478080` passes 122 tests and Components `39841478201` passes 31;
+their test-merge `d1c7deba37f2ab081e3928d11d19c63add63d35f` has that exact tree.
+Logs are retained under `.git/ci-evidence/map-linux7-source-39841478080/`.
+Actual run `39841843563` fails closed at the same pre-acquisition admission guard:
+this runner instead reports Linux `6.17.0-1022-azure`, x86_64. Artifact
+`12454035787`, 3,475 bytes, has API/ZIP SHA-256
+`0e897149da5aa35317bcb5437389baea0603b2cf42e4125f594e4c136b627567`, with exact
+source/tree binding and retained logs under
+`.git/ci-evidence/map-linux7-39841843563/`. Its 122-test source job passes;
+`IPV6_RENDERER_UNSUPPORTED` prevents SDK acquisition and workload execution.
+No KVM open, VM creation or before/after baseline occurred. Owned state is removed
+and registered groups are drained, but `HOST_BASELINE_UNCONFIRMED` and false host
+acceptance remain. Review the specific 6.17 renderer from primary source before
+adding a separate profile. None of the failed trials is relabeled, and Ubuntu
+vendor lineage remains unverified.
+
 ### Studio/hosting scope and preserved work — 2026-10-22
 
 The complete [Studio/hosting/AI amendment](development/STUDIO_HOSTING_REQUIREMENTS.md)
@@ -210,6 +286,19 @@ v3.9.0 at `672efed69dda04c0a1e968859239e042f00d9538` is selected following sourc
 interface and component-license inspection; it has not been built or accepted
 as a working VOLPAROSSA integration. Static publishing, shared protected AI,
 useful cross-app integration and progressive dynamic hosting remain unchecked.
+
+The first implementation slice is retained uncommitted in isolated worktrees
+`studio-export-pack-20261022` and `core-studio-export-pack-20261022`: real pinned
+Silex UI editing, preview and DownloadConnector export, bounded ZIP extraction,
+then the existing offline Core CLI packer and production decoder. No publication,
+signing or runtime acceptance is claimed. Initial independent Sol review passes
+the 12 inert parser/source tests but blocks trial on two defects: the namespace
+wrapper's successful user mapping would run sandboxed Chrome as UID 0, and
+leader-only timeout waiting can leave a TERM-ignoring descendant alive. Corrections
+are in progress, with a narrowly scoped nonroot backend, bounded group draining
+and closed operation/exit diagnostics. They require fresh independent review and
+one exact-source disposable hosted trial. All fifteen full Studio acceptance
+cases remain open.
 
 Preserved active technical work at consolidation:
 
@@ -992,18 +1081,23 @@ The integration harness, fixture pins and alpha workflow are unchanged from
 failed run39690110300. Preserve that earlier failure and hypothesis without
 inferring causality. Evaluate its existing full acceptance after this run
 terminates, preserving pins, deadlines, retry behavior and privacy. For
-protected Compute, investigate run `39831364171`'s corruption-negative failure
-and unconfirmed VM cleanup after its two observed public outputs. Contract
-acceptance on `39829507734` does not clear that failure. Studio adapter planning
-is temporarily deferred while this concrete integration blocker and Map's
-reviewed renderer-profile correction proceed; its full requirements remain
-active. For Map, retain
+protected Compute, consume exact-source public trial `39842391908` after it
+terminates; PR329's accepted source checks and retained-branch integration do not
+prove actual corruption rejection or complete guest cleanup. Run `39831364171`
+remains failed after its two observed
+public outputs. Studio work resumes alongside these integration checks: a first
+bounded slice will use the real pinned Silex editor and local Download connector,
+then Core's existing offline site packer and decoder. It must preserve explicit
+publication authority and manual editing; it is not signed publication, hosting
+or shared-AI acceptance. For Map, retain
 run39831818416 as a strict raw-baseline failure despite its reference-metadata
 diagnosis; kernel identity and historical actor/cause remain unknown. Its eight
 JNI cases and owned cleanup passed, but aggregate host baseline did not. The
 empty-VM control's timestamp-only classification does not prove the actor or
-unchanged complete host baseline. Continue draft PR13 with strict raw-hash
-comparison; its 115 inert tests do not establish hosted runtime acceptance.
+unchanged complete host baseline. PR14's actual `39841843563` correctly refused a
+different, unsupported 6.17 Azure kernel before acquisition. Independently review
+that specific renderer before changing admission. Preserve raw strict results
+and unknown-kernel refusal.
 Image and Cloud's opt-in SDK source/component checks pass separately; retain the
 actual fixture pins and unfinished maintenance work until their own integration.
 The full goal still requires real sensor adapters, frame
