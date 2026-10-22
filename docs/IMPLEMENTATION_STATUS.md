@@ -422,7 +422,30 @@ peer-credential lookup and same-UID guard, with TLS entry afterward. The next
 bounded diagnostic is isolated in
 `.volparossa-dev/worktrees/resident-connect-observation-20261023` on feature291e9493:
 closed failure categories under the existing public-fixture flag, preserving
-errors, checks, deadlines and canonical job. It is not yet reviewed or hosted.
+errors, checks, deadlines and canonical job. Reviewed PR338 is published at
+`3a96ad7f110bdf338cd527d21f212be06dd3e437`, tree
+`7a169c73a412368007f702fbae016b783db14709`. Its five-file 43,995-byte diff has
+SHA-256 `8983e3e2a66ee9787215687123465c98afaaa20762c44a7282019657fe7a39f5`.
+The version-4 requester projection separately versions connect failure while
+preserving preflight socket failure; malformed, duplicate, out-of-order,
+noncanonical and mixed-family observations are rejected. Author controller checks
+pass 236 cases, independent review passes the eleven new cases, and installed
+rustfmt/source checks pass. Exact-source hosted run `39866709823` passes all
+137 Rust and 484 Python cases, formatting, compilation and Clippy. Its evidence
+binds 43 source blobs, five scoped paths and seventeen unchanged dependencies;
+the canonical public job remains byte-identical. Artifact `12465220464` is
+37,995 bytes, SHA-256
+`8a6a58453ff3fcb6a74e97cac10489a5d5d4b80964524490663191d391895ebf`; raw job log
+`120130611660` is 289,755 bytes, SHA-256
+`cfd12a636923baa6e340fcccfb8cb3eff17027aa4e98ce1ef32931d44bcba088`, retained
+under `.git/ci-evidence/resident-connect-source-39866709823/`. The actual model
+job was skipped. After fresh PR/check-state verification, PR338 is merged into
+the retained feature as `ce438c27df80cdba46e990b157b3e5c52e94543c`; the fetched
+tree exactly matches the tested `7a169c73` tree. The next canonical public trial
+is separately dispatched on this exact merged source. No historical-cause,
+public-answer or host-equality acceptance follows from the source gate.
+Main-based PR332 remains separate; reconciliation preserves its main dependency
+history and certificate-error boundary and requires independent review/checks.
 The guest READY marker precedes exec and is not proof its TLS listener opened.
 Its redundant automatic source-only push run `39855573131` was cancelled after
 this tree passed the guarded source gate and the explicit trial was accepted.
@@ -759,6 +782,14 @@ selector matches zero; it does not distinguish missing insertion from a missing
 type/class. Startup/network error counts are zero and cleanup reports success.
 Actual editing, preview, export and pack/decode acceptance remain unproven.
 Original timeout evidence remains intact; no local package operation occurred.
+Latest Core dfa ordinary Quality `39862120455` and CodeQL pass. Quality tests
+merge `b0640201fee5d83ccf83bbe4593a6eb76e1ea6f1`, tree
+`b0235b0c9b73749e15c2fc6e10de2e6e2de6ff12`, combining main2a15a7f1 and dfa6f343:
+4,255 passed/0 failed/18 ignored across 106 workspace result lines. Raw job
+`120115159873` is 2,034,174 bytes, SHA-256
+`e6a3eae33c8f600c41c8509a556372c7bfde0aaa94a73b3e15a71782ce1d61e6`, under
+`.git/ci-evidence/studio-quality-39862120455/`. The actual browser runs remain
+separate functional acceptance evidence; successful ordinary CI does not replace them.
 
 Independent pinned-source review found no justified input/selector correction.
 The next diagnostic-only Studio source is
@@ -810,6 +841,47 @@ Artifact `12463278536` is 1,236 bytes, SHA-256
 cleanup reports success. No timing cause or correction has been established;
 the next source investigation checks an authentic DOM drop-readiness affordance
 before release, without arbitrary delay or editor-model access.
+
+The pinned source supplies that affordance: the top-document canvas placer is
+shown after ComponentSorter receives an accepted target. Functional candidate
+`b4720b7c1b0239e65c28b961a6764b87878ae360`, tree
+`c71c9f67dd4605a84ea1068daba2337273f013bb`, requires the unique authentic indicator
+hidden before mouse-down and visible before mouse-up. Coordinates and twenty-step
+movement remain unchanged, with the existing action timeout. Failed readiness
+attempts native Escape, preserves the original error and never sends mouse-up;
+existing teardown owns remaining cleanup. Twenty-seven inert checks and independent
+Sol High review pass the four-file 12,483-byte diff, SHA-256
+`8270b0efdbca1b5d68a43ed87a4f8cc787c3a028445c1b36f2cac92ffda48c58`.
+Removing the two readiness blocks reconstructs the previous browser source exactly.
+New CanvasView/sorter/placeholder/CSS provenance hashes match the original pinned
+archive; old pins/SRI remain intact. No Core stage-validation change was needed.
+Paired actual `39866634439` on unchanged Coredfa6f343 now passes the readiness
+transition and inserts a real text component: all five pre-drag counts are zero
+and all five immediate post-drag counts are one, including editable text. The
+driver reaches `manual_style`, where an AssertionError fails either exact marker
+text or computed 37px font size; these assertions currently share one stage, so
+the failing assertion is not distinguished. The later failure-time snapshot still finds one visible text component but no
+matching editable component; it is a separate observation after the style actions. Startup/error counts are zero and runtime cleanup reports
+success. Artifact `12463628745` is 1,246 bytes, SHA-256
+`2cf39900546cf6f836d2a7392b462277b0628e952070e7f5c3f38ca76dbb759f`; job log
+`120130359686` is 120,410 bytes, SHA-256
+`23779ed4e45e08d4ce01d21b08bcd9668506c27dba0656eb02a30185ed0179a6`, under
+`.git/ci-evidence/studio-export-39866634439/`. This proves bounded native insertion,
+not accepted marker/style content, preview, export or packing. Held-drag failure
+cleanup remains unexercised by this successful-readiness trial. The correction
+does not independently establish the historical failure's timing cause.
+
+The next source `4bfdccfa18a21797a3a83440a5588f71dcfd37cd`, tree
+`bc413ed39a65e980fdcca9fef6b9b70627dcb21d`, adds only separate
+`manual_style_text_verify` and `manual_style_font_verify` assignments before the
+existing assertions, plus README explanation. Independent Sol High review accepts
+the two-file 1,717-byte diff, SHA-256
+`3ac46851455586248544afb2ce8f0f7df7d102cd2d882ddc3a9cef296575feb7`;
+removing the two assignments restores the prior driver byte-for-byte. No actions,
+assertions, timing, font units, permissions or failure projections change.
+Paired actual `39868113944` is pending on this exact Studio revision and unchanged
+Core dfa6f343. It will distinguish the failing assertion; no content/style fix is
+claimed from diagnostic source review.
 
 The exact-three-document Quality optimization was audited and deferred.
 `preselection_sampler.rs` includes status text in a Rust assertion, so narrowing
