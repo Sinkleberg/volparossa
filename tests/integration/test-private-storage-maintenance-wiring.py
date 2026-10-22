@@ -27,6 +27,7 @@ DIAGNOSTICS = runpy.run_path(str(HERE / 'test-private-storage-fragments-wiring.p
 CORRELATION = runpy.run_path(str(HERE / 'storage-fixture-correlation-sampler.py'))
 ACQUIRE = runpy.run_path(str(HERE / 'storage-acquire-diagnostic.py'))
 USAGE = runpy.run_path(str(HERE / 'storage-consumer-provider-usage.py'))
+BOUNDARY = runpy.run_path(str(HERE / 'storage-consumer-failure-boundary.py'))
 
 
 def correlation_fixture(home, roots):
@@ -52,6 +53,44 @@ def usage_fixture(home, roots):
     data = USAGE['encoded'](USAGE['report']([USAGE['empty'](role) for role in USAGE['ROLES']]))
     for root in roots:
         path = root / USAGE['NAME']
+        path.write_bytes(data); path.chmod(0o600)
+
+
+def failure_boundary_fixture(home, roots):
+    """Synthetic absent observations, validated through the real fixed modules.
+
+    No capture/query entry point is called. Stage only the validator's import
+    closure; neither a provisioner nor any runtime operation is invoked.
+    """
+    directory = home / 'source/tests/integration'
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in (
+            'storage-consumer-failure-boundary.py', 'storage-acquire-diagnostic.py',
+            'private-storage-maintenance-smoke.py', 'private-storage-fragments-smoke.py',
+            'private-storage-replicas-smoke.py', 'private-storage-peer-smoke.py',
+            'content-provider-https-smoke.py', 'content-network-smoke.py',
+            'private-storage-log-sampler.py', 'storage-consumer-maintenance-evidence.py',
+            'storage-consumer-maintenance-smoke.py', 'storage-provider-activity-sampler.py',
+            'storage-fixture-correlation-sampler.py', 'storage-consumer-maintenance-provision.py',
+            'image-snapshot-provision.py'):
+        (directory / name).write_bytes((HERE / name).read_bytes())
+    with tempfile.TemporaryDirectory(prefix='synthetic-boundary-') as temporary:
+        frozen = Path(temporary)
+        for node in BOUNDARY['NODES']:
+            path = frozen / f'logs-{node}-cleanup-status.private'
+            path.write_bytes(b'1\n'); path.chmod(0o600)
+        value = dict(version=1, kind='storage-consumer-failure-boundary', phase='publish',
+            capture_point='after_application_observer_return_before_failure_cleanup',
+            diagnostic_only=True, **{key: False for key in BOUNDARY['FALSE']},
+            query_seconds=BOUNDARY['QUERY_SECONDS'], query_budget_seconds=BOUNDARY['QUERY_BUDGET'],
+            query_byte_limit=BOUNDARY['QUERY_BYTES'],
+            queries={node: dict(state='socket_absent') for node in BOUNDARY['NODES']},
+            inputs={key: 'absent' for key in BOUNDARY['INPUTS']},
+            provider_events=M['provider_events'](frozen, 'storage-consumer-publish', '0', version=3),
+            route=M['route_diagnostic'](frozen), helper_acquire=ACQUIRE['empty']('absent'))
+        data = BOUNDARY['encoded'](value, M, ACQUIRE)
+    for root in roots:
+        path = root / BOUNDARY['NAME']
         path.write_bytes(data); path.chmod(0o600)
 
 
@@ -283,6 +322,26 @@ private_storage_fragments_run() {
                 f'download_sharing:\n  enabled: true\n  interface: {interface}\n'
                 f'  total_download_mbps: 100\n  contribution_download_ceiling_mbps: {ceiling}\n')
 
+    def test_failure_boundary_fixture_uses_real_validator_and_fixed_module_staging(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            published = home / 'alpha-output'
+            published.mkdir()
+            failure_boundary_fixture(home, (published,))
+            directory = home / 'source/tests/integration'
+            data = (published / BOUNDARY['NAME']).read_bytes()
+            command = ['/usr/bin/python3', '-I', '-B',
+                str(directory / 'storage-consumer-failure-boundary.py'), 'validate-stdin']
+            def validate(raw):
+                return subprocess.run(command, input=raw, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, timeout=2).returncode
+            self.assertEqual(validate(data), 0)
+            self.assertNotEqual(validate(b'{}'), 0)
+            # Missing fixed imports remain a hard validation failure, never a
+            # reason to bypass the validator or loosen expected archive names.
+            (directory / 'private-storage-log-sampler.py').unlink()
+            self.assertNotEqual(validate(data), 0)
+
     def test_closed_export_parity_and_private_sentinels(self):
         diagnostics = DIAGNOSTICS()
         names = set(M['EXPORT_NAMES'])
@@ -299,6 +358,7 @@ private_storage_fragments_run() {
             correlation_fixture(home, (published,))
             acquire_fixture(home, (published,))
             usage_fixture(home, (published,))
+            failure_boundary_fixture(home, (published,))
             for name in ('maintenance-owner-lifecycle.private', 'lifecycle-result.json',
                     'identity.key', 'enrollment.json', 'checkpoint.json', 'logs-client.txt',
                     'private-storage-maintenance-selection-route-diagnostic.json',
@@ -332,6 +392,7 @@ private_storage_fragments_run() {
             correlation_fixture(home, (published, work))
             acquire_fixture(home, (published, work))
             usage_fixture(home, (published, work))
+            failure_boundary_fixture(home, (published, work))
             distinct = 'storage-consumer-finish.json'
             (work / distinct).write_text('{"passed":false}\n')
             archive = diagnostics['collect'](home, opt, 'a' * 40, SCENARIO, 124,
@@ -359,6 +420,7 @@ private_storage_fragments_run() {
                 # Never export an unfinished JSON object or its truncated tail.
                 (root / 'storage-consumer-prepare.json').write_text('{"partial":')
                 (root / 'storage-consumer-publish.json').write_text('x' * (diagnostics['FILE_LIMIT'] + 1))
+            failure_boundary_fixture(home, roots)
             archive = diagnostics['collect'](home, opt, 'a' * 40, SCENARIO, 124,
                 cgroups=base / 'missing-cgroups', proc=base / 'missing-proc')
             with tarfile.open(archive, 'r:gz') as bundle:
@@ -366,6 +428,7 @@ private_storage_fragments_run() {
                 self.assertLessEqual(len(receipt['diagnostics']['files']), 128)
                 self.assertLessEqual(receipt['diagnostics']['captured_bytes'], diagnostics['TOTAL_LIMIT'])
                 self.assertTrue(all(not item['truncated'] for item in receipt['diagnostics']['files']))
+                self.assertIn('published/' + BOUNDARY['NAME'], bundle.getnames())
                 for label in ('published', *(f'work-{i}' for i in range(1, 5))):
                     for name in ('storage-consumer-finish.json', 'private-storage-maintenance-lifecycle-failure.json',
                             'private-storage-fragments-consumer_deleted_usage.json'):
