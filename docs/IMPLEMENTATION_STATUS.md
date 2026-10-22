@@ -386,10 +386,20 @@ error-boundary regression. Artifact `12459578061`, 38,396 bytes, SHA-256
 under `.git/ci-evidence/resident-main-source-39856657966/`. The principal verified
 all 52 included source paths and eight preserved main blobs. Actual model
 execution is intentionally skipped by this source-only run. Ordinary Quality
-and CodeQL remain pending. Newer main/provider
-changes remain outside this source-composition baseline and must survive the
-eventual merge. CodeQL resolution and full runtime acceptance remain unverified
-for this combined candidate.
+`39856525861` succeeds with 4,347 passed/0 failed/17 ignored across 105 workspace
+result lines. Its actual test-merge is
+`9dc205086a0bc35de3679f25e36fe07eebca78eb`, tree
+`e2ada8d467ba745e0d9e5316b57b1616070b5bdf`, combining main2a15a7f1 and candidate84be249d;
+it is not the source-only candidate tree. Raw job log `120096049322` is
+1,977,638 bytes, SHA-256
+`44917acafd8ea6c5ca49085bd6107914161a9146afcf8e07fd03ee48b4bd8d86`, retained
+under `.git/ci-evidence/resident-main-quality-39856525861/`.
+CodeQL `39856518477` and its aggregate check succeed on 84be249d. Rust analysis
+`2008870484` reports zero results across 28 rules, without an analysis error;
+alert341's latest PR instance is `fixed`, with no dismissal or suppression.
+The original failed alert/SARIF remains preserved. These checks include the newer
+main/provider composition but do not establish actual model or full alpha
+acceptance; PR332 remains a draft awaiting the separate runtime gate.
 
 Map's earlier actual39699719553 failure remains unchanged. Its 900-byte before/after
 IPv6 route fingerprints differ; raw route records were not retained, so the
