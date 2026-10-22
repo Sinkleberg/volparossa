@@ -2473,21 +2473,21 @@ class ReceiptAndBindings(Inert):
             expression = ' '.join(condition.splitlines()).replace('&&', ' and ').replace('||', ' or ').strip()
             return compile(expression, 'inert-workflow-authority', 'eval')
         contracts, public = authority('contracts'), authority('public-model')
-        groups = dict(grant=22, guest=38, resident=41, local=30, startup=2)
+        groups = dict(grant=22, guest=42, resident=41, local=30, startup=2)
         for branch in ('refs/heads/fix/protected-model-root-transition-20261022',
                        'refs/heads/fix/model-corruption-transition-20261022',
                        'refs/heads/fix/protected-bwrap-stage-20261022', 'refs/heads/feature/protected-resident-model'):
             namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}), groups=groups)
             exec(rust_gate, namespace)
             self.assertEqual(namespace['labels'], ('grant', 'guest', 'resident', 'local', 'startup'))
-            self.assertEqual(sum(groups.values()), 133)
-            for stale in (dict(grant=22, guest=37, resident=39, local=30), dict(grant=22, guest=38, resident=41, local=30)):
+            self.assertEqual(sum(groups.values()), 137)
+            for stale in (dict(grant=22, guest=38, resident=41, local=30, startup=2), dict(grant=22, guest=42, resident=41, local=30)):
                 with self.assertRaises(AssertionError): exec(rust_gate, dict(namespace, groups=stale))
-            for count in (226, 225, 224, 210):
+            for count in (237, 236, 226, 225):
                 current = dict(os=namespace['os'], root=Logs(count), re=re, counts={})
-                if count == 226:
+                if count == 237:
                     exec(controller_gate, current)
-                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=226))
+                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=237))
                 else:
                     with self.assertRaises(AssertionError): exec(controller_gate, current)
             for event, scenario in (('push', 'source-contracts'), ('workflow_dispatch', 'source-contracts'), ('workflow_dispatch', 'public-model')):
@@ -2513,9 +2513,9 @@ class ReceiptAndBindings(Inert):
                     if isinstance(node, ast.If) and repr(branch) in ast.unparse(node.test))
         compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-main-integration-gate', 'exec')
         main = '157908ad1e4a3dc9050179be30a970beff1ef061'
-        feature = '291e94938ebefb828fa05f30515205424ccec925'
+        feature = '3a96ad7f110bdf338cd527d21f212be06dd3e437'
         feature_base = '7d0f9f0b492c5e692cc9d26f23d95f55f2c1e651'
-        feature_tree = '07a67f0b24c6c33a9bbb5e98e91cd8d91c88bff6'
+        feature_tree = '7a169c73a412368007f702fbae016b783db14709'
         reconciled = {'Cargo.lock','THIRD_PARTY_LICENSES.md','.github/workflows/protected-resident-model.yml',
             'tests/integration/test-protected-resident-model-run.py',
             'crates/volparossa/src/compute/resident_guest/public_trial.rs',
@@ -2845,6 +2845,61 @@ class ReceiptAndBindings(Inert):
             else:
                 with self.assertRaises(AssertionError): exec(compiled, namespace)
             command.assert_called_once_with(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
+
+    def test_connect_source_gate_is_exact_and_only_authorizes_dispatched_source_contracts(self):
+        import textwrap
+        workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
+        code = textwrap.dedent(workflow.split("python3 -B - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
+        branch = 'refs/heads/integration/resident-model-main-20261022'
+        gate = next(node for node in ast.parse(code).body
+                    if isinstance(node, ast.If) and 'main_integration_scope' in ast.unparse(node.test))
+        compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-connect-gate', 'exec')
+        approved = {'.github/workflows/protected-resident-model.yml',
+            'crates/volparossa/src/compute/resident_guest/public_trial.rs',
+            'crates/volparossa/src/compute/resident_guest/public_trial/tests.rs',
+            'tests/integration/protected-resident-model-run.py',
+            'tests/integration/test-protected-resident-model-run.py'}
+        base = '84be249dd014666f8a9fc98a3f511e51b9238047'
+        for change in ('valid', 'missing', 'extra', 'duplicate', 'dependency', 'ancestry', 'actual_job', 'job_hash'):
+            changed = sorted(approved)
+            if change == 'missing': changed.pop()
+            if change == 'extra': changed.append('crates/volparossa/src/main.rs')
+            if change == 'duplicate': changed.append(changed[0])
+            def git(*args):
+                if args[0] == 'diff': return '\n'.join(changed)
+                if change == 'dependency' and args == ('rev-parse', base + ':Cargo.lock'): return 'b' * 40
+                return 'a' * 40
+            candidate = workflow.encode() + (b'\n' if change in ('actual_job', 'job_hash') else b'')
+            original = candidate if change == 'job_hash' else workflow.encode()
+            command = mock.Mock(side_effect=AssertionError('ancestry') if change == 'ancestry' else None)
+            read = mock.Mock(return_value=original)
+            namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}), main_integration_scope={}, git=git,
+                subprocess=types.SimpleNamespace(run=command, check_output=read), hashlib=hashlib,
+                pathlib=types.SimpleNamespace(Path=lambda _: types.SimpleNamespace(read_bytes=lambda: candidate)))
+            if change == 'valid':
+                exec(compiled, namespace)
+                receipt = namespace['connect_observation_scope']
+                self.assertEqual(set(receipt['source_blobs']), approved)
+                self.assertEqual(len(receipt['dependency_blobs']), 17)
+                self.assertTrue(receipt['source_contracts_only'] and receipt['diagnostic_only'])
+                for key in ('actual_model_execution', 'guest_boot', 'historical_cause_proven'):
+                    self.assertFalse(receipt[key])
+                self.assertEqual(receipt['actual_job_sha256'],
+                                 'e44d67525c0d12f1711064c8f674f35fce559e85b679c6f30fd715fbdf4c90f2')
+            else:
+                with self.assertRaises(AssertionError): exec(compiled, namespace)
+            command.assert_called_once_with(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
+        for job in ('contracts', 'public-model'):
+            condition = workflow.split('\n  ' + job + ':\n', 1)[1].split('    if: >-\n', 1)[1].split('\n    runs-on:', 1)[0]
+            expression = ' '.join(condition.splitlines()).replace('&&', ' and ').replace('||', ' or ').strip()
+            for repository in ('VOLPAROSSA/volparossa', 'unapproved/repository'):
+                for event in ('push', 'workflow_dispatch'):
+                    for scenario in ('source-contracts', 'public-model'):
+                        context = dict(github=types.SimpleNamespace(repository=repository, ref=branch, event_name=event),
+                                       inputs=types.SimpleNamespace(scenario=scenario))
+                        self.assertEqual(eval(compile(expression, 'inert-connect-authority', 'eval'), context),
+                            job == 'contracts' and repository == 'VOLPAROSSA/volparossa' and
+                            event == 'workflow_dispatch' and scenario == 'source-contracts')
 
     def test_socket_source_gate_requires_exact_paths_dependencies_and_ancestry(self):
         import textwrap
@@ -3975,7 +4030,7 @@ class RequesterSocketFailure(Inert):
                          (condition not in ('not_socket', 'owner_mismatch') or io_kind == 'none'))
                 self.assertEqual(report['socket_failure'], dict(
                     state='observed' if valid else 'malformed', observation=value if valid else None))
-                self.assertEqual(report['version'], 3)
+                self.assertEqual(report['version'], 4)
                 self.assertFalse(report['acceptance_evidence'])
                 self.assertTrue(report['diagnostic_only'])
                 self.assertEqual(report['stage_semantics'], 'entered_only')
@@ -4065,8 +4120,9 @@ class RequesterSocketFailure(Inert):
             stage_semantics='entered_only', termination=dict(kind='exit', exit_code=0, signal=None),
             protocol=dict(state='complete', attempt_stage='cleanup'),
             result_failure=dict(state='unavailable', observation=None))
-        self.assertEqual(value, dict(expected_v2, version=3,
-                                    socket_failure=dict(state='unavailable', observation=None)))
+        self.assertEqual(value, dict(expected_v2, version=4,
+                                    socket_failure=dict(state='unavailable', observation=None),
+                                    connect_failure=dict(state='unavailable', observation=None)))
 
     def test_rust_socket_vocabulary_and_body_bound_match_controller(self):
         import re
@@ -4079,6 +4135,154 @@ class RequesterSocketFailure(Inert):
             self.assertEqual(tuple(map(snake, variants)), expected)
         self.assertIn('const MAX_SOCKET_DIAGNOSTIC: usize = %d;' % R.REQUESTER_SOCKET_MAX_BODY, rust)
         self.assertIn(R.REQUESTER_SOCKET_PREFIX.decode().rstrip(), rust)
+
+
+class RequesterConnectFailure(Inert):
+    markers = RequesterDiagnostics.markers
+
+    def observation(self, condition='connect_io', io_kind='connection_refused'):
+        return dict(version=1, condition=condition, io_kind=io_kind)
+
+    def marker(self, observation):
+        return R.REQUESTER_CONNECT_PREFIX + R.encoded(observation)
+
+    def raw(self, observation):
+        return self.markers(4) + self.marker(observation)
+
+    def test_closed_condition_io_matrix_never_claims_acceptance_or_cleanup(self):
+        for condition in R.REQUESTER_CONNECT_CONDITIONS:
+            for io_kind in R.REQUESTER_CONNECT_IO_KINDS:
+                observation = self.observation(condition, io_kind)
+                value = R.requester_diagnostic(self.raw(observation), 1)
+                valid = (condition in ('connect_deadline', 'peer_uid_mismatch')) == (io_kind == 'none')
+                self.assertEqual(value['connect_failure'], dict(
+                    state='observed' if valid else 'malformed', observation=observation if valid else None))
+                self.assertEqual(value['version'], 4)
+                self.assertTrue(value['diagnostic_only'])
+                self.assertFalse(value['acceptance_evidence'])
+                self.assertEqual(value['stage_semantics'], 'entered_only')
+                for key in ('socket_failure', 'result_failure'):
+                    self.assertEqual(value[key], dict(state='unavailable', observation=None))
+                self.assertNotIn('cleanup', value)
+
+    def test_historical_connect_prefix_and_raw_errors_remain_unavailable(self):
+        for raw in (b'', self.markers(4), b'Error: /private/UID_PID_ERROR_CANARY\n',
+                    b'x' * 65537, None):
+            value = R.requester_diagnostic(raw, 1)
+            self.assertEqual(value['connect_failure'], dict(state='unavailable', observation=None))
+            self.assertNotIn('CANARY', R.encoded(value).decode())
+        value = R.requester_diagnostic(self.markers(4), 1)
+        self.assertEqual(value['protocol'], dict(state='prefix', attempt_stage='connect'))
+        self.assertEqual(value['termination'], dict(kind='exit', exit_code=1, signal=None))
+
+    def test_only_exact_connect_stage_before_marker_is_admitted(self):
+        marker = self.marker(self.observation())
+        invalid = [marker, marker + self.markers(4)]
+        invalid.extend(self.markers(count) + marker for count in range(len(R.REQUESTER_STAGES) + 1)
+                       if count != 4)
+        invalid.extend((self.raw(self.observation()) + self.markers(1),
+                        self.markers(4) + marker + R.REQUESTER_STAGE_PREFIX + b'tls\n'))
+        for raw in invalid:
+            self.assertEqual(R.requester_diagnostic(raw, 1)['connect_failure'],
+                             dict(state='malformed', observation=None))
+
+    def test_duplicate_truncated_noncanonical_and_oversized_markers_are_rejected(self):
+        marker = self.marker(self.observation())
+        invalid = [(self.raw(self.observation()) + marker, 'malformed'),
+                   (self.raw(self.observation())[:-1], 'truncated'),
+                   (self.markers(4) + R.REQUESTER_CONNECT_PREFIX + b'x' * 513 + b'\n', 'malformed'),
+                   (self.markers(4) + R.REQUESTER_CONNECT_PREFIX + b' ' + R.encoded(self.observation()), 'malformed'),
+                   (self.markers(4) + marker.replace(b'\n', b'\r\n'), 'malformed'),
+                   (self.markers(4) + marker.replace(b'{', b'{"version":1,', 1), 'malformed')]
+        invalid.extend((self.markers(4) + R.REQUESTER_CONNECT_PREFIX.rstrip() + separator +
+                        R.encoded(self.observation()), 'malformed')
+                       for separator in (b'', b'x', b'\t', b'\x00'))
+        for raw, state in invalid:
+            self.assertEqual(R.requester_diagnostic(raw, 1)['connect_failure'],
+                             dict(state=state, observation=None))
+
+    def test_unknown_missing_extra_and_wrong_type_fields_cannot_export_private_values(self):
+        variants = [dict(self.observation(), **{key: value}) for key, value in (
+            ('version', True), ('version', 0), ('version', 2), ('version', '1'),
+            ('condition', 'connect_io PRIVATE_CANARY'), ('condition', None), ('condition', {}),
+            ('io_kind', 'PRIVATE_CANARY'), ('io_kind', None), ('io_kind', True),
+            ('path', '/private/PRIVATE_CANARY'), ('uid', 1234), ('pid', 2345),
+            ('error', 'PRIVATE_CANARY'), ('turn', 1))]
+        variants.extend({key: value for key, value in self.observation().items() if key != missing}
+                        for missing in self.observation())
+        for observation in variants:
+            value = R.requester_diagnostic(self.raw(observation), 1)
+            self.assertEqual(value['connect_failure'], dict(state='malformed', observation=None))
+            encoded = R.encoded(value).decode()
+            self.assertNotIn('PRIVATE_CANARY', encoded)
+            self.assertNotIn('/private', encoded)
+
+    def test_impossible_failure_family_mixtures_are_not_reinterpreted(self):
+        socket_failure, result_failure = RequesterSocketFailure(), RequesterResultFailure()
+        connect_marker = self.marker(self.observation())
+        for other, field in ((socket_failure, 'socket_failure'), (result_failure, 'result_failure')):
+            other_observation = other.observation()
+            for raw in (self.raw(self.observation()) + other.marker(other_observation),
+                        other.raw(other_observation) + connect_marker):
+                value = R.requester_diagnostic(raw, 1)
+                self.assertEqual(value['connect_failure'], dict(state='malformed', observation=None))
+                self.assertEqual(value[field], dict(state='malformed', observation=None))
+
+    def test_original_command_error_and_join_precedence_survive_connect_observation(self):
+        observation, value = self.observation(), {}
+        with fake_tool(returncode=1, pipe_bytes=(b'PRIVATE_CANARY', self.raw(observation))) as (process, join):
+            with self.assertRaisesRegex(ValueError, '^command_failed$'):
+                R.run(['never-executed'], 200, requester_observation=value)
+        self.assertEqual(value['connect_failure']['observation'], observation)
+        self.assertEqual(value['termination']['exit_code'], 1)
+        self.assertNotIn('PRIVATE_CANARY', R.encoded(value).decode())
+        join.assert_called_once_with(process)
+        error = R.CleanupUnconfirmed('PRIVATE_CANARY')
+        with fake_tool(join_error=error, returncode=1, pipe_bytes=(b'', self.raw(observation))):
+            with self.assertRaises(R.CleanupUnconfirmed) as caught:
+                R.run(['never-executed'], 200, requester_observation={})
+        self.assertIs(caught.exception, error)
+
+    def test_malformed_observation_does_not_replace_command_error(self):
+        value = {}
+        raw = self.markers(4) + R.REQUESTER_CONNECT_PREFIX + b'PRIVATE_CANARY\n'
+        with fake_tool(returncode=1, pipe_bytes=(b'', raw)):
+            with self.assertRaisesRegex(ValueError, '^command_failed$'):
+                R.run(['never-executed'], 200, requester_observation=value)
+        self.assertEqual(value['connect_failure'], dict(state='malformed', observation=None))
+        self.assertNotIn('PRIVATE_CANARY', R.encoded(value).decode())
+
+    def test_rust_closed_vocabulary_and_bound_match_projection(self):
+        import re
+        rust = (R.ROOT / 'crates/volparossa/src/compute/resident_guest/public_trial.rs').read_text()
+        for name, expected in (('ConnectCondition', R.REQUESTER_CONNECT_CONDITIONS),
+                               ('ConnectIoKind', R.REQUESTER_CONNECT_IO_KINDS)):
+            body = rust.split('enum ' + name + ' {')[1].split('}', 1)[0]
+            variants = re.findall(r'\b([A-Z][A-Za-z0-9]+)\s*[,\n]', body)
+            snake = lambda value: re.sub(r'(?<!^)(?=[A-Z])', '_', value).lower()
+            self.assertEqual(tuple(map(snake, variants)), expected)
+        self.assertIn('const MAX_CONNECT_DIAGNOSTIC: usize = %d;' % R.REQUESTER_CONNECT_MAX_BODY, rust)
+        self.assertIn(R.REQUESTER_CONNECT_PREFIX.decode().rstrip(), rust)
+
+    def test_rust_observation_preserves_connect_operations_deadline_and_guard_order(self):
+        rust = (R.ROOT / 'crates/volparossa/src/compute/resident_guest/public_trial.rs').read_text()
+        connect = rust.split('async fn connect_socket(', 1)[1].split('\nfn socket_preflight(', 1)[0]
+        ordered = ('timeout_at(deadline, UnixStream::connect(socket))', '.await',
+                   'ConnectCondition::ConnectDeadline', 'ConnectCondition::ConnectIo',
+                   'stream.peer_cred()', 'nix::unistd::geteuid().as_raw()', 'Ok(stream)')
+        self.assertEqual([connect.index(token) for token in ordered], sorted(connect.index(token) for token in ordered))
+        self.assertEqual(connect.count('UnixStream::connect('), 1)
+        self.assertEqual(connect.count('stream.peer_cred()'), 1)
+        for forbidden in ('sleep(', 'loop {', 'retry', 'Duration::', 'deadline ='):
+            self.assertNotIn(forbidden, connect)
+        check = rust.split('fn check_peer_uid(', 1)[1].split('\nasync fn connect_socket(', 1)[0]
+        self.assertIn('ensure!(uid == owner, "resident_socket_peer");', check)
+        self.assertIn('let diagnostics = options.diagnostic_stages && options.execute;', rust)
+        body = rust.split('pub(in crate::compute) async fn run(', 1)[1].split('\nfn grant(', 1)[0]
+        ordered = ('stage(diagnostics, Stage::Connect)', 'connect_socket(&options.socket, deadline',
+                   '.await?;', 'stage(diagnostics, Stage::Tls)',
+                   'deadline.min(Instant::now() + Duration::from_secs(30))')
+        self.assertEqual([body.index(token) for token in ordered], sorted(body.index(token) for token in ordered))
 
 
 class CommandLifecycle(Inert):

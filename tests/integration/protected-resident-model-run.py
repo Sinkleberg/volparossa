@@ -63,6 +63,12 @@ REQUESTER_SOCKET_MAX_BODY = 512
 REQUESTER_SOCKET_CONDITIONS = ('parent_validation', 'socket_metadata', 'not_socket', 'owner_mismatch')
 REQUESTER_SOCKET_IO_KINDS = ('none', 'not_found', 'permission_denied', 'interrupted',
                            'invalid_input', 'invalid_data', 'other')
+REQUESTER_CONNECT_PREFIX = b'VP_PUBLIC_REQUESTER_CONNECT_FAILURE_V1 '
+REQUESTER_CONNECT_MAX_BODY = 512
+REQUESTER_CONNECT_CONDITIONS = ('connect_deadline', 'connect_io', 'peer_credential_io', 'peer_uid_mismatch')
+REQUESTER_CONNECT_IO_KINDS = ('none', 'not_found', 'permission_denied', 'connection_refused',
+    'connection_reset', 'connection_aborted', 'not_connected', 'addr_in_use', 'addr_not_available',
+    'timed_out', 'interrupted', 'would_block', 'invalid_input', 'invalid_data', 'other')
 REQUESTER_RESULT_CATEGORIES = ('read_deadline', 'read_bound', 'read_frame', 'read_eof', 'read_io',
     'read_other', 'reply_order', 'failure_frame', 'guest_failure', 'result_json', 'result_completion',
     'result_profile', 'result_output', 'result_answer', 'result_tokens', 'result_cleanup')
@@ -387,7 +393,9 @@ def requester_result_failure(raw, protocol):
                 'diagnostic_order')
         # The single terminal marker must follow its stage, with no later stage.
         stage_line = REQUESTER_STAGE_PREFIX + ('turn_%d_result' % value['turn']).encode() + b'\n'
-        require(raw.find(stage_line) < raw.find(line), 'diagnostic_order')
+        require(raw.find(stage_line) < raw.find(line) and
+                not any(item.startswith((REQUESTER_SOCKET_PREFIX.rstrip(), REQUESTER_CONNECT_PREFIX.rstrip()))
+                        for item in raw.splitlines(keepends=True)), 'diagnostic_order')
         guest = value['guest']
         if value['category'] == 'guest_failure':
             require(type(guest) is dict and set(guest) == {'version', 'scope', 'detail', 'cleanup'} and
@@ -442,8 +450,49 @@ def requester_socket_failure(raw, protocol):
         require(protocol == dict(state='prefix', attempt_stage='socket'), 'diagnostic_order')
         stage_line = REQUESTER_STAGE_PREFIX + b'socket\n'
         require(raw.find(stage_line) < raw.find(line) and
-                not any(item.startswith(REQUESTER_FAILURE_PREFIX.rstrip()) for item in lines),
+                not any(item.startswith((REQUESTER_FAILURE_PREFIX.rstrip(), REQUESTER_CONNECT_PREFIX.rstrip()))
+                        for item in lines),
                 'diagnostic_order')
+        return dict(state='observed', observation=value)
+    except (ValueError, TypeError, KeyError, UnicodeError, RecursionError, OverflowError):
+        return dict(state='malformed', observation=None)
+
+
+def requester_connect_failure(raw, protocol):
+    """Closed post-preflight failure; no socket, TLS, native or cleanup acceptance."""
+    absent = dict(state='unavailable', observation=None)
+    if type(raw) is not bytes or len(raw) > 65536:
+        return absent
+    lines = raw.splitlines(keepends=True)
+    markers = [line for line in lines if line.startswith(REQUESTER_CONNECT_PREFIX.rstrip())]
+    if not markers:
+        return absent
+    if len(markers) != 1:
+        return dict(state='malformed', observation=None)
+    line = markers[0]
+    if not line.startswith(REQUESTER_CONNECT_PREFIX):
+        return dict(state='malformed', observation=None)
+    if not line.endswith(b'\n'):
+        return dict(state='truncated', observation=None)
+    if len(line) > len(REQUESTER_CONNECT_PREFIX) + REQUESTER_CONNECT_MAX_BODY + 1:
+        return dict(state='malformed', observation=None)
+    try:
+        payload = line[len(REQUESTER_CONNECT_PREFIX):-1]
+        value = json.loads(payload)
+        require(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode() == payload,
+                'diagnostic_encoding')
+        require(type(value) is dict and set(value) == {'version', 'condition', 'io_kind'}, 'diagnostic_schema')
+        require(type(value['version']) is int and value['version'] == 1 and
+                type(value['condition']) is str and value['condition'] in REQUESTER_CONNECT_CONDITIONS and
+                type(value['io_kind']) is str and value['io_kind'] in REQUESTER_CONNECT_IO_KINDS,
+                'diagnostic_schema')
+        require((value['condition'] in ('connect_deadline', 'peer_uid_mismatch')) == (value['io_kind'] == 'none'),
+                'diagnostic_io_kind')
+        require(protocol == dict(state='prefix', attempt_stage='connect'), 'diagnostic_order')
+        stage_line = REQUESTER_STAGE_PREFIX + b'connect\n'
+        require(raw.find(stage_line) < raw.find(line) and
+                not any(item.startswith((REQUESTER_SOCKET_PREFIX.rstrip(), REQUESTER_FAILURE_PREFIX.rstrip()))
+                        for item in lines), 'diagnostic_order')
         return dict(state='observed', observation=value)
     except (ValueError, TypeError, KeyError, UnicodeError, RecursionError, OverflowError):
         return dict(state='malformed', observation=None)
@@ -460,12 +509,13 @@ def requester_diagnostic(raw=b'', returncode=None, failure=None):
         elif 0 < -returncode < signal.NSIG:
             termination.update(kind='signal', signal=-returncode)
     protocol = requester_protocol_stage(raw)
-    # Version three adds socket_failure. Existing version-two receipts and the
-    # result-failure V1 marker retain their original meaning and field schema.
-    return dict(version=3, diagnostic_only=True, acceptance_evidence=False,
+    # Version four adds connect_failure independently of preflight-only socket_failure.
+    # Existing result/socket V1 markers and requester acceptance receipts keep their schemas.
+    return dict(version=4, diagnostic_only=True, acceptance_evidence=False,
                 stage_semantics='entered_only', termination=termination, protocol=protocol,
                 result_failure=requester_result_failure(raw, protocol),
-                socket_failure=requester_socket_failure(raw, protocol))
+                socket_failure=requester_socket_failure(raw, protocol),
+                connect_failure=requester_connect_failure(raw, protocol))
 
 
 def run(argv, deadline, *, cap=300, maximum=16 * 1024 ** 2, env=None, check=True,
