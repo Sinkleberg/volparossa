@@ -197,14 +197,24 @@ current text covers the full preserved goal, all amendments, DPS and
 Studio/hosting/shared AI. No goal was completed, restarted or reduced.
 
 This resumed checkpoint adds evidence only; it does not alter requirements or
-goal status. Storage PR327's exact-source candidate passes both production
-provider-session lock-contention regressions and rejects the original behavior
-with the same tests. Its hosted receipt still sets historical-cause proof,
-full-relay datapath and live-consumer acceptance false. Map's exact-source
-actual run retains its failed strict host-baseline verdict even though the new
-closed projection narrows this run's IPv6 raw difference to reference metadata.
-The public protected-model trial subsequently failed at its corruption-negative
-phase after two observed public outputs; VM cleanup remains unconfirmed. The
-private Storage consumer trial remains in progress, with no outcome claimed.
-See the current checkpoint and evidence links
-in [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work).
+goal status. The current Storage consumer trial `39837551972` is a preserved
+failure; its Cloud deposit rejects one append at `tls_handshake/handshake_deadline`
+and one reserve at `stream_open/route_state`, with remote cleanup and cause
+unconfirmed. A fixture-only failure-boundary diagnostic change is reviewed and
+published as PR334; run `39854264855` fails a source export-name check before
+VM initialization and provides no runtime evidence. Provider event-drain scoped
+run `39851344008` and ordinary Quality/CodeQL pass; PR331 is merged at
+`2a15a7f1`. Corrected diagnostic full-consumer trial `39855345985` is pending.
+Resident main-based source run `39850563569` passes its source-only gate, while
+PR332 remains draft and actual-model execution was skipped. The follow-up model
+host-diagnostic source run `39852803936` fails its new AST binding test;
+corrected source gate `39854689983` passes and PR333 is merged into the retained
+feature. Actual public trial `39855637060` is pending. The earlier public trial
+still fails strict host equality with the changed field unknown. Studio's latest paired actual trial `39853696060` fails at
+`manual_text_ready` after the drag returns with zero matching text components;
+the preceding broader manual-text timeout remains unexplained. The next
+diagnostic-only paired trial `39855894275` is pending. Map's exact-source actual run retains its failed strict aggregate
+host comparison, despite the accepted bounded synthetic debug Activity/JNI
+checkpoint. None of these partial results completes the full goal. See current
+details and retained evidence in
+[IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work).

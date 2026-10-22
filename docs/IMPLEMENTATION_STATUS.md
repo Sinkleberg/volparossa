@@ -159,9 +159,23 @@ The independently reviewed lint-only correction is published at
 `76d7b851638fa76a68bd38c4dfb0c216c75c3e9d`. Its two method references and two
 `if let` cleanup rewrites preserve all code paths, deadlines, abort/join behavior
 and fixed diagnostics. The unchanged workflow still constructs and parses all
-three variants with the same five tests. Scoped run `39851344008` is pending on
-that exact source; no new runtime or strict-Clippy result is inferred from the
-source review.
+three variants with the same five tests. Scoped run `39851344008` succeeds on
+that exact source. Original artifact `12457857200`, 92,689 bytes, SHA-256
+`c3d624e484b379d0bb33105557df9b3a507a140fe12af7d6b07d1ee493fbab15`, is retained
+under `.git/ci-evidence/provider-event-drain-39851344008/`. Both queue tests,
+five candidate cases and three expected negative controls pass, as do strict
+Clippy and the before/after host hash comparison. This closes the scoped
+workflow gate; live consumer acceptance and historical-cause proof remain false.
+Ordinary Quality `39851306745` and CodeQL `39851299194` also succeed. Quality
+records 4,255 passed/0 failed/17 ignored across 105 workspace result lines, plus
+independent Storage outcome14/wire43 checks. Its namespace-denied egress case
+remains explicitly skipped, not a live egress proof. Raw Quality job log
+`120077922329` is 1,958,250 bytes, SHA-256
+`c103eb804e05c62227c20e4ffc966390bb6bf12727f1c716a80554c2b79e4dde`, retained
+with the scoped evidence. PR331 is merged as
+`2a15a7f114e68feb0349754d14ffbd5fce4c92e5`, exact reviewed tree
+`76d7b851638fa76a68bd38c4dfb0c216c75c3e9d`. The principal verified the fetched
+commit/tree and fast-forwarded main, preserving `error.log`.
 
 Exact-main Quality run `39825055366` is terminal success on c730617, with its actual
 checkout bound to the reviewed tree: 4,253 workspace tests passed/0 failed/12
@@ -271,7 +285,8 @@ Do not infer the Map trial's reference-count explanation or waive the strict gat
 Retain bounded before/after diagnostics for the next investigation. Neither this
 public fixture nor the passing source checks accept confidential execution.
 
-Resident-model-only integration PR332 is published on main 157908ad at
+Resident-model-only integration is in draft PR332, based on main
+`157908ad1e4a3dc9050179be30a970beff1ef061`, at source
 `d2a1ab5b3f73998a0baf0eaea4cd5e5d3f193da7`, tree
 `276f17b9f8007e08aac346d3658bce650e9e5677`, in
 `integration/resident-model-main-20261022`. It preserves the retained feature,
@@ -283,8 +298,66 @@ byte-for-byte. Four reconciliations cover the lockfile, license additions,
 source-only workflow binding and its inert tests. The actual public-model job
 remains byte-identical, and the new branch grants source-contract execution only.
 Independent reconciliation review passes, including dependency and source
-preservation. Guarded source-contract run `39850563569` is pending. Compilation
-and main integration remain unaccepted; the retained feature remains unchanged.
+preservation. Guarded source-contract run `39850563569` succeeds, as detailed
+below. The retained feature remains unchanged; actual model execution remains
+unaccepted.
+
+Exact-source guarded run `39850563569` succeeds on the candidate source/tree.
+Original artifact `12456624037`, 37,518 bytes, SHA-256
+`ac4d093d920f0a73fa6d28bf0e229842c867617830bad64b623382e741bb94f3`, is retained
+under `.git/ci-evidence/resident-main-source-39850563569/`. It passes 133 Rust
+and 458 Python tests, compilation, formatting and strict Clippy. The actual
+public-model job is skipped by this source-only gate; PR332 remains a draft and
+no runtime/model acceptance is established. Ordinary Quality also succeeds, but
+CodeQL reports one new high alert at `resident_guest/public_trial.rs:289` for
+cleartext logging of sensitive information. Independent review of original
+SARIF analysis `2008584883` identifies a false positive: peer-certificate public
+SPKI DER is hashed and compared inside a `Result<()>` validator; encoding errors
+return before the success print, whose closed projection contains a public
+fingerprint, workload hash, validated public answers and cleanup fields. No
+private key or DER bytes reach that sink. Alert341 remains open and its check
+failed; nothing was dismissed or suppressed, and PR332 remains unmerged.
+
+Model host-diagnostic PR333 is published at
+`009a667ba55b8060a39032d440a14951bbdca593`, tree
+`c42b9ad5d708c0d93ab920f61d02d0badaac92a9`. It preserves strict raw host
+equality without classification exceptions and keeps the public job bytes
+unchanged. Exact-source run `39852803936` fails its new host-diagnostic AST
+binding test (test line 223, copied-function `ast.dump` hash); the artifact is
+`12457154895`, 37,975 bytes, SHA-256
+`97ea2b042caf2f1cee521c37b88d5fe25a62a2ea7df6ef5f17fa712d2a7c5abb`, retained
+under `.git/ci-evidence/model-host-source-39852803936/`. The 133 Rust tests,
+458 existing Python checks, source compilation, formatting and strict Clippy
+pass; the new 15-test host group has one failure. Sol reproduced the binding
+difference under Python 3.13: `ast.dump(show_empty=False)` versus hosted
+`show_empty=True`; source bodies are unchanged. This is a host-test binding
+failure, not a host-change finding. Actual public-model execution is skipped and
+its job bytes remain unchanged. Raw job log
+`120083154997.log` is 282,133 bytes, SHA-256
+`8327bc5f39cc6fc15aa8914e43f2652265502d4a96c480b4059d771adf284c27`.
+The independently reviewed test-only correction is published at
+`18e0c9c571e3c573d21a2a3836a7fca1bf6b0feb`, tree
+`07a67f0b24c6c33a9bbb5e98e91cd8d91c88bff6`. Exact source bytes replace
+version-sensitive AST dumps; only the adapted snapshot docstring is excluded.
+Fifteen inert methods, including nine mutation cases, pass. Source-only run
+`39854689983` succeeds: 133 Rust, 458 existing Python and all 15 host-observation
+tests, compilation, formatting and strict Clippy pass. Artifact `12458004251`,
+37,626 bytes, SHA-256
+`c95e509f6630ba07d55267cd2010edb43430ded92ec4df3d09a505e0c11b6b83`, is retained
+under `.git/ci-evidence/model-host-source-39854689983/`; the principal verified
+the exact source/tree and 66 source/dependency entries. PR333 is merged into
+the retained feature as `291e94938ebefb828fa05f30515205424ccec925`, with the
+exact same tree. The canonical 7,067-byte public job retains SHA-256
+`e44d67525c0d12f1711064c8f674f35fce559e85b679c6f30fd715fbdf4c90f2`.
+Actual public trial `39855637060` is pending on that merged feature; its
+redundant automatic source-only push run `39855573131` was cancelled after
+this tree passed the guarded source gate and the explicit trial was accepted.
+No host-cause finding is accepted, and the prior strict runtime failure remains
+intact. The main-based candidate separately retains reviewed local commit
+`af1543f181bfb83ea86ebdc7ecc60d8b9c2bad9e`, closing third-party certificate
+decode/encode error detail into fixed categories while preserving pin checks.
+Its Rust tests and CodeQL effect remain unverified; carrying the accepted host
+diagnostic into that isolated main candidate is in progress.
 
 Map's earlier actual39699719553 failure remains unchanged. Its 900-byte before/after
 IPv6 route fingerprints differ; raw route records were not retained, so the
@@ -499,6 +572,35 @@ cleanup are reported successful. Text/style editing, preview, export and actual
 pack/decode remain unaccepted. Investigate the pinned rendered-DOM interaction
 contract without injecting project content or replacing real UI operations.
 All fifteen full Studio acceptance cases remain open.
+
+The next paired Studio heads are Core
+`4458ea4d2e15c5c1d7d812a4cfaa34fe70da4c19`, tree
+`67665f586312c59b55d44312a95fb7607d668568`, and Studio
+`da7c5cd10fae2e57666fc7f826c2493ed1bae0f3`, tree
+`f7165672af31863c5e774a4c4ca07a3014cae23d`. Core changes only the strict-Clippy
+case-insensitive extension tests. Studio uses visible wrapper geometry for the
+real mouse drag and adds closed stage/count diagnostics. Independent pinned-source
+review and 16 inert tests pass. Actual paired run `39853696060` fails at
+`manual_text_ready/TimeoutError` after the real drag returns. Artifact
+`12458772476`, 1,013 bytes, SHA-256
+`07c36bc9add2888752fb49a8e8adacf8fb56beace0464c53e460d986ea7be4fb`, is retained
+under `.git/ci-evidence/studio-export-39853696060/`. Its closed snapshot observes
+14 blocks, one Text block, one frame and one visible wrapper, but zero text
+components or editable text. Recorded startup errors remain zero and reported
+cleanup succeeds. Component insertion is unproven; the earlier broader timeout
+is not retrospectively explained. Ordinary Quality remains pending, and actual
+edit/export/pack/decode acceptance stays open. Investigate the pinned drag/drop
+contract before changing the real UI sequence.
+
+The next diagnostic-only Studio source is
+`29e68e52b348754505ac5e0ca6a04d91b0715dd8`, tree
+`2e59bea279515530b41f35720be4cf0408e2cf74`, with unchanged Core4458ea4d.
+Twenty inert tests and independent source/provenance review pass. Passive
+listeners retain only five capped trusted native-event counts and fixed
+pre-drag/post-mouse-up hit-test/draggable booleans. They read no payloads and
+change no propagation, input sequence, deadlines, pins or sandbox authority.
+Removal paths are source-reviewed; listener delivery and cleanup at runtime
+remain unverified. Actual paired trial `39855894275` is pending.
 
 Preserved active technical work at consolidation:
 
@@ -1272,36 +1374,61 @@ fixture pins and the distinct earlier Image challenge-read failure remain
 preserved without claiming a common cause.
 
 Provider event-drain PR331 addresses independently demonstrated admission and
-refresh blocking. Its first scoped run passes the five candidate runtime cases
-but fails compiling a generated negative-control variant. The reviewed harness
-correction is published at `60b1a154`; `39849045970` passes behavior controls
-and cleanup but fails four strict lint findings. Complete the reviewed syntax-only
-correction at `c111114b` and pending exact-source `39851344008` before accepting
-this production slice. A separate fixture-only failure-boundary diagnostic is
-designed, but not implemented: query existing provider rings before cleanup
-stops them, retaining only closed bounded projections and the original failure.
-Do not infer historical consumer causality from controlled lock contention.
-After the scoped gate, use the actual consumer/route lifecycle evidence to select
-the next integration trial rather than increasing deadlines or retries.
+refresh blocking. Scoped exact-source run `39851344008` passes its two queue
+tests, five candidate cases, three expected negative controls, strict Clippy and
+host comparison. Ordinary Quality and CodeQL succeed and PR331 is merged at
+`2a15a7f1`; live consumer acceptance and historical-cause proof remain false. The full consumer failure
+still lacks live provider-role snapshots: its client ring was saturated and
+provider roles were unqueried. Fixture-only failure-boundary diagnostics are
+now independently reviewed and pushed at
+`6f9ff8aa3705bee3e7e3ccc2fb2fd22484af0e79`, tree
+`3c2c4d311c8e3c3bb8931d530c294c625bf2c198`, on
+`fix/storage-failure-boundary-20261022` based on c111114b. Six harness paths and
+81 inert tests are covered. Draft PR334 retains the six-path delta; exact-source
+full consumer run `39854264855` fails before VM/output initialization. One of
+85 existing maintenance source checks expects the old consumer-only export set;
+its missing new receipt name is being corrected while retaining exact set
+comparison. Secondary summary/upload steps fail without an output path; no VM
+or consumer result or artifact exists. Original job log is retained under
+`.git/ci-evidence/storage-failure-boundary-39854264855/` (92,390 bytes, SHA-256
+`384e077c0b13bccb03f89913b1edc5f207c350dbd81ea46d41158509e66d3ea2`).
+The independently reviewed two-test-file correction is published at
+`7c569dd08a71e055c7cf1c0bf410641aafeb68f7`, tree
+`d834ea735506e3ebe90c5872c1bbd58c6e50839b`. Twenty focused inert checks pass;
+exact export-set, validation, deduplication, private-sentinel and byte/count
+bounds remain intact. New full consumer run `39855345985` is pending.
+The diagnostic captures existing
+bounded agent logs before cleanup stops providers and uses closed route/provider
+projections. It adds no product telemetry and does not establish per-request
+causality. Keep raw logs private and preserve the original failure; do not change
+fixtures, pins, deadlines or retries, or infer historical consumer cause from
+controlled lock contention.
 
 For protected Compute, public trial `39842391908` now proves the bounded public
 answers, corruption rejection and owned VM/tool/scratch cleanup, but retains a
 failed aggregate host-fingerprint comparison with the changed field unknown.
-Preserve the earlier `39831364171` failure and strict comparison gate. Independent
-review accepts the isolated main-based resident candidate; consume its hosted
-source checks, then investigate with bounded before/after host diagnostics. Preserve
-the original feature branch and current main dependencies; no confidential or
-private-workload acceptance follows from this public fixture.
+Preserve the earlier `39831364171` failure and strict comparison gate. The
+isolated main-based resident candidate's source gate passes 133 Rust and 458
+Python tests, compilation, formatting and strict Clippy; its actual-model job is
+skipped. PR332 remains draft. PR333's host-diagnostic source run `39852803936`
+fails one new AST-binding test; corrected source gate `39854689983` passes,
+and PR333 is merged into the retained feature. Actual public trial
+`39855637060` is pending; preserve strict raw equality and the unchanged job. The host-change cause remains unknown. Preserve the original feature
+branch and current main dependencies. The failed public trial has two public
+outputs and confirmed VM/tool/scratch cleanup, but strict host equality failed
+with the changed field unknown. No confidential or private-workload acceptance
+follows.
 
-Studio follow-up `39848640073` exercises reviewed readiness and shell corrections
-with the same real pinned editor, manual edit/preview/export and offline Core
-packer/decoder. Its actual job now fails at editor readiness before manual work;
-the next reviewed font-startup correction and closed diagnostics are running
-in `39850757186`. That trial gets through startup and the create-page actions
-but fails during manual text interaction. Narrow the actual UI operation before
-claiming edit/export acceptance or dispatching another trial.
-Preserve explicit publication authority; this fixture is not signed publication,
-hosting or shared-AI acceptance.
+Studio's `39850757186` remains a failed manual-text interaction after startup and
+create-page actions; its exact timed-out operation is unknown. The latest paired
+Core/Studio correction uses visible wrapper geometry for the real mouse drag and
+adds closed stage/count diagnostics. Source review and 16 inert tests pass, but
+actual run `39853696060` fails at `manual_text_ready` on Core
+`4458ea4d2e15c5c1d7d812a4cfaa34fe70da4c19` / Studio
+`da7c5cd10fae2e57666fc7f826c2493ed1bae0f3`. The drag returns but no matching
+text component is observed. No edit/export acceptance is
+claimed. Preserve explicit publication authority; this fixture is not signed
+publication, hosting or shared-AI acceptance.
 
 Map's synthetic debug Activity/JNI slice is accepted by `39844370003` and merged
 into Map main, with the documentation checkpoint also integrated. Preserve the

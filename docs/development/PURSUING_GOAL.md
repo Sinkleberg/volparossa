@@ -44,3 +44,11 @@ That comparison is historical. In the current conversation, the prior goal threa
 is paused and the current goal is active with the complete agreed scope, including
 Studio/hosting/AI. Markdown escaping means raw byte-for-byte equality with this
 file is not claimed. The goal was not completed, restarted or reduced.
+
+The subsequent 2026-10-22 integration checkpoint changes evidence and execution
+priorities only; it does not change the normative goal text or goal status.
+Current terminal and pending outcomes, including failed consumer/model trials
+and the accepted bounded Map JNI slice, are recorded in
+[IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work).
+Read that ledger before resuming; do not infer completion from any source gate,
+fixture result or partial runtime checkpoint.
