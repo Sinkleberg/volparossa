@@ -133,7 +133,18 @@ invoked=true
 # The fixed entrypoint emits only READY after privilege checks, then replaces
 # stdout/stderr with /dev/null before core exec. TLS uses the sole virtio port.
 # A zero process exit is still not two-turn or cleanup evidence.
-if /usr/bin/busybox chroot /newroot /usr/bin/python3.13 -I /usr/lib/volparossa/protected-resident-model-entrypoint </dev/null >/dev/console 2>/dev/null; then
+# Keep PID 1 and its shutdown traps in the original mount namespace. In the
+# child, make the verified mount the namespace root before chroot, so the later
+# unprivileged bubblewrap user namespace is not entered from a mere chroot.
+# BusyBox unshare makes propagation recursively private before executing sh;
+# no PID/network namespace or forking supervisor is added here.
+if /usr/bin/busybox unshare --mount --propagation private /usr/bin/busybox sh -efu -c '
+    /usr/bin/busybox awk '\''$1 == "/dev/mapper/vp-root" && $2 == "/newroot" && $3 == "ext4" && $4 ~ /^ro,/ {n++} END {exit n != 1}'\'' /proc/mounts
+    cd /newroot
+    /usr/bin/busybox mount --move . /
+    # The cwd still names the verified root; do not resolve BusyBox via old /.
+    exec ./usr/bin/busybox chroot . /usr/bin/python3.13 -I /usr/lib/volparossa/protected-resident-model-entrypoint
+' </dev/null >/dev/console 2>/dev/null; then
     zero=true
     stage=complete
     receipt guest_process_returned

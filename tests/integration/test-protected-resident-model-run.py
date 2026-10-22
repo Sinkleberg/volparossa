@@ -2141,18 +2141,19 @@ class ReceiptAndBindings(Inert):
             return compile(expression, 'inert-workflow-authority', 'eval')
         contracts, public = authority('contracts'), authority('public-model')
         groups = dict(grant=22, guest=38, resident=41, local=30, startup=2)
-        for branch in ('refs/heads/fix/protected-bwrap-stage-20261022', 'refs/heads/feature/protected-resident-model'):
+        for branch in ('refs/heads/fix/protected-model-root-transition-20261022',
+                       'refs/heads/fix/protected-bwrap-stage-20261022', 'refs/heads/feature/protected-resident-model'):
             namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}), groups=groups)
             exec(rust_gate, namespace)
             self.assertEqual(namespace['labels'], ('grant', 'guest', 'resident', 'local', 'startup'))
             self.assertEqual(sum(groups.values()), 133)
             for stale in (dict(grant=22, guest=37, resident=39, local=30), dict(grant=22, guest=38, resident=41, local=30)):
                 with self.assertRaises(AssertionError): exec(rust_gate, dict(namespace, groups=stale))
-            for count in (209, 208, 204):
+            for count in (210, 209, 208, 204):
                 current = dict(os=namespace['os'], root=Logs(count), re=re, counts={})
-                if count == 209:
+                if count == 210:
                     exec(controller_gate, current)
-                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=209))
+                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=210))
                 else:
                     with self.assertRaises(AssertionError): exec(controller_gate, current)
             for event, scenario in (('push', 'source-contracts'), ('workflow_dispatch', 'source-contracts'), ('workflow_dispatch', 'public-model')):
@@ -2170,13 +2171,14 @@ class ReceiptAndBindings(Inert):
     def test_inventory_diagnostic_branch_only_adds_exact_source_contract_authority(self):
         import textwrap
         workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
-        self.assertIn('branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021, fix/protected-native-exit-observation-20261021, fix/protected-bwrap-stage-20261022]', workflow)
+        self.assertIn('branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021, fix/protected-native-exit-observation-20261021, fix/protected-bwrap-stage-20261022, fix/protected-model-root-transition-20261022]', workflow)
         self.assertIn("github.ref == 'refs/heads/diagnostic/protected-export-inventory-20261021' ||", workflow)
         self.assertIn("github.ref == 'refs/heads/fix/protected-requester-diagnostic-20261021' ||", workflow)
         self.assertIn("github.ref == 'refs/heads/fix/protected-result-failure-20261021' ||", workflow)
         self.assertIn("github.ref == 'refs/heads/fix/protected-socket-diagnostic-20261021' ||", workflow)
         self.assertIn("github.ref == 'refs/heads/fix/protected-native-exit-observation-20261021' ||", workflow)
-        self.assertIn("github.ref == 'refs/heads/fix/protected-bwrap-stage-20261022') &&", workflow)
+        self.assertIn("github.ref == 'refs/heads/fix/protected-bwrap-stage-20261022' ||", workflow)
+        self.assertIn("github.ref == 'refs/heads/fix/protected-model-root-transition-20261022') &&", workflow)
         self.assertIn("github.event_name == 'push' || inputs.scenario == 'source-contracts'", workflow)
         public = workflow.split('\n  public-model:\n', 1)[1]
         self.assertNotIn('diagnostic/protected-export-inventory', public)
@@ -2185,6 +2187,7 @@ class ReceiptAndBindings(Inert):
         self.assertNotIn('fix/protected-socket-diagnostic', public)
         self.assertNotIn('fix/protected-native-exit-observation', public)
         self.assertNotIn('fix/protected-bwrap-stage', public)
+        self.assertNotIn('fix/protected-model-root-transition', public)
         self.assertIn("github.ref == 'refs/heads/feature/protected-resident-model'", public)
         self.assertIn('test "$GITHUB_SHA" = "$EXPECTED_SOURCE"', public)
         self.assertIn('test "$GITHUB_WORKFLOW_SHA" = "$EXPECTED_SOURCE"', public)
@@ -2253,6 +2256,51 @@ class ReceiptAndBindings(Inert):
                 self.assertEqual(namespace['bwrap_allowed'], approved)
                 self.assertFalse(namespace['bwrap_stage_scope']['actual_model_execution'])
                 self.assertTrue(namespace['bwrap_stage_scope']['default_diagnostic_encoding_unchanged'])
+            else:
+                with self.assertRaises(AssertionError):
+                    exec(compiled, namespace)
+
+    def test_root_transition_source_gate_preserves_actual_job_dependencies_and_exact_scope(self):
+        import textwrap
+        workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
+        code = textwrap.dedent(workflow.split("python3 -B - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
+        branch = 'refs/heads/fix/protected-model-root-transition-20261022'
+        gate = next(node for node in ast.parse(code).body
+                    if isinstance(node, ast.If) and repr(branch) in ast.unparse(node.test))
+        compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-root-transition-gate', 'exec')
+        approved = {'.github/workflows/protected-resident-model.yml',
+            'packaging/protected-resident-model/init',
+            'tests/integration/test-protected-resident-model-initrd.py',
+            'tests/integration/test-protected-resident-model-run.py'}
+        base = '8b37a08bcf64a8d6e34932f0d0f4ee75082c813e'
+        old = b'contracts: old\n  public-model:\n    unchanged actual job\n'
+        for change in ('valid', 'missing', 'extra', 'duplicate', 'dependency', 'ancestry', 'actual-job'):
+            changed = sorted(approved)
+            if change == 'missing': changed.pop()
+            if change == 'extra': changed.append('crates/volparossa/src/compute/supervise/sandbox.rs')
+            if change == 'duplicate': changed.append(changed[0])
+            def git(*args):
+                if args[0] == 'diff': return '\n'.join(changed)
+                if change == 'dependency' and args == ('rev-parse', base + ':Cargo.lock'): return 'b' * 40
+                return 'a' * 40
+            command = mock.Mock(side_effect=AssertionError('ancestry') if change == 'ancestry' else None)
+            new = old.replace(b'contracts: old', b'contracts: new')
+            if change == 'actual-job': new += b'    changed actual authority\n'
+            namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}), git=git,
+                hashlib=hashlib, subprocess=types.SimpleNamespace(run=command, check_output=lambda _: old),
+                pathlib=types.SimpleNamespace(Path=lambda _: types.SimpleNamespace(read_bytes=lambda: new)))
+            if change == 'valid':
+                exec(compiled, namespace)
+                scope = namespace['root_transition_scope']
+                self.assertEqual(namespace['transition_allowed'], approved)
+                self.assertEqual(scope['base_commit'], base)
+                self.assertEqual(set(scope['source_blobs']), approved)
+                self.assertTrue(scope['source_contracts_only'])
+                self.assertFalse(scope['actual_model_execution'])
+                self.assertFalse(scope['guest_boot'])
+                self.assertEqual(scope['actual_job_sha256'], hashlib.sha256(b'\n  public-model:\n' +
+                    new.split(b'\n  public-model:\n', 1)[1]).hexdigest())
+                command.assert_called_once_with(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
             else:
                 with self.assertRaises(AssertionError):
                     exec(compiled, namespace)

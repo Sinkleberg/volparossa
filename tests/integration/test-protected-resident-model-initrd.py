@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import os
+import shlex
 from pathlib import Path
 import stat
 import subprocess
@@ -392,7 +393,7 @@ class ShellContracts(unittest.TestCase):
         self.assertIn("remount,bind,rw,nosuid,nodev,noexec \"$lease\"", INIT)
         self.assertNotIn("--bind /run /newroot/opt", INIT)
         self.assertIn("[ \"$(/usr/bin/busybox ls /sys/class/net)\" = lo ]", INIT)
-        self.assertIn("chroot /newroot /usr/bin/python3.13 -I", INIT)
+        self.assertIn("exec ./usr/bin/busybox chroot . /usr/bin/python3.13 -I", INIT)
         self.assertNotIn("eval ", INIT)
         # bwrap v0.11.0 writes user maps via its original proc_fd before --proc:
         # https://github.com/containers/bubblewrap/blob/v0.11.0/bubblewrap.c
@@ -418,21 +419,89 @@ class ShellContracts(unittest.TestCase):
         self.assertNotIn("memory.max", INIT)  # No pretend controller or silently new resource limit.
         self.assertLess(INIT.index("stage=cgroup"), INIT.index("stage=entrypoint"))
 
+    def transition(self):
+        command = INIT.split("if /usr/bin/busybox unshare ", 1)[1].split(" </dev/null", 1)[0]
+        argv = shlex.split("/usr/bin/busybox unshare " + command)
+        self.assertEqual(argv[:-1], ["/usr/bin/busybox", "unshare", "--mount", "--propagation", "private",
+                                    "/usr/bin/busybox", "sh", "-efu", "-c"])
+        return command, argv[-1]
+
+    def transition_result(self, code=0, failure=None):
+        command, child = self.transition()
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "calls"
+            executable = Path(directory) / "mock-busybox"
+            executable.write_text("#!/bin/sh\nprintf 'exec %s\\n' \"$*\" >>\"$TRANSITION_LOG\"\nexit " + str(code) + "\n")
+            executable.chmod(0o700)
+            guard = 1 if failure == "guard" else 0
+            move = 1 if failure == "move" else 0
+            mocks = ("guard() { printf 'guard\\n' >>\"$TRANSITION_LOG\"; return " + str(guard) + "; }\n"
+                     "cd() { [ \"$*\" = /newroot ] || exit 99; printf 'cd\\n' >>\"$TRANSITION_LOG\"; }\n"
+                     "move() { [ \"$*\" = '--move . /' ] || exit 99; printf 'move\\n' >>\"$TRANSITION_LOG\"; return "
+                     + str(move) + "; }\n")
+            child = child.replace("/usr/bin/busybox awk", "guard").replace("/usr/bin/busybox mount", "move")
+            child = child.replace("./usr/bin/busybox chroot", shlex.quote(str(executable)) + " chroot")
+            replacement = "/bin/sh -efu -c " + shlex.quote(mocks + child)
+            if failure == "unshare":
+                replacement = "/bin/sh -c 'exit 1'"
+            block = INIT.split("invoked=true\n", 1)[1]
+            block = block.replace("/usr/bin/busybox unshare " + command, replacement)
+            block = block.replace(">/dev/console", ">/dev/null")
+            result = self.shell("export TRANSITION_LOG=" + shlex.quote(str(log)) + "\n"
+                                "stage=entrypoint; verified=true; invoked=true; zero=false\n" + block)
+            calls = log.read_text().splitlines() if log.exists() else []
+        return result, calls
+
+    def test_child_namespace_rechecks_exact_verified_readonly_mount_before_root_move(self):
+        _, child = self.transition()
+        predicate = next(line for line in INIT.splitlines() if line.startswith("/usr/bin/busybox awk "))
+        self.assertEqual(child.strip().splitlines()[0].strip(), predicate)
+        order = (predicate, "cd /newroot", "/usr/bin/busybox mount --move . /",
+                 "exec ./usr/bin/busybox chroot . /usr/bin/python3.13 -I")
+        self.assertEqual(sorted(child.index(value) for value in order), [child.index(value) for value in order])
+        self.assertNotIn("chroot /newroot", INIT)
+        self.assertNotIn("unshare --pid", INIT)
+        self.assertNotIn("unshare --net", INIT)
+
     def test_actual_launch_branch_preserves_process_failure_without_fake_cleanup(self):
-        block = INIT.split("invoked=true\n", 1)[1]
-        block = block.replace("/usr/bin/busybox chroot", "capture")
-        block = block.replace(">/dev/console", ">/dev/null")
         for code in (0, 1, 137):
-            script = ("capture() { [ \"$*\" = '/newroot /usr/bin/python3.13 -I "
-                      "/usr/lib/volparossa/protected-resident-model-entrypoint' ] || exit 99; return "
-                      + str(code) + "; }\nstage=entrypoint; verified=true; invoked=true; zero=false\n" + block)
-            result = self.shell(script)
-            self.assertEqual(result.returncode, 0 if code == 0 else 1, result.stderr)
-            value = json.loads(result.stdout.split(" ", 1)[1])
-            self.assertEqual(value["outcome"], "guest_process_returned" if code == 0 else "guest_process_failed")
-            self.assertIs(value["process_exit_zero"], code == 0)
-            self.assertIs(value["worker_cleanup_confirmed"], False)
-            self.assertIs(value["model_execution"], False)
+            with self.subTest(code=code):
+                result, calls = self.transition_result(code)
+                self.assertEqual(calls, ["guard", "cd", "move", "exec chroot . /usr/bin/python3.13 -I "
+                                        "/usr/lib/volparossa/protected-resident-model-entrypoint"])
+                self.assertEqual(result.returncode, 0 if code == 0 else 1, result.stderr)
+                value = json.loads(result.stdout.split(" ", 1)[1])
+                self.assertEqual(value["outcome"], "guest_process_returned" if code == 0 else "guest_process_failed")
+                self.assertIs(value["process_exit_zero"], code == 0)
+                for key in ("worker_cleanup_confirmed", "model_execution", "worker_execution", "private_inputs"):
+                    self.assertIs(value[key], False)
+
+    def test_failed_child_mount_guard_cannot_move_or_invoke_entrypoint(self):
+        result, calls = self.transition_result(failure="guard")
+        self.assertEqual(calls, ["guard"])
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn('"outcome":"guest_process_failed"', result.stdout)
+        self.assertIn('"process_exit_zero":false', result.stdout)
+
+    def test_failed_move_cannot_invoke_entrypoint_or_invent_success(self):
+        result, calls = self.transition_result(failure="move")
+        self.assertEqual(calls, ["guard", "cd", "move"])
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn('"outcome":"guest_process_failed"', result.stdout)
+        self.assertIn('"process_exit_zero":false', result.stdout)
+
+    def test_namespace_failure_preserves_parent_shutdown_and_failure_receipt(self):
+        result, calls = self.transition_result(failure="unshare")
+        self.assertEqual(calls, [])
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn('"outcome":"guest_process_failed"', result.stdout)
+        finish = INIT.split("finish() {\n", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("trap - 0 HUP INT TERM", finish)
+        self.assertIn("if [ \"$reported\" != yes ]; then receipt boot_rejected; fi", finish)
+        self.assertLess(finish.index("poweroff -f"), finish.index("halt -f"))
+        self.assertIn("while :; do /usr/bin/busybox sleep 60; done", finish)
+        self.assertIn("trap finish 0\ntrap 'exit 1' HUP INT TERM", INIT)
+        self.assertNotIn("trap", self.transition()[1])
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ name: Public resident model integration contracts
 
 on:
   push:
-    branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021, fix/protected-native-exit-observation-20261021, fix/protected-bwrap-stage-20261022]
+    branches: [feature/protected-resident-model, diagnostic/protected-export-inventory-20261021, fix/protected-requester-diagnostic-20261021, fix/protected-result-failure-20261021, fix/protected-socket-diagnostic-20261021, fix/protected-native-exit-observation-20261021, fix/protected-bwrap-stage-20261022, fix/protected-model-root-transition-20261022]
   workflow_dispatch:
     inputs:
       scenario:
@@ -42,7 +42,8 @@ jobs:
       github.ref == 'refs/heads/fix/protected-result-failure-20261021' ||
       github.ref == 'refs/heads/fix/protected-socket-diagnostic-20261021' ||
       github.ref == 'refs/heads/fix/protected-native-exit-observation-20261021' ||
-      github.ref == 'refs/heads/fix/protected-bwrap-stage-20261022') &&
+      github.ref == 'refs/heads/fix/protected-bwrap-stage-20261022' ||
+      github.ref == 'refs/heads/fix/protected-model-root-transition-20261022') &&
       (github.event_name == 'push' || inputs.scenario == 'source-contracts')))
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -205,6 +206,32 @@ jobs:
               diagnostic_only=True,actual_model_execution=False,
               default_diagnostic_encoding_unchanged=True,
               stderr_semantics='closed_family_of_existing_first_bounded_prefix_not_runtime_cause')
+          root_transition_scope=None
+          if os.environ['GITHUB_REF']=='refs/heads/fix/protected-model-root-transition-20261022':
+            transition_base='8b37a08bcf64a8d6e34932f0d0f4ee75082c813e'
+            subprocess.run(['git','merge-base','--is-ancestor',transition_base,'HEAD'],check=True)
+            transition_allowed={
+              '.github/workflows/protected-resident-model.yml',
+              'packaging/protected-resident-model/init',
+              'tests/integration/test-protected-resident-model-initrd.py',
+              'tests/integration/test-protected-resident-model-run.py'}
+            changed=git('diff','--name-only',transition_base,'HEAD').splitlines()
+            assert len(changed)==len(transition_allowed)==4 and set(changed)==transition_allowed
+            dependencies=('Cargo.lock','Cargo.toml','rust-toolchain.toml',
+              'crates/volparossa/Cargo.toml','crates/volparossa-content/Cargo.toml')
+            for name in dependencies:
+              assert git('rev-parse','HEAD:'+name)==git('rev-parse',transition_base+':'+name)
+            workflow='.github/workflows/protected-resident-model.yml'
+            old=subprocess.check_output(['git','show',transition_base+':'+workflow])
+            new=pathlib.Path(workflow).read_bytes()
+            actual=b'\n  public-model:\n'
+            assert new.split(actual,1)[1]==old.split(actual,1)[1]
+            root_transition_scope=dict(base_commit=transition_base,
+              source_blobs={name:git('rev-parse','HEAD:'+name) for name in sorted(transition_allowed)},
+              dependency_blobs={name:git('rev-parse','HEAD:'+name) for name in dependencies},
+              actual_job_sha256=hashlib.sha256(actual+new.split(actual,1)[1]).hexdigest(),
+              source_contracts_only=True,actual_model_execution=False,guest_boot=False,
+              root_transition='private_child_mount_move_before_chroot')
           names=git('diff','--name-only',base,'HEAD').splitlines()
           receipt=dict(version=1,source_commit=os.environ['GITHUB_SHA'],source_tree=git('rev-parse','HEAD^{tree}'),base=base,
             source_blobs={n:git('rev-parse','HEAD:'+n) for n in names},
@@ -219,6 +246,8 @@ jobs:
             receipt['native_exit_scope']=native_exit_scope
           if bwrap_stage_scope is not None:
             receipt['bwrap_stage_scope']=bwrap_stage_scope
+          if root_transition_scope is not None:
+            receipt['root_transition_scope']=root_transition_scope
           pathlib.Path('resident-model-evidence/source.json').write_text(json.dumps(receipt,sort_keys=True)+'\n')
           PY
 
@@ -376,7 +405,7 @@ jobs:
           python3 -B - <<'PY'
           import json,pathlib,re
           root=pathlib.Path('resident-model-evidence'); counts={}
-          expected={'install':58,'assemble':29,'run':209}
+          expected={'install':58,'assemble':29,'run':210}
           for name,count in expected.items():
             raw=(root/('model-'+name+'.log')).read_text()
             tests=re.findall(r'^Ran ([0-9]+) tests? in ',raw,re.M)
@@ -398,7 +427,7 @@ jobs:
           python3 -B - <<'PY'
           import json,pathlib,re
           root=pathlib.Path('resident-model-evidence')
-          counts={'model-initrd':27,'boot-initrd':21,'workload':33,'model-build':42,'model-debian':19}
+          counts={'model-initrd':31,'boot-initrd':21,'workload':33,'model-build':42,'model-debian':19}
           for name,count in counts.items():
             output=(root/(name+'.log')).read_text()
             assert re.search(r'^Ran '+str(count)+r' tests in ',output,re.M)
