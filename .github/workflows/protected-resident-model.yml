@@ -280,7 +280,9 @@ jobs:
             assert len(changed)==len(set(changed))==50 and set(changed)==included
             reconciled={'Cargo.lock','THIRD_PARTY_LICENSES.md',
               '.github/workflows/protected-resident-model.yml',
-              'tests/integration/test-protected-resident-model-run.py'}
+              'tests/integration/test-protected-resident-model-run.py',
+              'crates/volparossa/src/compute/resident_guest/public_trial.rs',
+              'crates/volparossa/src/compute/resident_guest/public_trial/tests.rs'}
             for name in sorted(included-reconciled):
               assert git('rev-parse','HEAD:'+name)==git('rev-parse',retained_feature+':'+name),name
             # Main's reviewed package versions, checksums and every other package graph stay exact.

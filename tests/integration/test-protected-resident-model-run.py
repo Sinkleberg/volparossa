@@ -2505,8 +2505,11 @@ class ReceiptAndBindings(Inert):
         feature = 'e4824ae3c9a3f606a6013540461f5d148e3a76b6'
         feature_base = '7d0f9f0b492c5e692cc9d26f23d95f55f2c1e651'
         feature_tree = 'c5aafd962cea11dee3a8783f01e9fb7debccf3b5'
-        allowed = {'Cargo.lock','THIRD_PARTY_LICENSES.md','.github/workflows/protected-resident-model.yml',
-                   'tests/integration/test-protected-resident-model-run.py'} | {f'source-{i}' for i in range(46)}
+        reconciled = {'Cargo.lock','THIRD_PARTY_LICENSES.md','.github/workflows/protected-resident-model.yml',
+            'tests/integration/test-protected-resident-model-run.py',
+            'crates/volparossa/src/compute/resident_guest/public_trial.rs',
+            'crates/volparossa/src/compute/resident_guest/public_trial/tests.rs'}
+        allowed = reconciled | {f'source-{i}' for i in range(44)}
         dependencies = {'prost','rcgen','rustls','tokio-rustls','x509-cert'}
         old_lock = {'package': [dict(name='volparossa',version='0.1.0',dependencies=['tokio']),
             dict(name='hpke',version='0.14.1',checksum='reviewed'),
@@ -2541,6 +2544,9 @@ class ReceiptAndBindings(Inert):
                 if args[0] == 'rev-parse':
                     if defect == 'feature-blob' and args[1] == 'HEAD:source-0': return 'wrong'
                     if defect == 'preserved-main' and args[1] == 'HEAD:AGENTS.md': return 'wrong'
+                    if args[1] in ('HEAD:crates/volparossa/src/compute/resident_guest/public_trial.rs',
+                                   'HEAD:crates/volparossa/src/compute/resident_guest/public_trial/tests.rs'):
+                        return 'reviewed-certificate-error-boundary'
                     return 'same-blob'
                 self.fail(args)
             def path(name):
@@ -2555,6 +2561,7 @@ class ReceiptAndBindings(Inert):
                 exec(compiled,namespace)
                 self.assertEqual(namespace['main_integration_scope']['included_paths'],sorted(allowed))
                 self.assertEqual(namespace['main_integration_scope']['excluded_feature_paths'],['docs/IMPLEMENTATION_STATUS.md'])
+                self.assertEqual(namespace['main_integration_scope']['reconciled_paths'],sorted(reconciled))
                 self.assertTrue(namespace['main_integration_scope']['source_contracts_only'])
                 self.assertFalse(namespace['main_integration_scope']['actual_model_execution'])
             else:

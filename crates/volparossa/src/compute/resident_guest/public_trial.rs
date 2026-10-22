@@ -509,9 +509,14 @@ fn result(frame: &wire::Frame, expected_text: &str) -> Result<Value> {
 }
 
 fn check_peer_key(certificate: &[u8], expected: [u8; 32]) -> Result<()> {
-    let leaf = x509_cert::Certificate::from_der(certificate)?;
-    let actual: [u8; 32] =
-        Sha256::digest(leaf.tbs_certificate.subject_public_key_info.to_der()?).into();
+    let leaf = x509_cert::Certificate::from_der(certificate)
+        .map_err(|_| anyhow::anyhow!("resident_peer_certificate_decode"))?;
+    let public_key = leaf
+        .tbs_certificate
+        .subject_public_key_info
+        .to_der()
+        .map_err(|_| anyhow::anyhow!("resident_peer_spki_encode"))?;
+    let actual: [u8; 32] = Sha256::digest(public_key).into();
     ensure!(actual == expected, "resident_peer_key_pin");
     Ok(())
 }

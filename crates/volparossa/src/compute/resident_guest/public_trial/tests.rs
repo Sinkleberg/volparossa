@@ -154,11 +154,18 @@ fn result_requires_correct_answer_real_completion_and_retained_session_receipt()
 
 #[test]
 fn verified_certificate_must_also_match_the_exact_selected_peer_key() {
+    for invalid in [b"".as_slice(), b"PRIVATE_CERTIFICATE_CANARY".as_slice()] {
+        let error = check_peer_key(invalid, [0; 32]).unwrap_err();
+        assert_eq!(error.to_string(), "resident_peer_certificate_decode");
+        assert_eq!(error.chain().count(), 1);
+    }
     let first = rcgen::generate_simple_self_signed(vec!["resident.test".into()]).unwrap();
     let second = rcgen::generate_simple_self_signed(vec!["resident.test".into()]).unwrap();
     let (_, selected) = client_config(first.cert.der().to_vec()).unwrap();
     assert!(check_peer_key(first.cert.der().as_ref(), selected).is_ok());
-    assert!(check_peer_key(second.cert.der().as_ref(), selected).is_err());
+    let error = check_peer_key(second.cert.der().as_ref(), selected).unwrap_err();
+    assert_eq!(error.to_string(), "resident_peer_key_pin");
+    assert_eq!(error.chain().count(), 1);
 }
 
 #[tokio::test(start_paused = true)]
