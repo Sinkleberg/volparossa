@@ -57,6 +57,10 @@ CATALOG_FAILURE_CODES = {'catalog_materialization_failed', 'catalog_restore_vali
     'catalog_file_version_changed', 'catalog_receipt_validation', 'catalog_crypto_timeout',
     'catalog_crypto_unavailable', 'catalog_crypto_failed', 'catalog_crypto_report_invalid',
     'catalog_cleanup_failed', 'catalog_stage_changed', 'catalog_cancelled'}
+CATALOG_RESTORE_ERRORS = {'invalid_request', 'storage_closed', 'operation_in_progress',
+    'foreground_cleanup_unconfirmed', 'maintenance_cleanup_unconfirmed', 'cancelled', 'core_spawn_failed',
+    'local_verification_failed', 'local_input_unavailable', 'private_file_required', 'private_directory_required',
+    'output_exists', 'invalid_core_executable', 'invalid_control_socket'}
 CANCELLED = False
 PROFILE_VERSION = 1
 NETWORK_VERSION = 1
@@ -354,6 +358,51 @@ def validate_deposit_diagnostics(value, version=1):
         seen.add(identity)
 
 
+def validate_catalog_restore(value):
+    keys(value, ('version', 'scope', 'diagnostic_only', 'acceptance_evidence', 'causal_attribution',
+        'invocation', 'completion', 'result_state', 'result', 'error_state', 'error_code'))
+    require(type(value['version']) is int and value['version'] == 1
+        and value['scope'] == 'cloud_catalog_storage_restore_call'
+        and value['diagnostic_only'] is True and value['acceptance_evidence'] is False
+        and value['causal_attribution'] is False, 'catalog_restore')
+    require(value['invocation'] in ('unavailable', 'not_invoked', 'once', 'multiple')
+        and value['completion'] in ('unavailable', 'returned', 'threw')
+        and value['result_state'] in ('unavailable', 'missing', 'invalid', 'observed')
+        and value['error_state'] in ('unavailable', 'missing', 'invalid', 'observed'), 'catalog_restore')
+    once = value['invocation'] == 'once'
+    require(once or (value['completion'] == 'unavailable' and value['result_state'] == 'unavailable'
+        and value['error_state'] == 'unavailable'), 'catalog_restore')
+    returned, threw = value['completion'] == 'returned', value['completion'] == 'threw'
+    require((value['result_state'] != 'unavailable') == returned
+        and (value['error_state'] != 'unavailable') == threw, 'catalog_restore')
+    # No claim of a typed exception: this is only an allowlisted own code field.
+    if value['error_state'] == 'observed':
+        require(type(value['error_code']) is str and value['error_code'] in CATALOG_RESTORE_ERRORS, 'catalog_restore')
+    else:
+        require(value['error_code'] is None, 'catalog_restore')
+    if value['result_state'] != 'observed':
+        require(value['result'] is None, 'catalog_restore')
+        return
+    result = value['result']
+    keys(result, ('status', 'code', 'local_process_joined', 'restore_verified',
+        'core_report_state', 'core_operation_complete'))
+    require(result['status'] in ('complete', 'incomplete', 'failed', 'cancelled', 'timed_out')
+        and result['code'] in ('ok', 'retained_operation_incomplete', 'invalid_core_report', 'core_failed',
+            'cancelled', 'timed_out', 'report_too_large', 'restore_verification_failed')
+        and type(result['local_process_joined']) is bool and type(result['restore_verified']) is bool
+        and result['core_report_state'] in ('missing', 'invalid', 'observed'), 'catalog_restore')
+    complete = result['core_operation_complete']
+    require((type(complete) is bool) if result['core_report_state'] == 'observed' else complete is None,
+        'catalog_restore')
+    if result['status'] == 'complete':
+        require(result['code'] == 'ok' and result['local_process_joined'] is True
+            and result['restore_verified'] is True and complete is True, 'catalog_restore')
+    else:
+        require(result['restore_verified'] is False, 'catalog_restore')
+    if result['status'] == 'incomplete':
+        require(result['code'] == 'retained_operation_incomplete' and complete is False, 'catalog_restore')
+
+
 def validate_node_report(value, phase, provision, prepared=None, *, profile_version=None,
         challenge_read_diagnostics_v10=False):
     require(type(challenge_read_diagnostics_v10) is bool
@@ -404,16 +453,25 @@ def validate_node_report(value, phase, provision, prepared=None, *, profile_vers
                 require(not (observed['status'] == 'complete' and observed['local_process_joined'] is True)
                     or (observed['operation'] == 'deposit' and state in ('missing', 'invalid')), 'deposit_diagnostics')
         lifecycle = 'publish_cleanup' in value
+        catalog_restore = 'catalog_restore' in value
+        if catalog_restore:
+            fields += ('catalog_restore',)
+            require(lifecycle and type(value['version']) is int and value['version'] == 13
+                and phase == 'publish' and profile_version in (None, 10)
+                and value['stage'] == 'cloud_catalog_create' and 'publish_observation' not in value,
+                'catalog_restore')
+            validate_catalog_restore(value['catalog_restore'])
         if lifecycle:
             fields += ('publish_cleanup',)
             cleanup = value['publish_cleanup']
             keys(cleanup, ('app', 'state'))
-            lifecycle_profile = value['version'] - 2 if type(value['version']) is int else None
+            lifecycle_profile = 10 if catalog_restore else value['version'] - 2 if type(value['version']) is int else None
             require(phase == 'publish' and profile_version in (None, lifecycle_profile)
                 and lifecycle_profile in (8, 9, 10)
                 and cleanup['app'] in ('image', 'cloud') and cleanup['state'] in ('complete', 'failed'),
                 'publish_cleanup')
             app = cleanup['app']
+            require(not catalog_restore or app == 'cloud', 'catalog_restore')
             stages = {f'{app}_{step}' for step in ('publish', 'enroll', 'policy_read', 'core_close')}
             if app == 'cloud':
                 stages |= {'cloud_catalog_prepare', 'cloud_catalog_create', 'cloud_catalog_validate'}
@@ -427,7 +485,7 @@ def validate_node_report(value, phase, provision, prepared=None, *, profile_vers
             if value['stage'].endswith('_core_close') or value['code'] == 'core_close_failed':
                 require(value['stage'] == f'{app}_core_close' and cleanup['state'] == 'failed'
                     and value['code'] in ('core_close_failed', 'phase_deadline'), 'publish_lifecycle')
-            expected_version = lifecycle_profile + 2
+            expected_version = 13 if catalog_restore else lifecycle_profile + 2
         keys(value, fields)
         require((lifecycle or (value['stage'] in STAGES and value['code'] in FAILURE_CODES))
             and value['cleanup_confirmed'] is False, 'failure_report')
