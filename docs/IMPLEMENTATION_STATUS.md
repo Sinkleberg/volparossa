@@ -58,7 +58,7 @@ session while holding that lock. PR327 is merged into main as
 the principal verified the fetched tree and fast-forwarded the main checkout,
 preserving its unrelated `error.log`. Independent technical review, scoped
 regressions, Quality and CodeQL passed before integration. Full consumer trial
-`39837551972` remains a separate pending acceptance gate.
+`39837551972` is a separate failed acceptance gate, detailed below.
 Exact-source hosted run `39832609493` succeeded on the recorded commit/tree. Its
 artifact `12449267668` is 60,743 bytes, SHA-256
 `25b455eeade5a1cfa94c414f634ece1fd5a1c2d43eaa60c817c88d9fb268929d`; it is
@@ -88,6 +88,61 @@ success retains its skipped-case boundary and is not a claim that every network
 case ran. Quality log ZIP: 655,051 bytes, SHA-256
 `9caf8dc1ba10f99253c0d514e0b648a56ceafe72c52c7cd162fb01c5a25be082`. CodeQL's
 four analyses pass on this exact source.
+
+Original full consumer trial `39837551972` is terminal failure on the same
+source/tree. Artifact `12455185067`, 79,811 bytes, matches API/ZIP SHA-256
+`3f271600f4e9c4beae52636b0b8e96e69915005b6a679c30cf6a42d52d793d2a` and is
+retained under `.git/ci-evidence/storage-consumer-39837551972/`. Cloud pin
+`5f143725fd18c98848beb61c9198a82066bfec13`, Image pin
+`f51b8ace0352377c7068a93fc8f4544f18e52978` and fixture-pin digest
+`93db11974ea4e06c203e585a94732e1ae91b2e774854d6c95bd5b765f74edeec` remain
+unchanged. It fails at `storage-consumer-publish/CONSUMER_APPLICATION_FAILED`:
+Cloud deposit is incomplete. Two `CONTENT_UNAVAILABLE` rejections concern
+append copy 0/fragment 1 at `tls_handshake/handshake_deadline`, then reserve
+copy 1/fragment 1 at `stream_open/route_state`. These are distinct from the
+earlier Image challenge-read failure; no common cause is established. Dedicated
+Cloud upload/restart/download and Image snapshot acceptance steps are skipped.
+Coordinator/local fixture cleanup completes with no remaining owned objects;
+34 directories and 55 files are removed and no owned fixture process remains.
+Before/after host-state receipts match in the disposable guest root network
+namespace outside owned test namespaces. This is not a development-host probe.
+Remote cleanup and provider usage remain unconfirmed, and the consumer cleanup
+aggregate stays false. The latest route-selection window (277 attempts/276
+retries) is explicitly not failure-cause evidence; its client event ring is
+saturated and provider roles are unqueried. Investigate the actual acceptance
+and route lifecycle paths before another consumer trial. The independently
+demonstrated socket-order correction remains valid within its narrow scope.
+
+Provider admission/refresh correction PR331 is published at
+`d59a0657a2a0fefebfacc8116bb3579bcb0899d9`, tree
+`413516825a7e8daa627fb5e4179930479c32bb2e`, based on merged main 157908ad.
+Rejected sessions return closed batches before the listener reaps their actual
+JoinSet slots; refresh completion only enqueues. A separate select arm drains
+an owned queue of at most 64 batches, each at most three fixed categories, without
+blocking accept/join/stop. Overflow drops newest batches with saturating omission
+accounting; stop discards volatile pending diagnostics with a count-only warning.
+Historical post-lock log timestamps and all network deadlines/pins remain intact.
+Independent Sol review and inert formatting/syntax/control-construction checks
+pass on all five source files. Hosted scoped run `39847420252` fails after
+candidate compilation, both queue units and all five actual candidate cases pass.
+The generated original-session-behavior control fails Rust type checking at
+`batch.log(&mut events.write().await)` (E0308); its refresh variant contains the
+same expression. Neither negative control nor final Clippy is accepted. Restore
+and before/after host observations pass. Artifact `12456710610`, 62,716 bytes,
+API/ZIP SHA-256 `7951b88917392f2f4d9833be87a5a49fe7ca7a1ed882d9189815b92bc6c5530e`,
+is retained under `.git/ci-evidence/provider-event-drain-39847420252/`. Correct
+only the two generated lock-guard bindings and independently review before a new
+scoped run. These controls model original behavior; they are not the earlier
+exact-original function transplant. No historical consumer-cause or complete
+live consumer acceptance claim follows from the passing candidate cases.
+The independently reviewed workflow-only correction is published at
+`60b1a154e224cffb0bc47ffac18a93727acd7893`, tree
+`e8b83c7728f8701362218b3120048596affa709d`. It binds each generated control's
+write guard locally before logging. Production code, test cases, deadlines,
+source/dependency guards and all other workflow steps remain unchanged. One
+follow-up scoped run, `39849045970`, is pending on that exact revision; the
+original failed run remains retained. No corrected control execution or final
+Clippy result is inferred from the source-only correction review.
 
 Exact-main Quality run `39825055366` is terminal success on c730617, with its actual
 checkout bound to the reviewed tree: 4,253 workspace tests passed/0 failed/12
@@ -262,6 +317,45 @@ acceptance remain. Review the specific 6.17 renderer from primary source before
 adding a separate profile. None of the failed trials is relabeled, and Ubuntu
 vendor lineage remains unverified.
 
+PR14 subsequently adds the separately verified Linux 6.17 Azure profile at
+`1546bf3ada1caf551e4b28e863a6402c5989ae08`, tree
+`714e806a71325ffab27e5b16e4e785305b73557b`. Independent Luna research and Sol
+review verify upstream commit `e5f0a698b34ed76002dc5cff3804a61c80233a7a`; its
+918-byte native renderer matches the 6.8/7.0 function exactly, SHA-256
+`93ca160d4d293117f2064e48065d5d6b75956d177744cf0a5ea2fdbd518ab120`.
+Only Linux x86_64 `6.17.0-<1-6 decimal ABI digits>-azure` is added; all comparison,
+acquisition and finalizer semantics are unchanged. All 124 inert tests and source
+gate pass independently. Hosted source `39844211892` passes 124 tests and
+Components `39844211893` passes 31; actual test-merge
+`6d3ad44dd922f34b921753f2f1dd9bf6a0e780e2` has the identical tree. Logs are
+retained under `.git/ci-evidence/map-linux617-source-checks/`. Exact-source
+actual trial `39844370003` is dispatched once after terminal source checks and
+no conflicting active trial. It is now terminal success on that exact source.
+Original artifact `12454922115`, 100,955 bytes, matches API/ZIP SHA-256
+`234b28aa81eca4ea68a9148845096b7a132f1976b5fbe547c24172ff7ce57a65`, retained
+under `.git/ci-evidence/map-linux617-39844370003/`. All eight actual Android/JNI
+cases pass with complete inventory; the Rust library, offline APK rebuild,
+instrumentation and owned process/state cleanup pass. Two cancellation controls
+each confirm six tracked processes extinct and private state removed; the
+separate adopted-child/group controls pass. Actual runner identity is
+`7.0.0-1017-azure`, so this trial does not exercise the 6.17 profile at runtime.
+IPv6 fingerprints are unchanged. Firewall configuration matches with counters
+changed; KVM configuration matches with timestamps changed. The explicit
+completed-emulator configuration checkpoint is accepted while the raw aggregate
+`host_routes_dns_firewall_unchanged` remains false. Quiet/cancellation controls
+retain strict comparison. This accepts the synthetic debug Activity/JNI slice,
+not physical positioning, sensors, main Map navigation, authenticated app
+identity or confidential execution. Earlier failed trials and vendor-lineage
+uncertainty remain unchanged. Independent review accepts the complete 20-file
+fixture stack within these limits. PR14, PR13 and PR12 are merged in order,
+then PR10 enters Map main as `ae7a5ccdbd14d686bb87e9afb860d1d3f54d7693`.
+The fetched final tree is identical to the tested tree; required Components,
+source and CodeQL checks pass before main integration. Map documentation PR15
+is merged as `8a227709e99f25b1b07ed0eaf88999e1a0dfc1fc`, tree
+`d5229143364a608b46f3fba51b2e97d355f8f822`, after passing Components, source
+and CodeQL. The fetched tree matches its reviewed documentation candidate.
+It records the accepted checkpoint without closing the remaining DPS goal.
+
 ### Studio/hosting scope and preserved work — 2026-10-22
 
 The complete [Studio/hosting/AI amendment](development/STUDIO_HOSTING_REQUIREMENTS.md)
@@ -282,23 +376,50 @@ The [hosting audit/design](services/STUDIO_HOSTING.md) records existing signed
 site/named-publication/retention capabilities, bounded historical evidence, all
 fifteen Studio acceptance cases and the missing work. Initial Studio main
 `97ddafa6a317e151c1352e0ac61978ddc3bd79f0` contains README/license only. Silex
-v3.9.0 at `672efed69dda04c0a1e968859239e042f00d9538` is selected following source,
-interface and component-license inspection; it has not been built or accepted
-as a working VOLPAROSSA integration. Static publishing, shared protected AI,
+v3.9.0 at `672efed69dda04c0a1e968859239e042f00d9538` was selected following
+source, interface and component-license inspection. The subsequent fixture build
+is recorded below; a working VOLPAROSSA export integration is not yet accepted. Static publishing, shared protected AI,
 useful cross-app integration and progressive dynamic hosting remain unchecked.
 
-The first implementation slice is retained uncommitted in isolated worktrees
-`studio-export-pack-20261022` and `core-studio-export-pack-20261022`: real pinned
-Silex UI editing, preview and DownloadConnector export, bounded ZIP extraction,
-then the existing offline Core CLI packer and production decoder. No publication,
-signing or runtime acceptance is claimed. Initial independent Sol review passes
-the 12 inert parser/source tests but blocks trial on two defects: the namespace
-wrapper's successful user mapping would run sandboxed Chrome as UID 0, and
-leader-only timeout waiting can leave a TERM-ignoring descendant alive. Corrections
-are in progress, with a narrowly scoped nonroot backend, bounded group draining
-and closed operation/exit diagnostics. They require fresh independent review and
-one exact-source disposable hosted trial. All fifteen full Studio acceptance
-cases remain open.
+The first fixture is published in Core PR330 at
+`c15791672e9932edcb24b0fedbdf1090b975d058`, tree
+`087a58925beaf8c68f6174a450220c81c4be44d7`, and Studio PR2 at
+`024a478bcef20650197651b15f253133894fb06a`, tree
+`cdb2326707ada5164345f1bc1a363cca770e18d5`. It drives real pinned Silex UI
+editing, preview and DownloadConnector export, then bounded ZIP extraction and
+the existing offline Core CLI packer/production decoder. Independent review
+corrects nonroot Chrome selection, TERM-resistant descendants, sudo environment
+handoff and sibling namespace identity. All 29 inert checks pass; the existing
+ordinary Quality job is preserved. No publication or signing is authorized.
+
+Original hosted trial `39846266494` fails at browser `editor_load` with
+`TimeoutError`. Artifact `12454998636`, 773 bytes, matches API/ZIP SHA-256
+`d4b033946c42353a4275861fc910032e30725c4e64917bbb3c1dd9fb3ce12eba`, retained
+under `.git/ci-evidence/studio-export-39846266494/`. Exact source binding,
+acquisition, inert checks and the Core pack-proof compilation pass. Manual edit,
+preview, ZIP export and actual pack/decode are not reached. Runtime receipt
+reports nonroot isolation/capability removal, server/driver group drainage and
+temporary-output removal with no cleanup error. The ordinary Quality job also
+fails ShellCheck `SC2015` on three wrapper guards; this is not a Rust formatting
+failure. Redundant PR Quality `39846235923` is terminal cancelled after the
+accepted manual run and identical test-merge tree were verified, before the
+manual run later failed. Source investigation finds that pinned Silex never
+removes the body class awaited by the fixture. The correction follows its
+real visible editor/loader contract and replaces the ambiguous shell guards.
+Independent review accepts the correction at Core
+`721e867dc5f54b390283191cc0b7de21cbe91c3b` (tree
+`8bf8a207dc451cdbb905399083408e57104ce113`) and Studio
+`06dca77af8e98ee06956ccc56dc43a3ce41547d6` (tree
+`611a73fbd3af6d70a987aa2c587fdd31bf4ff3d3`). Nineteen focused inert tests,
+full ShellCheck and unchanged ordinary Quality semantics pass. Original receipt
+cannot identify the failed await or prove completed initialization. Navigation,
+readiness and frame failures now use separate closed stage names; no deadline,
+pin, sandbox or real UI operation is relaxed. Exact-source follow-up
+`39848640073` is dispatched once and remains pending. Redundant automatic PR
+Quality `39848562984` is cancelled only after accepting that run and confirming
+its test-merge `1b184a1dd3a0ab35f582f1b3aeaed5bd534b385a` has the same Core
+tree. CodeQL remains independent. All fifteen full Studio acceptance cases
+remain open.
 
 Preserved active technical work at consolidation:
 
@@ -1063,46 +1184,46 @@ hosted evidence. No new KVM, namespace, cancellation or Android trial has run.
 
 ### Execution priorities and next milestones
 
-Current next actions prioritize Storage consumer integration and the public
-protected-model milestone. Storage run `39827774691` narrows the controlled
-held-length-read boundary but proves neither live consumer acceptance nor the
-historical timeout cause. The bounded production slice has an isolated
-worktree at `.volparossa-dev/worktrees/storage-provider-close-before-log-20261022`,
-branch `fix/storage-provider-close-before-log-20261022`, source a41030a5 based on
-c730617. It targets `serve_provider_session` retaining a failed TLS stream
-across an `AgentState` log-lock await, with explicit close-before-log behavior
-and a real production-session lock-contention regression. It makes no deadline
-or telemetry change. The exact-source production regression verifies the ordering
-defect under imposed contention, not the cause of the historical consumer failure.
-Consumer run `39837551972` is now active for
-private-storage-maintenance on a41030a5; no result or acceptance is available.
-Its guarded dispatch found no active alpha run or duplicate matching manual run.
-The integration harness, fixture pins and alpha workflow are unchanged from
-failed run39690110300. Preserve that earlier failure and hypothesis without
-inferring causality. Evaluate its existing full acceptance after this run
-terminates, preserving pins, deadlines, retry behavior and privacy. For
-protected Compute, consume exact-source public trial `39842391908` after it
-terminates; PR329's accepted source checks and retained-branch integration do not
-prove actual corruption rejection or complete guest cleanup. Run `39831364171`
-remains failed after its two observed
-public outputs. Studio work resumes alongside these integration checks: a first
-bounded slice will use the real pinned Silex editor and local Download connector,
-then Core's existing offline site packer and decoder. It must preserve explicit
-publication authority and manual editing; it is not signed publication, hosting
-or shared-AI acceptance. For Map, retain
-run39831818416 as a strict raw-baseline failure despite its reference-metadata
-diagnosis; kernel identity and historical actor/cause remain unknown. Its eight
-JNI cases and owned cleanup passed, but aggregate host baseline did not. The
-empty-VM control's timestamp-only classification does not prove the actor or
-unchanged complete host baseline. PR14's actual `39841843563` correctly refused a
-different, unsupported 6.17 Azure kernel before acquisition. Independently review
-that specific renderer before changing admission. Preserve raw strict results
-and unknown-kernel refusal.
+Current next actions prioritize complete Storage consumer integration and the
+public protected-model milestone, with Studio's first executable export slice
+running alongside them. The close-before-log production correction is integrated
+in main, with its scoped ordering proof accepted. Full consumer run `39837551972`
+remains failed at Cloud deposit; remote cleanup is unconfirmed. Its unchanged
+fixture pins and the distinct earlier Image challenge-read failure remain
+preserved without claiming a common cause.
+
+Provider event-drain PR331 addresses independently demonstrated admission and
+refresh blocking. Its first scoped run passes the five candidate runtime cases
+but fails compiling a generated negative-control variant. The reviewed harness
+correction is published at `60b1a154`; consume pending `39849045970` for all
+behavior controls, lint and cleanup before accepting this production slice.
+Do not infer historical consumer causality from controlled lock contention.
+After the scoped gate, use the actual consumer/route lifecycle evidence to select
+the next integration trial rather than increasing deadlines or retries.
+
+For protected Compute, consume exact-source public trial `39842391908` after it
+terminates. Source checks and retained-branch integration do not prove actual
+corruption rejection or complete guest cleanup. Earlier `39831364171` remains
+failed despite two public outputs. Before main integration, isolate the resident
+model feature from retained PR276's unfinished Storage ancestry and reconcile
+shared Compute lifecycle changes against current main; preserve the original
+branch and avoid importing its old status-document snapshot.
+
+Studio follow-up `39848640073` exercises reviewed readiness and shell corrections
+with the same real pinned editor, manual edit/preview/export and offline Core
+packer/decoder. Preserve explicit publication authority; this fixture is not
+signed publication, hosting or shared-AI acceptance. Consume its actual result
+before extending the integration.
+
+Map's synthetic debug Activity/JNI slice is accepted by `39844370003` and merged
+into Map main, with the documentation checkpoint also integrated. Preserve the
+raw aggregate false result and the precisely bounded configuration checkpoint;
+earlier failed trials, unverified vendor lineage and unexercised 6.17 runtime
+remain recorded. The next Map/DPS integrations need real platform sensor adapters
+and native navigation, with frame integrity, fusion and independent physical
+evaluation. Synthetic JNI success does not satisfy those requirements.
 Image and Cloud's opt-in SDK source/component checks pass separately; retain the
 actual fixture pins and unfinished maintenance work until their own integration.
-The full goal still requires real sensor adapters, frame
-integrity, fusion, physical evaluation and native navigation alongside the other
-shared core integrations; partial synthetic JNI success does not satisfy them.
 
 The shared cache and actual Weather delivery into Drizz.li and Overmorrow are
 integrated. The installed Android app now also passes on-demand core delivery,
