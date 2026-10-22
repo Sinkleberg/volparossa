@@ -1203,6 +1203,7 @@ MAINTENANCE_NAMES = (FRAGMENTS_NAMES - {"private-storage-fragments-smoke.json", 
     "private-storage-provider-activity.json",
     "private-storage-fixture-correlation.json",
     "storage-consumer-provider-usage.json",
+    "storage-consumer-failure-boundary.json",
     "private-storage-maintenance-inventory.json",
     "private-storage-maintenance-supervisor.json",
     "private-storage-maintenance-control-transition.json",
@@ -1828,6 +1829,15 @@ def collect(home, opt, revision, scenario, guest_status,
         if observed is None:
             continue
         data, original_size = observed
+        if path.name == "storage-consumer-failure-boundary.json":
+            if original_size > 131072 or original_size != len(data):
+                continue
+            try:
+                subprocess.run(["/usr/bin/python3", "-I", "-B", str(home / "source/tests/integration/storage-consumer-failure-boundary.py"),
+                    "validate-stdin"], input=data, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=2, check=True, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+            except (OSError, subprocess.SubprocessError):
+                continue
         if path.name == "storage-consumer-provider-usage.json":
             if original_size > 4096 or original_size != len(data):
                 continue
@@ -2471,6 +2481,10 @@ elif [ "$scenario" = private-storage-fragments ] || [ "$scenario" = private-stor
         case $retained in */*|'') exit 1 ;; esac
         retained_path=/home/vpci/alpha-output/$retained
         if [ -f "$retained_path" ] && [ ! -L "$retained_path" ]; then
+            if [ "$retained" = storage-consumer-failure-boundary.json ]; then
+                python3 -I -B tests/integration/storage-consumer-failure-boundary.py validate-stdin \
+                    <"$retained_path" >/dev/null 2>&1 || continue
+            fi
             if [ "$retained" = storage-consumer-provider-usage.json ]; then
                 python3 -I -B tests/integration/storage-consumer-provider-usage.py validate-stdin \
                     <"$retained_path" >/dev/null 2>&1 || continue
