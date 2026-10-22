@@ -69,7 +69,8 @@ Latest execution snapshot, observed 2026-10-22 00:00 UTC:
   lint. Consumer composition `f5892185003e04446719c3e65bf9b4835ef4c5c2`
   passes `39689732732`: 331 Python, 58 core Node and 117 app Node tests, with
   exact source/dependency bindings and complete pinned Image/Cloud manifests.
-  These source contracts do not fix the timeout or prove peer runtime acceptance.
+  These source contracts do not resolve the observed failure or prove peer runtime
+  acceptance.
   Original actual trial `39655116872` remains failed at fragment 3/copy 1
   APPEND challenge verification; consumer usage was unavailable under the
   former schema and remote deletion was unproved. The subsequent exact-source
@@ -733,7 +734,7 @@ Current next actions are to audit PR320's exact-main checks and isolate the
 Storage challenge-length stall with a deterministic protected-stream/provider test.
 Separate selector delivery, provider dispatch and close propagation without
 changing production deadlines, retry behavior or the existing fixed observer.
-Image and Cloud's opt-in SDK integrations are accepted separately; retain the
+Image and Cloud's opt-in SDK source/component checks pass separately; retain the
 actual fixture pins and unfinished maintenance work until their own integration.
 Consume the original model trial after the accepted CI inventory correction;
 bounded failure labels do not fix Bubblewrap or establish inference. For Map,
