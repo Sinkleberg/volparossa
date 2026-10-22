@@ -8,7 +8,7 @@ Develop VOLPAROSSA autonomously across all its repositories into the functionall
 
 Start with AGENTS.md, docs/development/GOAL.md, docs/development/DPS_REQUIREMENTS.md, docs/development/STUDIO_HOSTING_REQUIREMENTS.md, docs/development/CODEX_WORKFLOW.md and docs/IMPLEMENTATION_STATUS.md; follow the relevant repository documentation and application instructions. Verify preservation using docs/development/GOAL_VERIFICATION.md. Recheck live branches, worktrees, PRs and CI; preserve unpublished work, active integrations and recorded failures. Choose the execution order by dependencies and system value, complete useful ongoing integrations, and prove actual functionality with reproducible tests. Keep agreed scope, current evidence and execution priorities distinct.
 
-Use Astra Ultra for architecture, coordination and integration, Sol High for substantial implementation and independent review, and Luna Medium for bounded support, with at most two concurrent subagents initially. Reuse approved GitHub workflows efficiently. Respect all existing privacy, authority, host-safety and evidence boundaries. Continue until the full agreed functionality, including DPS, static and progressive dynamic hosting, portable visual Studio editing and protected shared AI, meets its acceptance criteria. Temporary attachments and previous conversations are not required.
+Use Astra Ultra for architecture, consequential decisions, coordination and critical integration. Prefer the configured Sol Medium agent for bounded implementation within established architectural contracts, subject to appropriate verification and independent Sol High review. Use Sol High for complex debugging, ambiguous or security-sensitive implementation, and independent technical review. Use Luna Medium for bounded exploration, documentation and supporting tasks. Escalate consequential architectural or trust-boundary changes to Astra Ultra. Start with at most two concurrent subagents, delegating only when beneficial. Reuse approved GitHub workflows efficiently. Respect all existing privacy, authority, host-safety and evidence boundaries. Continue until the full agreed functionality, including DPS, static and progressive dynamic hosting, portable visual Studio editing and protected shared AI, meets its acceptance criteria. Temporary attachments and previous conversations are not required.
 ```
 
 This is a durable reference to the full requirements, not a shorter substitute
@@ -52,3 +52,13 @@ and the accepted bounded Map JNI slice, are recorded in
 [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work).
 Read that ledger before resuming; do not infer completion from any source gate,
 fixture result or partial runtime checkpoint.
+
+The 2026-10-22 delegation revision updates only the coordination paragraph in
+the copyable text: bounded implementation prefers the configured Sol Medium
+agent, with appropriate verification and independent Sol High review; consequential
+architecture and trust-boundary decisions remain with Astra Ultra. All functional
+requirements, workflow/privacy boundaries and full acceptance sentences are
+preserved. Earlier character counts and UI comparisons above concern historical
+revisions. Updating this file does not establish that the active UI field changed,
+or complete or recreate an unfinished goal. See [CODEX_WORKFLOW.md](CODEX_WORKFLOW.md)
+for the separate configuration, runtime availability and routing evidence.

@@ -36,6 +36,22 @@ fresh export checks pass. The earlier usage-limit snapshot below is historical;
 Sol implementation/review and Luna support have resumed without changing the
 goal or granting new execution permissions.
 
+The user's 2026-10-22 delegation refinement is preserved in AGENTS, the workflow
+and copyable goal: prefer Sol Medium for bounded implementation within established
+contracts, with independent Sol High review; retain Astra Ultra for consequential
+architecture and integration, Sol High for complex or security-sensitive work,
+and Luna Medium for support. The installed Medium role file was not discoverable
+by this session's client (`unknown agent_type`). An explicit worker fallback was
+verified from actual runtime metadata: child `01a16589-4590-7940-b04a-ff96cb4a4ef3`,
+parent `01a164d8-1d7e-7b21-8d20-56031581b729`, path
+`/root/delegation_medium_update`, model `gpt-6.1-sol`, effort `medium`.
+This verifies fallback routing, not custom-role discovery. No host configuration
+changed; the generic configured default remains High. The full objective stays
+active, with unchanged normative payloads and eleven passing preservation controls.
+Independent Sol High review passes the four-file delegation/preservation diff
+(12,761 bytes, SHA-256
+`479535130f6e05620ff378d5400e1c62a16844aa9b9b928b391ee7dc48068235`).
+
 The initial read-only inventory covered 126 registered core worktrees and the
 application checkouts. Dirty files, untracked proof scripts, unpublished Map
 work, old recovery locks and the unrelated `error.log` remain preserved.
@@ -353,11 +369,27 @@ Actual public trial `39855637060` is pending on that merged feature; its
 redundant automatic source-only push run `39855573131` was cancelled after
 this tree passed the guarded source gate and the explicit trial was accepted.
 No host-cause finding is accepted, and the prior strict runtime failure remains
-intact. The main-based candidate separately retains reviewed local commit
+intact. The main-based candidate separately preserves reviewed commit
 `af1543f181bfb83ea86ebdc7ecc60d8b9c2bad9e`, closing third-party certificate
 decode/encode error detail into fixed categories while preserving pin checks.
-Its Rust tests and CodeQL effect remain unverified; carrying the accepted host
-diagnostic into that isolated main candidate is in progress.
+The accepted host diagnostic is now reconciled in published PR332 source
+`84be249dd014666f8a9fc98a3f511e51b9238047`, tree
+`2910425220a85468c9b983a4908182e61483f350`. It binds the intentional main157908ad
+baseline and feature291e949: 52 included paths, six reviewed reconciliations,
+46 feature-identical paths and all 560 unchanged non-CLI package records.
+Independent integration review and 474 inert Python checks pass; both
+certificate files and the actual-job bytes are preserved. Combined source run
+`39856657966` succeeds on that exact source/tree: 133 Rust and 474 Python tests,
+compilation, formatting and strict Clippy, including the malformed-certificate
+error-boundary regression. Artifact `12459578061`, 38,396 bytes, SHA-256
+`9e820668f63b798c930c0e06404ab156ddb492088ade08bd057b00e3cd07e8f6`, is retained
+under `.git/ci-evidence/resident-main-source-39856657966/`. The principal verified
+all 52 included source paths and eight preserved main blobs. Actual model
+execution is intentionally skipped by this source-only run. Ordinary Quality
+and CodeQL remain pending. Newer main/provider
+changes remain outside this source-composition baseline and must survive the
+eventual merge. CodeQL resolution and full runtime acceptance remain unverified
+for this combined candidate.
 
 Map's earlier actual39699719553 failure remains unchanged. Its 900-byte before/after
 IPv6 route fingerprints differ; raw route records were not retained, so the
@@ -601,6 +633,29 @@ pre-drag/post-mouse-up hit-test/draggable booleans. They read no payloads and
 change no propagation, input sequence, deadlines, pins or sandbox authority.
 Removal paths are source-reviewed; listener delivery and cleanup at runtime
 remain unverified. Actual paired trial `39855894275` is pending.
+
+Core PR330 subsequently publishes the independently reviewed workflow-only
+commit `e5e577eff3d6b957862533d4ab1b8d0169c555d5`, tree
+`783c6edb4de144bb2448b81cd138272dc806a1b5`. A single typed-boolean job condition
+avoids a duplicate ordinary Quality job only for an explicit Studio manual
+dispatch. Nine event/input cases pass; removing that line restores the prior
+workflow byte-for-byte. Every PR, main push and ordinary manual run retains the
+full Quality job, which must no longer be cancelled as a duplicate of a focused
+Studio dispatch. Live scheduling on this new workflow is not yet proven.
+The already-running paired trial remains on Core4458ea4d/Studio29e68e5 and
+retains its original full Quality job; it was not cancelled or restarted.
+
+The exact-three-document Quality optimization was audited and deferred.
+`preselection_sampler.rs` includes status text in a Rust assertion, so narrowing
+cannot skip that actual test. Reliable complete-history and non-document-tree
+fingerprint binding would add an audit refresh after functional source changes;
+that maintenance cost currently outweighs the proposed savings. Quality and
+external CodeQL configuration remain unchanged. The isolated worktree
+`.volparossa-dev/worktrees/documentation-quality-scope-20261022` retains only
+an unfinished untracked `scripts/quality-documentation-scope.py` draft (6,709
+bytes, SHA-256 `a1bb66adbd3e596cd583d55414e677fe24bf6fa3cb8b8311656532529f5969a5`),
+with no workflow reference or acceptance and no publication. Its pending audit
+fingerprint must not be mistaken for an implemented optimization.
 
 Preserved active technical work at consolidation:
 
@@ -1397,6 +1452,13 @@ The independently reviewed two-test-file correction is published at
 `d834ea735506e3ebe90c5872c1bbd58c6e50839b`. Twenty focused inert checks pass;
 exact export-set, validation, deduplication, private-sentinel and byte/count
 bounds remain intact. New full consumer run `39855345985` is pending.
+PR334's latest source is `6da935e0a2ffa3086401d38efb4581e591f43151`, tree
+`4a010abd9f4ccc297c04313b6ab58c079a37a595`. Two independently checked workflow
+registrations add the new fifteen-test failure-boundary suite once to ordinary
+Quality and once to Alpha source checks. The fifteen inert tests and YAML checks
+pass; removing those two lines restores both prior workflows byte-for-byte.
+Production and harness bytes remain identical to 7c569dd0. The running actual
+trial stays on 7c569dd0; it is not evidence of executing the new CI registrations.
 The diagnostic captures existing
 bounded agent logs before cleanup stops providers and uses closed route/provider
 projections. It adds no product telemetry and does not establish per-request
@@ -1408,7 +1470,7 @@ For protected Compute, public trial `39842391908` now proves the bounded public
 answers, corruption rejection and owned VM/tool/scratch cleanup, but retains a
 failed aggregate host-fingerprint comparison with the changed field unknown.
 Preserve the earlier `39831364171` failure and strict comparison gate. The
-isolated main-based resident candidate's source gate passes 133 Rust and 458
+isolated main-based resident candidate's latest source gate passes 133 Rust and 474
 Python tests, compilation, formatting and strict Clippy; its actual-model job is
 skipped. PR332 remains draft. PR333's host-diagnostic source run `39852803936`
 fails one new AST-binding test; corrected source gate `39854689983` passes,

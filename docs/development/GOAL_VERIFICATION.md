@@ -218,3 +218,28 @@ host comparison, despite the accepted bounded synthetic debug Activity/JNI
 checkpoint. None of these partial results completes the full goal. See current
 details and retained evidence in
 [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md#current-integration-and-active-work).
+
+
+### Delegation refinement — 2026-10-22
+
+The user revised development delegation to prefer the configured Sol Medium
+implementer for bounded implementation within established architectural contracts,
+subject to appropriate verification and independent Sol High review. Astra Ultra
+retains architecture, consequential decisions, coordination and critical
+integration; consequential architectural or trust-boundary changes escalate to
+the principal. Sol High retains complex debugging, ambiguous or security-sensitive
+implementation and independent technical review. Luna Medium retains bounded
+exploration, documentation and supporting tasks, with at most two concurrent
+subagents initially and delegation only when beneficial.
+
+This scoped revision changes AGENTS, the workflow role table and the copyable
+goal's delegation paragraph. The historical GOAL wording and all original,
+amendment, DPS and Studio/hosting/AI payload bytes remain preserved. The
+following workflow, privacy and full-acceptance sentences in the UI copy remain
+unchanged. Earlier UI character counts are historical; this repository update
+does not prove an active UI edit, restart or completion. The inert verifier
+and its eleven controls check requirement preservation, not actual delegation
+or runtime functionality. [CODEX_WORKFLOW.md](CODEX_WORKFLOW.md) distinguishes
+the installed Medium role file, the current client's custom-role rejection,
+the explicit fallback assignment and verified runtime metadata. The
+implementation ledger holds current routing evidence and integration status.
