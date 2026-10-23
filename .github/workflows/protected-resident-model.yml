@@ -36,7 +36,10 @@ jobs:
   contracts:
     if: >-
       github.repository == 'VOLPAROSSA/volparossa' &&
-      (((github.ref == 'refs/heads/integration/resident-model-main-20261022' ||
+      ((github.ref == 'refs/heads/integration/resident-model-main-20261022' &&
+      github.event_name == 'workflow_dispatch' && inputs.scenario == 'public-model' &&
+      inputs.expected_source == github.sha) ||
+      ((github.ref == 'refs/heads/integration/resident-model-main-20261022' ||
       github.ref == 'refs/heads/fix/model-host-observation-20261022' ||
       github.ref == 'refs/heads/fix/resident-connect-observation-20261023' ||
       github.ref == 'refs/heads/fix/resident-host-config-20261023') &&
@@ -71,7 +74,7 @@ jobs:
           mkdir resident-model-evidence
           python3 -B - <<'PY'
           import hashlib,json,os,pathlib,subprocess,tomllib
-          base=('157908ad1e4a3dc9050179be30a970beff1ef061'
+          base=('89d3aea585ed8a1e4d7db3beac76846d3d3e2dc1'
             if os.environ['GITHUB_REF']=='refs/heads/integration/resident-model-main-20261022'
             else '339294e0f31c7ebccf7bbffcd18819fefe84dfcc')
           def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
@@ -351,7 +354,7 @@ jobs:
               guest_boot=False,private_peer_admission=False,historical_cause_proven=False)
           main_integration_scope=None
           if os.environ['GITHUB_REF']=='refs/heads/integration/resident-model-main-20261022':
-            integration_main='157908ad1e4a3dc9050179be30a970beff1ef061'
+            integration_main='89d3aea585ed8a1e4d7db3beac76846d3d3e2dc1'
             retained_feature='81c6b6a5522b0f1cadf98345a7180974f46a2344'
             retained_tree='411c728475a8adf77a5a7273a86084c597775c44'
             feature_base='7d0f9f0b492c5e692cc9d26f23d95f55f2c1e651'
@@ -366,6 +369,7 @@ jobs:
             changed=git('diff','--name-only',integration_main,'HEAD').splitlines()
             assert len(changed)==len(set(changed))==52 and set(changed)==included
             reconciled={'Cargo.lock','THIRD_PARTY_LICENSES.md',
+              'tests/integration/protected-resident-model-run.py',
               '.github/workflows/protected-resident-model.yml',
               'tests/integration/test-protected-resident-model-run.py',
               'crates/volparossa/src/compute/resident_guest/public_trial.rs',
@@ -449,19 +453,16 @@ jobs:
               actual_job_sha256=hashlib.sha256(actual_job).hexdigest(),
               source_contracts_only=True,diagnostic_only=True,actual_model_execution=False,
               guest_boot=False,historical_cause_proven=False)
-          main_configuration_scope=None
+          main_runtime_scope=None
           if os.environ['GITHUB_REF']=='refs/heads/integration/resident-model-main-20261022' and main_integration_scope is not None:
-            configuration_base='af9ecc3ca4000b9883db2b38c819b1a18d221d40'
-            subprocess.run(['git','merge-base','--is-ancestor',configuration_base,'HEAD'],check=True)
-            configuration_allowed={
+            runtime_base='a9c3cc61a8bcde9dc7666b9189977ad52fc7fb44'
+            subprocess.run(['git','merge-base','--is-ancestor',runtime_base,'HEAD'],check=True)
+            runtime_allowed={
               '.github/workflows/protected-resident-model.yml',
-              'THIRD_PARTY_LICENSES.md',
               'tests/integration/protected-resident-model-run.py',
-              'tests/integration/test-protected-resident-model-run.py',
-              'tests/integration/protected-resident-model-host-observation.py',
-              'tests/integration/test-protected-resident-model-host-observation.py'}
-            changed=git('diff','--name-only',configuration_base,'HEAD').splitlines()
-            assert len(changed)==len(set(changed))==len(configuration_allowed)==6 and set(changed)==configuration_allowed
+              'tests/integration/test-protected-resident-model-run.py'}
+            changed=git('diff','--name-only',runtime_base,'HEAD').splitlines()
+            assert len(changed)==len(set(changed))==len(runtime_allowed)==3 and set(changed)==runtime_allowed
             dependencies=('Cargo.lock','Cargo.toml','rust-toolchain.toml',
               'crates/volparossa/Cargo.toml','crates/volparossa-content/Cargo.toml',
               'crates/volparossa/src/compute/resident_guest.rs',
@@ -477,21 +478,32 @@ jobs:
               'tests/integration/protected-resident-model-assemble.py',
               'tests/integration/protected-resident-model-workload.py')
             for name in dependencies:
-              assert git('rev-parse','HEAD:'+name)==git('rev-parse',configuration_base+':'+name),name
+              assert git('rev-parse','HEAD:'+name)==git('rev-parse',runtime_base+':'+name),name
             workflow='.github/workflows/protected-resident-model.yml'
-            original=subprocess.check_output(['git','show',configuration_base+':'+workflow])
+            original=subprocess.check_output(['git','show',runtime_base+':'+workflow])
             candidate=pathlib.Path(workflow).read_bytes()
             actual=b'\n  public-model:\n'
             assert candidate.split(actual,1)[1]==original.split(actual,1)[1]
             actual_job=actual+candidate.split(actual,1)[1]
             assert len(actual_job)==7067
             assert hashlib.sha256(actual_job).hexdigest()=='e44d67525c0d12f1711064c8f674f35fce559e85b679c6f30fd715fbdf4c90f2'
-            main_configuration_scope=dict(base_commit=configuration_base,
-              source_blobs={name:git('rev-parse','HEAD:'+name) for name in sorted(configuration_allowed)},
+            main_marker=b'\n  public-model-main:\n'
+            assert candidate.count(main_marker)==1
+            main_job=main_marker+candidate.split(main_marker,1)[1].split(actual,1)[0]
+            main_route=(b"      github.ref == 'refs/heads/integration/resident-model-main-20261022' &&\n"
+              b"      inputs.expected_source == github.sha && needs.contracts.result == 'success'\n")
+            feature_route=b"      github.ref == 'refs/heads/feature/protected-resident-model'\n"
+            assert main_job.count(main_route)==1
+            normalized=main_job.replace(main_marker,actual,1).replace(main_route,feature_route,1)
+            assert normalized==actual_job
+            main_runtime_scope=dict(base_commit=runtime_base,
+              source_blobs={name:git('rev-parse','HEAD:'+name) for name in sorted(runtime_allowed)},
               dependency_blobs={name:git('rev-parse','HEAD:'+name) for name in dependencies},
               actual_job_sha256=hashlib.sha256(actual+candidate.split(actual,1)[1]).hexdigest(),
               source_contracts_only=True,actual_model_execution=False,
               checkpoint_mode='supported_ipv6_reference_metadata_v1',
+              main_actual_job_sha256=hashlib.sha256(main_job).hexdigest(),
+              main_job_matches_canonical_after_routing=True,
               guest_boot=False,private_peer_admission=False,historical_cause_proven=False)
           names=git('diff','--name-only',base,'HEAD').splitlines()
           receipt=dict(version=1,source_commit=os.environ['GITHUB_SHA'],source_tree=git('rev-parse','HEAD^{tree}'),base=base,
@@ -503,8 +515,8 @@ jobs:
             receipt['main_integration_scope']=main_integration_scope
           if host_configuration_scope is not None:
             receipt['host_configuration_scope']=host_configuration_scope
-          if main_configuration_scope is not None:
-            receipt['main_configuration_scope']=main_configuration_scope
+          if main_runtime_scope is not None:
+            receipt['main_runtime_scope']=main_runtime_scope
           if connect_observation_scope is not None:
             receipt['connect_observation_scope']=connect_observation_scope
           if requester_scope is not None:
@@ -684,7 +696,7 @@ jobs:
           python3 -B - <<'PY'
           import json,pathlib,re
           root=pathlib.Path('resident-model-evidence'); counts={}
-          expected={'install':58,'assemble':29,'run':243}
+          expected={'install':58,'assemble':29,'run':247}
           for name,count in expected.items():
             raw=(root/('model-'+name+'.log')).read_text()
             tests=re.findall(r'^Ran ([0-9]+) tests? in ',raw,re.M)
@@ -753,6 +765,134 @@ jobs:
           name: public-resident-model-contracts
           path: resident-model-evidence
           if-no-files-found: error
+          retention-days: 14
+
+  public-model-main:
+    needs: contracts
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.scenario == 'public-model' &&
+      github.repository == 'VOLPAROSSA/volparossa' &&
+      github.ref == 'refs/heads/integration/resident-model-main-20261022' &&
+      inputs.expected_source == github.sha && needs.contracts.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      EXPECTED_SOURCE: ${{ inputs.expected_source }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind explicit hosted source
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_REPOSITORY" = VOLPAROSSA/volparossa
+          test "$GITHUB_SHA" = "$EXPECTED_SOURCE"
+          test "$GITHUB_WORKFLOW_SHA" = "$EXPECTED_SOURCE"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Install official tools on the disposable hosted runner only
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(dpkg --print-architecture)" = amd64
+          sudo -n apt-get update
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+            libguestfs-tools qemu-system-x86 qemu-utils cryptsetup-bin cloud-image-utils \
+            openssh-client openssl cpio zstd initramfs-tools-core dbus-user-session \
+            protobuf-compiler=3.21.12-8.2ubuntu0.4 \
+            libprotoc32t64=3.21.12-8.2ubuntu0.4 \
+            libprotobuf32t64=3.21.12-8.2ubuntu0.4
+          test "$(protoc --version)" = 'libprotoc 3.21.12'
+          rustup toolchain install 1.85.0 --profile minimal --no-self-update
+      - name: Prepare only the disposable runner's user manager when absent
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          umask 077
+          if ! sudo -n systemctl is-active --quiet "user@$(id -u).service"; then
+            touch "$RUNNER_TEMP/vp-model-user-manager-owned-$GITHUB_RUN_ID"
+            sudo -n systemctl start "user@$(id -u).service"
+          fi
+          test -S "/run/user/$(id -u)/bus"
+      - name: Compile the same-source requester for the hosted operating system
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          cargo build --locked -p volparossa --bin volparossa
+          # Cargo may hardlink target/debug to target/debug/deps. Make an owned
+          # single-link copy; do not loosen the controller's executable guard.
+          test ! -e target/resident-public-requester
+          cp --no-clobber target/debug/volparossa target/resident-public-requester
+          chmod 0700 target/resident-public-requester
+          test "$(stat -c '%h' target/resident-public-requester)" = 1
+          cmp target/debug/volparossa target/resident-public-requester
+          git diff --exit-code HEAD
+      - name: Execute the public model trial with process-scoped KVM access
+        timeout-minutes: 245
+        run: |
+          set -euo pipefail
+          umask 077
+          launch_uid="$(id -u)"
+          launch_gid="$(stat -c '%g' /dev/kvm)"
+          [[ "$launch_uid" =~ ^[1-9][0-9]*$ && "$launch_gid" =~ ^[1-9][0-9]*$ ]]
+          kernel_release="$(uname -r)"
+          [[ "$kernel_release" =~ ^[0-9][A-Za-z0-9._+-]{0,127}$ ]]
+          kernel_copy="$RUNNER_TEMP/vp-model-kernel-$GITHUB_RUN_ID"
+          # A bounded read only; no chmod/chown of the host kernel or KVM device.
+          (set -o noclobber
+            sudo -n /usr/bin/timeout --kill-after=2s 15s /usr/bin/dd \
+              "if=/boot/vmlinuz-$kernel_release" iflag=nofollow,count_bytes \
+              count=67108865 bs=1048576 status=none >"$kernel_copy")
+          sudo -n -- /usr/bin/setpriv --reuid="$launch_uid" --regid="$launch_gid" \
+            --clear-groups --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs -- \
+            /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 \
+            GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted RUNNER_OS=Linux \
+            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_SHA="$GITHUB_SHA" GITHUB_REF="$GITHUB_REF" \
+            GITHUB_WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA" RUNNER_TEMP="$RUNNER_TEMP" \
+            VP_PUBLIC_BOOT_UID="$launch_uid" VP_PUBLIC_BOOT_KVM_GID="$launch_gid" \
+            python3 -B tests/integration/protected-resident-model-run.py --execute --yes \
+              --expected-source "$EXPECTED_SOURCE" --work "$RUNNER_TEMP/vp-resident-model-$GITHUB_RUN_ID" \
+              --appliance-kernel "$kernel_copy" --requester "$GITHUB_WORKSPACE/target/resident-public-requester"
+      - name: Restore only the user manager started by this job
+        if: always()
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          if test -f "$RUNNER_TEMP/vp-model-user-manager-owned-$GITHUB_RUN_ID"; then
+            sudo -n systemctl stop "user@$(id -u).service"
+            test "$(sudo -n systemctl show "user@$(id -u).service" --property=ActiveState --value)" = inactive
+          fi
+      - name: Verify source after the trial
+        if: always()
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          git diff --exit-code HEAD
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        if: always()
+        with:
+          name: public-resident-model-trial-${{ github.run_id }}
+          # Closed public receipts only. Never upload SSH/TLS/signing keys,
+          # guest filesystems, raw source inputs or the model payload directory.
+          path: |
+            ${{ runner.temp }}/vp-resident-model-${{ github.run_id }}/evidence/install-build.json
+            ${{ runner.temp }}/vp-resident-model-${{ github.run_id }}/evidence/install-runtime.json
+            ${{ runner.temp }}/vp-resident-model-${{ github.run_id }}/evidence/build-cleanup.json
+            ${{ runner.temp }}/vp-resident-model-${{ github.run_id }}/evidence/model-build.json
+            ${{ runner.temp }}/vp-resident-model-${{ github.run_id }}/evidence/workload.json
+            ${{ runner.temp }}/vp-resident-model-${{ github.run_id }}/evidence/initrd.json
+            ${{ runner.temp }}/vp-resident-model-${{ github.run_id }}/evidence/sealed-inputs.json
+            ${{ runner.temp }}/vp-resident-model-${{ github.run_id }}/evidence/requester.json
+            ${{ runner.temp }}/vp-resident-model-${{ github.run_id }}/evidence/model-boot.json
+            ${{ runner.temp }}/vp-resident-model-${{ github.run_id }}/evidence/corrupt-boot.json
+            ${{ runner.temp }}/vp-resident-model-${{ github.run_id }}/evidence/result.json
+          if-no-files-found: warn
           retention-days: 14
 
   public-model:

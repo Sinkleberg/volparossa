@@ -584,9 +584,10 @@ def hosted(args, deadline):
     require(args.execute and args.yes and os.getuid() > 0, 'explicit_hosted_execution')
     for key, expected in {'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted',
                           'RUNNER_OS': 'Linux', 'GITHUB_REPOSITORY': 'VOLPAROSSA/volparossa',
-                          'GITHUB_SHA': args.expected_source, 'GITHUB_WORKFLOW_SHA': args.expected_source,
-                          'GITHUB_REF': 'refs/heads/feature/protected-resident-model'}.items():
+                          'GITHUB_SHA': args.expected_source, 'GITHUB_WORKFLOW_SHA': args.expected_source}.items():
         require(os.environ.get(key) == expected, 'hosted_source_scope')
+    require(os.environ.get('GITHUB_REF') in ('refs/heads/feature/protected-resident-model',
+            'refs/heads/integration/resident-model-main-20261022'), 'hosted_source_scope')
     require(os.uname().machine == 'x86_64', 'host_architecture')
     source = source_binding(args.expected_source, deadline)
     base = module('protected-resident-image')

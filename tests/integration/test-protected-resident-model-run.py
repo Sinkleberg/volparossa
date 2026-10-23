@@ -2467,7 +2467,95 @@ class BuilderDiagnostic(Inert):
         self.assertNotIn(b'PRIVATE_CANARY', R.encoded(diagnostics))
 
 
+class MainHostedAdmission(Inert):
+    def environment(self, branch):
+        return dict(GITHUB_ACTIONS='true', RUNNER_ENVIRONMENT='github-hosted', RUNNER_OS='Linux',
+            GITHUB_REPOSITORY='VOLPAROSSA/volparossa', GITHUB_SHA='a'*40,
+            GITHUB_WORKFLOW_SHA='a'*40, GITHUB_REF=branch)
+
+    def test_only_two_exact_refs_reach_source_binding_before_any_host_effect(self):
+        branches = ('refs/heads/feature/protected-resident-model',
+            'refs/heads/integration/resident-model-main-20261022')
+        args = types.SimpleNamespace(execute=True, yes=True, expected_source='a'*40)
+        for branch in branches:
+            with mock.patch.dict(R.os.environ, self.environment(branch), clear=True), \
+                    mock.patch.object(R.os, 'getuid', return_value=1000), \
+                    mock.patch.object(R.os, 'uname', return_value=types.SimpleNamespace(machine='x86_64')), \
+                    mock.patch.object(R, 'source_binding', side_effect=ValueError('synthetic_source_boundary')) as source, \
+                    mock.patch.object(R, 'module') as module, mock.patch.object(Path, 'mkdir') as mkdir:
+                with self.assertRaisesRegex(ValueError, '^synthetic_source_boundary$'): R.hosted(args, 200)
+                source.assert_called_once_with('a'*40, 200)
+                module.assert_not_called(); mkdir.assert_not_called()
+
+    def test_environment_and_explicit_execution_fail_before_source_or_host_effects(self):
+        branch = 'refs/heads/integration/resident-model-main-20261022'
+        cases = [(key, value) for key, value in dict(GITHUB_ACTIONS='false', RUNNER_ENVIRONMENT='self-hosted',
+            RUNNER_OS='Other', GITHUB_REPOSITORY='other/repository', GITHUB_SHA='b'*40,
+            GITHUB_WORKFLOW_SHA='b'*40).items()]
+        cases += [('GITHUB_REF', value) for value in ('', 'refs/heads/main',
+            'refs/heads/integration/resident-main-runtime-20261023', 'refs/pull/1/merge',
+            branch+'-other', 'refs/heads/fix/resident-host-config-20261023')]
+        cases += [(key, None) for key in self.environment(branch)]
+        cases += [('execute', False), ('yes', False), ('uid', 0), ('architecture', 'aarch64')]
+        for key, value in cases:
+            args = types.SimpleNamespace(execute=True, yes=True, expected_source='a'*40)
+            env = self.environment(branch)
+            if key in env:
+                if value is None: del env[key]
+                else: env[key] = value
+            if key in ('execute', 'yes'): setattr(args, key, value)
+            with self.subTest(field=key, value=value), mock.patch.dict(R.os.environ, env, clear=True), \
+                    mock.patch.object(R.os, 'getuid', return_value=0 if key=='uid' else 1000), \
+                    mock.patch.object(R.os, 'uname', return_value=types.SimpleNamespace(machine=value if key=='architecture' else 'x86_64')), \
+                    mock.patch.object(R, 'source_binding') as source, mock.patch.object(R, 'module') as module, \
+                    mock.patch.object(Path, 'mkdir') as mkdir:
+                with self.assertRaises(ValueError): R.hosted(args, 200)
+                source.assert_not_called(); module.assert_not_called(); mkdir.assert_not_called()
+
+    def test_source_binding_rejects_bad_pins_and_changed_source_before_execution(self):
+        for pin in ('', None, 'a'*39, 'a'*41, 'A'*40, 'PRIVATE_SOURCE'):
+            with mock.patch.object(R, 'run') as command:
+                with self.assertRaisesRegex(ValueError, '^source_sha$'): R.source_binding(pin, 200)
+                command.assert_not_called()
+        for head, changed in (('a'*40, b''), ('b'*40, b''), ('a'*40, b'changed.py')):
+            def reply(argv, _deadline):
+                return ({'rev-parse':head.encode(), 'diff':changed}[argv[3]], b'', 0)
+            with mock.patch.object(R, 'run', side_effect=reply):
+                if head=='a'*40 and not changed:
+                    self.assertEqual(R.source_binding('a'*40, 200), dict(commit='a'*40, tree='a'*40))
+                else:
+                    with self.assertRaisesRegex(ValueError, '^source_changed$'): R.source_binding('a'*40, 200)
+
+
 class ReceiptAndBindings(Inert):
+    def test_main_actual_route_requires_exact_pin_and_successful_contracts(self):
+        workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
+        def condition(job):
+            body = workflow.split('\n  '+job+':\n', 1)[1]
+            expression = ' '.join(body.split('    if: >-\n', 1)[1].split('\n    runs-on:', 1)[0].splitlines())
+            return compile(expression.replace('&&',' and ').replace('||',' or ').strip(), 'inert-main-route', 'eval')
+        contracts, main, feature = (condition(job) for job in ('contracts','public-model-main','public-model'))
+        main_body = workflow.split('\n  public-model-main:\n',1)[1].split('\n  public-model:\n',1)[0]
+        self.assertTrue(main_body.startswith('    needs: contracts\n'))
+        self.assertNotIn('always()', main_body.split('    runs-on:',1)[0])
+        target = 'refs/heads/integration/resident-model-main-20261022'
+        for repository in ('VOLPAROSSA/volparossa', 'other/repository'):
+            for branch in (target, target+'-other', 'refs/heads/main', 'refs/pull/1/merge',
+                'refs/heads/integration/resident-main-runtime-20261023', 'refs/heads/feature/protected-resident-model'):
+                for event in ('push','pull_request','workflow_dispatch'):
+                    for scenario in ('source-contracts','public-model','private-model'):
+                        for pin in ('', 'b'*40, 'a'*40):
+                            for result in ('success','failure','skipped','cancelled'):
+                                context = dict(github=types.SimpleNamespace(repository=repository,ref=branch,event_name=event,sha='a'*40),
+                                    inputs=types.SimpleNamespace(scenario=scenario,expected_source=pin),
+                                    needs=types.SimpleNamespace(contracts=types.SimpleNamespace(result=result)))
+                                eligible = repository=='VOLPAROSSA/volparossa' and branch==target and event=='workflow_dispatch'
+                                actual = eligible and scenario=='public-model' and pin=='a'*40
+                                self.assertEqual(eval(main,context), actual and result=='success')
+                                if branch==target:
+                                    self.assertEqual(eval(contracts,context), eligible and (scenario=='source-contracts' or actual))
+                                    self.assertFalse(eval(feature,context))
+
     def test_current_inventories_match_both_source_refs_without_expanding_execution_authority(self):
         import re
         import textwrap
@@ -2507,11 +2595,11 @@ class ReceiptAndBindings(Inert):
             self.assertEqual(sum(groups.values()), 137)
             for stale in (dict(grant=22, guest=38, resident=41, local=30, startup=2), dict(grant=22, guest=42, resident=41, local=30)):
                 with self.assertRaises(AssertionError): exec(rust_gate, dict(namespace, groups=stale))
-            for count in (243, 242, 241, 240):
+            for count in (247, 246, 243, 242):
                 current = dict(os=namespace['os'], root=Logs(count), re=re, counts={})
-                if count == 243:
+                if count == 247:
                     exec(controller_gate, current)
-                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=243))
+                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=247))
                 else:
                     with self.assertRaises(AssertionError): exec(controller_gate, current)
             for event, scenario in (('push', 'source-contracts'), ('workflow_dispatch', 'source-contracts'), ('workflow_dispatch', 'public-model')):
@@ -2536,15 +2624,16 @@ class ReceiptAndBindings(Inert):
         gate = next(node for node in ast.parse(code).body
                     if isinstance(node, ast.If) and repr(branch) in ast.unparse(node.test))
         compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-main-integration-gate', 'exec')
-        main = '157908ad1e4a3dc9050179be30a970beff1ef061'
+        main = '89d3aea585ed8a1e4d7db3beac76846d3d3e2dc1'
         feature = '81c6b6a5522b0f1cadf98345a7180974f46a2344'
         feature_base = '7d0f9f0b492c5e692cc9d26f23d95f55f2c1e651'
         feature_tree = '411c728475a8adf77a5a7273a86084c597775c44'
         reconciled = {'Cargo.lock','THIRD_PARTY_LICENSES.md','.github/workflows/protected-resident-model.yml',
+            'tests/integration/protected-resident-model-run.py',
             'tests/integration/test-protected-resident-model-run.py',
             'crates/volparossa/src/compute/resident_guest/public_trial.rs',
             'crates/volparossa/src/compute/resident_guest/public_trial/tests.rs'}
-        allowed = reconciled | {f'source-{i}' for i in range(46)}
+        allowed = reconciled | {f'source-{i}' for i in range(45)}
         dependencies = {'prost','rcgen','rustls','tokio-rustls','x509-cert'}
         old_lock = {'package': [dict(name='volparossa',version='0.1.0',dependencies=['tokio']),
             dict(name='hpke',version='0.14.1',checksum='reviewed'),
@@ -2606,12 +2695,12 @@ class ReceiptAndBindings(Inert):
             expression = ' '.join(condition.splitlines()).replace('&&',' and ').replace('||',' or ').strip()
             for event in ('push','pull_request','workflow_dispatch'):
                 for scenario in ('source-contracts','public-model'):
-                    context = dict(github=types.SimpleNamespace(repository='VOLPAROSSA/volparossa',ref=branch,event_name=event),
-                        inputs=types.SimpleNamespace(scenario=scenario))
+                    context = dict(github=types.SimpleNamespace(repository='VOLPAROSSA/volparossa',ref=branch,event_name=event,sha='a'*40),
+                        inputs=types.SimpleNamespace(scenario=scenario,expected_source=''))
                     self.assertEqual(eval(expression,context),job=='contracts' and event=='workflow_dispatch' and scenario=='source-contracts')
 
 
-    def test_main_configuration_source_gate_is_exact_and_only_authorizes_dispatched_source_contracts(self):
+    def test_main_runtime_source_gate_is_exact_and_preserves_canonical_workload(self):
         import textwrap
         workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
         code = textwrap.dedent(workflow.split("python3 -B - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
@@ -2620,13 +2709,10 @@ class ReceiptAndBindings(Inert):
                     if isinstance(node, ast.If) and 'main_integration_scope' in ast.unparse(node.test))
         compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-connect-gate', 'exec')
         approved = {'.github/workflows/protected-resident-model.yml',
-            'THIRD_PARTY_LICENSES.md',
-            'tests/integration/protected-resident-model-host-observation.py',
-            'tests/integration/test-protected-resident-model-host-observation.py',
             'tests/integration/protected-resident-model-run.py',
             'tests/integration/test-protected-resident-model-run.py'}
-        base = 'af9ecc3ca4000b9883db2b38c819b1a18d221d40'
-        for change in ('valid', 'missing', 'extra', 'duplicate', 'dependency', 'ancestry', 'actual_job', 'job_hash'):
+        base = 'a9c3cc61a8bcde9dc7666b9189977ad52fc7fb44'
+        for change in ('valid', 'missing', 'extra', 'duplicate', 'dependency', 'ancestry', 'actual_job', 'job_hash', 'main_workload', 'main_route'):
             changed = sorted(approved)
             if change == 'missing': changed.pop()
             if change == 'extra': changed.append('crates/volparossa/src/main.rs')
@@ -2637,6 +2723,8 @@ class ReceiptAndBindings(Inert):
                 return 'a' * 40
             candidate = workflow.encode() + (b'\n' if change in ('actual_job', 'job_hash') else b'')
             original = candidate if change == 'job_hash' else workflow.encode()
+            if change == 'main_workload': candidate=candidate.replace(b'timeout-minutes: 300',b'timeout-minutes: 301',1)
+            if change == 'main_route': candidate=b"inputs.expected_source == github.sha".join(candidate.rsplit(b"inputs.expected_source == github.sha && needs.contracts.result == 'success'",1))
             command = mock.Mock(side_effect=AssertionError('ancestry') if change == 'ancestry' else None)
             read = mock.Mock(return_value=original)
             namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}), main_integration_scope={}, git=git,
@@ -2644,12 +2732,13 @@ class ReceiptAndBindings(Inert):
                 pathlib=types.SimpleNamespace(Path=lambda _: types.SimpleNamespace(read_bytes=lambda: candidate)))
             if change == 'valid':
                 exec(compiled, namespace)
-                receipt = namespace['main_configuration_scope']
+                receipt = namespace['main_runtime_scope']
                 self.assertEqual(set(receipt['source_blobs']), approved)
                 self.assertEqual(len(receipt['dependency_blobs']), 17)
                 self.assertTrue(receipt['source_contracts_only'])
                 self.assertEqual(receipt['checkpoint_mode'],'supported_ipv6_reference_metadata_v1')
                 self.assertNotIn('diagnostic_only',receipt)
+                self.assertTrue(receipt['main_job_matches_canonical_after_routing'])
                 for key in ('actual_model_execution', 'guest_boot', 'historical_cause_proven'):
                     self.assertFalse(receipt[key])
                 self.assertEqual(receipt['actual_job_sha256'],
@@ -2663,8 +2752,8 @@ class ReceiptAndBindings(Inert):
             for repository in ('VOLPAROSSA/volparossa', 'unapproved/repository'):
                 for event in ('push', 'workflow_dispatch'):
                     for scenario in ('source-contracts', 'public-model'):
-                        context = dict(github=types.SimpleNamespace(repository=repository, ref=branch, event_name=event),
-                                       inputs=types.SimpleNamespace(scenario=scenario))
+                        context = dict(github=types.SimpleNamespace(repository=repository, ref=branch, event_name=event,sha='a'*40),
+                                       inputs=types.SimpleNamespace(scenario=scenario,expected_source=''))
                         self.assertEqual(eval(compile(expression, 'inert-connect-authority', 'eval'), context),
                             job == 'contracts' and repository == 'VOLPAROSSA/volparossa' and
                             event == 'workflow_dispatch' and scenario == 'source-contracts')
@@ -2981,8 +3070,8 @@ class ReceiptAndBindings(Inert):
             for repository in ('VOLPAROSSA/volparossa', 'unapproved/repository'):
                 for event in ('push', 'workflow_dispatch'):
                     for scenario in ('source-contracts', 'public-model'):
-                        context = dict(github=types.SimpleNamespace(repository=repository, ref=branch, event_name=event),
-                                       inputs=types.SimpleNamespace(scenario=scenario))
+                        context = dict(github=types.SimpleNamespace(repository=repository, ref=branch, event_name=event,sha='a'*40),
+                                       inputs=types.SimpleNamespace(scenario=scenario,expected_source=''))
                         self.assertEqual(eval(compile(expression, 'inert-connect-authority', 'eval'), context),
                             job == 'contracts' and repository == 'VOLPAROSSA/volparossa' and
                             event == 'workflow_dispatch' and scenario == 'source-contracts')
