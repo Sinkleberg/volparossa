@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "run_id": "40006615568",
+  "source_revision": "904a6ad04e85c8f4775c17c34f3ab76966025e7a",
+  "artifact_id": 12524082572,
+  "artifact_bytes": 553,
+  "archive_sha256": "f6c08d32d27790cdf092be09749e473b1df0f97a289e2d7617a845e271034912",
+  "inspection_only": true,
+  "original_run_id": "39998753810",
+  "precise_sampling_failure_cause_unproven": true,
+  "media_accepted": false
+}

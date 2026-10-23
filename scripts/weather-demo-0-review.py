@@ -33,6 +33,72 @@ FONT = Path('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')
 REPORTS = {'weather-android-hosted-acceptance.json', 'weather-android-owner-join.json',
            'weather-android-delivery-evidence.json', 'weather-android-vm-cleanup.json'}
 STATE = {'stage': 'arguments'}
+SAMPLING_RULES = frozenset(('selection-count', 'font', 'child-timeout', 'child-png-budget',
+    'child-stderr-limit', 'child-output-limit', 'child-exit', 'child-stderr', 'child-io', 'child-other',
+    'frame-inventory', 'png-total-budget', 'native-frame-count', 'png-size', 'png-dimensions', 'sampling-other'))
+SAMPLING_NUMBERS = {'expected_frame_count': 21600, 'actual_frame_count': 21600,
+    'total_png_bytes': MAX_EXPANDED, 'png_bytes': 4 * 1024**2 + 1,
+    'width': 8192, 'height': 8192, 'stderr_bytes': 131072}
+SAMPLING_ENUMS = {'native_error_category': frozenset(('unobserved', 'none', 'stderr', 'process', 'timeout',
+    'output-limit', 'stderr-limit', 'png-budget', 'io', 'other')),
+    'stderr_class': frozenset(('unobserved', 'none', 'non-monotonic-dts', 'other'))}
+
+
+def sampling_rejection(rule, facts):
+    require(rule in SAMPLING_RULES and type(facts) is dict
+        and set(facts) <= set(SAMPLING_NUMBERS) | set(SAMPLING_ENUMS) | {'child_status'}, 'sampling diagnostic rejected')
+    for key, value in facts.items():
+        if key in SAMPLING_NUMBERS:
+            require(value is None or type(value) is int and 0 <= value <= SAMPLING_NUMBERS[key], 'sampling diagnostic number rejected')
+        elif key == 'child_status':
+            require(value is None or type(value) is int and -255 <= value <= 255, 'sampling diagnostic status rejected')
+        else:
+            require(type(value) is str and value in SAMPLING_ENUMS[key], 'sampling diagnostic category rejected')
+    value = dict(schema=1, rule=rule, facts=facts)
+    require(len(json.dumps(value, sort_keys=True)) <= 2048, 'sampling diagnostic size rejected')
+    return value
+
+
+def sampling_require(condition, message, rule, **facts):
+    if not condition:
+        error = ValueError(message)
+        error.sampling_rejection = sampling_rejection(rule, facts)
+        raise error
+
+
+def sampling_command_failure(error, errors, status):
+    # Compare only this command's fixed internal guard messages. No exception
+    # text, command arguments, raw stderr or paths enter the public projection.
+    messages = {'child timeout': ('child-timeout', 'timeout'),
+        'generated image budget exceeded': ('child-png-budget', 'png-budget'),
+        'child diagnostic limit exceeded': ('child-stderr-limit', 'stderr-limit'),
+        'child output limit exceeded': ('child-output-limit', 'output-limit'),
+        'child emitted error diagnostics': ('child-stderr', 'stderr')}
+    if isinstance(error, ChildFailure): rule, category = 'child-exit', 'process'
+    elif isinstance(error, subprocess.TimeoutExpired): rule, category = 'child-timeout', 'timeout'
+    elif isinstance(error, OSError): rule, category = 'child-io', 'io'
+    else:
+        literal = error.args[0] if isinstance(error, ValueError) and len(error.args) == 1 and type(error.args[0]) is str else None
+        rule, category = messages.get(literal, ('child-other', 'other'))
+    # FFmpeg n6.1.1 libavformat/mux.c emits the first fixed marker. This
+    # classification observes a marker, not a diagnosis of its underlying cause.
+    dts = (b'Application provided invalid, non monotonically increasing dts to muxer' in errors
+        or b'Non-monotonic DTS in output stream' in errors)
+    return sampling_rejection(rule, dict(native_error_category=category,
+        stderr_bytes=len(errors) if len(errors) <= 131072 else None,
+        stderr_class='non-monotonic-dts' if dts else 'other' if errors else 'none',
+        child_status=status if type(status) is int and -255 <= status <= 255 else None))
+
+
+def sampling_snapshot(samples):
+    try:
+        frames = list(samples.glob('frame-*.png'))
+        count = len(frames)
+        total = sum(path.lstat().st_size for path in frames)
+        return dict(actual_frame_count=count if count <= 21600 else None,
+            total_png_bytes=total if 0 <= total <= MAX_EXPANDED else None)
+    except OSError:
+        return dict(actual_frame_count=None, total_png_bytes=None)
 
 
 class ChildFailure(ValueError):
@@ -71,7 +137,7 @@ def tool(path):
     return str(path)
 
 
-def command(args, *, maximum=2 * 1024**2, destination=None, seconds=30, budget=None, reject_stderr=False):
+def command(args, *, maximum=2 * 1024**2, destination=None, seconds=30, budget=None, reject_stderr=False, sampling=False):
     """Bound both pipes, elapsed time and optional generated PNG storage."""
     env = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8', 'GH_HOST': 'github.com'}
     if args[0] == '/usr/bin/gh' and 'GH_TOKEN' in os.environ:
@@ -110,7 +176,11 @@ def command(args, *, maximum=2 * 1024**2, destination=None, seconds=30, budget=N
                     if child.returncode:
                         raise ChildFailure(child.returncode)
                     require(not reject_stderr or not errors, 'child emitted error diagnostics')
-            except BaseException:
+            except BaseException as error:
+                # Freeze this command's status/diagnostic classification before
+                # kill/join changes it. Native failures still reject unchanged.
+                if sampling:
+                    error.sampling_rejection = sampling_command_failure(error, errors, child.poll())
                 child.kill()
                 child.wait()
                 raise
@@ -439,39 +509,64 @@ def quarantine_samples(original, output, media, start, stop, fps, *, native=Fals
     (output / 'frame-timeline.json').write_text(json.dumps(timeline, sort_keys=True, indent=2) + '\n')
     (output / 'frame-timeline.json').chmod(0o600)
     STATE['stage'] = 'quarantine-video-sampling'
-    ffmpeg = tool('/usr/bin/ffmpeg')
-    require(FONT.is_file() and not FONT.is_symlink(), 'fixed distro font required')
-    samples = output / 'samples'
-    samples.mkdir(mode=0o700)
-    selected = [frame for frame in timeline['frames'] if start <= frame['clip_relative_pts_seconds'] < stop]
-    require(not native or 1 <= len(selected) <= 900, 'native frame count exceeds inspection budget')
-    label = ("drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:"
-        "text='Clip PTS %{pts\\:hms}':fontsize=25:fontcolor=white:box=1:boxcolor=black@0.8:x=8:y=8")
-    if native:
-        limit = len(selected)
-        graph = f'setpts=PTS-STARTPTS,trim=start={start:.9f}:end={stop:.9f}'
-        timing = ['-fps_mode', 'passthrough']
-    else:
-        limit = math.ceil((stop - start) * fps)
-        graph = (f'setpts=PTS-STARTPTS,trim=start={start:.9f}:end={stop:.9f},setpts=PTS-STARTPTS,'
-            f'fps={fps:.9f}:start_time=0,setpts=PTS+{start:.9f}/TB,' + label.replace('Clip PTS', 'Nominal'))
-        timing = []
-    command([ffmpeg, '-nostdin', '-v', 'error', '-protocol_whitelist', 'file,pipe', '-i',
-        str(original / 'source-capture/screen.mp4'), '-vf', graph, '-an', *timing, '-frames:v', str(limit),
-        '-threads', '2', '-compression_level', '6', '-start_number', '0', str(samples / 'frame-%03d.png')],
-        maximum=65536, seconds=240, budget=samples, reject_stderr=native)
-    frames = sorted(samples.glob('frame-*.png'))
-    require(1 <= len(frames) <= limit and [p.name for p in frames] == [f'frame-{i:03d}.png' for i in range(len(frames))]
-            and sum(p.stat().st_size for p in frames) <= MAX_ZIP, 'quarantine sample inventory or budget rejected')
-    require(not native or len(frames) == len(selected), 'native decoded frame count differs from source PTS timeline')
-    for path in frames:
-        require(0 < path.stat().st_size <= 4 * 1024**2, 'quarantine sample PNG size rejected')
-        with path.open('rb') as stream:
-            prefix = stream.read(24)
-        require(len(prefix) == 24 and prefix[:8] == b'\x89PNG\r\n\x1a\n' and prefix[12:16] == b'IHDR'
-                and tuple(int.from_bytes(prefix[i:i + 4], 'big') for i in [16, 20]) == (720, 1280),
-                'quarantine sample PNG dimensions rejected')
-        path.chmod(0o600)
+    selected, samples, command_returned = None, output / 'samples', False
+    try:
+        ffmpeg = tool('/usr/bin/ffmpeg')
+        sampling_require(FONT.is_file() and not FONT.is_symlink(), 'fixed distro font required', 'font')
+        samples = output / 'samples'
+        samples.mkdir(mode=0o700)
+        selected = [frame for frame in timeline['frames'] if start <= frame['clip_relative_pts_seconds'] < stop]
+        sampling_require(not native or 1 <= len(selected) <= 900, 'native frame count exceeds inspection budget',
+            'selection-count', expected_frame_count=len(selected) if len(selected) <= 21600 else None)
+        label = ("drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:"
+            "text='Clip PTS %{pts\\:hms}':fontsize=25:fontcolor=white:box=1:boxcolor=black@0.8:x=8:y=8")
+        if native:
+            limit = len(selected)
+            graph = f'setpts=PTS-STARTPTS,trim=start={start:.9f}:end={stop:.9f}'
+            # FFmpeg n6.1.1 doc/ffmpeg.texi:1620-1641 and
+            # fftools/ffmpeg_filter.c:1709-1770: default encoding uses inverse
+            # framerate; demux retains source tick precision for variable PTS.
+            # This changes no pixel filter, frame count or stderr rejection.
+            timing = ['-fps_mode', 'passthrough', '-enc_time_base:v', 'demux']
+        else:
+            limit = math.ceil((stop - start) * fps)
+            graph = (f'setpts=PTS-STARTPTS,trim=start={start:.9f}:end={stop:.9f},setpts=PTS-STARTPTS,'
+                f'fps={fps:.9f}:start_time=0,setpts=PTS+{start:.9f}/TB,' + label.replace('Clip PTS', 'Nominal'))
+            timing = []
+        command([ffmpeg, '-nostdin', '-v', 'error', '-protocol_whitelist', 'file,pipe', '-i',
+            str(original / 'source-capture/screen.mp4'), '-vf', graph, '-an', *timing, '-frames:v', str(limit),
+            '-threads', '2', '-compression_level', '6', '-start_number', '0', str(samples / 'frame-%03d.png')],
+            maximum=65536, seconds=240, budget=samples, reject_stderr=native, sampling=True)
+        command_returned = True
+        frames = sorted(samples.glob('frame-*.png'))
+        total_png_bytes = sum(p.stat().st_size for p in frames)
+        sampling_require(1 <= len(frames) <= limit and [p.name for p in frames] == [f'frame-{i:03d}.png' for i in range(len(frames))],
+            'quarantine sample inventory or budget rejected', 'frame-inventory')
+        sampling_require(total_png_bytes <= MAX_ZIP, 'quarantine sample inventory or budget rejected', 'png-total-budget')
+        sampling_require(not native or len(frames) == len(selected), 'native decoded frame count differs from source PTS timeline',
+            'native-frame-count')
+        for path in frames:
+            png_size = path.stat().st_size
+            sampling_require(0 < png_size <= 4 * 1024**2, 'quarantine sample PNG size rejected', 'png-size',
+                png_bytes=png_size if 0 <= png_size <= 4 * 1024**2 + 1 else None)
+            with path.open('rb') as stream:
+                prefix = stream.read(24)
+            dimensions = tuple(int.from_bytes(prefix[i:i + 4], 'big') for i in [16, 20]) if len(prefix) == 24 else (None, None)
+            sampling_require(len(prefix) == 24 and prefix[:8] == b'\x89PNG\r\n\x1a\n' and prefix[12:16] == b'IHDR'
+                    and dimensions == (720, 1280), 'quarantine sample PNG dimensions rejected', 'png-dimensions',
+                width=dimensions[0] if dimensions[0] is not None and dimensions[0] <= 8192 else None,
+                height=dimensions[1] if dimensions[1] is not None and dimensions[1] <= 8192 else None)
+            path.chmod(0o600)
+    except BaseException as error:
+        value = getattr(error, 'sampling_rejection', sampling_rejection('sampling-other', {}))
+        facts = dict(value['facts'])
+        facts.setdefault('native_error_category', 'none' if command_returned and native else 'unobserved')
+        facts.setdefault('stderr_class', 'none' if command_returned and native else 'unobserved')
+        facts.setdefault('stderr_bytes', 0 if command_returned and native else None)
+        facts.update(sampling_snapshot(samples))
+        facts['expected_frame_count'] = (len(selected) if selected is not None and len(selected) <= 21600 else None) if native else None
+        error.sampling_rejection = sampling_rejection(value['rule'], facts)
+        raise
     STATE['stage'] = 'quarantine-contact-sheets'
     sheets = []
     for start_frame in range(0, len(frames), 30):
@@ -696,6 +791,9 @@ def prepare(run_id, attempt, revision, output, execute=False, hold_image=None, *
                 joined_media_acceptance=False, inspection_only=True, new_runtime_executed=False,
                 production_authority=False,
                 original_run_conclusion=artifact.get('original_run_conclusion') if artifact else None)
+        if STATE['stage'] == 'quarantine-video-sampling' and hasattr(error, 'sampling_rejection'):
+            detail = error.sampling_rejection
+            failure['sampling_rejection'] = sampling_rejection(detail['rule'], detail['facts'])
         if isinstance(error, ChildFailure):
             failure['child_status'] = error.status if type(error.status) is int and -255 <= error.status <= 255 else None
         (output / 'review-failure.json').write_text(json.dumps(failure, sort_keys=True, indent=2) + '\n')

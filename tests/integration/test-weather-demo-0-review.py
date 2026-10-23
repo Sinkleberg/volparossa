@@ -626,11 +626,14 @@ class Review(unittest.TestCase):
             self.assertEqual(result['sample_to_source_frame_mapping_verified'], native)
             self.assertEqual(json.loads((output / 'frame-timeline.json').read_text()), timeline)
             self.assertEqual('-fps_mode' in calls[0], native)
+            self.assertEqual('-enc_time_base:v' in calls[0], native)
             graph = calls[0][calls[0].index('-vf') + 1]
             self.assertEqual('drawtext' in graph, not native)
             self.assertEqual('fps=' in graph, not native)
             self.assertIn(str(original / 'source-capture/screen.mp4'), calls[0])
             if native:
+                self.assertEqual(calls[0][calls[0].index('-enc_time_base:v') + 1], 'demux')
+                self.assertEqual(calls[0][calls[0].index('-fps_mode') + 1], 'passthrough')
                 self.assertEqual([row['frame_index'] for row in result['decoded_frames']], [0, 1, 2, 3])
                 self.assertNotIn('nominal_sample_seconds', result)
             else:
@@ -645,16 +648,107 @@ class Review(unittest.TestCase):
         timeline = dict(frames=[dict(frame_index=i, clip_relative_pts_seconds=i / 1000) for i in range(901)])
         with patch.object(R, 'FONT', font), patch.object(R, 'tool', side_effect=str), \
                 patch.object(R, 'source_frame_timeline', return_value=timeline), patch.object(R, 'command') as command:
-            with self.assertRaisesRegex(ValueError, 'native frame count'):
+            with self.assertRaisesRegex(ValueError, 'native frame count') as rejected:
                 R.quarantine_samples(original, output, dict(video=dict(duration_seconds=1)), 0, 1, 5, native=True)
+            self.assertEqual(rejected.exception.sampling_rejection['rule'], 'selection-count')
+            self.assertEqual(rejected.exception.sampling_rejection['facts']['expected_frame_count'], 901)
             command.assert_not_called()
         mismatch = self.root / 'mismatch'
         mismatch.mkdir()
         timeline['frames'] = timeline['frames'][:2]
         with patch.object(R, 'FONT', font), patch.object(R, 'tool', side_effect=str), \
                 patch.object(R, 'source_frame_timeline', return_value=timeline), patch.object(R, 'command'):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValueError) as rejected:
                 R.quarantine_samples(original, mismatch, dict(video=dict(duration_seconds=1)), 0, 1, 5, native=True)
+            self.assertEqual(rejected.exception.sampling_rejection['rule'], 'frame-inventory')
+            self.assertEqual(rejected.exception.sampling_rejection['facts']['expected_frame_count'], 2)
+            self.assertEqual(rejected.exception.sampling_rejection['facts']['actual_frame_count'], 0)
+
+    def test_sampling_zero_exit_stderr_still_rejects_with_only_finite_classification(self):
+        marker = b'Application provided invalid, non monotonically increasing dts to muxer'
+        for raw, classification in ((b'PRIVATE-prefix ' + marker + b' PRIVATE-path/token', 'non-monotonic-dts'),
+                (b'PRIVATE unrelated native error', 'other')):
+            args = [sys.executable, '-c', 'import sys; sys.stderr.buffer.write(' + repr(raw) + ')']
+            with self.assertRaisesRegex(ValueError, 'child emitted error diagnostics') as rejected:
+                R.command(args, reject_stderr=True, sampling=True)
+            detail = rejected.exception.sampling_rejection
+            self.assertEqual(detail['rule'], 'child-stderr')
+            self.assertEqual(detail['facts'], dict(native_error_category='stderr', stderr_bytes=len(raw),
+                stderr_class=classification, child_status=0))
+            self.assertNotIn('PRIVATE', json.dumps(detail))
+            self.assertNotIn('PRIVATE', str(rejected.exception))
+
+    def test_sampling_command_failure_preserves_process_status_and_timeout_rejection(self):
+        with self.assertRaises(R.ChildFailure) as rejected:
+            R.command([sys.executable, '-c', 'raise SystemExit(3)'], sampling=True)
+        self.assertEqual(rejected.exception.status, 3)
+        self.assertEqual(rejected.exception.sampling_rejection['rule'], 'child-exit')
+        self.assertEqual(rejected.exception.sampling_rejection['facts']['native_error_category'], 'process')
+        with self.assertRaisesRegex(ValueError, 'timeout') as rejected:
+            R.command([sys.executable, '-c', 'import time; time.sleep(2)'], seconds=0.01, sampling=True)
+        self.assertEqual(rejected.exception.sampling_rejection['rule'], 'child-timeout')
+        self.assertEqual(rejected.exception.sampling_rejection['facts']['native_error_category'], 'timeout')
+
+    def test_sampling_diagnostic_rejects_unknown_rules_facts_unbounded_values_and_raw_text(self):
+        for rule, facts in (('PRIVATE-path', {}), ('png-size', {'raw_stderr': 'PRIVATE'}),
+                ('png-dimensions', {'width': 'PRIVATE'}), ('png-dimensions', {'height': 2**32}),
+                ('native-frame-count', {'actual_frame_count': True}), ('child-stderr', {'stderr_class': 'PRIVATE'})):
+            with self.assertRaises(ValueError): R.sampling_rejection(rule, facts)
+
+    def test_sampling_command_guard_classification_is_closed_without_echoing_messages(self):
+        for message, rule in (('child timeout', 'child-timeout'), ('generated image budget exceeded', 'child-png-budget'),
+                ('child diagnostic limit exceeded', 'child-stderr-limit'), ('child output limit exceeded', 'child-output-limit'),
+                ('PRIVATE /path/token', 'child-other')):
+            value = R.sampling_command_failure(ValueError(message), b'PRIVATE stderr', None)
+            self.assertEqual(value['rule'], rule)
+            self.assertEqual(value['facts']['stderr_bytes'], 14)
+            self.assertNotIn('PRIVATE', json.dumps(value))
+
+    def test_sampling_png_total_budget_retains_exact_counts_before_cleanup(self):
+        original = self.root / 'original'
+        font = self.root / 'font.ttf'; font.write_bytes(b'inert font')
+        output = self.root / 'budget'; output.mkdir()
+        timeline = dict(frames=[dict(frame_index=0, clip_relative_pts_seconds=0)])
+        png = b'\x89PNG\r\n\x1a\n' + b'\0\0\0\rIHDR' + (720).to_bytes(4, 'big') + (1280).to_bytes(4, 'big')
+        def render(args, **kwargs):
+            (output / 'samples' / 'frame-000.png').write_bytes(png)
+        with patch.object(R, 'MAX_ZIP', 23), patch.object(R, 'FONT', font), patch.object(R, 'tool', side_effect=str), \
+                patch.object(R, 'source_frame_timeline', return_value=timeline), patch.object(R, 'command', side_effect=render):
+            with self.assertRaisesRegex(ValueError, 'inventory or budget') as rejected:
+                R.quarantine_samples(original, output, dict(video=dict(duration_seconds=1)), 0, 1, 5, native=True)
+        detail = rejected.exception.sampling_rejection
+        self.assertEqual(detail['rule'], 'png-total-budget')
+        self.assertEqual(detail['facts']['expected_frame_count'], 1)
+        self.assertEqual(detail['facts']['actual_frame_count'], 1)
+        self.assertEqual(detail['facts']['total_png_bytes'], 24)
+
+    def test_sampling_failure_removes_partial_pngs_but_retains_counts_dimensions_and_nonadmission(self):
+        output = self.root / 'failed-sampling'
+        font = self.root / 'font.ttf'; font.write_bytes(b'inert font')
+        timeline = dict(frames=[dict(frame_index=i, clip_relative_pts_seconds=i / 5) for i in range(2)])
+        png = b'\x89PNG\r\n\x1a\n' + b'\0\0\0\rIHDR' + (720).to_bytes(4, 'big') + (1).to_bytes(4, 'big')
+        def render(args, **kwargs):
+            for i in range(2): (output / 'samples' / f'frame-{i:03d}.png').write_bytes(png)
+        with patch.object(R, 'ROOT', self.root), patch.object(R, 'hosted'), patch.dict(os.environ, ENV, clear=True), \
+                patch.object(R, 'FONT', font), patch.object(R, 'tool', side_effect=str), \
+                patch.object(R, 'selected_artifact', return_value={'id': 7, 'original_run_conclusion': 'failure'}), \
+                patch.object(R, 'download', side_effect=lambda _, target: target.write_bytes(b'inert archive')), \
+                patch.object(R, 'quarantine_evidence', return_value=({}, {'video': {'duration_seconds': 1}}, 'c' * 64)), \
+                patch.object(R, 'source_frame_timeline', return_value=timeline), patch.object(R, 'command', side_effect=render):
+            with self.assertRaisesRegex(ValueError, 'PNG dimensions'):
+                R.prepare('123', '2', CORE, output, execute=True, inspect_quarantine=True, native_frames=True)
+        self.assertEqual([path.name for path in output.iterdir()], ['review-failure.json'])
+        failure = json.loads((output / 'review-failure.json').read_text())
+        detail = failure['sampling_rejection']
+        self.assertEqual(detail['rule'], 'png-dimensions')
+        self.assertEqual(detail['facts'], dict(width=720, height=1, expected_frame_count=2, actual_frame_count=2,
+            total_png_bytes=48, native_error_category='none', stderr_bytes=0, stderr_class='none'))
+        self.assertEqual(failure['category'], 'value')
+        self.assertTrue(failure['partial_output_removed'])
+        for key in ('media_accepted', 'joined_media_acceptance', 'new_runtime_executed', 'production_authority',
+                    'visual_acceptance_claimed', 'publication_authorized'):
+            self.assertFalse(failure[key])
+        self.assertNotIn(str(self.root), json.dumps(failure))
 
     def test_quarantine_failure_cleanup_retains_nonadmission_and_failed_original(self):
         output = self.root / 'failed-inspection'
