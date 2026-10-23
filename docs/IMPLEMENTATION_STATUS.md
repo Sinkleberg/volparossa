@@ -46,6 +46,19 @@ which the old parser rejects. That is a proven parser incompatibility, not proof
 that no other gate can fail. Correction and a new full trial remain required.
 The synthetic probe is not Android, pixel or network acceptance.
 
+Second full trial `39870500157`, attempt 2, on Core `0eaff79d` / Weather
+`85e9eda9` also passes original delivery and cleanup but **fails the demo** at
+`video-metadata`: the closed record observes three streams. Exact reports,
+failure and archive provenance are retained in `trials/39870500157-attempt-2/`.
+AOSP's screen recorder adds two Winscope timing metadata tracks to MP4; the
+container profile is being tested separately before another full trial. The
+original failed recording was not exported and cannot be recovered from that
+runner. Dedicated, explicitly unreviewed capture retention is being added before
+strict admission so future media rejection will preserve concrete pixels without
+granting acceptance. Attempt 1 of this run stopped earlier on slow Ubuntu package
+downloads, before Android execution. No runtime deadline or original delivery
+guard has been relaxed.
+
 [Demo runbook](demos/weather-demo-0/README.md) records exact baseline, boundaries
 and reproduction. Core runs externally to the Android emulator; this work does
 not establish a standalone phone release, physical-device support, concurrent

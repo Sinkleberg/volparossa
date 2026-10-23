@@ -73,6 +73,23 @@ near-deadline driver run. This stricter demo admission does not extend or relax
 the original driver budgets; its original report and failure evidence are retained.
 Readable initial, refresh and resume scenes still require inspection of actual pixels.
 
+The dedicated `weather-demo-capture-quarantine-*` Actions artifact retains the
+original recording and its source/window/report hashes after the original
+delivery and cleanup pass, before strict media admission. It is **unreviewed
+capture evidence**, with no media acceptance or release authority. Its existence
+does not make a failed demo successful. Accepted media and presentation artifacts
+remain separate and require the strict checks. Do not publish quarantine files
+as release assets without the missing admission and visual review.
+
+The AOSP recorder implementation writes one H.264 video track and two Winscope
+timing metadata tracks in MP4. This explains the observed count of three in the
+pinned Android API 36 trial; the actual type/tag profile still requires admission.
+These timing tracks are not additional pictures or audio. The
+format-specific validator checks the expected track tags and still rejects other
+streams; the edited presentation selects video only. The source behavior is
+documented in [AOSP screenrecord](https://android.googlesource.com/platform/frameworks/av/+/297eaacfa6/cmds/screenrecord/screenrecord.cpp).
+Synthetic container probes exercise the media tools, not app or network behavior.
+
 ## Data, compatibility and retention
 
 Weather remains IFS `0p25` temperature, wind and precipitation forecasts plus

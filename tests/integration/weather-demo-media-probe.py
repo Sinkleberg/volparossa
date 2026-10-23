@@ -35,7 +35,7 @@ def main():
             "-pix_fmt", "yuv420p", "-an", str(video)], stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=True)
         raw = subprocess.run(["/usr/bin/ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries",
-            "stream=codec_type,codec_name,width,height:format=duration", "-of", "json", str(video)],
+            "stream=codec_type,codec_name,codec_tag_string,width,height:format=duration", "-of", "json", str(video)],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15, check=True)
         if len(raw.stdout) > 65536 or raw.stderr:
             raise SystemExit("Bounded ffprobe observation rejected")
@@ -51,6 +51,27 @@ def main():
         except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
             record["parser_under_test_result"] = None
             record["parser_under_test_accepted"] = False
+        # Format-only synthetic fixture, never Android/app evidence. AOSP MP4
+        # records two timing metadata tracks; exercise that container profile
+        # through the actual distro demuxer before an expensive runtime trial.
+        data_inputs = []
+        for index in range(2):
+            data_file = Path(temporary) / f"synthetic-data-{index}.bin"
+            data_file.write_bytes(b"SYNTHETIC METADATA FORMAT TEST ONLY")
+            data_inputs.extend(["-f", "data", "-i", str(data_file)])
+        multiplexed = Path(temporary) / "synthetic-three-track-gpmd.mp4"
+        subprocess.run(["/usr/bin/ffmpeg", "-nostdin", "-v", "error", "-i", str(video),
+            *data_inputs, "-map", "0:v:0", "-map", "1:0", "-map", "2:0", "-c", "copy",
+            "-tag:d:0", "gpmd", "-tag:d:1", "gpmd", str(multiplexed)],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=30, check=True)
+        fixture = runpy.run_path(str(ROOT / "tests/integration/weather-demo-android-mp4-fixture.py"))
+        android_profile = Path(temporary) / "synthetic-three-track-mett.mp4"
+        android_profile.write_bytes(fixture["convert"](multiplexed.read_bytes()))
+        profile_info = module["probe_video"](android_profile)
+        record["android_metadata_profile_tool_probe"] = dict(completed=True, video=profile_info,
+            synthetic_container_only=True, android_executed=False, genuine_app_pixels=False,
+            metadata_payloads_are_synthetic=True, media_retained=False)
         presentation = runpy.run_path(str(ROOT / "scripts/weather-demo-0-package.py"))
         output = Path(temporary) / "synthetic-presentation"
         output.mkdir(mode=0o700)

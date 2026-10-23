@@ -24,11 +24,17 @@ PNG = b"\x89PNG\r\n\x1a\n"
 FAILURE_NAME = "weather-demo-media-failure.json"
 STAGES = frozenset(("arguments", "accepted-evidence", "source-binding", "recording-records", "raw-inventory",
     "raw-media", "video-tool", "video-process", "video-json", "video-metadata", "copy-media", "verify-record",
-    "verify-window", "verify-inventory", "verify-media", "verify-video", "verify-duration"))
+    "verify-window", "verify-inventory", "verify-media", "verify-video", "verify-duration", "capture-window", "collect-copy", "collect-record"))
 CATEGORIES = frozenset(("io", "value", "type", "key", "timeout", "process", "unknown"))
 NUMBER_FACTS = frozenset(("stream_count", "width", "height", "duration_ms", "required_end_ms", "capture_elapsed_ms"))
 CONTAINER_FACTS = frozenset(("programs", "stream_groups"))
 CONTAINER_STATES = frozenset(("absent", "empty", "nonempty", "wrong-type"))
+STREAM_FACTS = {
+    "stream_types": frozenset(("video", "data", "audio", "subtitle", "attachment")),
+    "stream_tags": frozenset(("avc1", "mett", "gpmd")),
+    "stream_codecs": frozenset(("h264", "bin_data")),
+}
+STREAM_FACT_UNKNOWN = frozenset(("absent", "wrong-type", "other"))
 STATE = dict(stage="arguments", facts={}, accepted_evidence_checked=False)
 
 
@@ -47,7 +53,7 @@ def validate_failure(value):
     require(type(value) is dict and set(value) == {"schema", "kind", "action", "identity", "stage", "category", "facts",
         "accepted_evidence_checked", "joined_core_acceptance", "production_authority"})
     require(type(value["schema"]) is int and value["schema"] == 1 and value["kind"] == "weather-demo-media-failure"
-        and value["action"] in ("export", "verify") and value["stage"] in STAGES and value["category"] in CATEGORIES
+        and value["action"] in ("collect", "export", "verify") and value["stage"] in STAGES and value["category"] in CATEGORIES
         and type(value["accepted_evidence_checked"]) is bool and value["joined_core_acceptance"] is False
         and value["production_authority"] is False)
     identity = value["identity"]
@@ -55,12 +61,15 @@ def validate_failure(value):
         and all(type(identity[k]) is str and re.fullmatch(r"[a-f0-9]{40}", identity[k]) for k in ("core_commit", "weather_commit"))
         and all(type(identity[k]) is str and re.fullmatch(r"[1-9][0-9]{0,19}", identity[k]) for k in ("run_id", "run_attempt")))
     facts = value["facts"]
-    require(type(facts) is dict and set(facts) <= NUMBER_FACTS | CONTAINER_FACTS)
+    require(type(facts) is dict and set(facts) <= NUMBER_FACTS | CONTAINER_FACTS | set(STREAM_FACTS))
     for key, item in facts.items():
         if key in NUMBER_FACTS:
             require(item is None or type(item) is int and 0 <= item <= 256 * 1024**2)
-        else:
+        elif key in CONTAINER_FACTS:
             require(type(item) is str and item in CONTAINER_STATES)
+        else:
+            require(type(item) is list and len(item) <= 8 and all(type(entry) is str
+                and entry in STREAM_FACTS[key] | STREAM_FACT_UNKNOWN for entry in item))
     require(len(json.dumps(value, sort_keys=True).encode()) <= 4096)
     return value
 
@@ -154,23 +163,46 @@ def accepted(evidence):
     return acceptance, joined
 
 
+def stream_facts(streams):
+    facts = {"stream_count": min(len(streams), 1024) if type(streams) is list else None}
+    if type(streams) is not list: return facts
+    for fact, field in (("stream_types", "codec_type"), ("stream_tags", "codec_tag_string"), ("stream_codecs", "codec_name")):
+        def classify(stream):
+            if type(stream) is not dict: return "wrong-type"
+            if field not in stream: return "absent"
+            item = stream[field]
+            if type(item) is not str: return "wrong-type"
+            return item if item in STREAM_FACTS[fact] else "other"
+        facts[fact] = [classify(stream) for stream in streams[:8]]
+    videos = [item for item in streams if type(item) is dict and item.get("codec_type") == "video"]
+    if len(videos) == 1:
+        for key in ("width", "height"):
+            item = videos[0].get(key)
+            facts[key] = item if type(item) is int and 0 <= item <= 8192 else None
+    return facts
+
+
 def video_metadata(value):
     stage("video-metadata")
     if type(value) is dict:
-        facts = {key: container_state(value, key) for key in CONTAINER_FACTS}
-        streams = value.get("streams")
-        facts["stream_count"] = min(len(streams), 1024) if type(streams) is list else None
-        if type(streams) is list and len(streams) == 1 and type(streams[0]) is dict:
-            for key in ("width", "height"):
-                item = streams[0].get(key)
-                facts[key] = item if type(item) is int and 0 <= item <= 8192 else None
-        stage("video-metadata", **facts)
-    # Ubuntu6.1.1 emits an empty programs container for this exact query.
-    # Admit only that observed optional empty list, never unknown containers
-    # or program metadata that could hide additional streams.
+        stage("video-metadata", **{key: container_state(value, key) for key in CONTAINER_FACTS},
+            **stream_facts(value.get("streams")))
+    # The optional empty programs list is observed Ubuntu6.1.1 output.
+    # Android's two DATA/mett tracks below are a SOURCE-DERIVED profile, not
+    # observed Android JSON: screenrecord1df77b62...cpp:693-698 adds two
+    # application/octet-stream Winscope tracks alongside its AVC track.
+    # FFmpeg n6.1.1 mov.c:4336 starts unknown tracks as DATA; isom.c's data
+    # tags map gpmd only. An unrecognized mett codec therefore has no name.
+    # Do not accept bin_data/mett without actual tool evidence supporting it.
     require(type(value) is dict and set(value) in ({"streams", "format"}, {"streams", "format", "programs"})
         and ("programs" not in value or type(value["programs"]) is list and not value["programs"])
-        and value["streams"] == [dict(codec_name="h264", codec_type="video", width=720, height=1280)]
+        and type(value["streams"]) is list and len(value["streams"]) in (1, 3))
+    streams = value["streams"]
+    require(all(type(item) is dict for item in streams))
+    video = dict(codec_name="h264", codec_type="video", codec_tag_string="avc1", width=720, height=1280)
+    metadata = dict(codec_type="data", codec_tag_string="mett")
+    require(sum(item == video for item in streams) == 1
+        and sum(item == metadata for item in streams) == len(streams) - 1
         and type(value["format"]) is dict and set(value["format"]) == {"duration"}
         and type(value["format"]["duration"]) is str and re.fullmatch(r"[0-9]{1,3}\.[0-9]{1,6}", value["format"]["duration"]))
     duration = float(value["format"]["duration"])
@@ -186,7 +218,7 @@ def probe_video(path):
     require(tool.resolve(strict=True) == tool and stat.S_ISREG(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022)
     stage("video-process")
     result = subprocess.run([str(tool), "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries",
-        "stream=codec_type,codec_name,width,height:format=duration", "-of", "json", str(path)],
+        "stream=codec_type,codec_name,codec_tag_string,width,height:format=duration", "-of", "json", str(path)],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15, check=True)
     require(len(result.stdout) <= 65536 and not result.stderr)
     stage("video-json")
@@ -221,6 +253,15 @@ def media_files(root, files, shots):
     require(total <= 256 * 1024**2)
 
 
+def window_bounds(capture, window):
+    require(type(capture) is dict and set(capture) == {"started_unix_ms", "completed_unix_ms", "elapsed_ms"}
+        and type(window) is dict and set(window) == {"started_unix_ms", "completed_unix_ms"})
+    require(all(type(v) is int and v > 0 for v in [*capture.values(), *window.values()])
+        and capture["started_unix_ms"] <= window["started_unix_ms"] < window["completed_unix_ms"] <= capture["completed_unix_ms"]
+        and 0 < capture["elapsed_ms"] <= 205000
+        and abs(capture["completed_unix_ms"] - capture["started_unix_ms"] - capture["elapsed_ms"]) <= 1000)
+
+
 def verify(evidence_root):
     evidence = directory(evidence_root); acceptance, joined = accepted(evidence)
     stage("verify-record")
@@ -236,12 +277,7 @@ def verify(evidence_root):
         and value["visual_review_required"] is True)
     stage("verify-window")
     capture, window = value["capture"], value["driver_window"]
-    require(type(capture) is dict and set(capture) == {"started_unix_ms", "completed_unix_ms", "elapsed_ms"}
-        and type(window) is dict and set(window) == {"started_unix_ms", "completed_unix_ms"})
-    require(all(type(v) is int and v > 0 for v in [*capture.values(), *window.values()])
-        and capture["started_unix_ms"] <= window["started_unix_ms"] < window["completed_unix_ms"] <= capture["completed_unix_ms"]
-        and 0 < capture["elapsed_ms"] <= 205000
-        and abs(capture["completed_unix_ms"] - capture["started_unix_ms"] - capture["elapsed_ms"]) <= 1000)
+    window_bounds(capture, window)
     stage("verify-inventory")
     require({p.name for p in root.iterdir()} == set(value["files"]) | {"recording.json"})
     stage("verify-media"); media_files(root, value["files"], value["screenshots"])
@@ -259,7 +295,7 @@ def verify(evidence_root):
     return value
 
 
-def export(evidence_root, weather_root):
+def capture_inputs(evidence_root, weather_root):
     evidence, weather = directory(evidence_root), Path(weather_root)
     acceptance, joined = accepted(evidence)
     # The original launcher already verified clean Git source. Recheck that
@@ -269,7 +305,12 @@ def export(evidence_root, weather_root):
     O["hosted"](acceptance["identity"]["core_commit"], acceptance["identity"]["weather_commit"])
     stage("recording-records")
     root = directory(weather / "build/overmorrow-hosted-android-live-proof/demo-media")
-    raw, window = document(root / "recording.json"), document(root / "driver-window.json")
+    records, record_hashes = {}, {}
+    for name in ("recording.json", "driver-window.json"):
+        raw_bytes = E["private_bytes"](root / name, 65536, os.getuid(), 0o600)
+        records[name] = E["decode"](raw_bytes, 65536)
+        record_hashes[name] = dict(bytes=len(raw_bytes), sha256=hashlib.sha256(raw_bytes).hexdigest())
+    raw, window = records["recording.json"], records["driver-window.json"]
     require(set(raw) == {"schema", "kind", "started_unix_ms", "completed_unix_ms", "elapsed_ms", "source", "files", "screenshots",
         "recorder_joined", "guest_file_removed", "stage_labels_verified", "ui_values_verified", "joined_core_acceptance", "production_authority"})
     require(raw["schema"] == 1 and raw["kind"] == "weather-demo-android-recording" and raw["source"] == "android-screenrecord-and-screencap"
@@ -280,6 +321,55 @@ def export(evidence_root, weather_root):
     stage("raw-inventory")
     require({p.name for p in root.iterdir()} == set(raw["files"]) | {"recording.json", "driver-window.json"})
     stage("raw-media"); media_files(root, raw["files"], raw["screenshots"])
+    stage("capture-window")
+    window_bounds({k: raw[k] for k in ("started_unix_ms", "completed_unix_ms", "elapsed_ms")},
+        {k: window[k] for k in ("started_unix_ms", "completed_unix_ms")})
+    return evidence, root, raw, window, acceptance, joined, record_hashes
+
+
+def collect(evidence_root, weather_root):
+    """Retain source-bound pixels for review, without asserting video admission.
+
+    This explicit phase runs after original Core acceptance and before ffprobe
+    or the encoded-duration gate. Failure later cannot erase the original run.
+    Its dedicated inventory contains no runtime directories, logs or keys.
+    """
+    evidence, root, raw, window, acceptance, joined, records = capture_inputs(evidence_root, weather_root)
+    stage("collect-copy")
+    destination = evidence / "demo-capture-quarantine"; destination.mkdir(mode=0o700)
+    pixels, originals = destination / "source-capture", destination / "original-acceptance"
+    pixels.mkdir(mode=0o700); originals.mkdir(mode=0o700)
+    inventory = {}
+    selected = {**{name: (name, item) for name, item in raw["files"].items()},
+        "rawrecording.json": ("recording.json", records["recording.json"]),
+        "driver-window.json": ("driver-window.json", records["driver-window.json"])}
+    for output_name, (source_name, expected) in sorted(selected.items()):
+        maximum = MAX_VIDEO if source_name == "screen.mp4" else MAX_PNG if source_name.endswith(".png") else 65536
+        item, _ = checked(root / source_name, maximum, destination=pixels / output_name)
+        require(item == expected); inventory["source-capture/" + output_name] = item
+    for name in ("weather-android-hosted-acceptance.json", "weather-android-owner-join.json",
+            "weather-android-delivery-evidence.json", "weather-android-vm-cleanup.json"):
+        item, _ = checked(evidence / name, 65536, destination=originals / name)
+        inventory["original-acceptance/" + name] = item
+    copied_acceptance, copied_joined = accepted(originals)
+    require(copied_acceptance == acceptance and copied_joined == joined)
+    stage("collect-record")
+    value = dict(schema=1, kind="weather-demo-quarantined-capture", identity=acceptance["identity"],
+        original_acceptance_sha256=inventory["original-acceptance/weather-android-hosted-acceptance.json"]["sha256"],
+        original_android_report_sha256=joined["original_android_report_sha256"], files=inventory,
+        capture={k: raw[k] for k in ("started_unix_ms", "completed_unix_ms", "elapsed_ms")},
+        driver_window={k: window[k] for k in ("started_unix_ms", "completed_unix_ms")},
+        original_core_acceptance_passed=True, media_accepted=False, joined_media_acceptance=False,
+        production_authority=False, review_required=True)
+    O["write"](destination / "capture.json", value)
+    require({p.name for p in destination.iterdir()} == {"source-capture", "original-acceptance", "capture.json"}
+        and {p.name for p in pixels.iterdir()} == set(selected) and {p.name for p in originals.iterdir()} ==
+        {name.split("/", 1)[1] for name in inventory if name.startswith("original-acceptance/")})
+    return value
+
+
+def export(evidence_root, weather_root):
+    evidence, root, raw, window, acceptance, joined, _ = capture_inputs(evidence_root, weather_root)
     value = dict(schema=1, kind="weather-demo-accepted-media", identity=acceptance["identity"],
         acceptance_sha256=file_hash(evidence / "weather-android-hosted-acceptance.json"),
         installed_report_sha256=window["installed_report_sha256"],
@@ -299,12 +389,14 @@ def export(evidence_root, weather_root):
 
 def main():
     STATE.update(stage="arguments", facts={}, accepted_evidence_checked=False)
-    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument("action", choices=("export", "verify"))
+    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument("action", choices=("collect", "export", "verify"))
     parser.add_argument("--evidence", type=Path, required=True); parser.add_argument("--weather-root", type=Path)
     args = parser.parse_args()
-    require((args.action == "export") == (args.weather_root is not None))
+    require((args.action in ("collect", "export")) == (args.weather_root is not None))
     try:
-        value = export(args.evidence, args.weather_root) if args.action == "export" else verify(args.evidence)
+        if args.action == "collect": value = collect(args.evidence, args.weather_root)
+        elif args.action == "export": value = export(args.evidence, args.weather_root)
+        else: value = verify(args.evidence)
     except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
         value = failure(error, args.action)
         # Exclusive closed diagnostics only. An unsafe/missing evidence root

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "run_id": "39870500157",
+  "run_attempt": 2,
+  "source_revision": "0eaff79d0bd5ca7c785f5e20ea4512fd9ca92d39",
+  "weather_revision": "85e9eda9bb6105866db2510758e76c9930fdde91",
+  "artifact_id": 12467937227,
+  "artifact_bytes": 10904,
+  "archive_sha256": "ccc8b173b6e88c4d77054f66fef552009f224dfc0a31af7304d6e5488f4609be",
+  "demo_milestone_passed": false,
+  "original_delivery_and_cleanup_passed": true,
+  "original_captured_media_exported": false
+}

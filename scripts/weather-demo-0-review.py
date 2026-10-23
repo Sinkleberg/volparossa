@@ -276,7 +276,9 @@ def evidence(archive_path, destination, identity):
             and acceptance['production_authority'] is False
             and presentation['acceptance_sha256'] == media['acceptance_sha256']
             and presentation['recording_sha256'] == media['files']['screen.mp4']['sha256']
-            and presentation['original_video'] == media['video'], 'cross-artifact binding rejected')
+            and media['video']['has_audio'] is False
+            and presentation['original_video'] == {key: media['video'][key]
+                for key in ('codec', 'width', 'height', 'duration_seconds')}, 'cross-artifact binding rejected')
     return presentation, media, digest(verifier_path)
 
 

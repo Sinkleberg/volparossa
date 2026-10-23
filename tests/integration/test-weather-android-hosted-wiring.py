@@ -50,7 +50,7 @@ class AndroidHostedWiring(unittest.TestCase):
 
     def test_all_actions_and_weather_source_are_exact(self):
         actions = re.findall(r'uses: ([^\s]+)', SOURCE)
-        self.assertEqual(len(actions), 9)
+        self.assertEqual(len(actions), 10)
         self.assertTrue(all(re.fullmatch(r'actions/(?:checkout|upload-artifact)@[a-f0-9]{40}', item) for item in actions))
         self.assertEqual(SOURCE.count('persist-credentials: false'), 4)
         self.assertIn('  VOLPAROSSA_WEATHER_SOURCE_SHA: ' + WEATHER, SOURCE)
@@ -348,7 +348,7 @@ getfacl() { printf 'original inert ACL\\n'; }
     def test_artifact_upload_is_closed_not_a_directory_or_glob(self):
         section = block('Upload only closed evidence and pinned-input provenance')
         self.assertIn('          include-hidden-files: true\n', section)
-        self.assertEqual(SOURCE.count('include-hidden-files:'), 5)
+        self.assertEqual(SOURCE.count('include-hidden-files:'), 6)
         paths = section.split('          path: |\n', 1)[1].splitlines()
         self.assertEqual([path.strip() for path in paths if path.strip()], [
             '${{ env.WEATHER_OUTPUT }}/weather-android-delivery-evidence.json',
@@ -416,6 +416,20 @@ getfacl() { printf 'original inert ACL\\n'; }
         for forbidden in ('run-alpha-topology', 'sdkmanager', 'avdmanager', 'prepare_hosted_android',
                           'record_demo: true', 'gh release', 'contents: write'):
             self.assertNotIn(forbidden, section)
+
+    def test_quarantine_follows_original_acceptance_and_precedes_strict_admission(self):
+        collect = block('Collect dedicated recording for inspection after original acceptance')
+        upload = block('Preserve unreviewed capture without granting media acceptance')
+        self.assertIn('if: inputs.record_demo', collect)
+        self.assertIn('weather-demo-media.py collect --evidence "$WEATHER_OUTPUT"', collect)
+        self.assertIn('if: success() && inputs.record_demo', upload)
+        self.assertIn('path: ${{ env.WEATHER_OUTPUT }}/demo-capture-quarantine/', upload)
+        self.assertLess(SOURCE.index('- name: Require joined Android observations and completed VM cleanup'),
+                        SOURCE.index('- name: Collect dedicated recording for inspection after original acceptance'))
+        self.assertLess(SOURCE.index('- name: Preserve unreviewed capture without granting media acceptance'),
+                        SOURCE.index('- name: Admit same-run public Android pixels after full acceptance'))
+        for forbidden in ('always()', 'continue-on-error', 'gh release', '/build/', '*.mp4'):
+            self.assertNotIn(forbidden, collect + upload)
 
     def test_inner_diagnostic_is_optional_host_output_not_input_or_acceptance(self):
         parser_test = 'python3 -B tests/integration/test-weather-android-inner-diagnostic.py'

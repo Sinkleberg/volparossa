@@ -12,6 +12,7 @@ import struct
 import stat
 import subprocess
 import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -25,7 +26,19 @@ VIDEO = dict(codec="h264", width=720, height=1280, duration_seconds=11.5, has_au
 # Original synthetic hosted probe39869565948 on Ubuntu ffprobe6.1.1-3ubuntu5.
 # Artifact12466015525 SHA256a3d70dcdf0792ca42129c2dd53404108d28f1079ba1901a381e9b1b24bdde3c1.
 # This fixture tests the serializer contract, not Android or delivery behavior.
-PROBE_JSON = b'{"format":{"duration":"1.000000"},"programs":[],"streams":[{"codec_name":"h264","codec_type":"video","height":1280,"width":720}]}'
+OBSERVED_PROBE_JSON = b'{"format":{"duration":"1.000000"},"programs":[],"streams":[{"codec_name":"h264","codec_type":"video","height":1280,"width":720}]}'
+
+# Source-derived unit fixture for the NEW codec_tag_string query. This added
+# field and the two metadata tracks below were NOT observed in Android output.
+_source_probe = json.loads(OBSERVED_PROBE_JSON)
+_source_probe["streams"][0]["codec_tag_string"] = "avc1"
+PROBE_JSON = json.dumps(_source_probe, separators=(",", ":")).encode()
+
+
+def android_profile_fixture():
+    value = json.loads(PROBE_JSON)
+    value["streams"] += [dict(codec_type="data", codec_tag_string="mett") for _ in range(2)]
+    return value
 
 
 class Probe(unittest.TestCase):
@@ -40,14 +53,48 @@ class Probe(unittest.TestCase):
         argv = run.call_args.args[0]
         self.assertEqual(argv[:4], ["/usr/bin/ffprobe", "-v", "error", "-protocol_whitelist"])
         self.assertEqual(argv[-1], "/inert/private/movie.mp4")
+        self.assertIn("stream=codec_type,codec_name,codec_tag_string,width,height:format=duration", argv)
         self.assertEqual(run.call_args.kwargs["timeout"], 15)
         self.assertTrue(run.call_args.kwargs["check"])
         return result
 
-    def test_exact_hosted_serializer_passes_real_parser_with_optional_empty_programs(self):
+    def test_source_derived_tag_query_and_optional_empty_programs(self):
+        with self.assertRaises(ValueError): self.probe(OBSERVED_PROBE_JSON)
         self.assertEqual(self.probe(), dict(VIDEO, duration_seconds=1.0))
         value = json.loads(PROBE_JSON); value.pop("programs")
         self.assertEqual(self.probe(json.dumps(value).encode()), dict(VIDEO, duration_seconds=1.0))
+
+    def test_source_derived_android_profile_requires_exact_two_mett_tracks(self):
+        value = android_profile_fixture()
+        self.assertEqual(self.probe(json.dumps(value).encode()), dict(VIDEO, duration_seconds=1.0))
+        value["streams"] = [value["streams"][1], value["streams"][0], value["streams"][2]]
+        self.assertEqual(self.probe(json.dumps(value).encode()), dict(VIDEO, duration_seconds=1.0))
+
+    def test_metadata_wrong_counts_types_tags_codecs_and_unknown_fields_fail(self):
+        original = android_profile_fixture()
+        for streams in (original["streams"][:2], original["streams"] + [original["streams"][1]],
+                original["streams"][1:], original["streams"] + [original["streams"][0]]):
+            value = copy.deepcopy(original); value["streams"] = streams
+            with self.assertRaises(ValueError): self.probe(json.dumps(value).encode())
+        for update in ({"codec_type": "audio"}, {"codec_type": "subtitle"}, {"codec_type": "attachment"},
+                {"codec_tag_string": "gpmd"}, {"codec_tag_string": "text"}, {"codec_name": "bin_data"},
+                {"codec_name": "unknown"}, {"width": 0}, {"tags": {"PRIVATE": "secret"}}):
+            value = copy.deepcopy(original); value["streams"][1].update(update)
+            with self.subTest(update=update), self.assertRaises(ValueError): self.probe(json.dumps(value).encode())
+        for position in (0, 1):
+            value = copy.deepcopy(original); value["streams"][position].pop("codec_tag_string")
+            with self.assertRaises(ValueError): self.probe(json.dumps(value).encode())
+
+    def test_three_stream_diagnostics_are_finite_and_redact_unknown_values(self):
+        value = android_profile_fixture(); value["streams"][2]["codec_tag_string"] = "PRIVATE-secret"
+        with self.assertRaises(ValueError): self.probe(json.dumps(value).encode())
+        report = M["failure"](ValueError("PRIVATE error"), "export")
+        self.assertEqual(report["facts"]["stream_types"], ["video", "data", "data"])
+        self.assertEqual(report["facts"]["stream_tags"], ["avc1", "mett", "other"])
+        self.assertEqual(report["facts"]["stream_codecs"], ["h264", "absent", "absent"])
+        self.assertNotIn("PRIVATE", json.dumps(report))
+        for facts in (dict(stream_tags=["PRIVATE"]), dict(stream_types=["video"] * 9), dict(stream_codecs="h264")):
+            with self.assertRaises(ValueError): M["validate_failure"](dict(report, facts=facts))
 
     def test_nonempty_or_wrong_type_programs_unknown_containers_and_streams_fail(self):
         for update in ({"programs": [{"streams": []}]}, {"programs": None}, {"programs": {}},
@@ -76,7 +123,8 @@ class Probe(unittest.TestCase):
         record = M["failure"](ValueError("PRIVATE /home/secret"), "export")
         self.assertEqual(record["stage"], "video-metadata")
         self.assertEqual(record["category"], "value")
-        self.assertEqual(record["facts"], dict(programs="nonempty", stream_groups="absent", stream_count=1, width=720, height=1280))
+        self.assertEqual(record["facts"], dict(programs="nonempty", stream_groups="absent", stream_count=1, width=720, height=1280,
+            stream_types=["video"], stream_tags=["avc1"], stream_codecs=["h264"]))
         for secret in ("PRIVATE", "secret", "/home", "/inert"):
             self.assertNotIn(secret, json.dumps(record))
         for error, category in ((subprocess.TimeoutExpired("PRIVATE", 15), "timeout"),
@@ -247,6 +295,91 @@ class Media(F["RecordFixture"]):
             with self.assertRaises(ValueError): M["validate_failure"](changed)
         with patch.dict(os.environ, GITHUB_SHA="PRIVATE/path"):
             self.assertIsNone(M["failure"](ValueError("PRIVATE"), "export")["identity"])
+
+    def test_collect_retains_exact_capture_and_four_originals_without_probing_video(self):
+        with patch.dict(G, probe_video=lambda _: self.fail("collection must not execute ffprobe")):
+            value = M["collect"](self.output, self.weather)
+        root = self.output / "demo-capture-quarantine"
+        self.assertEqual(value["identity"], F["IDENTITY"])
+        self.assertTrue(value["original_core_acceptance_passed"] and value["review_required"])
+        self.assertFalse(value["media_accepted"] or value["joined_media_acceptance"] or value["production_authority"])
+        expected = {"source-capture/rawrecording.json", "source-capture/driver-window.json", "source-capture/screen.mp4",
+            "source-capture/screen-001.png", *["original-acceptance/" + name for name in (
+                "weather-android-hosted-acceptance.json", "weather-android-owner-join.json",
+                "weather-android-delivery-evidence.json", "weather-android-vm-cleanup.json")]}
+        self.assertEqual(set(value["files"]), expected)
+        for name in expected:
+            self.assertEqual(M["checked"](root / name, M["MAX_VIDEO"])[0], value["files"][name])
+        self.assertEqual(json.loads((root / "capture.json").read_bytes()), value)
+        self.assertFalse((self.output / "demo-media").exists())
+
+    def test_failed_strict_video_admission_does_not_change_collected_capture(self):
+        M["collect"](self.output, self.weather)
+        root = self.output / "demo-capture-quarantine"
+        before = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+        with patch.dict(G, probe_video=lambda _: dict(VIDEO, duration_seconds=5.0)):
+            with self.assertRaises(ValueError): self.export()
+        self.assertEqual(before, {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()})
+
+    def test_collect_requires_original_acceptance_inventory_window_and_new_destination(self):
+        self.window["started_unix_ms"] -= 1000; save(self.media / "driver-window.json", self.window)
+        with self.assertRaises(ValueError): M["collect"](self.output, self.weather)
+        self.assertFalse((self.output / "demo-capture-quarantine").exists())
+        self.window["started_unix_ms"] += 1000; save(self.media / "driver-window.json", self.window)
+        M["collect"](self.output, self.weather)
+        with self.assertRaises(FileExistsError): M["collect"](self.output, self.weather)
+        (self.output / "weather-android-hosted-acceptance.json").unlink()
+        with self.assertRaises(FileNotFoundError): M["collect"](self.output, self.weather)
+
+    def test_collect_cli_and_source_record_hash_guards_remain_closed(self):
+        output = io.StringIO()
+        args = ["media", "collect", "--evidence", str(self.output), "--weather-root", str(self.weather)]
+        with patch.object(sys, "argv", args), redirect_stdout(output): M["main"]()
+        value = json.loads(output.getvalue())
+        self.assertFalse(value["media_accepted"] or value["joined_media_acceptance"])
+        self.assertEqual(value["kind"], "weather-demo-quarantined-capture")
+
+
+class SyntheticMp4Fixture(unittest.TestCase):
+    def setUp(self):
+        self.module = runpy.run_path(str(HERE / "weather-demo-android-mp4-fixture.py"))
+
+    def tiny(self, entries=(b"avc1", b"gpmd", b"gpmd")):
+        box = self.module["box"]
+        def track(tag):
+            body = b"inert synthetic video description" if tag == b"avc1" else b"\0\0\0\0\0\0\0\1\0\0\0\0"
+            child = box(b"stsd", b"\0\0\0\0\0\0\0\1" + box(tag, body))
+            for wrapper in (b"stbl", b"minf", b"mdia", b"trak"): child = box(wrapper, child)
+            return child
+        return box(b"ftyp", b"synthetic") + box(b"mdat", b"synthetic payload not video or Winscope") + box(b"moov", b"".join(track(tag) for tag in entries))
+
+    def test_fixture_changes_only_two_sample_descriptions_after_media_data(self):
+        raw = self.tiny(); result = self.module["convert"](raw)
+        original = self.module["boxes"](raw); changed = self.module["boxes"](result)
+        self.assertEqual(original[:-1], changed[:-1])
+        self.assertEqual(result.count(b"mett"), 2)
+        self.assertEqual(result.count(b"application/octet-stream\0"), 4)
+        self.assertEqual(result.count(b"inert synthetic video description"), 1)
+
+    def test_fixture_rejects_wrong_tracks_faststart_truncated_or_extended_boxes(self):
+        for entries in ((b"avc1", b"gpmd"), (b"avc1", b"avc1", b"gpmd"), (b"avc1", b"text", b"gpmd")):
+            with self.assertRaises(ValueError): self.module["convert"](self.tiny(entries))
+        raw = self.tiny(); top = self.module["boxes"](raw); box = self.module["box"]
+        faststart = b"".join(box(tag, payload) for tag, payload in (top[0], top[2], top[1]))
+        for value in (faststart, raw[:-1], b"\0\0\0\1moov", b"\0\0\0\0moov"):
+            with self.assertRaises(ValueError): self.module["convert"](value)
+
+    def test_fixture_output_is_new_private_and_cannot_be_mistaken_for_android_evidence(self):
+        with tempfile.TemporaryDirectory() as name:
+            source, output = Path(name) / "input.mp4", Path(name) / "output.mp4"
+            original = self.tiny(); source.write_bytes(original); source.chmod(0o600)
+            value = self.module["execute"](source, output)
+            self.assertEqual(value["metadata_tracks"], 2)
+            self.assertFalse(value["android_execution"] or value["app_pixels"] or value["joined_core_acceptance"])
+            self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o600)
+            self.assertEqual(source.read_bytes(), original)
+            self.assertNotIn(name, json.dumps(value))
+            with self.assertRaises(FileExistsError): self.module["execute"](source, output)
 
 
 if __name__ == "__main__": unittest.main()

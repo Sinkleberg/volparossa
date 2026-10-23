@@ -266,15 +266,7 @@ jobs:
       - name: Install declared tools only on this disposable hosted runner
         run: |
           set -euo pipefail
-          test "$GITHUB_ACTIONS" = true
-          test "$RUNNER_ENVIRONMENT" = github-hosted
-          test "$(id -u)" != 0
-          timeout 180s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
-          timeout 600s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
-            apparmor bubblewrap acl git python3 util-linux iproute2 ca-certificates curl unzip xz-utils zip \
-            debianutils mawk openjdk-17-jdk-headless libglu1-mesa libgl1 libpulse0 libnss3 libxkbcommon0 \
-            libxcb-cursor0 libxi6 libxrandr2 libxrender1 libxfixes3 libxcursor1 libasound2t64 libgbm1 libatomic1 \
-            build-essential cmake libevent-dev pkg-config qemu-system-x86 qemu-utils cloud-image-utils openssh-client jq ffmpeg fonts-dejavu-core
+          bash scripts/weather-demo-0-media-tools.sh android
           test -c /dev/kvm
           test "$(stat -Lc '%u' /dev/kvm)" = 0
           qemu-system-x86_64 -accel help | grep -Fx kvm
@@ -457,6 +449,21 @@ jobs:
           python3 -B tests/integration/weather-android-owner.py accept --output "$WEATHER_OUTPUT" \
             --core-commit "$GITHUB_SHA" --weather-commit "$VOLPAROSSA_WEATHER_SOURCE_SHA" \
             --manifest "$WEATHER_MANIFEST" --kvm-cleanup "$WEATHER_INPUTS/kvm-cleanup.json"
+      - name: Collect dedicated recording for inspection after original acceptance
+        if: inputs.record_demo
+        run: |
+          set -euo pipefail
+          python3 -B tests/integration/weather-demo-media.py collect --evidence "$WEATHER_OUTPUT" \
+            --weather-root "$GITHUB_WORKSPACE/.cache/weather-android-source"
+      - name: Preserve unreviewed capture without granting media acceptance
+        if: success() && inputs.record_demo
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: weather-demo-capture-quarantine-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+          path: ${{ env.WEATHER_OUTPUT }}/demo-capture-quarantine/
       - name: Admit same-run public Android pixels after full acceptance
         if: inputs.record_demo
         run: |

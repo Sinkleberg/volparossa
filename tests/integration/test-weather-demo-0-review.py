@@ -67,7 +67,10 @@ class Review(unittest.TestCase):
             actual_app_pixels=True, external_core=True, physical_device=False, production_authority=False,
             publication_authorized=False, includes_installable_binaries=False, visual_review_required=True,
             files={name: record(data) for name, data in files.items()},
-            acceptance_sha256=media['acceptance_sha256'], recording_sha256=record(raw)['sha256'], original_video=video)
+            acceptance_sha256=media['acceptance_sha256'], recording_sha256=record(raw)['sha256'],
+            # Actual producer video_info() selects these four fields; has_audio
+            # belongs to the separate original media verifier's contract.
+            original_video={key: video[key] for key in ('codec', 'width', 'height', 'duration_seconds')})
         if alter:
             alter(presentation, files)
         archive_path = self.root / 'review.zip'
