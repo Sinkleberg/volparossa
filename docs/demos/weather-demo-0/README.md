@@ -40,6 +40,11 @@ conclusion while checking coherent source media and explicitly reviewed scenes.
 Requirements: repository Actions execution rights, the exact pushed demo source,
 public availability of the pinned upstream archives, and an ordinary GitHub-hosted
 Ubuntu 24.04 runner with KVM, sufficient RAM and at least 32 GiB free space.
+The demonstrated platform is Debian 13 amd64 with the Linux x86-64 Android
+API 36 emulator and an installed debug application. Physical Android/ARM and iOS
+are unaccepted. Exact SDK, Flutter, decoder and upstream inputs are retained in
+the source archives and Weather's
+[pinned input manifest](https://github.com/VOLPAROSSA/volparossa-weather/blob/85e9eda9bb6105866db2510758e76c9930fdde91/third_party/hosted-runtime-inputs.json).
 The existing workflow owns its Debian guest, emulator, temporary AppArmor policy,
 temporary runner-private KVM ACL and cleanup. Do not run it on a development host,
 relax its resource checks, or replace KVM with unverified emulation.
@@ -160,9 +165,9 @@ source builds and a newly recorded admission if inputs must be renewed.
   the public presentation bundle.
 
 The proposed prerelease is `weather-demo-0.1.0`. Prepare materials locally and as
-scoped Actions evidence; **do not create/publish a GitHub release, upload public
-release assets or communicate results externally without the user's explicit
-publication approval.** Include installable binaries only after their exact
+scoped Actions evidence and, once reviewed, an **unpublished GitHub draft**.
+Do not publish the release, make release assets public or communicate results
+externally without the user's explicit publication approval. Include installable binaries only after their exact
 installation/runtime acceptance, outside this source-and-evidence demo scope.
 
 See [release notes](release-notes.md), [storyboard](storyboard.md), and

@@ -28,6 +28,12 @@ MAX_FRAMES = 21600
 LEGACY = b'#VV1NSC0PET1ME!#'
 V2 = b'#VV1NSC0PET1ME2#'
 STREAM_ENTRIES = 'index,codec_type,codec_name,codec_tag_string,width,height,time_base,start_pts,duration_ts,nb_frames'
+OBS_ENUMS = {'codec_type': frozenset(('video', 'data', 'audio', 'subtitle')),
+    'codec_name': frozenset(('h264', 'bin_data')), 'codec_tag_string': frozenset(('avc1', 'mett'))}
+OBS_NUMBERS = {'index': (0, 7), 'width': (0, 8192), 'height': (0, 8192),
+    'start_pts': (-10**9, 10**9), 'duration_ts': (0, 180 * 10**9), 'nb_frames': (0, MAX_FRAMES)}
+OBS_SUMMARY = {'count': (0, MAX_FRAMES + 2), 'first_pts': (-10**9, 10**9),
+    'last_pts': (-10**9, 10**9), 'first_duration': (0, 180 * 10**9), 'last_duration': (0, 180 * 10**9)}
 
 
 def require(condition, code):
@@ -277,12 +283,124 @@ def stream_fields(stream):
     raise ValueError('native_timing_stream_fields_' + code)
 
 
+def observation(packet_report, frame_report):
+    """Closed diagnostic projection, including rejected numeric summaries only."""
+    def number(value, limits):
+        try:
+            return integer(value, 'observation_number', *limits)
+        except ValueError:
+            return None
+    def enum(record, key):
+        if key not in record:
+            return 'absent'
+        value = record[key]
+        return value if type(value) is str and value in OBS_ENUMS[key] else 'other'
+    def ratio(value):
+        try:
+            timebase(value)
+            return value
+        except ValueError:
+            return None
+    streams_observed = type(packet_report) is dict and type(packet_report.get('streams')) is list
+    source_streams = packet_report.get('streams', []) if type(packet_report) is dict else []
+    source_streams = source_streams if type(source_streams) is list else []
+    streams = []
+    for item in source_streams[:8]:
+        item = item if type(item) is dict else {}
+        streams.append({**{key: number(item.get(key), limits) for key, limits in OBS_NUMBERS.items()},
+            **{key: enum(item, key) for key in OBS_ENUMS}, 'time_base': ratio(item.get('time_base'))})
+    packets_observed = type(packet_report) is dict and type(packet_report.get('packets')) is list
+    frames_observed = type(frame_report) is dict and type(frame_report.get('frames')) is list
+    packets = packet_report.get('packets', []) if type(packet_report) is dict else []
+    frames = frame_report.get('frames', []) if type(frame_report) is dict else []
+    packets = packets if type(packets) is list else []
+    frames = frames if type(frames) is list else []
+    def summary(rows, duration_key):
+        result = {'count': number(len(rows), OBS_SUMMARY['count'])}
+        for prefix, item in (('first', rows[0] if rows else {}), ('last', rows[-1] if rows else {})):
+            item = item if type(item) is dict else {}
+            for field, source in (('pts', 'pts'), ('duration', duration_key)):
+                key = prefix + '_' + field
+                result[key] = number(item.get(source), OBS_SUMMARY[key])
+        return result
+    video_indices = {item['index'] for item in streams if item['codec_type'] == 'video' and item['index'] is not None}
+    video_packets = [item for item in packets[:MAX_FRAMES + 2] if type(item) is dict
+        and type(item.get('stream_index')) is int and item['stream_index'] in video_indices]
+    metadata = []
+    for item in streams:
+        if item['codec_type'] == 'data' and item['index'] is not None:
+            rows = [p for p in packets[:MAX_FRAMES + 2] if type(p) is dict
+                and type(p.get('stream_index')) is int and p['stream_index'] == item['index']]
+            metadata.append(dict(stream_index=item['index'], **summary(rows, 'duration')))
+    format_record = packet_report.get('format') if type(packet_report) is dict else None
+    format_us = None
+    if type(format_record) is dict:
+        try:
+            exact_us = seconds(format_record.get('duration'), 'observation_format') * 10**6
+            if exact_us.denominator == 1:
+                format_us = exact_us.numerator
+        except ValueError:
+            pass
+    video_packet_summary, video_frame_summary = summary(video_packets, 'duration'), summary(frames[:MAX_FRAMES], 'pkt_duration')
+    if not packets_observed:
+        video_packet_summary['count'] = None
+    if not frames_observed:
+        video_frame_summary['count'] = None
+    result = dict(schema=1, kind='weather-demo-native-timing-observation', technical_coherence_passed=False,
+        stream_count=number(len(source_streams), (0, 8)) if streams_observed else None, streams=streams,
+        format_duration_microseconds=format_us,
+        packet_count=number(len(packets), (0, MAX_FRAMES + 2)) if packets_observed else None,
+        decoded_frame_count=number(len(frames), (0, MAX_FRAMES)) if frames_observed else None,
+        video_packets=video_packet_summary, video_frames=video_frame_summary,
+        metadata_packets=metadata)
+    return validate_observation(result)
+
+
+def validate_observation(value):
+    """Validate an exception attachment again before any failure JSON export."""
+    def numbers(record, fields):
+        require(type(record) is dict and set(record) == set(fields), 'observation_fields')
+        for key, (low, high) in fields.items():
+            item = record[key]
+            require(item is None or type(item) is int and low <= item <= high, 'observation_number')
+    require(type(value) is dict and set(value) == {'schema', 'kind', 'technical_coherence_passed',
+        'stream_count', 'streams', 'format_duration_microseconds', 'packet_count', 'decoded_frame_count', 'video_packets', 'video_frames',
+        'metadata_packets'}, 'observation_fields')
+    require(type(value['schema']) is int and value['schema'] == 1
+        and value['kind'] == 'weather-demo-native-timing-observation'
+        and value['technical_coherence_passed'] is False, 'observation_identity')
+    numbers({key: value[key] for key in ('stream_count', 'packet_count', 'decoded_frame_count', 'format_duration_microseconds')},
+        dict(stream_count=(0, 8), packet_count=(0, MAX_FRAMES + 2), decoded_frame_count=(0, MAX_FRAMES),
+            format_duration_microseconds=(0, 180 * 10**6)))
+    require(type(value['streams']) is list and len(value['streams']) <= 8, 'observation_streams')
+    for stream in value['streams']:
+        require(type(stream) is dict and set(stream) == set(OBS_NUMBERS) | set(OBS_ENUMS) | {'time_base'}, 'observation_fields')
+        numbers({key: stream[key] for key in OBS_NUMBERS}, OBS_NUMBERS)
+        for key, allowed in OBS_ENUMS.items():
+            require(type(stream[key]) is str and stream[key] in allowed | {'absent', 'other'}, 'observation_enum')
+        require(stream['time_base'] is None or type(stream['time_base']) is str, 'observation_timebase')
+        if stream['time_base'] is not None:
+            timebase(stream['time_base'])
+    for key in ('video_packets', 'video_frames'):
+        numbers(value[key], OBS_SUMMARY)
+    require(type(value['metadata_packets']) is list and len(value['metadata_packets']) <= 8, 'observation_metadata')
+    for item in value['metadata_packets']:
+        require(type(item) is dict and set(item) == set(OBS_SUMMARY) | {'stream_index'}, 'observation_fields')
+        numbers({key: item[key] for key in OBS_SUMMARY}, OBS_SUMMARY)
+        require(type(item['stream_index']) is int and 0 <= item['stream_index'] <= 7, 'observation_stream_index')
+    require(len(canonical(value)) <= 8192, 'observation_size')
+    return value
+
+
 def coherence(raw, packet_report, frame_report, timeline, version):
     """Pure bounded verification; synthetic fixtures do not supply native proof."""
     require(type(raw) is bytes and 0 < len(raw) <= MAX_VIDEO, 'video_size')
     mdats, movie_duration, movie_tick = container(raw)
     require(type(packet_report) is dict and set(packet_report) <= {'streams', 'packets', 'format', 'programs'}
         and packet_report.get('programs', []) == [], 'packet_report')
+    format_record = packet_report.get('format')
+    require(type(format_record) is dict and set(format_record) == {'duration'}, 'format')
+    format_duration = seconds(format_record['duration'], 'format_duration')
     streams = packet_report.get('streams')
     require(type(streams) is list and len(streams) == 3, 'streams')
     videos, metadata, indexed = [], [], {}
@@ -302,8 +420,13 @@ def coherence(raw, packet_report, frame_report, timeline, version):
             require(stream.get('codec_type') == 'data' and stream.get('codec_tag_string') == 'mett'
                 and 'codec_name' not in stream and not {'width', 'height'} & set(stream), 'metadata_profile')
             require(integer(stream.get('nb_frames'), 'metadata_samples', high=MAX_FRAMES) == 1, 'metadata_samples')
-            require('duration_ts' not in stream or integer(stream['duration_ts'], 'metadata_duration') == 0,
-                'metadata_duration')
+            # demux.c1548-1559 may fill a DATA stream's zero/unknown timing
+            # from the format duration. av_rescale_q rounds nearest, ties away
+            # from zero (mathematics.c130-132). This summary is not frame timing.
+            ticks = format_duration / tb
+            inferred = (2 * ticks.numerator + ticks.denominator) // (2 * ticks.denominator)
+            summary_duration = integer(stream.get('duration_ts', 0), 'metadata_duration', high=180 * 10**9)
+            require(summary_duration in (0, inferred) and summary_duration * tb <= 180, 'metadata_duration')
             metadata.append((index, stream, tb))
     require(len(videos) == 1 and len(metadata) == 2, 'track_profile')
     video_index, stream, tb = videos[0]
@@ -345,16 +468,24 @@ def coherence(raw, packet_report, frame_report, timeline, version):
             pkt_duration=duration, pkt_pos=pos, pkt_size=size)
         require(all(integer(frame[key], 'frame_integer', low=-10**9) == value for key, value in expected.items()), 'decoded_packet_mapping')
     arrays, records = {}, []
-    for index, _stream, track_tb in metadata:
+    for index, metadata_stream, track_tb in metadata:
         require(len(grouped[index]) == 1, 'metadata_packet_count')
         point, duration, pos, size = grouped[index][0]
-        require(duration == 0 and size <= 32 + MAX_FRAMES * 8, 'metadata_packet_shape')
+        summary_duration = integer(metadata_stream.get('duration_ts', 0), 'metadata_duration', high=180 * 10**9)
+        # mov.c8395-8400 uses stream.duration - packet.dts for the last sample.
+        # A packet buffered before timing inference can still have duration0.
+        require(duration * track_tb <= 180
+            and (duration == 0 or summary_duration > 0 and duration == summary_duration - point),
+            'metadata_packet_duration')
+        require(size <= 32 + MAX_FRAMES * 8, 'metadata_packet_shape')
         body = raw[pos:pos + size]
         kind, relative = payload(body)
         require(kind not in arrays and len(relative) == count, 'metadata_kind_count')
         arrays[kind] = relative
         records.append(dict(stream_index=index, kind=kind, packet_offset=pos, packet_bytes=size,
-            packet_sha256=sha(body), packet_pts=point, packet_duration=duration, time_base=rational(track_tb), frame_count=count))
+            packet_sha256=sha(body), packet_pts=point, packet_duration=duration, time_base=rational(track_tb), frame_count=count,
+            summary_duration_ticks=summary_duration,
+            summary_duration_basis='format-inferred' if summary_duration else 'zero-or-absent'))
     require(set(arrays) == {'legacy', 'v2'}, 'metadata_kinds')
     # Both AOSP writers add one constant offset to the same integer-us vector.
     # Relative arrays must therefore agree exactly, not within a guessed margin.
@@ -372,9 +503,6 @@ def coherence(raw, packet_report, frame_report, timeline, version):
     # this check uses one video tick, not the unrelated host capture interval.
     require(abs(packet_end - stream_duration) <= tb, 'track_end')
     require(abs(stream_duration - movie_duration) <= movie_tick + tb, 'movie_end')
-    format_record = packet_report.get('format')
-    require(type(format_record) is dict and set(format_record) == {'duration'}, 'format')
-    format_duration = seconds(format_record['duration'], 'format_duration')
     # Container/movie and track summaries use different integer timescales.
     # ffprobe's decimal format summary adds a microsecond serialization step;
     # keep these quantities separate rather than asserting exact equality.
@@ -406,6 +534,7 @@ def validate(video_path, frame_timeline):
     """Hosted-only native proof. Returns JSON-safe report or fixed-code ValueError."""
     hosted()
     path = Path(video_path)
+    packets, frames = None, None
     try:
         require(path.is_absolute() and path.resolve(strict=True) == path and path.is_relative_to(ROOT), 'video_path')
         with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as source:
@@ -428,4 +557,12 @@ def validate(video_path, frame_timeline):
             require(source.read(MAX_VIDEO + 1) == raw, 'video_changed')
     except OSError:
         raise ValueError('native_timing_file_io') from None
-    return coherence(raw, packets, frames, frame_timeline, version['program_version']['version'])
+    except ValueError as error:
+        if packets is not None:
+            error.native_timing_observation = observation(packets, frames)
+        raise
+    try:
+        return coherence(raw, packets, frames, frame_timeline, version['program_version']['version'])
+    except ValueError as error:
+        error.native_timing_observation = observation(packets, frames)
+        raise

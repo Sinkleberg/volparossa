@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Inert, explicitly synthetic timing/container fixtures; never real acceptance."""
 from fractions import Fraction
+import copy
 import importlib.util
 import json
 import os
@@ -109,6 +110,78 @@ class Timing(unittest.TestCase):
             v[0] = v[0][:start] + struct.pack('<Q', 10040001000) + v[0][start + 8:]
             v[3]['source_video_sha256'] = T.sha(v[0])
         self.rejected(change, 'metadata_relative_disagreement')
+
+    def test_metadata_duration_source_derived_format_inference(self):
+        # Source-derived FFmpeg prediction, not observed Android ffprobe JSON.
+        for summary, packet in ((0, 0), (120, 0), (120, 120)):
+            values = list(fixture())
+            for stream in values[1]['streams'][1:]:
+                stream['duration_ts'] = summary
+            for sample in values[1]['packets'][3:]:
+                sample['duration'] = packet
+            result = self.check(values)
+            for track in result['metadata_tracks']:
+                self.assertEqual(track['summary_duration_ticks'], summary)
+                self.assertEqual(track['packet_duration'], packet)
+        self.rejected(lambda v: v[1]['streams'][1].update(duration_ts=119), 'metadata_duration')
+        self.rejected(lambda v: v[1]['streams'][1].update(duration_ts=-1), 'metadata_duration')
+        self.rejected(lambda v: v[1]['streams'][1].update(duration_ts=10**15), 'metadata_duration')
+        self.rejected(lambda v: v[1]['packets'][3].update(duration=120), 'metadata_packet_duration')
+        values = list(fixture())
+        values[1]['streams'][1].update(duration_ts=120)
+        values[1]['packets'][3].update(duration=119)
+        with self.assertRaisesRegex(ValueError, 'native_timing_metadata_packet_duration'):
+            self.check(values)
+
+    def test_metadata_duration_uses_nearest_rescaling_not_arbitrary_margin(self):
+        values = list(fixture())
+        # 0.12 / (1/25) = 3 exact ticks; neighboring values remain rejected.
+        values[1]['streams'][1].update(time_base='1/25', duration_ts=3)
+        values[1]['packets'][3].update(duration=3)
+        self.check(values)
+        values[1]['streams'][1]['duration_ts'] = 4
+        with self.assertRaisesRegex(ValueError, 'native_timing_metadata_duration'):
+            self.check(values)
+        # Half-tick ties round away from zero, matching av_rescale_q.
+        values[1]['streams'][1].update(time_base='2/25', duration_ts=2)
+        values[1]['packets'][3].update(duration=2)
+        self.check(values)
+
+    def test_observation_closed_safe_projection_and_unknown_fields(self):
+        _, packets, frames, _ = fixture()
+        packets['streams'][1].update(duration_ts='120', codec_name='private secret',
+            codec_tag_string='private/path', width=10**40, tags={'private': 'secret'})
+        value = T.observation(packets, frames)
+        self.assertEqual(value['streams'][1]['duration_ts'], 120)
+        self.assertEqual(value['streams'][1]['codec_name'], 'other')
+        self.assertIsNone(value['streams'][1]['width'])
+        self.assertEqual(value['video_packets']['count'], 3)
+        self.assertEqual(value['video_packets']['last_pts'], 80)
+        self.assertEqual(value['video_frames']['last_duration'], 40)
+        self.assertEqual(value['format_duration_microseconds'], 120000)
+        self.assertFalse(value['technical_coherence_passed'])
+        self.assertNotIn('private', json.dumps(value))
+        self.assertNotIn('secret', json.dumps(value))
+        missing = T.observation(None, None)
+        self.assertIsNone(missing['decoded_frame_count'])
+        self.assertIsNone(missing['video_frames']['count'])
+        self.assertIsNone(missing['packet_count'])
+
+    def test_observation_validator_rejects_arbitrary_or_unbounded_attachments(self):
+        _, packets, frames, _ = fixture()
+        good = T.observation(packets, frames)
+        changes = [lambda v: v.update(private='secret'), lambda v: v.update(technical_coherence_passed=True),
+            lambda v: v.update(packet_count=T.MAX_FRAMES + 3), lambda v: v.update(packet_count=True),
+            lambda v: v['streams'][0].update(codec_name='private secret'),
+            lambda v: v['streams'][0].update(time_base='private/path'),
+            lambda v: v['streams'][0].update(duration_ts=10**40),
+            lambda v: v['video_packets'].update(raw='private'),
+            lambda v: v['metadata_packets'][0].update(stream_index='private')]
+        for change in changes:
+            bad = copy.deepcopy(good)
+            change(bad)
+            with self.assertRaisesRegex(ValueError, '^native_timing_'):
+                T.validate_observation(bad)
 
     def test_video_ticks_disagree_with_elapsed(self):
         def change(v):
@@ -239,6 +312,23 @@ class Timing(unittest.TestCase):
                     patch.object(T, 'native_json', side_effect=mutate):
                 with self.assertRaisesRegex(ValueError, 'native_timing_video_changed'):
                     T.validate(path, timeline)
+
+    def test_validate_rejection_attaches_sanitized_actual_boundary_values(self):
+        raw, packets, frames, timeline = fixture()
+        packets['streams'][1]['duration_ts'] = 119
+        with tempfile.TemporaryDirectory(prefix='inert-native-observation-') as temp:
+            root = Path(temp).resolve()
+            path = root / 'synthetic.mp4'
+            path.write_bytes(raw)
+            path.chmod(0o600)
+            with patch.object(T, 'ROOT', root), patch.object(T, 'hosted'), \
+                    patch.object(T, 'native_json', side_effect=[packets, frames, dict(program_version=dict(version='6.1.1'))]), \
+                    self.assertRaisesRegex(ValueError, 'native_timing_metadata_duration') as caught:
+                T.validate(path, timeline)
+            detail = caught.exception.native_timing_observation
+            self.assertEqual(detail['streams'][1]['duration_ts'], 119)
+            self.assertEqual(detail['decoded_frame_count'], 3)
+            self.assertFalse(detail['technical_coherence_passed'])
 
     def test_validate_rejects_symlinks_permissions_outside_and_hardlinks(self):
         raw, _, _, timeline = fixture()

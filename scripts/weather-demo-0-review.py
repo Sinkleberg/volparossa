@@ -834,6 +834,9 @@ def admit_scoped_demo(output, identity, capture, media, artifact, rendered, visu
         layout_preview=dict(file='preview-090.png', presentation_time_seconds=90,
             final_layout_visual_review_required=True),
         pixel_scope=sorted(SCOPED_CLAIMS), report_only_scope=['second-refresh-completion', 'background-resume-lifecycle-and-mounted-tables'],
+        ffmpeg_version=command([tool('/usr/bin/ffmpeg'), '-version'], maximum=16384, seconds=10,
+            reject_stderr=True).decode('ascii').splitlines()[0],
+        font_sha256=digest(Path(tool(str(FONT)))),
         publication_authorized=False, production_authority=False, standalone_mobile_core=False,
         final_presentation_visual_review_required=True, includes_installable_binaries=False, files=files)
     (stage / 'presentation.json').write_text(json.dumps(presentation, sort_keys=True, indent=2) + '\n')
@@ -988,6 +991,14 @@ def prepare(run_id, attempt, revision, output, execute=False, hold_image=None, *
                 'scoped-visual-review', 'scoped-native-timing', 'scoped-presentation'} else 'unknown'
             if isinstance(error, ValueError) and re.fullmatch(r'native_timing_[a-z0-9_]{1,80}', str(error)):
                 failure['native_timing_rejection'] = str(error)
+                if STATE['stage'] == 'scoped-native-timing' and hasattr(error, 'native_timing_observation'):
+                    try:
+                        validator = runpy.run_path(str(ROOT / 'tests/integration/weather-demo-native-timing.py'))['validate_observation']
+                        failure['native_timing_observation'] = validator(error.native_timing_observation)
+                    except (ValueError, TypeError, KeyError, OSError):
+                        # A malformed attachment never replaces the original
+                        # failure or permits unfiltered diagnostic disclosure.
+                        pass
         (output / failure_name).write_text(json.dumps(failure, sort_keys=True, indent=2) + '\n')
         (output / failure_name).chmod(0o600)
         raise

@@ -1,0 +1,17 @@
+{
+  "artifact": {
+    "digest": "sha256:0c55eac994fde59a752653c7bbd9b3fb958529f0d8a3f9ccea4473c18431556a",
+    "id": 12526968229,
+    "name": "weather-demo-review-failure-39998753810-1-b3bf581df6679d4e8ba09573666af10f036ceed1",
+    "size_in_bytes": 38950
+  },
+  "attempt": "1",
+  "conclusion": "failure",
+  "core_commit": "b3bf581df6679d4e8ba09573666af10f036ceed1",
+  "inspection_preserved": true,
+  "native_timing_rejection": "native_timing_metadata_duration",
+  "new_runtime_executed": false,
+  "original_run_id": "39998753810",
+  "run_id": "40012815166",
+  "schema": 1
+}

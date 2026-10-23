@@ -900,6 +900,8 @@ class Review(unittest.TestCase):
             return stage / 'weather-demo-0.mp4', dict(duration_seconds=120)
         def preview(args, **kwargs):
             self.assertTrue(kwargs['reject_stderr'])
+            if args == ['/usr/bin/ffmpeg', '-version']:
+                return b'ffmpeg version 6.1.1-synthetic-test-only\n'
             Path(args[-1]).write_bytes(b'\x89PNG\r\n\x1a\n' + b'\0\0\0\rIHDR' +
                 (1920).to_bytes(4, 'big') + (1080).to_bytes(4, 'big'))
         def module(path):
@@ -907,10 +909,12 @@ class Review(unittest.TestCase):
                 return {'validate': lambda video, frames: technical}
             return dict(presentation_lines=lambda *args, **kwargs: [], render_video=render,
                         scoped_captions=lambda *args: ('scoped captions', 'scoped transcript'))
+        font = self.root / 'synthetic-font.ttf'
+        font.write_bytes(b'synthetic font fixture; never actual render evidence')
         with patch.object(R, 'SCOPED_VIDEO', source_hash), patch.object(R, 'hosted'), \
                 patch.object(R, 'committed_visual_review', return_value=(encoded(review), review)), \
                 patch.object(R.runpy, 'run_path', side_effect=module), patch.object(R, 'tool', side_effect=str), \
-                patch.object(R, 'command', side_effect=preview):
+                patch.object(R, 'FONT', font), patch.object(R, 'command', side_effect=preview):
             record = R.admit_scoped_demo(output, R.SCOPED_IDENTITY, capture, media, artifact, rendered,
                                          Path('review.json'), dict(core_commit=REVIEW_CORE))
         self.assertTrue(record['scoped_demo_admitted'])
@@ -925,6 +929,8 @@ class Review(unittest.TestCase):
         self.assertIn('preview-090.png', presentation['files'])
         self.assertEqual(presentation['hold_frame']['file'], 'screenshots/frame-206.png')
         self.assertIn('30fps CFR', presentation['edits']['presentation_cadence'])
+        self.assertEqual(presentation['ffmpeg_version'], 'ffmpeg version 6.1.1-synthetic-test-only')
+        self.assertEqual(presentation['font_sha256'], hashlib.sha256(font.read_bytes()).hexdigest())
         self.assertEqual((output / 'presentation/screen.mp4').read_bytes(), b'synthetic unit clip; never native runtime evidence')
         self.assertEqual({p.name for p in (output / 'presentation/screenshots').iterdir()},
                          {f'frame-{index:03d}.png' for index in R.SCOPED_SCREENSHOTS})
@@ -933,20 +939,55 @@ class Review(unittest.TestCase):
         output = self.root / 'inspection'
         capture = dict(original_acceptance_sha256='e' * 64, capture={}, driver_window={})
         media = dict(video={}, files={'screen.mp4': dict(sha256=R.SCOPED_VIDEO)})
+        timing = R.runpy.run_path(str(ROOT / 'tests/integration/weather-demo-native-timing.py'))
+        detail = timing['observation'](dict(streams=[dict(index=1, codec_type='data', codec_tag_string='mett',
+            time_base='1/90000', start_pts=0, duration_ts='5902102', nb_frames='1')], packets=[]), dict(frames=[]))
         def fail(*args):
             R.STATE['stage'] = 'scoped-native-timing'
-            raise ValueError('native_timing_metadata_relative_disagreement')
+            error = ValueError('native_timing_metadata_relative_disagreement')
+            error.native_timing_observation = detail
+            raise error
         with patch.object(R, 'ROOT', self.root), patch.object(R, 'hosted'), patch.dict(os.environ, ENV, clear=True), \
                 patch.object(R, 'selected_artifact', return_value={'original_run_conclusion': 'failure'}), \
                 patch.object(R, 'download', side_effect=lambda _, path: path.write_bytes(b'synthetic ZIP')), \
                 patch.object(R, 'quarantine_evidence', return_value=(capture, media, 'c' * 64)), \
                 patch.object(R, 'quarantine_samples', return_value={}), patch.object(R, 'admit_scoped_demo', side_effect=fail), \
+                patch.object(R.runpy, 'run_path', return_value=timing), \
                 self.assertRaises(ValueError):
             R.prepare('39998753810', '1', R.SCOPED_IDENTITY['core_commit'], output, execute=True,
                       inspect_quarantine=True, native_frames=True, admit_scoped=True, visual_review=Path('review.json'))
         self.assertTrue((output / 'review.json').exists())
         failure = json.loads((output / 'scoped-admission-failure.json').read_text())
         self.assertEqual(failure['native_timing_rejection'], 'native_timing_metadata_relative_disagreement')
+        self.assertEqual(failure['native_timing_observation']['streams'][0]['duration_ts'], 5902102)
+        self.assertFalse(failure['native_timing_observation']['technical_coherence_passed'])
+        self.assertTrue(failure['completed_inspection_preserved'])
+        self.assertFalse(failure['scoped_demo_admitted'])
+
+    def test_scoped_failure_drops_malformed_timing_attachment(self):
+        output = self.root / 'inspection'
+        timing = R.runpy.run_path(str(ROOT / 'tests/integration/weather-demo-native-timing.py'))
+        capture = dict(original_acceptance_sha256='e' * 64, capture={}, driver_window={})
+        media = dict(video={}, files={'screen.mp4': dict(sha256=R.SCOPED_VIDEO)})
+        def fail(*args):
+            R.STATE['stage'] = 'scoped-native-timing'
+            error = ValueError('native_timing_metadata_duration')
+            error.native_timing_observation = {'private path': 'secret'}
+            raise error
+        with patch.object(R, 'ROOT', self.root), patch.object(R, 'hosted'), patch.dict(os.environ, ENV, clear=True), \
+                patch.object(R, 'selected_artifact', return_value={'original_run_conclusion': 'failure'}), \
+                patch.object(R, 'download', side_effect=lambda _, path: path.write_bytes(b'synthetic ZIP')), \
+                patch.object(R, 'quarantine_evidence', return_value=(capture, media, 'c' * 64)), \
+                patch.object(R, 'quarantine_samples', return_value={}), patch.object(R, 'admit_scoped_demo', side_effect=fail), \
+                patch.object(R.runpy, 'run_path', return_value=timing), self.assertRaises(ValueError):
+            R.prepare('39998753810', '1', R.SCOPED_IDENTITY['core_commit'], output, execute=True,
+                      inspect_quarantine=True, native_frames=True, admit_scoped=True, visual_review=Path('review.json'))
+        raw = (output / 'scoped-admission-failure.json').read_text()
+        failure = json.loads(raw)
+        self.assertNotIn('native_timing_observation', failure)
+        self.assertNotIn('private', raw)
+        self.assertNotIn('secret', raw)
+        self.assertEqual(failure['native_timing_rejection'], 'native_timing_metadata_duration')
         self.assertTrue(failure['completed_inspection_preserved'])
         self.assertFalse(failure['scoped_demo_admitted'])
 
