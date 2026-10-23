@@ -252,9 +252,141 @@ class Review(unittest.TestCase):
         self.assertEqual(result['identity'], IDENTITY)
         self.assertEqual(result['review_execution']['core_commit'], REVIEW_CORE)
         self.assertFalse(result['new_runtime_executed'])
+        self.assertNotIn('revised_presentation', result)
         self.assertFalse(result['visual_acceptance_claimed'])
         self.assertFalse((output / 'review.zip').exists())
         self.assertTrue((output / 'review.json').exists())
+
+    def held_fixture(self):
+        original = self.root / 'original'
+        (original / 'demo-media').mkdir(parents=True)
+        raw = b'inert original clip; not runtime media'
+        png = (b'\x89PNG\r\n\x1a\n' + b'\0\0\0\rIHDR' +
+               (1080).to_bytes(4, 'big') + (1920).to_bytes(4, 'big') + b'synthetic fixture')
+        (original / 'demo-media/screen.mp4').write_bytes(raw)
+        (original / 'demo-media/screen-003.png').write_bytes(png)
+        acceptance = dict(identity=IDENTITY, passed=True,
+            observations=dict(products=dict(weather=dict(cold_peer_bytes=12), air_quality=dict(cold_peer_bytes=34))))
+        (original / 'weather-android-hosted-acceptance.json').write_bytes(encoded(acceptance))
+        media = dict(identity=IDENTITY, acceptance_sha256=record(encoded(acceptance))['sha256'],
+            files={'screen.mp4': record(raw), 'screen-003.png': record(png)},
+            video=dict(codec='h264', width=720, height=1280, duration_seconds=75.0, has_audio=False))
+        output = self.root / 'rendered'
+        output.mkdir()
+        return original, output, media
+
+    def test_optional_hold_rejects_paths_and_only_accepts_explicit_basename(self):
+        with patch.object(R, 'ROOT', self.root), patch.object(R, 'api') as api:
+            for name in ['../screen-003.png', '/screen-003.png', 'screen-3.png', 'samples/frame-003.png',
+                         'screen-003.png:movie', 'screen-003.png\n']:
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    R.prepare('123', '2', CORE, self.root / 'out', hold_image=name)
+            preview = R.prepare('123', '2', CORE, self.root / 'out', hold_image='screen-003.png')
+            self.assertEqual(preview['held_image_requested'], 'screen-003.png')
+            self.assertFalse(preview['executed'])
+            api.assert_not_called()
+
+    def test_selected_genuine_image_hash_identity_and_render_contract(self):
+        original, output, media = self.held_fixture()
+        def lines(identity, products):
+            self.assertEqual(identity, IDENTITY)
+            self.assertEqual(products['weather']['cold_peer_bytes'], 12)
+            return [('completed run', 20, 'ffffff')]
+        def render(raw, stage, duration, raw_info, panel, *, hold_image):
+            self.assertEqual(raw, original / 'demo-media/screen.mp4')
+            self.assertEqual(hold_image, original / 'demo-media/screen-003.png')
+            self.assertEqual(raw_info['duration_seconds'], 75.0)
+            self.assertEqual(duration, 120)
+            self.assertEqual(os.environ['GITHUB_SHA'], REVIEW_CORE)
+            (stage / 'weather-demo-0.mp4').write_bytes(b'synthetic renderer output')
+            return stage / 'weather-demo-0.mp4', dict(duration_seconds=120)
+        package = dict(presentation_lines=lines, render_video=render,
+                       captions=lambda *args, **kwargs: ('held captions', 'held transcript'))
+        with patch.dict(os.environ, ENV, clear=True), patch.object(R, 'tool', side_effect=str), \
+                patch.object(R.runpy, 'run_path', return_value=package):
+            result = R.render_held_image(original, output, media, 'screen-003.png')
+        self.assertEqual(result['identity'], IDENTITY)
+        self.assertEqual(result['held_image'], dict(file='screen-003.png', **media['files']['screen-003.png']))
+        self.assertTrue(result['edits']['full_original_clip'])
+        self.assertFalse(result['edits']['raw_clip_trimmed'])
+        self.assertEqual(result['edits']['held_frame_after_seconds'], 75)
+        self.assertTrue(result['visual_review_required'])
+        self.assertFalse(result['publication_authorized'])
+        self.assertEqual((output / 'transcript.txt').read_text(), 'held transcript')
+
+    def test_fractional_raw_duration_has_a_full_held_second_or_rejects_bound(self):
+        original, output, media = self.held_fixture()
+        calls = []
+        def render(raw, stage, duration, raw_info, panel, *, hold_image):
+            calls.append((duration, raw_info['duration_seconds']))
+            (stage / 'weather-demo-0.mp4').write_bytes(b'synthetic render output')
+            return stage / 'weather-demo-0.mp4', dict(duration_seconds=duration)
+        package = dict(presentation_lines=lambda *_: [], render_video=render,
+                       captions=lambda *args, **kwargs: ('captions', 'transcript'))
+        with patch.object(R, 'tool', side_effect=str), patch.object(R.runpy, 'run_path', return_value=package):
+            media['video']['duration_seconds'] = 119.999
+            result = R.render_held_image(original, output, media, 'screen-003.png')
+            self.assertEqual(calls, [(121, 119.999)])
+            self.assertGreaterEqual(result['video']['duration_seconds'] - 119.999, 1)
+            self.assertEqual(result['edits']['held_frame_after_seconds'], 119.999)
+            self.assertTrue(result['edits']['full_original_clip'])
+            media['video']['duration_seconds'] = 179.999
+            with self.assertRaisesRegex(ValueError, 'bounded presentation duration'):
+                R.render_held_image(original, output, media, 'screen-003.png')
+            self.assertEqual(len(calls), 1)
+
+    def test_held_selection_rejects_missing_hash_dimension_or_runtime_binding(self):
+        original, output, media = self.held_fixture()
+        with patch.object(R.runpy, 'run_path') as renderer:
+            with self.assertRaises(ValueError):
+                R.render_held_image(original, output, media, 'screen-004.png')
+            media['files']['screen-003.png']['sha256'] = '0' * 64
+            with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+                R.render_held_image(original, output, media, 'screen-003.png')
+            image = original / 'demo-media/screen-003.png'
+            image.write_bytes(b'wrong dimensions')
+            media['files']['screen-003.png'] = record(image.read_bytes())
+            with self.assertRaisesRegex(ValueError, 'dimensions'):
+                R.render_held_image(original, output, media, 'screen-003.png')
+            renderer.assert_not_called()
+
+    def test_held_renderer_rejects_changed_runtime_identity_before_native_work(self):
+        original, output, media = self.held_fixture()
+        acceptance_path = original / 'weather-android-hosted-acceptance.json'
+        acceptance = json.loads(acceptance_path.read_bytes())
+        acceptance['identity'] = dict(IDENTITY, core_commit=REVIEW_CORE)
+        acceptance_path.write_bytes(encoded(acceptance))
+        media['acceptance_sha256'] = record(encoded(acceptance))['sha256']
+        with patch.object(R.runpy, 'run_path') as renderer, patch.object(R, 'tool') as tool:
+            with self.assertRaisesRegex(ValueError, 'acceptance binding'):
+                R.render_held_image(original, output, media, 'screen-003.png')
+            renderer.assert_not_called()
+            tool.assert_not_called()
+
+    def test_optional_renderer_is_only_called_after_original_acceptance(self):
+        output = self.root / 'output'
+        original_archive, presentation, media = self.fixture()
+        order = []
+        def accepted(*_):
+            order.append('accepted')
+            return presentation, media, 'c' * 64
+        def revised(original, stage, selected_media, basename):
+            self.assertEqual(order, ['accepted'])
+            self.assertEqual(original, output / 'original')
+            self.assertEqual(selected_media, media)
+            self.assertEqual(basename, 'screen-003.png')
+            return dict(identity=IDENTITY, held_image=dict(file=basename), visual_review_required=True)
+        with patch.object(R, 'ROOT', self.root), patch.dict(os.environ, ENV, clear=True), \
+                patch.object(R.os, 'getuid', return_value=1000), patch.object(R.os, 'geteuid', return_value=1000), \
+                patch.object(R, 'selected_artifact', return_value={'id': 7}), \
+                patch.object(R, 'download', side_effect=lambda _, path: path.write_bytes(original_archive.read_bytes())), \
+                patch.object(R, 'evidence', side_effect=accepted), \
+                patch.object(R, 'contact_sheets', return_value={}), \
+                patch.object(R, 'render_held_image', side_effect=revised):
+            result = R.prepare('123', '2', CORE, output, execute=True, hold_image='screen-003.png')
+        self.assertEqual(result['review_execution']['core_commit'], REVIEW_CORE)
+        self.assertEqual(result['revised_presentation']['identity']['core_commit'], CORE)
+        self.assertFalse(result['visual_acceptance_claimed'])
 
     def test_sampling_commands_use_only_fixed_tools_and_original_video(self):
         evidence = self.root / 'evidence'

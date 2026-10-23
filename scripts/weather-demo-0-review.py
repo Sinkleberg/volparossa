@@ -328,6 +328,54 @@ def contact_sheets(evidence_root, output, media):
                 exact_action_timestamps_asserted=False)
 
 
+def render_held_image(original, output, media, basename):
+    """Render only after evidence() rechecked the original closed same-run media."""
+    STATE['stage'] = 'selected-held-image'
+    require(type(basename) is str and re.fullmatch(r'screen-[0-9]{3}\.png', basename)
+            and basename in media['files'], 'admitted same-run image basename required')
+    image = original / 'demo-media' / basename
+    info = image.lstat()
+    require(stat.S_ISREG(info.st_mode) and not image.is_symlink()
+            and 0 < info.st_size <= 4 * 1024**2
+            and media['files'][basename] == dict(bytes=info.st_size, sha256=digest(image)),
+            'selected held image hash mismatch')
+    with image.open('rb') as stream:
+        prefix = stream.read(24)
+    require(len(prefix) == 24 and prefix[:8] == b'\x89PNG\r\n\x1a\n'
+            and prefix[12:16] == b'IHDR'
+            and tuple(int.from_bytes(prefix[i:i + 4], 'big') for i in [16, 20]) == (1080, 1920),
+            'selected admitted PNG dimensions rejected')
+    acceptance_path = original / 'weather-android-hosted-acceptance.json'
+    acceptance = decode(acceptance_path.read_bytes(), 65536)
+    require(acceptance['identity'] == media['identity'] and acceptance['passed'] is True
+            and digest(acceptance_path) == media['acceptance_sha256'], 'held-image acceptance binding rejected')
+    raw_video = original / 'demo-media/screen.mp4'
+    require(digest(raw_video) == media['files']['screen.mp4']['sha256'], 'original recording hash mismatch')
+    tool('/usr/bin/ffmpeg')
+    tool('/usr/bin/ffprobe')
+    package = runpy.run_path(str(ROOT / 'scripts/weather-demo-0-package.py'))
+    raw_info = {key: media['video'][key] for key in ['codec', 'width', 'height', 'duration_seconds']}
+    duration = max(120, math.ceil(raw_info['duration_seconds'] + 1))
+    require(duration <= 180, 'no held-image interval within bounded presentation duration')
+    lines = package['presentation_lines'](media['identity'], acceptance['observations']['products'])
+    STATE['stage'] = 'selected-held-image-render'
+    _, video = package['render_video'](raw_video, output, duration, raw_info, lines, hold_image=image)
+    require(digest(image) == media['files'][basename]['sha256'], 'held image changed during render')
+    captions, transcript = package['captions'](duration, raw_info['duration_seconds'], hold_image=basename)
+    for name, text in [('captions.vtt', captions), ('transcript.txt', transcript)]:
+        (output / name).write_text(text, encoding='utf-8')
+        (output / name).chmod(0o600)
+    (output / 'weather-demo-0.mp4').chmod(0o600)
+    return dict(video=video, identity=media['identity'],
+        held_image=dict(file=basename, **media['files'][basename]),
+        edits=dict(speed=1, full_original_clip=True, raw_clip_trimmed=False,
+            held_frame_after_seconds=raw_info['duration_seconds'],
+            held_image_label='Held app frame from this run', counters='completed-run summary',
+            exact_action_timestamps_asserted=False),
+        publication_authorized=False, production_authority=False,
+        visual_review_required=True, visual_acceptance_claimed=False)
+
+
 def hosted():
     require(os.environ.get('GITHUB_ACTIONS') == 'true'
             and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted'
@@ -339,8 +387,11 @@ def hosted():
                     for k in ['GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT']), 'review execution identity missing')
 
 
-def prepare(run_id, attempt, revision, output, execute=False):
+def prepare(run_id, attempt, revision, output, execute=False, hold_image=None):
     STATE['stage'] = 'arguments'
+    hold_image = None if hold_image == '' else hold_image
+    require(hold_image is None or type(hold_image) is str
+            and re.fullmatch(r'screen-[0-9]{3}\.png', hold_image), 'strict held-image basename required')
     require(all(type(v) is str and re.fullmatch('[1-9][0-9]{0,19}', v) for v in [run_id, attempt])
             and type(revision) is str and re.fullmatch('[a-f0-9]{40}', revision), 'strict run/attempt/SHA required')
     output = Path(output)
@@ -351,7 +402,8 @@ def prepare(run_id, attempt, revision, output, execute=False):
     identity = dict(core_commit=revision, weather_commit=WEATHER, run_id=run_id, run_attempt=attempt)
     preview = dict(schema=1, kind='weather-demo-media-review-preview', identity=identity,
                    executed=False, publication_authorized=False, visual_review_required=True,
-                   downloads='Only exact same-run weather-demo-review-' + revision)
+                   downloads='Only exact same-run weather-demo-review-' + revision,
+                   held_image_requested=hold_image)
     if not execute:
         return preview
     hosted()
@@ -366,6 +418,7 @@ def prepare(run_id, attempt, revision, output, execute=False):
         presentation, media, verifier_sha = evidence(archive, original, identity)
         archive.unlink()
         rendered = contact_sheets(original, output, media)
+        revised = render_held_image(original, output, media, hold_image) if hold_image is not None else None
         files = {p.relative_to(output).as_posix(): dict(bytes=p.stat().st_size, sha256=digest(p))
                  for p in sorted(output.rglob('*')) if p.is_file()}
         result = dict(schema=1, kind='weather-demo-retained-media-review', identity=identity,
@@ -376,6 +429,8 @@ def prepare(run_id, attempt, revision, output, execute=False):
             joined_core_acceptance_rechecked=True, new_runtime_executed=False,
             publication_authorized=False, production_authority=False,
             visual_review_required=True, visual_acceptance_claimed=False, rendered=rendered, files=files)
+        if revised is not None:
+            result['revised_presentation'] = revised
         (output / 'review.json').write_text(json.dumps(result, sort_keys=True, indent=2) + '\n')
         (output / 'review.json').chmod(0o600)
         return result
@@ -403,6 +458,8 @@ def main(argv=None):
     parser.add_argument('--core-revision', required=True)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--execute', action='store_true')
+    parser.add_argument('--hold-image', default=None,
+                        help='explicit admitted screen-NNN.png to hold after the full raw clip')
     args = parser.parse_args(argv)
     previous = signal.getsignal(signal.SIGTERM)
     def interrupted(*_):
@@ -410,7 +467,7 @@ def main(argv=None):
     try:
         if args.execute:
             signal.signal(signal.SIGTERM, interrupted)
-        value = prepare(args.run_id, args.attempt, args.core_revision, args.output, args.execute)
+        value = prepare(args.run_id, args.attempt, args.core_revision, args.output, args.execute, args.hold_image)
         print(json.dumps(value, sort_keys=True, indent=2))
         return 0
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, zipfile.BadZipFile, KeyboardInterrupt):

@@ -30,6 +30,8 @@ def serializer(video):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--render-held-image", action="store_true",
+        help="exercise optional held-image renderer using only a synthetic contact PNG")
     args = parser.parse_args()
     root = args.output
     if not (os.getuid() == os.geteuid() != 0 and os.environ.get("GITHUB_ACTIONS") == "true"
@@ -97,6 +99,16 @@ def main():
             dict(video=dict(duration_seconds=1.0)))
         record["contact_sheet_tool_probe"] = dict(completed=True, rendered=sampled,
             synthetic_input_only=True, media_retained=False)
+        if args.render_held_image:
+            checkpoint("synthetic-selected-image-render")
+            held_output = Path(temporary) / "synthetic-held-presentation"
+            held_output.mkdir(mode=0o700)
+            _, held_info = presentation["render_video"](video, held_output, 3, raw_info,
+                [("SYNTHETIC HELD IMAGE / NOT ANDROID EVIDENCE", 32, "ffffff")],
+                hold_image=sample_output / "poster.png")
+            record["held_image_tool_probe"] = dict(completed=True, video=held_info,
+                synthetic_input_only=True, android_executed=False, genuine_app_pixels=False,
+                joined_core_acceptance=False, media_retained=False)
         version = subprocess.run(["/usr/bin/ffprobe", "-version"], stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=10, check=True, env=NATIVE_ENV)
         record["ffprobe_version"] = version.stdout.decode().splitlines()[0]

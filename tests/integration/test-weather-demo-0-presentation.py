@@ -67,6 +67,83 @@ class Presentation(unittest.TestCase):
                 inspect_video.assert_not_called()
 
 
+    def test_selected_image_captions_describe_full_clip_and_distinct_held_image(self):
+        vtt, text = P.captions(120, 75, hold_image="screen-003.png")
+        self.assertIn("full 75.000-second raw clip at normal speed", text)
+        self.assertIn("selected genuine same-run image screen-003.png", text)
+        self.assertIn("No continuing runtime activity", text)
+        self.assertIn("NOTE After the full", vtt)
+        self.assertIn("00:01:15.000 --> 00:02:00.000\nHeld app frame from this run; original clip has ended.", vtt)
+        self.assertNotIn("holds the final genuine frame", text)
+
+    def test_held_caption_cues_have_monotonic_start_times(self):
+        import re
+        for duration, raw_duration in [(120, 75), (121, 119.999), (120, 81.999)]:
+            with self.subTest(raw_duration=raw_duration):
+                vtt, _ = P.captions(duration, raw_duration, hold_image="screen-003.png")
+                starts = re.findall(r"^([0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}) -->", vtt, re.M)
+                self.assertEqual(starts, sorted(starts))
+                self.assertEqual(len(starts), 7)
+                self.assertIn(f"{P.timestamp(raw_duration)} --> {P.timestamp(duration)}", vtt)
+
+    def test_optional_renderer_preserves_raw_input_and_default_graph(self):
+        for selected in [False, True]:
+            with self.subTest(selected=selected), tempfile.TemporaryDirectory() as name:
+                base = Path(name)
+                stage = base / "stage"
+                stage.mkdir()
+                raw, image, font = [base / value for value in ["raw.mp4", "screen-003.png", "font.ttf"]]
+                for path in [raw, image, font]:
+                    path.write_bytes(b"inert file; never decoded")
+                calls = []
+                def command(args, **kwargs):
+                    calls.append(args)
+                    label = (stage / "text/held.txt").read_text()
+                    self.assertEqual(label, "Held app frame from this run" if selected else "Held frame from this run")
+                    Path(args[-1]).write_bytes(b"synthetic renderer stub")
+                with patch.object(P, "FONT", font), patch.object(P, "command", side_effect=command), \
+                        patch.object(P, "video_info", return_value=dict(duration_seconds=120)):
+                    P.render_video(raw, stage, 120, dict(duration_seconds=75), [],
+                                   hold_image=image if selected else None)
+                args = calls[0]
+                graph = args[args.index("-filter_complex") + 1]
+                self.assertEqual(args[args.index("-i") + 1], str(raw))
+                self.assertEqual(args.count("-i"), 2 if selected else 1)
+                if selected:
+                    self.assertIn(str(image), args)
+                    self.assertIn("[clip][held]concat=n=2:v=1:a=0", graph)
+                    raw_graph = graph.split("[clip];")[0]
+                    self.assertNotIn("trim", raw_graph)
+                    self.assertNotIn("tpad", raw_graph)
+                    self.assertIn("setpts=PTS-STARTPTS,fps=30", raw_graph)
+                    self.assertIn("trim=duration=45.000000", graph)
+                else:
+                    self.assertIn("tpad=stop_mode=clone:stop_duration=120", graph)
+                    self.assertNotIn("concat=", graph)
+                self.assertEqual(raw.read_bytes(), b"inert file; never decoded")
+                self.assertFalse((stage / "text").exists())
+
+    def test_selected_renderer_rejects_fractional_interval_below_one_second(self):
+        with tempfile.TemporaryDirectory() as name:
+            base = Path(name)
+            image, font = base / "screen-003.png", base / "font.ttf"
+            image.write_bytes(b"inert PNG placeholder")
+            font.write_bytes(b"inert font placeholder")
+            with patch.object(P, "FONT", font), patch.object(P, "command") as command:
+                with self.assertRaisesRegex(ValueError, "at least one second"):
+                    P.render_video(base / "raw.mp4", base, 120, dict(duration_seconds=119.999), [], image)
+                command.assert_not_called()
+
+    def test_shared_panel_remains_a_completed_run_summary(self):
+        identity = dict(core_commit="a" * 40, weather_commit="b" * 40, run_id="123")
+        products = dict(weather=dict(cold_peer_bytes=1234), air_quality=dict(cold_peer_bytes=5678))
+        text = " ".join(line[0] for line in P.presentation_lines(identity, products))
+        self.assertIn("COMPLETED-RUN EVIDENCE / not live counters", text)
+        self.assertIn("weather 1,234", text)
+        self.assertIn("particulate 5,678", text)
+        self.assertIn("Run 123 / Core aaaaaaaaaaaa", text)
+
+
 class RecordedUsage(unittest.TestCase):
     def test_uses_deltas_and_excludes_previous_turn_and_duplicate_snapshot(self):
         selected = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"

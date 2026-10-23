@@ -61,7 +61,7 @@ def timestamp(seconds):
     return f"{millis // 3600000:02}:{millis // 60000 % 60:02}:{millis // 1000 % 60:02}.{millis % 1000:03}"
 
 
-def captions(duration, raw_duration):
+def captions(duration, raw_duration, hold_image=None):
     sections = [
         (0, 18, "VOLPAROSSA Weather / Overmorrow. Actual installed Android app in an emulator. Core runs externally in Debian 13."),
         (18, 38, "Real weather and particulate forecasts. Native forecast times, units and precipitation windows matter. Missing values remain unavailable."),
@@ -71,18 +71,27 @@ def captions(duration, raw_duration):
         (103, duration, "Developer demonstration: no standalone mobile Core, physical-device acceptance, proven expiry recovery or production release authority."),
     ]
     lines = ["WEBVTT", "", "NOTE Explanatory narration; cue times do not assert exact action timestamps.", ""]
-    transcript = []
+    transcript, cues = [], []
     for start, stop, text in sections:
         if stop <= start or start >= duration:
             continue
-        lines.extend([f"{timestamp(start)} --> {timestamp(min(stop, duration))}", text, ""])
+        cues.append((start, min(stop, duration), text))
         transcript.append(text)
     if raw_duration < duration:
-        transcript.append(f"After {raw_duration:.3f} seconds, the presentation holds the final genuine frame. No continuing runtime activity is implied.")
+        if hold_image is None:
+            transcript.append(f"After {raw_duration:.3f} seconds, the presentation holds the final genuine frame. No continuing runtime activity is implied.")
+        else:
+            note = (f"After the full {raw_duration:.3f}-second raw clip at normal speed, the presentation holds "
+                f"the selected genuine same-run image {hold_image}. No continuing runtime activity is implied.")
+            transcript.append(note)
+            lines.extend(["NOTE " + note, ""])
+            cues.append((raw_duration, duration, "Held app frame from this run; original clip has ended."))
+    for start, stop, text in sorted(cues, key=lambda cue: cue[0]):
+        lines.extend([f"{timestamp(start)} --> {timestamp(stop)}", text, ""])
     return "\n".join(lines), "\n\n".join(transcript) + "\n"
 
 
-def render_video(raw_video, stage, duration, raw_info, lines):
+def render_video(raw_video, stage, duration, raw_info, lines, hold_image=None):
     """Render only; callers separately establish whether the input is real demo media."""
     require(FONT.is_file() and not FONT.is_symlink())
     text_dir = stage / "text"
@@ -94,14 +103,29 @@ def render_video(raw_video, stage, duration, raw_info, lines):
         overlays.append(f"drawtext=fontfile={filter_path(FONT)}:textfile={filter_path(path)}:fontsize={size}:fontcolor={color}:x=650:y={y}")
         y += 100 if index == 0 else 50
     hold = text_dir / "held.txt"
-    hold.write_text("Held frame from this run")
+    hold.write_text("Held frame from this run" if hold_image is None else "Held app frame from this run")
     overlays.append(f"drawtext=fontfile={filter_path(FONT)}:textfile={filter_path(hold)}:fontsize=24:fontcolor=000000:box=1:boxcolor=0xfbbf24:boxborderw=10:x=110:y=1020:enable='gte(t,{raw_info['duration_seconds']:.3f})'")
-    graph = ("[0:v]setpts=PTS-STARTPTS,fps=30,scale=480:960:force_original_aspect_ratio=decrease,"
-        "pad=480:960:(ow-iw)/2:(oh-ih)/2:color=0x09111f,tpad=stop_mode=clone:stop_duration=120[phone];"
-        f"color=c=0x09111f:s=1920x1080:r=30:d={duration}[bg];"
+    inputs = ["-i", str(raw_video)]
+    if hold_image is None:
+        phone = ("[0:v]setpts=PTS-STARTPTS,fps=30,scale=480:960:force_original_aspect_ratio=decrease,"
+            "pad=480:960:(ow-iw)/2:(oh-ih)/2:color=0x09111f,tpad=stop_mode=clone:stop_duration=120[phone];")
+    else:
+        hold_image = Path(hold_image)
+        require(hold_image.is_file() and not hold_image.is_symlink()
+            and duration - raw_info["duration_seconds"] >= 1,
+            "A held image requires at least one second after the full raw clip")
+        inputs += ["-loop", "1", "-framerate", "30", "-i", str(hold_image)]
+        geometry = ("scale=480:960:force_original_aspect_ratio=decrease,"
+            "pad=480:960:(ow-iw)/2:(oh-ih)/2:color=0x09111f,setsar=1")
+        # The raw input is complete and untrimmed. Only the still-image segment is bounded.
+        phone = (f"[0:v]setpts=PTS-STARTPTS,fps=30,{geometry}[clip];"
+            f"[1:v]setpts=PTS-STARTPTS,fps=30,{geometry},"
+            f"trim=duration={duration - raw_info['duration_seconds']:.6f},setpts=PTS-STARTPTS[held];"
+            "[clip][held]concat=n=2:v=1:a=0[phone];")
+    graph = (phone + f"color=c=0x09111f:s=1920x1080:r=30:d={duration}[bg];"
         "[bg][phone]overlay=90:60:shortest=1," + ",".join(overlays) + "[out]")
     video = stage / "weather-demo-0.mp4"
-    command(["/usr/bin/ffmpeg", "-nostdin", "-v", "error", "-i", str(raw_video),
+    command(["/usr/bin/ffmpeg", "-nostdin", "-v", "error", *inputs,
         "-filter_complex", graph, "-map", "[out]", "-an", "-t", str(duration),
         "-c:v", "libx264", "-threads", "2", "-preset", "fast", "-crf", "20",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-map_metadata", "-1", str(video)], seconds=1200)
@@ -109,6 +133,29 @@ def render_video(raw_video, stage, duration, raw_info, lines):
     require(abs(info["duration_seconds"] - duration) < 0.1 and video.stat().st_size <= 128 * 1024**2)
     shutil.rmtree(text_dir)
     return video, info
+
+
+def presentation_lines(identity, products):
+    """Fixed completed-run summary; never live counters or new stage assertions."""
+    return [
+        ("VOLPAROSSA WEATHER", 50, "ffffff"),
+        ("Demo 0 / Overmorrow", 34, "7dd3fc"),
+        ("Android emulator + EXTERNAL Debian Core", 29, "fbbf24"),
+        ("Actual app pixels / normal-speed recording", 27, "cbd5e1"),
+        ("App -> local adapter -> external Core -> peers", 28, "ffffff"),
+        ("COMPLETED-RUN EVIDENCE / not live counters", 25, "7dd3fc"),
+        (f"Cold peer bytes: weather {products['weather']['cold_peer_bytes']:,}", 29, "ffffff"),
+        (f"Cold peer bytes: particulate {products['air_quality']['cold_peer_bytes']:,}", 29, "ffffff"),
+        ("Two cache-backed refreshes per product", 29, "ffffff"),
+        ("No origin body/range fallback during retrieval", 27, "ffffff"),
+        ("Real Android taps + background / resume", 29, "ffffff"),
+        ("Joined delivery and cleanup: passed", 29, "86efac"),
+        (f"Run {identity['run_id']} / Core {identity['core_commit'][:12]}", 24, "cbd5e1"),
+        (f"Weather {identity['weather_commit'][:12]}", 24, "cbd5e1"),
+        ("Technical demo / no standalone mobile Core", 27, "fbbf24"),
+        ("No physical-device, expiry-recovery or production claim", 25, "cbd5e1"),
+        ("ECMWF IFS + NOAA GEFS-Aerosols forecasts", 24, "cbd5e1"),
+    ]
 
 
 def prepare(evidence, output, execute=False):
@@ -143,25 +190,7 @@ def prepare(evidence, output, execute=False):
     acceptance = json.loads(acceptance_path.read_bytes())
     require(sha(acceptance_path) == media["acceptance_sha256"] and acceptance["identity"] == identity)
     products = acceptance["observations"]["products"]
-    lines = [
-        ("VOLPAROSSA WEATHER", 50, "ffffff"),
-        ("Demo 0 / Overmorrow", 34, "7dd3fc"),
-        ("Android emulator + EXTERNAL Debian Core", 29, "fbbf24"),
-        ("Actual app pixels / normal-speed recording", 27, "cbd5e1"),
-        ("App -> local adapter -> external Core -> peers", 28, "ffffff"),
-        ("COMPLETED-RUN EVIDENCE / not live counters", 25, "7dd3fc"),
-        (f"Cold peer bytes: weather {products['weather']['cold_peer_bytes']:,}", 29, "ffffff"),
-        (f"Cold peer bytes: particulate {products['air_quality']['cold_peer_bytes']:,}", 29, "ffffff"),
-        ("Two cache-backed refreshes per product", 29, "ffffff"),
-        ("No origin body/range fallback during retrieval", 27, "ffffff"),
-        ("Real Android taps + background / resume", 29, "ffffff"),
-        ("Joined delivery and cleanup: passed", 29, "86efac"),
-        (f"Run {identity['run_id']} / Core {identity['core_commit'][:12]}", 24, "cbd5e1"),
-        (f"Weather {identity['weather_commit'][:12]}", 24, "cbd5e1"),
-        ("Technical demo / no standalone mobile Core", 27, "fbbf24"),
-        ("No physical-device, expiry-recovery or production claim", 25, "cbd5e1"),
-        ("ECMWF IFS + NOAA GEFS-Aerosols forecasts", 24, "cbd5e1"),
-    ]
+    lines = presentation_lines(identity, products)
     stage = Path(tempfile.mkdtemp(prefix=".weather-demo-presentation-", dir=output.parent))
     try:
         video, info = render_video(raw_video, stage, duration, raw_info, lines)

@@ -40,7 +40,7 @@ class AndroidHostedWiring(unittest.TestCase):
     def test_only_explicit_or_exact_workflow_branch_bounded_hosted_execution(self):
         self.assertIn('name: Weather Android protected core delivery\n', SOURCE)
         self.assertEqual(SOURCE.split('on:\n', 1)[1].split('\npermissions:', 1)[0].strip(),
-            'workflow_dispatch:\n    inputs:\n      record_demo:\n        description: Record genuine Android pixels for Weather Demo 0 after full acceptance\n        type: boolean\n        default: false\n      media_probe_only:\n        description: Inspect distro media-tool serialization with synthetic input only\n        type: boolean\n        default: false\n      review_run_id:\n        description: Review retained accepted media from this exact completed run; no Android execution\n        type: string\n        default: \'\'\n      review_attempt:\n        description: Exact completed attempt whose accepted media is reviewed\n        type: string\n        default: \'1\'\n      review_core_revision:\n        description: Full original Core revision of the accepted recording\n        type: string\n        default: \'\'\n  push:\n    branches: [feature/weather-android-core]\n    paths:\n'
+            'workflow_dispatch:\n    inputs:\n      record_demo:\n        description: Record genuine Android pixels for Weather Demo 0 after full acceptance\n        type: boolean\n        default: false\n      media_probe_only:\n        description: Inspect distro media-tool serialization with synthetic input only\n        type: boolean\n        default: false\n      review_run_id:\n        description: Review retained accepted media from this exact completed run; no Android execution\n        type: string\n        default: \'\'\n      review_attempt:\n        description: Exact completed attempt whose accepted media is reviewed\n        type: string\n        default: \'1\'\n      review_core_revision:\n        description: Full original Core revision of the accepted recording\n        type: string\n        default: \'\'\n      review_hold_image:\n        description: Optional admitted screen-NNN.png chosen after visual review to hold after the full clip\n        type: string\n        default: \'\'\n  push:\n    branches: [feature/weather-android-core]\n    paths:\n'
             '      - .github/workflows/weather-android-delivery.yml')
         for item in ('    runs-on: ubuntu-24.04', '    timeout-minutes: 150', '  cancel-in-progress: false',
                 '  contents: read', '  actions: read'):
@@ -412,6 +412,8 @@ getfacl() { printf 'original inert ACL\\n'; }
         self.assertIn('scripts/weather-demo-0-review.py --run-id "$REVIEW_RUN_ID"', section)
         self.assertIn('--attempt "$REVIEW_ATTEMPT" --core-revision "$REVIEW_CORE_REVISION"', section)
         self.assertIn('path: .cache/weather-demo-visual-review/', section)
+        self.assertIn('--hold-image \"$REVIEW_HOLD_IMAGE\" --execute', section)
+        self.assertNotIn('review_hold_image', SOURCE.split('  joined:\n', 1)[-1])
         self.assertNotIn('if: always()', section)
         for forbidden in ('run-alpha-topology', 'sdkmanager', 'avdmanager', 'prepare_hosted_android',
                           'record_demo: true', 'gh release', 'contents: write'):
