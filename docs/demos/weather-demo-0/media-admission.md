@@ -18,9 +18,13 @@ For this first developer demonstration, a separate contract instead requires:
    chain passes, with exact run/source identities and report hashes.
 2. The original quarantine archive and every retained capture file match their
    GitHub artifact digest and capture manifest. The clip remains unchanged.
-3. Native decoded frames and video packet/sample timing agree with both Android
-   Winscope metadata tracks. Track samples, payloads and offsets are checked,
-   not a search for magic bytes. Integer time bases determine quantization bounds.
+3. Native decoded frames and video packet timing agree with both Android
+   Winscope metadata tracks. Actual MP4 track IDs/sample tables bind the metadata
+   payloads and offsets; no magic-byte search is used. FFmpeg intentionally
+   discards DATA tracks whose STTS sample durations are all zero. Its reported
+   metadata packet count is therefore zero for this recording; a bounded raw
+   sample-table parser establishes exact ownership independently. Any native
+   metadata packets, if exposed, must agree with those resolved samples. Integer time bases determine quantization bounds.
    Audio, unexpected tracks, malformed metadata, inconsistent counts/order or
    timing are rejected. This proves source-media coherence, not wall-clock coverage.
 4. A committed human/model visual-review record binds the real source video,

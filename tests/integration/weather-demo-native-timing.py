@@ -27,10 +27,10 @@ MAX_JSON = 8 * 1024**2
 MAX_FRAMES = 21600
 LEGACY = b'#VV1NSC0PET1ME!#'
 V2 = b'#VV1NSC0PET1ME2#'
-STREAM_ENTRIES = 'index,codec_type,codec_name,codec_tag_string,width,height,time_base,start_pts,duration_ts,nb_frames'
+STREAM_ENTRIES = 'index,id,codec_type,codec_name,codec_tag_string,width,height,time_base,start_pts,duration_ts,nb_frames'
 OBS_ENUMS = {'codec_type': frozenset(('video', 'data', 'audio', 'subtitle')),
     'codec_name': frozenset(('h264', 'bin_data')), 'codec_tag_string': frozenset(('avc1', 'mett'))}
-OBS_NUMBERS = {'index': (0, 7), 'width': (0, 8192), 'height': (0, 8192),
+OBS_NUMBERS = {'index': (0, 7), 'track_id': (1, 2**32 - 1), 'width': (0, 8192), 'height': (0, 8192),
     'start_pts': (-10**9, 10**9), 'duration_ts': (0, 180 * 10**9), 'nb_frames': (0, MAX_FRAMES)}
 OBS_SUMMARY = {'count': (0, MAX_FRAMES + 2), 'first_pts': (-10**9, 10**9),
     'last_pts': (-10**9, 10**9), 'first_duration': (0, 180 * 10**9), 'last_duration': (0, 180 * 10**9)}
@@ -227,6 +227,105 @@ def timebase(value):
     return result
 
 
+def track_id(value):
+    # MOV enables AVFMT_SHOW_IDS; ffprobe.c2924 uses exactly "0x%x".
+    require(type(value) is str and re.fullmatch(r'0x[1-9a-f][0-9a-f]{0,7}', value), 'track_id')
+    return int(value, 16)
+
+
+def metadata_samples(raw):
+    """AOSP's two one-sample, self-contained mett tracks; no general demuxer.
+
+    FFmpeg mov.c3035-3047 discards zero-duration DATA tracks. Sample-table
+    association therefore comes directly from this bounded original container,
+    joined to ffprobe streams by exact tkhd ID, not trak order or magic search.
+    """
+    budget = 4096
+    def children(start, stop):
+        nonlocal budget
+        result = list(atoms(raw, start, stop))
+        budget -= len(result)
+        require(budget >= 0, 'sample_box_budget')
+        return result
+    def single(items, kind):
+        matches = [(start, stop) for tag, start, stop in items if tag == kind]
+        require(len(matches) == 1, 'sample_box_unique')
+        return matches[0]
+    def body(items, kind):
+        start, stop = single(items, kind)
+        return raw[start:stop]
+    top = children(0, len(raw))
+    require(not any(tag == b'moof' for tag, _, _ in top), 'sample_fragment')
+    movie = children(*single(top, b'moov'))
+    require(not any(tag == b'mvex' for tag, _, _ in movie), 'sample_fragment')
+    tracks = [(start, stop) for tag, start, stop in movie if tag == b'trak']
+    require(len(tracks) == 3, 'sample_track_count')
+    identities, result, video_count = set(), {}, 0
+    mime = b'application/octet-stream\0'
+    for start, stop in tracks:
+        track = children(start, stop)
+        require(not any(tag == b'edts' for tag, _, _ in track), 'sample_edit')
+        tkhd = body(track, b'tkhd')
+        require(len(tkhd) in (84, 96) and tkhd[0] in (0, 1)
+            and len(tkhd) == (84 if tkhd[0] == 0 else 96), 'sample_tkhd')
+        identity = struct.unpack_from('>I', tkhd, 12 if tkhd[0] == 0 else 20)[0]
+        require(identity != 0 and identity not in identities, 'sample_track_id')
+        identities.add(identity)
+        media = children(*single(track, b'mdia'))
+        header = body(media, b'mdhd')
+        require(len(header) in (24, 36) and header[0] in (0, 1)
+            and len(header) == (24 if header[0] == 0 else 36), 'sample_mdhd')
+        scale, duration = struct.unpack_from('>II' if header[0] == 0 else '>IQ', header,
+            12 if header[0] == 0 else 20)
+        require(1 <= scale <= 10**9 and duration <= 180 * scale, 'sample_mdhd')
+        handler = body(media, b'hdlr')
+        require(len(handler) >= 24 and handler[:4] == bytes(4), 'sample_handler')
+        kind = handler[8:12]
+        require(kind in (b'vide', b'meta'), 'sample_handler')
+        info = children(*single(media, b'minf'))
+        table = children(*single(info, b'stbl'))
+        stsd = body(table, b'stsd')
+        require(len(stsd) >= 16 and stsd[:8] == bytes(4) + struct.pack('>I', 1), 'sample_stsd')
+        # Parse entries against their original parent bounds, never across boxes.
+        entry_start, entry_stop = single(table, b'stsd')
+        entries = children(entry_start + 8, entry_stop)
+        require(len(entries) == 1, 'sample_stsd')
+        entry_kind, entry_start, entry_stop = entries[0]
+        if kind == b'vide':
+            require(entry_kind == b'avc1', 'sample_video_profile')
+            video_count += 1
+            result[identity] = dict(kind='video', time_base=Fraction(1, scale))
+            continue
+        require(entry_kind == b'mett' and raw[entry_start:entry_stop] == mime + mime,
+            'sample_mett_profile')
+        require(duration == 0, 'sample_metadata_duration')
+        require({tag for tag, _, _ in info} == {b'nmhd', b'dinf', b'stbl'}
+            and len(info) == 3 and body(info, b'nmhd') == bytes(4), 'sample_metadata_info')
+        references = children(*single(info, b'dinf'))
+        dref = body(references, b'dref')
+        require(len(references) == 1 and dref == bytes(4) + struct.pack('>I', 1)
+            + struct.pack('>I4sI', 12, b'url ', 1), 'sample_external_reference')
+        offsets = [tag for tag, _, _ in table if tag in (b'stco', b'co64')]
+        require(len(table) == 5 and len(offsets) == 1
+            and {tag for tag, _, _ in table} == {b'stsd', b'stts', b'stsz', b'stsc', offsets[0]}, 'sample_tables')
+        require(body(table, b'stts') == bytes(4) + struct.pack('>III', 1, 1, 0), 'sample_stts')
+        require(body(table, b'stsc') == bytes(4) + struct.pack('>IIII', 1, 1, 1, 1), 'sample_stsc')
+        sizes = body(table, b'stsz')
+        require(len(sizes) in (12, 16) and sizes[:4] == bytes(4), 'sample_stsz')
+        fixed, count = struct.unpack_from('>II', sizes, 4)
+        require(count == 1 and len(sizes) == (12 if fixed else 16), 'sample_stsz')
+        size = fixed or struct.unpack_from('>I', sizes, 12)[0]
+        require(20 <= size <= 32 + MAX_FRAMES * 8, 'sample_size')
+        offset_kind = offsets[0]
+        offset_box = body(table, offset_kind)
+        require(offset_box[:8] == bytes(4) + struct.pack('>I', 1)
+            and len(offset_box) == (12 if offset_kind == b'stco' else 16), 'sample_offset')
+        offset = struct.unpack_from('>I' if offset_kind == b'stco' else '>Q', offset_box, 8)[0]
+        result[identity] = dict(kind='metadata', time_base=Fraction(1, scale), offset=offset, size=size)
+    require(video_count == 1 and len(result) == 3, 'sample_profiles')
+    return result
+
+
 def seconds(value, code):
     require(type(value) is str and re.fullmatch(r'[0-9]{1,3}(?:\.[0-9]{1,9})?', value), code)
     result = Fraction(value)
@@ -307,7 +406,12 @@ def observation(packet_report, frame_report):
     streams = []
     for item in source_streams[:8]:
         item = item if type(item) is dict else {}
-        streams.append({**{key: number(item.get(key), limits) for key, limits in OBS_NUMBERS.items()},
+        selected = {key: number(item.get(key), limits) for key, limits in OBS_NUMBERS.items()}
+        try:
+            selected['track_id'] = track_id(item.get('id'))
+        except ValueError:
+            selected['track_id'] = None
+        streams.append({**selected,
             **{key: enum(item, key) for key in OBS_ENUMS}, 'time_base': ratio(item.get('time_base'))})
     packets_observed = type(packet_report) is dict and type(packet_report.get('packets')) is list
     frames_observed = type(frame_report) is dict and type(frame_report.get('frames')) is list
@@ -396,6 +500,7 @@ def coherence(raw, packet_report, frame_report, timeline, version):
     """Pure bounded verification; synthetic fixtures do not supply native proof."""
     require(type(raw) is bytes and 0 < len(raw) <= MAX_VIDEO, 'video_size')
     mdats, movie_duration, movie_tick = container(raw)
+    raw_tracks = metadata_samples(raw)
     require(type(packet_report) is dict and set(packet_report) <= {'streams', 'packets', 'format', 'programs'}
         and packet_report.get('programs', []) == [], 'packet_report')
     format_record = packet_report.get('format')
@@ -403,6 +508,7 @@ def coherence(raw, packet_report, frame_report, timeline, version):
     format_duration = seconds(format_record['duration'], 'format_duration')
     streams = packet_report.get('streams')
     require(type(streams) is list and len(streams) == 3, 'streams')
+    require(all(type(item) is dict for item in streams), 'stream_fields')
     videos, metadata, indexed = [], [], {}
     for stream in streams:
         stream_fields(stream)
@@ -410,13 +516,18 @@ def coherence(raw, packet_report, frame_report, timeline, version):
         require(index not in indexed, 'stream_duplicate')
         indexed[index] = stream
         tb = timebase(stream.get('time_base'))
+        identity = track_id(stream.get('id'))
+        require(identity in raw_tracks and tb == raw_tracks[identity]['time_base'], 'sample_native_identity')
+        require(sum(track_id(s.get('id')) == identity for s in streams) == 1, 'sample_native_duplicate')
         integer(stream.get('start_pts'), 'stream_start', low=-10**9, high=10**9)
         if stream.get('codec_type') == 'video':
+            require(raw_tracks[identity]['kind'] == 'video', 'sample_native_profile')
             require(stream.get('codec_name') == 'h264' and stream.get('codec_tag_string') == 'avc1'
                 and type(stream.get('width')) is int and stream['width'] == 720
                 and type(stream.get('height')) is int and stream['height'] == 1280, 'video_profile')
             videos.append((index, stream, tb))
         else:
+            require(raw_tracks[identity]['kind'] == 'metadata', 'sample_native_profile')
             require(stream.get('codec_type') == 'data' and stream.get('codec_tag_string') == 'mett'
                 and 'codec_name' not in stream and not {'width', 'height'} & set(stream), 'metadata_profile')
             require(integer(stream.get('nb_frames'), 'metadata_samples', high=MAX_FRAMES) == 1, 'metadata_samples')
@@ -434,7 +545,7 @@ def coherence(raw, packet_report, frame_report, timeline, version):
     stream_duration = integer(stream.get('duration_ts'), 'stream_duration', low=1) * tb
     require(stream_duration <= 180, 'stream_duration')
     packets = packet_report.get('packets')
-    require(type(packets) is list and len(packets) == count + 2, 'packet_count')
+    require(type(packets) is list and count <= len(packets) <= count + 2, 'packet_count')
     grouped = {index: [] for index in indexed}
     ranges = []
     for packet in packets:
@@ -467,10 +578,24 @@ def coherence(raw, packet_report, frame_report, timeline, version):
         expected = dict(stream_index=video_index, pts=point, best_effort_timestamp=point,
             pkt_duration=duration, pkt_pos=pos, pkt_size=size)
         require(all(integer(frame[key], 'frame_integer', low=-10**9) == value for key, value in expected.items()), 'decoded_packet_mapping')
+    sample_ranges = sorted((item['offset'], item['offset'] + item['size'])
+        for item in raw_tracks.values() if item['kind'] == 'metadata')
+    require(all(any(start <= a and b <= stop for start, stop in mdats) for a, b in sample_ranges),
+        'sample_outside_mdat')
+    require(all(a[1] <= b[0] for a, b in zip(sample_ranges, sample_ranges[1:])), 'sample_overlap')
+    require(all(b <= pos or pos + size <= a for a, b in sample_ranges for _, _, pos, size in video),
+        'sample_overlap')
     arrays, records = {}, []
     for index, metadata_stream, track_tb in metadata:
-        require(len(grouped[index]) == 1, 'metadata_packet_count')
-        point, duration, pos, size = grouped[index][0]
+        require(len(grouped[index]) <= 1, 'metadata_packet_count')
+        sample = raw_tracks[track_id(metadata_stream['id'])]
+        pos, size = sample['offset'], sample['size']
+        # Native DATA packets are optional because MOV discards zero-duration
+        # DATA tracks. When present, they must agree with the sole raw sample.
+        point, duration = 0, 0
+        if grouped[index]:
+            point, duration, native_pos, native_size = grouped[index][0]
+            require((native_pos, native_size) == (pos, size) and point == 0, 'sample_native_packet')
         summary_duration = integer(metadata_stream.get('duration_ts', 0), 'metadata_duration', high=180 * 10**9)
         # mov.c8395-8400 uses stream.duration - packet.dts for the last sample.
         # A packet buffered before timing inference can still have duration0.
@@ -483,7 +608,10 @@ def coherence(raw, packet_report, frame_report, timeline, version):
         require(kind not in arrays and len(relative) == count, 'metadata_kind_count')
         arrays[kind] = relative
         records.append(dict(stream_index=index, kind=kind, packet_offset=pos, packet_bytes=size,
-            packet_sha256=sha(body), packet_pts=point, packet_duration=duration, time_base=rational(track_tb), frame_count=count,
+            packet_sha256=sha(body), packet_pts=point if grouped[index] else None,
+            packet_duration=duration if grouped[index] else None, time_base=rational(track_tb), frame_count=count,
+            track_id=track_id(metadata_stream['id']), native_packet_count=len(grouped[index]),
+            raw_sample_dts=0, raw_sample_duration=0,
             summary_duration_ticks=summary_duration,
             summary_duration_basis='format-inferred' if summary_duration else 'zero-or-absent'))
     require(set(arrays) == {'legacy', 'v2'}, 'metadata_kinds')
@@ -518,6 +646,8 @@ def coherence(raw, packet_report, frame_report, timeline, version):
         ffprobe_version=version, video_stream_index=video_index, video_time_base=rational(tb),
         video_packet_count=count, decoded_frame_count=count, prior_timeline_frame_count=len(timeline['frames']),
         metadata_tracks=sorted(records, key=lambda row: row['stream_index']),
+        metadata_association_method='mp4_sample_tables',
+        native_packet_count=len(packets), native_metadata_packet_count=sum(len(grouped[index]) for index, _, _ in metadata),
         relative_elapsed_span_seconds=rational(arrays['v2'][-1]), relative_pts_span_seconds=rational(span),
         max_relative_pts_elapsed_error_seconds=rational(max(errors)), derived_pts_error_bound_seconds=rational(pts_bound),
         pts_bound_basis='two half-tick nearest-integer endpoint quantizations',
