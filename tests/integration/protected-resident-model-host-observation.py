@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Bounded host checkpoint diagnostics; never model acceptance or host configuration.
+"""Bounded host diagnostics and a separate, narrow configuration checkpoint.
 
 The two IPv6 pure functions reuse VOLPAROSSA Map 8a227709, hosted.py blob
 d7e8015f8a0aa26e946e97890adb1259c43167fa, with only the snapshot docstring adapted.
@@ -38,8 +38,9 @@ def ipv6_route_snapshot(raw):
     """Hash one bounded proc snapshot; only the reference-count bytes are split.
 
     Layout: reviewed Linux v6.8/v6.17/v7.0 ipv6_route_native_seq_show, byte-identical.
-    Projections are diagnostics only. They never waive raw equality, even for
-    a supported renderer and an otherwise completed model trial.
+    These fingerprints are not acceptance. Legacy diagnostics never waive raw
+    equality; the separate configuration checkpoint preserves raw truth while
+    checking its explicitly versioned, narrower configuration policy.
     Empty tables are valid. Duplicate rows and their order remain significant.
     """
     require(type(raw) is bytes and len(raw) <= IPV6_ROUTE_BYTES, "IPV6_ROUTE_BYTES")
@@ -205,7 +206,7 @@ def hashes(snapshot):
 
 
 def compare(before, after):
-    """Diagnostics cannot waive the controller's independent exact raw equality check."""
+    """Legacy diagnostics grant no configuration or trial acceptance."""
     value = dict(schema=1, diagnostic_only=True, acceptance_evidence=False,
         classification="METADATA_REJECTED", raw_equal=None,
         changed={label:None for label in FILES}, renderer_equal=None, ipv6=None)
@@ -232,3 +233,44 @@ def compare(before, after):
             if value["changed"]["ipv4_routes"] or value["changed"]["resolver"]
             else value["ipv6"]["classification"])
     return value
+
+
+def configuration_checkpoint(before, after):
+    """Derive eligibility from captures, never from a supplied diagnostic classification.
+
+    This checks only the two captured route/resolver configurations. It establishes
+    no firewall, leak, transient-state, route-lineage or kernel-attestation claim.
+    Trial acceptance additionally requires the controller's terminal cleanup gate.
+    """
+    result = dict(version=1, mode="supported_ipv6_reference_metadata_v1",
+                  eligible=False, classification="REJECTED", raw_equal=None)
+    try:
+        for snapshot in (before, after):
+            validate(snapshot)
+            require(complete(snapshot), "CONFIG_CAPTURE_UNAVAILABLE")
+            require(snapshot["renderer"]["state"] == "supported", "CONFIG_RENDERER_UNSUPPORTED")
+            meta = snapshot["ipv6"]["metadata"]
+            require(meta["error"] is None, "CONFIG_PARSE_REJECTED")
+            rows = meta["row_count"]
+            size = snapshot["ipv6"]["raw"]["bytes"]
+            # The validated renderer emits 150 bytes per row, plus 0..7 bytes
+            # when the device name exceeds its minimum eight-character field.
+            require(rows * 150 <= size <= rows * 157, "CONFIG_LENGTH_INVALID")
+            fingerprints = [record["fingerprint"] for record in snapshot["files"].values()]
+            fingerprints += [meta["non_refcount"], meta["reference_metadata"]]
+            require(all(value["bytes"] != 0 or value == digest(b"") for value in fingerprints),
+                    "CONFIG_EMPTY_HASH_INVALID")
+        require(before["renderer"] == after["renderer"], "CONFIG_RENDERER_CHANGED")
+        require(all(before["files"][name]["fingerprint"] == after["files"][name]["fingerprint"]
+                    for name in ("ipv4_routes", "resolver")), "CONFIG_OTHER_CHANGED")
+        left, right = before["ipv6"], after["ipv6"]
+        require(left["metadata"]["non_refcount"] == right["metadata"]["non_refcount"]
+                and left["metadata"]["row_count"] == right["metadata"]["row_count"], "CONFIG_ROUTES_CHANGED")
+        raw_equal = left["raw"] == right["raw"]
+        references_equal = left["metadata"]["reference_metadata"] == right["metadata"]["reference_metadata"]
+        require(raw_equal == references_equal, "CONFIG_RAW_INCONSISTENT")
+        result.update(eligible=True, raw_equal=raw_equal,
+                      classification="UNCHANGED" if raw_equal else "REFERENCE_METADATA_ONLY")
+    except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
+        pass  # A closed rejection contains no input, paths, addresses or exception strings.
+    return result
