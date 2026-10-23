@@ -2,13 +2,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """SOURCE-DERIVED synthetic demuxer fixture; never Android/app evidence.
 
-On the disposable runner, first mux one generated H264/avc1 video and two
-explicit synthetic data inputs as bin_data/gpmd using distro ffmpeg. Leave
-moov after mdat (no faststart). This helper changes only the two stsd sample
-entries to Android's mett/application/octet-stream layout, updating enclosing
-box sizes. Earlier media bytes and every chunk offset remain unchanged.
+On the disposable runner, generate only one H264/avc1 video with distro
+ffmpeg, leaving moov after mdat. inject(raw) appends two EMPTY source-shaped
+metadata tracks. This avoids a separate data-input muxer and adds no payloads.
+Actual ffprobe must verify the resulting three-stream container serializer.
+The video track, all earlier media bytes and their offsets remain unchanged.
 
-FFmpeg n6.1.1 movenc.c:2405-2414 writes the supported gpmd input entry.
 AOSP MPEG4Writer writeMetadataFourCCBox writes the MIME string twice for
 legacy compatibility, explicitly using the first copy in place of reserved,
 data-reference-index and encoding fields (no ordinary SampleEntry prefix):
@@ -16,8 +15,8 @@ https://android.googlesource.com/platform/frameworks/av/+/9ce151cc23792a799ca2e0
 blob8f7d4bf0d0658faa77d75bcd342e2e16c80fe0a4, lines4142-4167.
 This is a source profile, not a claim that the SDK image has that exact blob.
 Screenrecord1df77b62...cpp:693-698 creates two such
-application/octet-stream tracks. Payloads here remain synthetic, not Winscope
-measurements. Actual ffprobe must still verify the produced serializer.
+application/octet-stream tracks. Here the sample tables are empty: there are
+no actual frame timestamps, Winscope measurements or Android recordings.
 """
 import argparse
 import hashlib
@@ -54,28 +53,54 @@ def boxes(raw):
     return result
 
 
-def convert(raw):
+def only(raw, tag):
+    selected = [payload for name, payload in boxes(raw) if name == tag]
+    require(len(selected) == 1)
+    return selected[0]
+
+
+def empty_metadata_track(track_id):
+    # Version0 ISO BMFF headers, zero duration and no samples. The sole
+    # purpose is to exercise ffprobe's unknown DATA/mett stream serializer.
+    identity = struct.pack(">9I", 65536, 0, 0, 0, 65536, 0, 0, 0, 1 << 30)
+    tkhd = box(b"tkhd", b"\0\0\0\3" + struct.pack(">5I", 0, 0, track_id, 0, 0)
+        + b"\0" * 16 + identity + b"\0" * 8)
+    mdhd = box(b"mdhd", b"\0" * 4 + struct.pack(">4I2H", 0, 0, 1000, 0, 0x55c4, 0))
+    hdlr = box(b"hdlr", b"\0" * 8 + b"meta" + b"\0" * 12 + b"\0")
+    dref = box(b"dref", b"\0" * 4 + struct.pack(">I", 1) + box(b"url ", b"\0\0\0\1"))
+    stsd = box(b"stsd", b"\0" * 4 + struct.pack(">I", 1) + box(b"mett", MIME + MIME))
+    stbl = box(b"stbl", stsd + box(b"stts", b"\0" * 8) + box(b"stsc", b"\0" * 8)
+        + box(b"stsz", b"\0" * 12) + box(b"stco", b"\0" * 8))
+    minf = box(b"minf", box(b"nmhd", b"\0" * 4) + box(b"dinf", dref) + stbl)
+    return box(b"trak", tkhd + box(b"mdia", mdhd + hdlr + minf))
+
+
+def inject(raw):
     top = boxes(raw); tags = [tag for tag, _ in top]
     require(tags and tags[0] == b"ftyp" and tags[-1] == b"moov" and tags.count(b"moov") == tags.count(b"mdat") == 1
         and set(tags) <= {b"ftyp", b"free", b"mdat", b"moov"})
-    counts = dict(video=0, metadata=0)
-    def rewrite(tag, payload, path):
-        if path in ((b"moov",), (b"moov", b"trak"), (b"moov", b"trak", b"mdia"),
-                (b"moov", b"trak", b"mdia", b"minf"), (b"moov", b"trak", b"mdia", b"minf", b"stbl")):
-            return box(tag, b"".join(rewrite(child, body, path + (child,)) for child, body in boxes(payload)))
-        if path == (b"moov", b"trak", b"mdia", b"minf", b"stbl", b"stsd"):
-            require(payload[:8] == b"\0\0\0\0\0\0\0\1")
-            entries = boxes(payload[8:]); require(len(entries) == 1)
-            entry, body = entries[0]
-            if entry == b"avc1": counts["video"] += 1
-            else:
-                require(entry == b"gpmd" and body == b"\0\0\0\0\0\0\0\1\0\0\0\0")
-                counts["metadata"] += 1
-                return box(tag, payload[:8] + box(b"mett", MIME + MIME))
-        return box(tag, payload)
+    movie = boxes(top[-1][1]); tracks = [body for name, body in movie if name == b"trak"]
+    require(len(tracks) == 1)
+    video = tracks[0]
+    tkhd = only(video, b"tkhd")
+    require(len(tkhd) == 84 and tkhd[0] == 0)
+    video_id = struct.unpack(">I", tkhd[12:16])[0]
+    mdia = only(video, b"mdia"); hdlr = only(mdia, b"hdlr")
+    require(len(hdlr) >= 24 and hdlr[8:12] == b"vide")
+    stsd = only(only(only(mdia, b"minf"), b"stbl"), b"stsd")
+    require(stsd[:8] == b"\0\0\0\0\0\0\0\1")
+    entries = boxes(stsd[8:]); require(len(entries) == 1 and entries[0][0] == b"avc1")
+    mvhd = only(top[-1][1], b"mvhd")
+    require(len(mvhd) == 100 and mvhd[:4] == b"\0" * 4 and video_id > 0)
+    metadata_id = max(video_id + 1, struct.unpack(">I", mvhd[-4:])[0])
+    require(1 < metadata_id <= 0xfffffffd)
+    next_id = metadata_id + 2
+    updated = b"".join(box(name, mvhd[:-4] + struct.pack(">I", next_id)) if name == b"mvhd" else box(name, body)
+        for name, body in movie)
+    updated += empty_metadata_track(metadata_id) + empty_metadata_track(metadata_id + 1)
     before_moov = b"".join(box(tag, payload) for tag, payload in top[:-1])
-    result = before_moov + rewrite(*top[-1], (b"moov",))
-    require(counts == dict(video=1, metadata=2) and len(result) <= MAX_BYTES and result.startswith(before_moov))
+    result = before_moov + box(b"moov", updated)
+    require(len(result) <= MAX_BYTES and result.startswith(before_moov))
     return result
 
 
@@ -93,11 +118,11 @@ def execute(source, destination):
         after, named = os.fstat(stream.fileno()), source.stat()
         fields = ("st_dev", "st_ino", "st_mode", "st_uid", "st_gid", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")
         require(len(raw) == info.st_size and all(getattr(info, k) == getattr(after, k) == getattr(named, k) for k in fields))
-    result = convert(raw)
+    result = inject(raw)
     with os.fdopen(os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "wb") as stream:
         stream.write(result)
     return dict(schema=1, kind="synthetic-android-mett-demuxer-fixture", source_sha256=hashlib.sha256(raw).hexdigest(),
-        output_sha256=hashlib.sha256(result).hexdigest(), output_bytes=len(result), video_tracks=1, metadata_tracks=2,
+        output_sha256=hashlib.sha256(result).hexdigest(), output_bytes=len(result), video_tracks=1, metadata_tracks=2, metadata_samples=0,
         android_execution=False, app_pixels=False, joined_core_acceptance=False)
 
 

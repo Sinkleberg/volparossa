@@ -64,11 +64,12 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/.cache"
           python3 -B tests/integration/weather-demo-media-probe.py --output "$GITHUB_WORKSPACE/.cache/weather-media-tool-probe"
       - name: Retain only the closed synthetic tool observation
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: weather-demo-media-tool-probe-${{ github.sha }}
           retention-days: 14
-          if-no-files-found: error
+          if-no-files-found: ignore
           include-hidden-files: true
           path: .cache/weather-media-tool-probe/probe.json
   retained-media-review:

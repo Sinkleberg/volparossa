@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "run_id": "39877357053",
+  "source_revision": "1b834d729234a361635fc0aa2ba43a9228f9ec69",
+  "synthetic_tool_probe_only": true,
+  "android_executed": false,
+  "genuine_app_pixels": false,
+  "failed_stage": "synthetic GPmd fixture input mux",
+  "child_exit_status": 183,
+  "stderr_retained": false,
+  "precise_cause_unproven": true,
+  "android_metadata_validator_exercised": false
+}

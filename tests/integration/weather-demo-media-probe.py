@@ -11,6 +11,20 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
+NATIVE_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
+
+
+def serializer(video):
+    result = subprocess.run(["/usr/bin/ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries",
+        "stream=codec_type,codec_name,codec_tag_string,width,height:format=duration", "-of", "json", str(video)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15,
+        check=True, env=NATIVE_ENV)
+    if len(result.stdout) > 65536 or result.stderr:
+        raise SystemExit("Bounded synthetic ffprobe observation rejected")
+    value = json.loads(result.stdout)
+    if not set(value) <= {"programs", "stream_groups", "streams", "format"}:
+        raise SystemExit("Unexpected synthetic serializer shape; no raw output exported")
+    return value
 
 
 def main():
@@ -27,23 +41,22 @@ def main():
     root.mkdir(mode=0o700)
     record = dict(schema=1, kind="weather-demo-synthetic-media-tool-probe", android_executed=False,
         genuine_app_pixels=False, joined_core_acceptance=False, production_authority=False,
-        source_revision=os.environ["GITHUB_SHA"], run_id=os.environ["GITHUB_RUN_ID"])
+        source_revision=os.environ["GITHUB_SHA"], run_id=os.environ["GITHUB_RUN_ID"], probe_completed=False)
+    def checkpoint(stage):
+        record["stage"] = stage
+        pending = root / "probe.part"
+        pending.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+        pending.replace(root / "probe.json")
+    checkpoint("synthetic-input")
     with tempfile.TemporaryDirectory(dir=root) as temporary:
         video = Path(temporary) / "synthetic-tool-input.mp4"
         subprocess.run(["/usr/bin/ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i",
             "color=c=black:s=720x1280:r=30:d=1", "-c:v", "libx264", "-threads", "2",
             "-pix_fmt", "yuv420p", "-an", str(video)], stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=True)
-        raw = subprocess.run(["/usr/bin/ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries",
-            "stream=codec_type,codec_name,codec_tag_string,width,height:format=duration", "-of", "json", str(video)],
-            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15, check=True)
-        if len(raw.stdout) > 65536 or raw.stderr:
-            raise SystemExit("Bounded ffprobe observation rejected")
-        value = json.loads(raw.stdout)
-        # Known synthetic media only: no URLs, paths, tags or device fields.
-        if not set(value) <= {"programs", "stream_groups", "streams", "format"}:
-            raise SystemExit("Unexpected serializer shape; no raw output exported")
-        record["serializer"] = value
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=True, env=NATIVE_ENV)
+        # Known synthetic media only: selected format fields, no user metadata.
+        record["serializer"] = serializer(video)
+        checkpoint("single-track-parser")
         module = runpy.run_path(str(ROOT / "tests/integration/weather-demo-media.py"))
         try:
             record["parser_under_test_result"] = module["probe_video"](video)
@@ -54,24 +67,17 @@ def main():
         # Format-only synthetic fixture, never Android/app evidence. AOSP MP4
         # records two timing metadata tracks; exercise that container profile
         # through the actual distro demuxer before an expensive runtime trial.
-        data_inputs = []
-        for index in range(2):
-            data_file = Path(temporary) / f"synthetic-data-{index}.bin"
-            data_file.write_bytes(b"SYNTHETIC METADATA FORMAT TEST ONLY")
-            data_inputs.extend(["-f", "data", "-i", str(data_file)])
-        multiplexed = Path(temporary) / "synthetic-three-track-gpmd.mp4"
-        subprocess.run(["/usr/bin/ffmpeg", "-nostdin", "-v", "error", "-i", str(video),
-            *data_inputs, "-map", "0:v:0", "-map", "1:0", "-map", "2:0", "-c", "copy",
-            "-tag:d:0", "gpmd", "-tag:d:1", "gpmd", str(multiplexed)],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            timeout=30, check=True)
+        checkpoint("synthetic-metadata-fixture")
         fixture = runpy.run_path(str(ROOT / "tests/integration/weather-demo-android-mp4-fixture.py"))
         android_profile = Path(temporary) / "synthetic-three-track-mett.mp4"
-        android_profile.write_bytes(fixture["convert"](multiplexed.read_bytes()))
+        android_profile.write_bytes(fixture["inject"](video.read_bytes()))
+        record["android_metadata_profile_serializer"] = serializer(android_profile)
+        checkpoint("synthetic-metadata-parser")
         profile_info = module["probe_video"](android_profile)
         record["android_metadata_profile_tool_probe"] = dict(completed=True, video=profile_info,
             synthetic_container_only=True, android_executed=False, genuine_app_pixels=False,
-            metadata_payloads_are_synthetic=True, media_retained=False)
+            metadata_tracks_are_empty=True, media_retained=False)
+        checkpoint("synthetic-presentation")
         presentation = runpy.run_path(str(ROOT / "scripts/weather-demo-0-package.py"))
         output = Path(temporary) / "synthetic-presentation"
         output.mkdir(mode=0o700)
@@ -80,6 +86,7 @@ def main():
             [("SYNTHETIC TOOL TEST / NOT ANDROID EVIDENCE", 32, "ffffff")])
         record["presentation_tool_probe"] = dict(completed=True, video=rendered,
             synthetic_input_only=True, media_retained=False)
+        checkpoint("synthetic-contact-sheets")
         review = runpy.run_path(str(ROOT / "scripts/weather-demo-0-review.py"))
         sample_evidence = Path(temporary) / "synthetic-sampling-input"
         (sample_evidence / "demo-media").mkdir(parents=True)
@@ -91,10 +98,13 @@ def main():
         record["contact_sheet_tool_probe"] = dict(completed=True, rendered=sampled,
             synthetic_input_only=True, media_retained=False)
         version = subprocess.run(["/usr/bin/ffprobe", "-version"], stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=10, check=True)
+            stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=10, check=True, env=NATIVE_ENV)
         record["ffprobe_version"] = version.stdout.decode().splitlines()[0]
-    (root / "probe.json").write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    record["probe_completed"] = record["parser_under_test_accepted"] is True
+    checkpoint("completed" if record["probe_completed"] else "single-track-parser-rejected")
     print(json.dumps(record, sort_keys=True))
+    if not record["probe_completed"]:
+        raise SystemExit("Synthetic parser rejected; no Android execution claimed")
 
 
 if __name__ == "__main__":

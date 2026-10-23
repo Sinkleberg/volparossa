@@ -344,30 +344,49 @@ class SyntheticMp4Fixture(unittest.TestCase):
     def setUp(self):
         self.module = runpy.run_path(str(HERE / "weather-demo-android-mp4-fixture.py"))
 
-    def tiny(self, entries=(b"avc1", b"gpmd", b"gpmd")):
+    def tiny(self, *, tracks=1, entry=b"avc1", movie_version=0):
         box = self.module["box"]
-        def track(tag):
-            body = b"inert synthetic video description" if tag == b"avc1" else b"\0\0\0\0\0\0\0\1\0\0\0\0"
-            child = box(b"stsd", b"\0\0\0\0\0\0\0\1" + box(tag, body))
-            for wrapper in (b"stbl", b"minf", b"mdia", b"trak"): child = box(wrapper, child)
-            return child
-        return box(b"ftyp", b"synthetic") + box(b"mdat", b"synthetic payload not video or Winscope") + box(b"moov", b"".join(track(tag) for tag in entries))
+        tkhd = box(b"tkhd", b"\0" * 12 + struct.pack(">I", 1) + b"\0" * 68)
+        stsd = box(b"stsd", b"\0\0\0\0\0\0\0\1" + box(entry, b"inert synthetic video description"))
+        hdlr = box(b"hdlr", b"\0" * 8 + b"vide" + b"\0" * 13)
+        mdia = box(b"mdia", hdlr + box(b"minf", box(b"stbl", stsd)))
+        track = box(b"trak", tkhd + mdia)
+        mvhd = box(b"mvhd", bytes([movie_version]) + b"\0" * 95 + struct.pack(">I", 2))
+        return box(b"ftyp", b"synthetic") + box(b"mdat", b"synthetic payload not video or Winscope") + box(b"moov", mvhd + track * tracks)
 
-    def test_fixture_changes_only_two_sample_descriptions_after_media_data(self):
-        raw = self.tiny(); result = self.module["convert"](raw)
+    def test_fixture_appends_empty_metadata_and_preserves_video_and_offsets(self):
+        raw = self.tiny(); result = self.module["inject"](raw)
         original = self.module["boxes"](raw); changed = self.module["boxes"](result)
         self.assertEqual(original[:-1], changed[:-1])
-        self.assertEqual(result.count(b"mett"), 2)
+        box, only = self.module["box"], self.module["only"]
+        movies = [self.module["boxes"](top[-1][1]) for top in (original, changed)]
+        original_tracks = [body for tag, body in movies[0] if tag == b"trak"]
+        changed_tracks = [body for tag, body in movies[1] if tag == b"trak"]
+        self.assertEqual(changed_tracks[:1], original_tracks)
+        self.assertEqual(len(changed_tracks), 3)
+        self.assertEqual(struct.unpack(">I", only(changed[-1][1], b"mvhd")[-4:])[0], 4)
+        for index, track in enumerate(changed_tracks[1:], 2):
+            tkhd = only(track, b"tkhd")
+            self.assertEqual(len(tkhd), 84)
+            self.assertEqual(struct.unpack(">I", tkhd[12:16])[0], index)
+            mdia = only(track, b"mdia")
+            self.assertEqual(only(mdia, b"hdlr")[8:12], b"meta")
+            minf = only(mdia, b"minf")
+            self.assertEqual(only(minf, b"nmhd"), b"\0" * 4)
+            self.assertEqual(only(only(minf, b"dinf"), b"dref"), b"\0" * 4 + struct.pack(">I", 1) + box(b"url ", b"\0\0\0\1"))
+            stbl = only(minf, b"stbl")
+            self.assertEqual(only(stbl, b"stsd"), b"\0" * 4 + struct.pack(">I", 1) + box(b"mett", self.module["MIME"] * 2))
+            for tag, size in ((b"stts", 8), (b"stsc", 8), (b"stsz", 12), (b"stco", 8)):
+                self.assertEqual(only(stbl, tag), b"\0" * size)
         self.assertEqual(result.count(b"application/octet-stream\0"), 4)
-        self.assertEqual(result.count(b"inert synthetic video description"), 1)
 
     def test_fixture_rejects_wrong_tracks_faststart_truncated_or_extended_boxes(self):
-        for entries in ((b"avc1", b"gpmd"), (b"avc1", b"avc1", b"gpmd"), (b"avc1", b"text", b"gpmd")):
-            with self.assertRaises(ValueError): self.module["convert"](self.tiny(entries))
+        for options in (dict(tracks=0), dict(tracks=2), dict(entry=b"hvc1"), dict(movie_version=1)):
+            with self.assertRaises(ValueError): self.module["inject"](self.tiny(**options))
         raw = self.tiny(); top = self.module["boxes"](raw); box = self.module["box"]
         faststart = b"".join(box(tag, payload) for tag, payload in (top[0], top[2], top[1]))
         for value in (faststart, raw[:-1], b"\0\0\0\1moov", b"\0\0\0\0moov"):
-            with self.assertRaises(ValueError): self.module["convert"](value)
+            with self.assertRaises(ValueError): self.module["inject"](value)
 
     def test_fixture_output_is_new_private_and_cannot_be_mistaken_for_android_evidence(self):
         with tempfile.TemporaryDirectory() as name:
