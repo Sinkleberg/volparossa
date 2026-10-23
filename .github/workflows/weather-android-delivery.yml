@@ -56,10 +56,7 @@ jobs:
       - name: Install media tools only on the disposable hosted runner
         run: |
           set -euo pipefail
-          test "$GITHUB_ACTIONS" = true
-          test "$RUNNER_ENVIRONMENT" = github-hosted
-          timeout 180s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
-          timeout 300s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ffmpeg fonts-dejavu-core
+          bash scripts/weather-demo-0-media-tools.sh
       - name: Observe serialization without Android or delivery claims
         run: |
           set -euo pipefail
@@ -85,10 +82,7 @@ jobs:
       - name: Install review tools only on the disposable hosted runner
         run: |
           set -euo pipefail
-          test "$GITHUB_ACTIONS" = true
-          test "$RUNNER_ENVIRONMENT" = github-hosted
-          timeout 180s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
-          timeout 300s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ffmpeg fonts-dejavu-core
+          bash scripts/weather-demo-0-media-tools.sh
       - name: Inspect existing accepted recording without rerunning Android
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "run_id": "39874591752",
+  "source_revision": "2425798036875d02aba0252f69acbf176fb67d36",
+  "synthetic_tool_probe_only": true,
+  "android_executed": false,
+  "genuine_app_pixels": false,
+  "failed_step": "Install media tools only on the disposable hosted runner",
+  "exit_status": 124,
+  "observed_slow_archive": "http://azure.archive.ubuntu.com/ubuntu",
+  "contact_sheet_filter_executed": false
+}
