@@ -288,7 +288,8 @@ export function requirePublishComplete(value, app, operation, profileVersion = 1
 export function consumerFailureReport(ctx, phase, error) {
   if (error instanceof RequestStageFailure) return error.primary;
   if (error instanceof PublishLifecycleFailure) {
-    return { ...error.primary, version: ctx.profileVersion + 2, publish_cleanup: error.cleanup };
+    return { ...error.primary, version: error.catalogRestore ? 13 : ctx.profileVersion + 2,
+      ...(error.catalogRestore ? { catalog_restore: error.catalogRestore } : {}), publish_cleanup: error.cleanup };
   }
   const publish = error instanceof PublishFailure;
   return { version: publish ? error.observation.version + 1 : 1, kind: 'storage-consumer-maintenance', phase, passed: false,
@@ -300,10 +301,11 @@ export function consumerFailureReport(ctx, phase, error) {
 }
 
 class PublishLifecycleFailure extends Error {
-  constructor(primary, cleanup, cause) {
+  constructor(primary, cleanup, cause, catalogRestore) {
     super('publish_lifecycle_failed', { cause });
     this.primary = Object.freeze(primary);
     this.cleanup = Object.freeze(cleanup);
+    this.catalogRestore = catalogRestore;
   }
 }
 
@@ -321,13 +323,20 @@ export async function withPublishCore(ctx, app, core, operation) {
     try { return await operation(); } finally { await core.close(); }
   }
   check(['image', 'cloud'].includes(app), 'arguments');
-  let result, primary, cause;
+  // Only this lifecycle can consume its catalog observation. Never carry it
+  // into a later policy read, application, phase, or independent close failure.
+  catalogRestoreFailures.delete(ctx);
+  let result, primary, cause, catalogRestore;
   try { result = await operation(); }
   catch (error) {
     cause = error;
+    const observed = catalogRestoreFailures.get(ctx);
+    if (app === 'cloud' && ctx.profileVersion === 10 && ctx.stage === 'cloud_catalog_create'
+        && observed && Object.is(observed.error, error)) catalogRestore = observed.observation;
     try { primary = consumerFailureReport(ctx, 'publish', error); }
     catch { primary = consumerFailureReport(ctx, 'publish', undefined); }
   }
+  catalogRestoreFailures.delete(ctx);
   const beforeClose = ctx.stage;
   ctx.stage = `${app}_core_close`;
   let state = 'complete';
@@ -339,7 +348,7 @@ export async function withPublishCore(ctx, app, core, operation) {
       primary = consumerFailureReport(ctx, 'publish', { code: 'core_close_failed' });
     }
   }
-  if (primary) throw new PublishLifecycleFailure(primary, { app, state }, cause);
+  if (primary) throw new PublishLifecycleFailure(primary, { app, state }, cause, catalogRestore);
   ctx.stage = beforeClose;
   return result;
 }
@@ -438,19 +447,127 @@ export async function withRequestStage(ctx, app, config, operation,
   }
 }
 
+const catalogRestoreFailures = new WeakMap();
+const CATALOG_RESTORE_ERRORS = new Set(['invalid_request', 'storage_closed', 'operation_in_progress',
+  'foreground_cleanup_unconfirmed', 'maintenance_cleanup_unconfirmed', 'cancelled', 'core_spawn_failed',
+  'local_verification_failed', 'local_input_unavailable', 'private_file_required', 'private_directory_required',
+  'output_exists', 'invalid_core_executable', 'invalid_control_socket']);
+const catalogCode = (value, allowed) => typeof value === 'string' && value.length <= 64 && allowed.has(value);
+function dataField(value, name) {
+  const field = Object.getOwnPropertyDescriptor(value, name);
+  if (!field) return { state: 'missing' };
+  return Object.hasOwn(field, 'value') ? { state: 'observed', value: field.value } : { state: 'invalid' };
+}
+function catalogRestoreResult(value) {
+  if (value === null || value === undefined) return { state: 'missing', result: null };
+  try {
+    if (typeof value !== 'object' || Array.isArray(value)) return { state: 'invalid', result: null };
+    const names = ['version', 'operation', 'status', 'code', 'local_process_joined',
+      'remote_cleanup_confirmed', 'restore_verified', 'storage'];
+    // Inspect only own data fields; getters, unknown fields and oversized strings
+    // cannot become evidence. Never stringify or copy a bridge report.
+    const own = Reflect.ownKeys(value);
+    if (own.length > names.length || own.some(key => !names.includes(key))) return { state: 'invalid', result: null };
+    const fields = names.map(name => dataField(value, name));
+    if (fields.some(field => field.state === 'invalid')) return { state: 'invalid', result: null };
+    if (fields.some(field => field.state === 'missing')) return { state: 'missing', result: null };
+    const [version, operation, status, code, joined, cleanup, verified, storage] = fields.map(field => field.value);
+    if (version !== 1 || operation !== 'restore' || !catalogCode(status, PUBLISH_STATUSES)
+        || !catalogCode(code, PUBLISH_CODES) || typeof joined !== 'boolean' || cleanup !== false
+        || typeof verified !== 'boolean') return { state: 'invalid', result: null };
+    let coreState = 'missing', complete = null;
+    if (storage !== null && storage !== undefined) {
+      if (typeof storage !== 'object' || Array.isArray(storage)) coreState = 'invalid';
+      else {
+        const field = dataField(storage, 'operation_complete');
+        coreState = field.state;
+        if (coreState === 'observed') {
+          if (typeof field.value === 'boolean') complete = field.value;
+          else coreState = 'invalid';
+        }
+      }
+    }
+    if ((status === 'complete' && (code !== 'ok' || !joined || !verified || complete !== true))
+        || (status !== 'complete' && verified)
+        || (status === 'incomplete' && (code !== 'retained_operation_incomplete' || complete !== false))) {
+      return { state: 'invalid', result: null };
+    }
+    return { state: 'observed', result: Object.freeze({ status, code, local_process_joined: joined,
+      restore_verified: verified, core_report_state: coreState, core_operation_complete: complete }) };
+  } catch { return { state: 'invalid', result: null }; }
+}
+
+// This wraps the existing catalog-only factory and the SAME bridge restore
+// method. It grants no new authority and neither retries nor changes arguments,
+// receiver, returned object or thrown error. A projection failure is diagnostic.
+export function observeCatalogRestore(storageFactory) {
+  let invocation = typeof storageFactory === 'function' ? 'not_invoked' : 'unavailable';
+  let completion = 'unavailable', resultState = 'unavailable', result = null;
+  let errorState = 'unavailable', errorCode = null, frozen = false;
+  const factory = typeof storageFactory !== 'function' ? storageFactory : async function (...args) {
+    const storage = await Reflect.apply(storageFactory, this, args);
+    return { get restore() {
+      const method = storage.restore;
+      if (typeof method !== 'function') return method;
+      return async function (...restoreArgs) {
+        if (!frozen) invocation = invocation === 'not_invoked' ? 'once' : 'multiple';
+        try {
+          const value = await Reflect.apply(method, storage, restoreArgs);
+          if (!frozen && invocation === 'once') {
+            completion = 'returned';
+            const projected = catalogRestoreResult(value);
+            resultState = projected.state; result = projected.result;
+          }
+          return value;
+        } catch (error) {
+          if (!frozen && invocation === 'once') {
+            completion = 'threw';
+            try {
+              if ((typeof error !== 'object' && typeof error !== 'function') || error === null) errorState = 'missing';
+              else {
+                const field = dataField(error, 'code');
+                errorState = field.state;
+                if (errorState === 'observed') {
+                  if (catalogCode(field.value, CATALOG_RESTORE_ERRORS)) errorCode = field.value;
+                  else errorState = 'invalid';
+                }
+              }
+            } catch { errorState = 'invalid'; }
+          }
+          throw error;
+        }
+      };
+    } };
+  };
+  return { factory, snapshot() {
+    frozen = true;
+    // Multiple invocations cannot be represented as one bound result.
+    const single = invocation === 'once';
+    return Object.freeze({ version: 1, scope: 'cloud_catalog_storage_restore_call', diagnostic_only: true,
+      acceptance_evidence: false, causal_attribution: false, invocation,
+      completion: single ? completion : 'unavailable', result_state: single ? resultState : 'unavailable',
+      result: single ? result : null, error_state: single ? errorState : 'unavailable', error_code: single ? errorCode : null });
+  } };
+}
+
 export async function createPublishCatalog(ctx, m, request, options) {
   if ([8, 9, 10].includes(ctx.profileVersion)) ctx.stage = 'cloud_catalog_create';
+  const observer = ctx.profileVersion === 10 ? observeCatalogRestore(options.storageFactory) : null;
+  const catalogOptions = observer ? { ...options, storageFactory: observer.factory } : options;
   let created;
-  try { created = await m.createPrivateCatalog(request, options); }
+  try { created = await m.createPrivateCatalog(request, catalogOptions); }
   catch (error) {
+    let primary = error;
     if ([8, 9, 10].includes(ctx.profileVersion) && typeof m.PrivateCatalogError === 'function'
       && error instanceof m.PrivateCatalogError
       && Object.hasOwn(CATALOG_CODES, error.code)) {
       const code = CATALOG_CODES[error.code];
-      throw Object.assign(new Error(code, { cause: error }), { code });
+      primary = Object.assign(new Error(code, { cause: error }), { code });
     }
-    throw error;
+    if (observer) catalogRestoreFailures.set(ctx, { error: primary, observation: observer.snapshot() });
+    throw primary;
   }
+  if (observer) observer.snapshot();
   if ([8, 9, 10].includes(ctx.profileVersion)) ctx.stage = 'cloud_catalog_validate';
   check(created.encrypted === true && created.sourceFallback === false && created.files === 1, 'catalog_creation');
   return created;

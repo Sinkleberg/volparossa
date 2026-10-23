@@ -1473,7 +1473,7 @@ class MaintenanceEvidence(unittest.TestCase):
                 'private-storage-provider-activity.json',
                 'private-storage-maintenance-inventory.json', 'private-storage-maintenance-supervisor.json',
                 'private-storage-fixture-correlation.json', 'private-storage-maintenance-helper-acquire.json',
-                'storage-consumer-provider-usage.json'},
+                'storage-consumer-provider-usage.json', 'storage-consumer-failure-boundary.json'},
                 {p.name for p in root.iterdir()} - {CHECK['CONSUMERS']['TRANSITION_NAME']})
             (root / 'private-storage-fragments-restored_usage.json').write_text('{}')
             with self.assertRaises(ValueError):

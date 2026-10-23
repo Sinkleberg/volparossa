@@ -182,6 +182,7 @@ jobs:
           python3 -B tests/integration/test-storage-provider-activity-sampler.py
           python3 -B tests/integration/test-storage-fixture-correlation-sampler.py
           python3 -B tests/integration/test-storage-consumer-maintenance-evidence.py
+          python3 -B tests/integration/test-storage-consumer-failure-boundary.py
           python3 -B tests/integration/test-image-snapshot-provision.py
           python3 -B tests/integration/test-image-snapshot-wiring.py
           sh -n tests/integration/image-snapshot-smoke.sh

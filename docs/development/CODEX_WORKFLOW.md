@@ -48,16 +48,19 @@ or permission expansion.
 
 | Role | Model and initial effort | Responsibility |
 | --- | --- | --- |
-| Principal | `gpt-6-astra`, Ultra | Architecture, consequential decisions, prioritization, coordination and integration. |
-| `volparossa_implementer` | `gpt-6.1-sol`, High | Substantial implementation, integration and complex debugging. |
+| Principal | `gpt-6-astra`, Ultra | Architecture, consequential decisions, prioritization, coordination and critical integration. |
+| `volparossa_implementer_medium` | `gpt-6.1-sol`, Medium | Preferred for bounded implementation within established architectural contracts, with appropriate verification and independent Sol High review. |
+| `volparossa_implementer` | `gpt-6.1-sol`, High | Complex debugging, ambiguous or security-sensitive implementation, and substantial integration where those concerns apply. |
 | `volparossa_reviewer` | `gpt-6.1-sol`, High | Independent technical review of correctness, privacy and acceptance evidence. |
 | `volparossa_support` | `gpt-6-luna`, Medium | Bounded exploration, documentation and assigned focused checks. |
 
 Use at most two concurrent subagents initially, excluding the principal. Parallelize
 independent work only; sequential work or no delegation is often better for a small
 edit. The principal should not routinely redo reliable implementation/support work.
-Escalate ambiguous or consequential findings rather than making Luna solve a task
-outside its assignment.
+Escalate consequential architectural or trust-boundary changes to Astra Ultra.
+Escalate complex, ambiguous or security-sensitive implementation to Sol High;
+keep Luna within bounded exploration, documentation and supporting assignments.
+The Medium role does not lower required verification or independent High review.
 
 Each assignment gives the goal, exact source, owned files/worktree, relevant
 interfaces and invariants, allowed checks and expected evidence. One agent owns a
@@ -124,6 +127,32 @@ was enabled. Missing `rg` remains a tooling limitation; use `git grep`/`grep`.
 Configuration semantics and custom-agent fields are documented in the official
 [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
 and [subagent guide](https://learn.chatgpt.com/docs/agent-configuration/subagents).
+
+### Sol Medium preference and current availability — 2026-10-22
+
+The user's revised delegation policy prefers the configured Medium implementer
+for bounded work within established contracts. The installed file is
+`~/.codex/agents/volparossa-implementer-medium.toml`, with role name
+`volparossa_implementer_medium`, model `gpt-6.1-sol` and Medium effort. The
+existing High implementer, High reviewer and Medium support roles retain their
+responsibilities above. The historical configuration block and 2026-10-20
+routing evidence remain unchanged: the generic subagent default is still High;
+that default alone does not implement the new task-specific Medium preference.
+
+Keep these evidence claims separate. File presence establishes an installed
+configuration, not client discovery. In this continuation the current client's
+custom-role spawn rejected `volparossa_implementer_medium`; it does not establish
+that the installed role was loaded. An explicit `gpt-6.1-sol`/Medium fallback
+was assigned this bounded documentation update using the same role constraints.
+The principal verified this explicit fallback through read-only runtime metadata:
+child `01a16589-4590-7940-b04a-ff96cb4a4ef3` belongs to parent
+`01a164d8-1d7e-7b21-8d20-56031581b729`, with agent path
+`/root/delegation_medium_update` and role `worker`; its turn context records
+`gpt-6.1-sol`, effort `medium` and collaboration-mode effort `medium`. This verifies
+the explicit fallback's routing, not custom-role discovery. Assignment parameters
+or successful prose alone remain insufficient. The implementation ledger retains
+the current routing evidence. No client reload, configuration change or additional
+execution permission follows from this documentation update.
 
 ## Preserve checkouts and evidence
 

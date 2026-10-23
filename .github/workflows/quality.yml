@@ -8,13 +8,26 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      studio_export_pack:
+        description: 'Opt in to reviewed, synthetic Silex editor/export and offline Core pack proof'
+        type: boolean
+        default: false
+      core_revision:
+        description: 'Exact 40-hex Core revision, must equal this workflow revision'
+        type: string
+        default: ''
+      studio_revision:
+        description: 'Exact reviewed 40-hex VOLPAROSSA Studio revision'
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.studio_export_pack && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !(github.event_name == 'workflow_dispatch' && inputs.studio_export_pack) }}
 
 defaults:
   run:
@@ -25,8 +38,102 @@ env:
   RUSTSEC_ADVISORY_DB_REVISION: bf5c0d245a92671908518d7e765914d437954ed6
 
 jobs:
+  studio-export-pack:
+    name: Opt-in real Studio editor export and offline Core packaging
+    if: github.event_name == 'workflow_dispatch' && inputs.studio_export_pack
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - name: Bind reviewed exact source revisions before acquisition
+        env:
+          CORE_REVISION: ${{ inputs.core_revision }}
+          STUDIO_REVISION: ${{ inputs.studio_revision }}
+          WORKFLOW_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          [[ "$CORE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$STUDIO_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$CORE_REVISION" = "$WORKFLOW_REVISION"
+
+      - name: Check out exact Core proof source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.core_revision }}
+          path: core
+          persist-credentials: false
+
+      - name: Check out exact reviewed Studio fixture
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: VOLPAROSSA/volparossa-studio
+          ref: ${{ inputs.studio_revision }}
+          path: studio
+          persist-credentials: false
+
+      - name: Acquire fixed Silex v3.9.0 source without executing it
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: silexlabs/Silex
+          ref: 672efed69dda04c0a1e968859239e042f00d9538
+          path: silex
+          persist-credentials: false
+
+      - name: Inert ZIP safety and fixture contract checks
+        run: |
+          python3 -B studio/integration/silex-export/test_contract.py
+          python3 -B studio/integration/silex-export/test_lifecycle.py
+          python3 -B studio/integration/silex-export/test_runtime_context.py
+          python3 -B studio/integration/silex-export/test_wrapper_guard.py core
+          sh -n core/scripts/run-isolated-test.sh
+          shellcheck core/scripts/run-isolated-test.sh
+
+      - name: Prepare pinned Core compiler and Protobuf on disposable runner
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(dpkg --print-architecture)" = amd64
+          rustup toolchain install 1.85.0 --profile minimal
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+            -o Acquire::Retries=2 -o APT::Update::Error-Mode=any update
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+            -o Acquire::Retries=2 install --yes --no-install-recommends \
+            protobuf-compiler=3.21.12-8.2ubuntu0.4 \
+            libprotoc32t64=3.21.12-8.2ubuntu0.4 \
+            libprotobuf32t64=3.21.12-8.2ubuntu0.4
+          test "$(protoc --version)" = 'libprotoc 3.21.12'
+
+      - name: Acquire locked Core dependencies and compile only the pack proof
+        working-directory: core
+        run: |
+          cargo fetch --locked
+          cargo test --locked --offline -p volparossa --test studio_site_pack --no-run
+
+      - name: Real pinned editor manual edit preview ZIP then actual offline pack and decode
+        env:
+          STUDIO_CORE_REVISION: ${{ inputs.core_revision }}
+          STUDIO_REVISION: ${{ inputs.studio_revision }}
+        run: |
+          python3 -B studio/integration/silex-export/run.py \
+            "$GITHUB_WORKSPACE/core" "$GITHUB_WORKSPACE/silex" \
+            "$RUNNER_TEMP/studio-export-receipt.json"
+
+      - name: Retain only bounded synthetic result including failure and cleanup status
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: studio-export-pack-${{ github.run_id }}
+          path: ${{ runner.temp }}/studio-export-receipt.json
+          if-no-files-found: warn
+          retention-days: 14
+
   quality:
     name: Unprivileged quality gates
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.studio_export_pack) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
 
@@ -160,6 +267,7 @@ jobs:
           python3 -B tests/integration/test-private-storage-maintenance-wiring.py
           python3 -B tests/integration/test-storage-fixture-correlation-sampler.py
           python3 -B tests/integration/test-storage-request-stage-consumers.py
+          python3 -B tests/integration/test-storage-consumer-failure-boundary.py
           python3 -B tests/integration/test-storage-provider-usage-snapshot.py
 
       - name: Check formatting and shell sources
