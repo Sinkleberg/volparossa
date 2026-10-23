@@ -93,5 +93,184 @@ class RecordedUsage(unittest.TestCase):
                 U.collect([path, path], selected)
 
 
+    @staticmethod
+    def event(kind, **kwargs):
+        return dict(type="event_msg", payload=dict(type=kind, **kwargs))
+
+    @classmethod
+    def usage(cls, n, cached, output):
+        return cls.event("token_count", info=dict(total_token_usage=dict(input_tokens=n,
+            cached_input_tokens=cached, output_tokens=output, reasoning_output_tokens=output // 2)))
+
+    @classmethod
+    def resumed_entries(cls):
+        first = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        second = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        gap = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        entries = [dict(type="session_meta", payload=dict(id="synthetic-thread", source="vscode")),
+            cls.usage(100, 80, 20), cls.event("task_started", root_turn_id=first),
+            dict(type="turn_context", payload=dict(model="gpt-6.1-sol", effort="medium")),
+            cls.usage(130, 100, 26), cls.usage(130, 100, 26),
+            cls.event("task_complete", root_turn_id=first),
+            cls.event("task_started", root_turn_id=gap), cls.usage(180, 140, 40),
+            cls.event("task_complete", root_turn_id=gap),
+            cls.event("task_started", root_turn_id=second), cls.usage(220, 170, 48),
+            dict(type="response_item", payload=dict(prompt="synthetic private text never exported")),
+            cls.event("task_complete", root_turn_id=second), cls.usage(230, 175, 50)]
+        return first, second, entries
+
+    @staticmethod
+    def write_session(path, entries):
+        path.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
+
+    def test_union_adds_both_selected_turns_and_excludes_gap(self):
+        first, second, entries = self.resumed_entries()
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / "synthetic.jsonl"
+            self.write_session(path, entries)
+            before = path.read_bytes()
+            report = U.collect_many([path], [second, first, first])
+            self.assertEqual(report["root_turn_ids"], [first, second])
+            self.assertNotIn("root_turn_id", report)
+            row = report["threads"][0]["models"][0]
+            self.assertEqual((row["input_tokens"], row["cached_input_tokens"],
+                row["uncached_input_tokens"], row["output_tokens"], row["reasoning_output_tokens"]),
+                (70, 50, 20, 14, 7))
+            self.assertEqual(report["threads"][0]["nonzero_usage_events"], 2)
+            self.assertTrue(report["snapshot_incomplete"])
+            self.assertFalse(report["billing_estimate"])
+            self.assertIn("subset of output", " ".join(report["notes"]))
+            self.assertNotIn(str(path), json.dumps(report))
+            self.assertNotIn("synthetic private text", json.dumps(report))
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_union_deduplicates_session_aliases_and_preserves_single_api(self):
+        first, _, entries = self.resumed_entries()
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / "synthetic.jsonl"
+            alias = Path(name) / "alias.jsonl"
+            self.write_session(path, entries)
+            alias.symlink_to(path)
+            report = U.collect_many([path, path, alias], [first, first])
+            self.assertEqual(len(report["threads"]), 1)
+            self.assertEqual(report["root_turn_id"], first)
+            self.assertEqual(report["root_turn_ids"], [first])
+            self.assertEqual(U.collect_many([path], first), report)
+            expected = dict(report)
+            expected.pop("root_turn_ids")
+            self.assertEqual(U.collect([path], first), expected)
+            with self.assertRaisesRegex(ValueError, "duplicate session"):
+                U.collect([path, alias], first)
+
+    def test_distinct_files_with_same_selected_thread_fail_closed(self):
+        first, second, entries = self.resumed_entries()
+        with tempfile.TemporaryDirectory() as name:
+            paths = [Path(name) / "original.jsonl", Path(name) / "copy.jsonl"]
+            for path in paths:
+                self.write_session(path, entries)
+            with self.assertRaisesRegex(ValueError, "duplicate thread.*manual reconciliation"):
+                U.collect_many(paths, [first, second])
+
+    def test_union_can_span_distinct_threads_without_missing_turns(self):
+        first, second, _ = self.resumed_entries()
+        with tempfile.TemporaryDirectory() as name:
+            paths = []
+            for index, (turn, before, after) in enumerate([
+                    (first, (100, 80, 20), (130, 100, 26)),
+                    (second, (180, 140, 40), (220, 170, 48))]):
+                path = Path(name) / f"thread-{index}.jsonl"
+                self.write_session(path, [dict(type="session_meta", payload=dict(id=f"thread-{index}")),
+                    self.usage(*before), self.event("task_started", root_turn_id=turn),
+                    dict(type="turn_context", payload=dict(model="gpt-6.1-sol", effort="medium")),
+                    self.usage(*after), self.event("task_complete", root_turn_id=turn)])
+                paths.append(path)
+            report = U.collect_many(paths, [first, second])
+            self.assertEqual([row["thread_id"] for row in report["threads"]], ["thread-0", "thread-1"])
+            self.assertEqual(sum(row["models"][0]["input_tokens"] for row in report["threads"]), 70)
+
+    def test_counter_reset_in_selected_turn_or_unselected_gap_fails_closed(self):
+        first, second, entries = self.resumed_entries()
+        for index in [4, 8]:
+            with self.subTest(index=index), tempfile.TemporaryDirectory() as name:
+                path = Path(name) / "reset.jsonl"
+                changed = list(entries)
+                changed[index] = self.usage(1, 0, 0)
+                self.write_session(path, changed)
+                with self.assertRaisesRegex(ValueError, "counter reset: manual reconciliation"):
+                    U.collect_many([path], [first, second])
+
+    def test_union_rejects_malformed_or_missing_selected_turn(self):
+        first, _, entries = self.resumed_entries()
+        missing = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / "synthetic.jsonl"
+            self.write_session(path, entries)
+            for turns in [[], [first, "-" * 36], [first, 42], [first, missing]]:
+                with self.subTest(turns=turns), self.assertRaises(ValueError):
+                    U.collect_many([path], turns)
+
+    def test_missing_cache_fields_are_annotated_without_claiming_zero(self):
+        first, _, entries = self.resumed_entries()
+        # A missing baseline field also makes the following selected delta uncertain.
+        entries[1]["payload"]["info"]["total_token_usage"].pop("cached_input_tokens")
+        for index in [4, 5]:
+            entries[index]["payload"]["info"]["total_token_usage"]["cached_input_tokens"] = 10
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / "legacy-counters.jsonl"
+            self.write_session(path, entries)
+            report = U.collect_many([path], [first])
+            thread = report["threads"][0]
+            self.assertEqual(thread["missing_counter_fields"],
+                ["cache_write_input_tokens", "cached_input_tokens"])
+            self.assertEqual(thread["counter_availability"]["cache_write_input_tokens"],
+                "legacy_zero_default_used")
+            self.assertEqual(thread["counter_availability"]["cached_input_tokens"],
+                "legacy_zero_default_used")
+            self.assertEqual(thread["counter_availability"]["input_tokens"],
+                "observed_in_delta_snapshots")
+            self.assertEqual(thread["models"][0]["cache_write_input_tokens"], 0)
+            self.assertIn("not confirmed measurements", " ".join(report["notes"]))
+
+    def test_gap_without_intermediate_snapshot_remains_an_uncertain_delta(self):
+        first, _, _ = self.resumed_entries()
+        gap = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        entries = [dict(type="session_meta", payload=dict(id="synthetic-gap-thread")),
+            self.usage(100, 80, 20), self.event("task_started", root_turn_id=gap),
+            # Deliberately no counter snapshot before the selected task starts.
+            self.event("task_complete", root_turn_id=gap),
+            self.event("task_started", root_turn_id=first),
+            dict(type="turn_context", payload=dict(model="gpt-6.1-sol", effort="medium")),
+            self.usage(160, 120, 32), self.event("task_complete", root_turn_id=first)]
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / "unmeasured-gap.jsonl"
+            self.write_session(path, entries)
+            report = U.collect_many([path], [first])
+            self.assertEqual(report["threads"][0]["models"][0]["input_tokens"], 60)
+            notes = " ".join(report["notes"])
+            self.assertIn("can include unselected work", notes)
+            self.assertIn("not exact task consumption or billed consumption", notes)
+            self.assertTrue(report["snapshot_incomplete"])
+            self.assertFalse(report["billing_estimate"])
+
+    def test_cli_repeatable_selection_projects_synthetic_counters_only(self):
+        import subprocess
+        import sys
+        first, second, entries = self.resumed_entries()
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / "synthetic.jsonl"
+            self.write_session(path, entries)
+            before = path.read_bytes()
+            result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/weather-demo-0-usage.py"),
+                "--root-turn", first, "--root-turn", second, "--root-turn", first, str(path), str(path)],
+                capture_output=True, check=True, timeout=10)
+            report = json.loads(result.stdout)
+            self.assertEqual(report["root_turn_ids"], [first, second])
+            self.assertEqual(report["threads"][0]["models"][0]["input_tokens"], 70)
+            self.assertNotIn(str(path), result.stdout.decode())
+            self.assertNotIn("synthetic private text", result.stdout.decode())
+            self.assertEqual(result.stderr, b"")
+            self.assertEqual(path.read_bytes(), before)
+
+
 if __name__ == "__main__":
     unittest.main()
