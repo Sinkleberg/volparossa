@@ -686,6 +686,175 @@ def render_held_image(original, output, media, basename):
         visual_review_required=True, visual_acceptance_claimed=False)
 
 
+SCOPED_IDENTITY = dict(core_commit='6bc0abdb524b79e5244f9381d2d8d45a9100b41d',
+    weather_commit=WEATHER, run_id='39998753810', run_attempt='1')
+SCOPED_VIDEO = 'bca54a8f677238f26daff6921bb3af0c661e1b39d0aada5ce3f161fda380d5c8'
+SCOPED_ZIP = 'sha256:307ebd6239de51d40b17c429658fe751b4201abcda8a0e4abd5688184121230c'
+SCOPED_CLAIMS = {'temperature-visible': 206, 'pm25-visible': 240, 'source-validity-visible': 206,
+    'first-refresh-completes': 348, 'home-visible': 439, 'app-return-animation': 489}
+SCOPED_SCREENSHOTS = (206, 215, 240, 348, 439, 489)
+
+
+def committed_visual_review(path):
+    path = Path(path)
+    if not path.is_absolute():
+        path = ROOT / path
+    require(path == path.resolve(strict=True) and path.is_relative_to(ROOT) and path.is_file()
+            and 0 < path.stat().st_size <= 65536, 'scoped visual-review path rejected')
+    relative = path.relative_to(ROOT).as_posix()
+    require(re.fullmatch(r'[A-Za-z0-9_./-]+', relative) and '.git' not in path.relative_to(ROOT).parts,
+            'scoped visual-review path rejected')
+    raw = path.read_bytes()
+    committed = command([tool('/usr/bin/git'), '--no-optional-locks', '-c', 'core.hooksPath=/dev/null',
+        '-C', str(ROOT), 'show', 'HEAD:' + relative], maximum=65536, seconds=15, reject_stderr=True)
+    require(raw == committed, 'visual review must equal its committed source bytes')
+    return raw, decode(raw, 65536)
+
+
+def scoped_visual_witnesses(review, output, identity, rendered, timeline):
+    require(type(review) is dict and set(review) == {'schema', 'kind', 'identity', 'source_video_sha256',
+                'scope', 'hold_frame_index', 'witnesses'}
+            and type(review['schema']) is int and review['schema'] == 1
+            and review['kind'] == 'weather-demo-scoped-visual-review'
+            and review['identity'] == identity == SCOPED_IDENTITY
+            and review['source_video_sha256'] == SCOPED_VIDEO
+            and review['scope'] == 'weather-demo-0-native-timing-v1'
+            and type(review['hold_frame_index']) is int and review['hold_frame_index'] == 206,
+            'scoped visual-review schema, identity or scope rejected')
+    rows = rendered['decoded_frames']
+    require(rendered['native_frames'] is True and rendered['sample_to_source_frame_mapping_verified'] is True
+            and rendered['sample_start_seconds'] == 0
+            and rendered['sample_stop_seconds'] == timeline['video_duration_seconds']
+            and timeline['source_video_sha256'] == SCOPED_VIDEO
+            and len(rows) == len(timeline['frames']) and 490 <= len(rows) <= 900
+            and [row['frame_index'] for row in rows] == list(range(len(rows))),
+            'scoped admission requires whole-clip native frame inspection')
+    frames = {}
+    for index in set(SCOPED_SCREENSHOTS):
+        row, source = rows[index], timeline['frames'][index]
+        expected = 'samples/frame-' + f'{index:03d}' + '.png'
+        require(row['file'] == expected and row['frame_index'] == source['frame_index'] == index
+                and row['source_pts_seconds'] == source['source_pts_seconds'], 'scoped source frame binding rejected')
+        path = output / expected
+        info = path.lstat()
+        require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 4 * 1024**2,
+                'scoped PNG file rejected')
+        frames[index] = dict(frame_index=index, source_pts_seconds=row['source_pts_seconds'],
+            file=expected, bytes=info.st_size, png_sha256=digest(path))
+    witnesses = review['witnesses']
+    require(type(witnesses) is list and len(witnesses) == len(SCOPED_CLAIMS), 'scoped visual witnesses missing')
+    seen, validated = set(), []
+    for witness in witnesses:
+        require(type(witness) is dict and set(witness) == {'claim', 'frame_index', 'source_pts_seconds', 'png_sha256'}
+                and type(witness['claim']) is str and witness['claim'] in SCOPED_CLAIMS
+                and witness['claim'] not in seen and type(witness['frame_index']) is int
+                and witness['frame_index'] == SCOPED_CLAIMS[witness['claim']]
+                and type(witness['source_pts_seconds']) in {int, float} and math.isfinite(witness['source_pts_seconds'])
+                and type(witness['png_sha256']) is str and re.fullmatch('[a-f0-9]{64}', witness['png_sha256']),
+                'scoped visual witness duplicate, index or fields rejected')
+        actual = frames[witness['frame_index']]
+        require(witness['source_pts_seconds'] == actual['source_pts_seconds']
+                and witness['png_sha256'] == actual['png_sha256'], 'scoped visual witness hash or PTS rejected')
+        seen.add(witness['claim'])
+        validated.append(dict(claim=witness['claim'], **actual))
+    require(seen == set(SCOPED_CLAIMS), 'scoped visual claims missing')
+    return validated, frames
+
+
+def admit_scoped_demo(output, identity, capture, media, artifact, rendered, visual_path, packaging):
+    """Separate scoped decision; inspection and the original failed run remain unchanged."""
+    hosted()
+    STATE['stage'] = 'scoped-visual-review'
+    raw_review, review = committed_visual_review(visual_path)
+    require(identity == SCOPED_IDENTITY and artifact['original_run_conclusion'] == 'failure'
+            and artifact['digest'] == SCOPED_ZIP and capture['original_core_acceptance_passed'] is True
+            and capture['media_accepted'] is False and capture['joined_media_acceptance'] is False
+            and media['files']['screen.mp4']['sha256'] == SCOPED_VIDEO,
+            'scoped original failed-run binding rejected')
+    timeline = decode((output / 'frame-timeline.json').read_bytes(), 8 * 1024**2)
+    witnesses, frames = scoped_visual_witnesses(review, output, identity, rendered, timeline)
+    original = output / 'original'
+    video_path = original / 'source-capture/screen.mp4'
+    require(digest(video_path) == SCOPED_VIDEO, 'scoped original clip hash rejected')
+    STATE['stage'] = 'scoped-native-timing'
+    timing_path = ROOT / 'tests/integration/weather-demo-native-timing.py'
+    technical = runpy.run_path(str(timing_path))['validate'](video_path, timeline)
+    require(type(technical) is dict and type(technical.get('schema')) is int and technical['schema'] == 1
+            and technical.get('kind') == 'weather-demo-native-timing-coherence'
+            and technical.get('technical_coherence_passed') is True
+            and technical.get('source_video_sha256') == SCOPED_VIDEO
+            and all(technical.get(key) is False for key in ['media_accepted', 'visual_acceptance_claimed',
+                'publication_authorized', 'production_authority']), 'scoped technical coherence rejected')
+    STATE['stage'] = 'scoped-presentation'
+    package = runpy.run_path(str(ROOT / 'scripts/weather-demo-0-package.py'))
+    stage = output / 'presentation'
+    stage.mkdir(mode=0o700)
+    acceptance = decode((original / 'original-acceptance/weather-android-hosted-acceptance.json').read_bytes(), 65536)
+    require(acceptance['identity'] == identity and acceptance['passed'] is True
+            and digest(original / 'original-acceptance/weather-android-hosted-acceptance.json') == capture['original_acceptance_sha256'],
+            'scoped original acceptance changed')
+    raw_info = {key: media['video'][key] for key in ['codec', 'width', 'height', 'duration_seconds']}
+    duration = max(120, math.ceil(raw_info['duration_seconds'] + 1))
+    require(duration <= 180, 'scoped presentation duration rejected')
+    lines = package['presentation_lines'](identity, acceptance['observations']['products'], scoped_demo=True)
+    hold = output / frames[206]['file']
+    _, video_info = package['render_video'](video_path, stage, duration, raw_info, lines, hold_image=hold)
+    require(digest(hold) == frames[206]['png_sha256'] and digest(video_path) == SCOPED_VIDEO,
+            'scoped presentation source changed')
+    preview = stage / 'preview-090.png'
+    command([tool('/usr/bin/ffmpeg'), '-nostdin', '-v', 'error', '-protocol_whitelist', 'file,pipe',
+        '-i', str(stage / 'weather-demo-0.mp4'), '-ss', '90', '-frames:v', '1', '-threads', '2', str(preview)],
+        maximum=65536, seconds=30, reject_stderr=True)
+    require(preview.is_file() and 0 < preview.stat().st_size <= 8 * 1024**2, 'scoped presentation preview size rejected')
+    with preview.open('rb') as stream:
+        prefix = stream.read(24)
+    require(len(prefix) == 24 and prefix[:8] == b'\x89PNG\r\n\x1a\n' and prefix[12:16] == b'IHDR'
+            and tuple(int.from_bytes(prefix[index:index + 4], 'big') for index in [16, 20]) == (1920, 1080),
+            'scoped presentation preview dimensions rejected')
+    captions, transcript = package['scoped_captions'](duration, raw_info['duration_seconds'], '206')
+    (stage / 'captions.vtt').write_text(captions, encoding='utf-8')
+    (stage / 'transcript.txt').write_text(transcript, encoding='utf-8')
+    (stage / 'visual-review.json').write_bytes(raw_review)
+    shutil.copyfile(video_path, stage / 'screen.mp4')
+    (stage / 'screenshots').mkdir(mode=0o700)
+    for index, frame in frames.items():
+        shutil.copyfile(output / frame['file'], stage / 'screenshots' / f'frame-{index:03d}.png')
+    files = {p.relative_to(stage).as_posix(): dict(bytes=p.stat().st_size, sha256=digest(p))
+             for p in sorted(stage.rglob('*')) if p.is_file()}
+    presentation = dict(schema=1, kind='weather-demo-scoped-presentation', identity=identity,
+        review_execution=packaging, original_run_conclusion='failure', scope=review['scope'],
+        video=video_info, original_video=raw_info, original_recording_sha256=SCOPED_VIDEO,
+        visual_review_sha256=hashlib.sha256(raw_review).hexdigest(),
+        hold_frame=dict(frames[206], file='screenshots/frame-206.png', source_inspection_file=frames[206]['file']),
+        edits=dict(speed=1, full_original_clip=True, raw_clip_trimmed=False,
+            held_frame_after_seconds=raw_info['duration_seconds'], held_frame_label='Held app frame from this run',
+            network_and_cache_facts='completed-run evidence', exact_action_timestamps_asserted=False,
+            presentation_cadence='30fps CFR; source display frames may be repeated or omitted by resampling',
+            phone_geometry='fit within 480x960 padded pane on 1920x1080 canvas', original_capture_preserved=True),
+        layout_preview=dict(file='preview-090.png', presentation_time_seconds=90,
+            final_layout_visual_review_required=True),
+        pixel_scope=sorted(SCOPED_CLAIMS), report_only_scope=['second-refresh-completion', 'background-resume-lifecycle-and-mounted-tables'],
+        publication_authorized=False, production_authority=False, standalone_mobile_core=False,
+        final_presentation_visual_review_required=True, includes_installable_binaries=False, files=files)
+    (stage / 'presentation.json').write_text(json.dumps(presentation, sort_keys=True, indent=2) + '\n')
+    record = dict(schema=1, kind='weather-demo-scoped-admission', identity=identity,
+        review_execution=packaging, scope=review['scope'], original_run_conclusion='failure',
+        original_artifact=artifact, original_recording_sha256=SCOPED_VIDEO,
+        original_acceptance_sha256=capture['original_acceptance_sha256'], original_core_acceptance_passed=True,
+        original_encoded_duration_failure_preserved=True, original_duration_verify_called=False,
+        visual_review_sha256=hashlib.sha256(raw_review).hexdigest(), technical_report=technical,
+        timing_validator_sha256=digest(timing_path),
+        validated_witnesses=witnesses, held_frame=frames[206], scoped_demo_admitted=True,
+        publication_authorized=False, production_authority=False, standalone_mobile_core=False,
+        new_runtime_executed=False, final_presentation_visual_review_required=True,
+        presentation_manifest_sha256=digest(stage / 'presentation.json'))
+    (output / 'scoped-admission.json').write_text(json.dumps(record, sort_keys=True, indent=2) + '\n')
+    for path in list(stage.rglob('*')) + [output / 'scoped-admission.json']:
+        if path.is_file():
+            path.chmod(0o600)
+    return record
+
+
 def hosted():
     require(os.environ.get('GITHUB_ACTIONS') == 'true'
             and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted'
@@ -698,12 +867,17 @@ def hosted():
 
 
 def prepare(run_id, attempt, revision, output, execute=False, hold_image=None, *,
-            inspect_quarantine=False, sample_start=0, sample_stop=None, sample_fps=None, native_frames=False):
+            inspect_quarantine=False, sample_start=0, sample_stop=None, sample_fps=None, native_frames=False,
+            admit_scoped=False, visual_review=None):
     STATE['stage'] = 'arguments'
     hold_image = None if hold_image == '' else hold_image
     require(hold_image is None or type(hold_image) is str
             and re.fullmatch(r'screen-[0-9]{3}\.png', hold_image), 'strict held-image basename required')
     require(not inspect_quarantine or hold_image is None, 'quarantine inspection cannot render a held image')
+    require(not admit_scoped or (inspect_quarantine and native_frames and sample_start == 0
+            and sample_stop is None and hold_image is None and visual_review is not None),
+            'scoped admission requires whole-clip native quarantine inspection and committed visual review')
+    require(visual_review is None or admit_scoped, 'visual review requires explicit scoped admission')
     if inspect_quarantine:
         sample_fps = 5 if sample_fps is None else sample_fps
         sample_window(sample_start, sample_stop, sample_fps, native=native_frames)
@@ -718,6 +892,7 @@ def prepare(run_id, attempt, revision, output, execute=False, hold_image=None, *
             and '.git' not in output.relative_to(ROOT).parts
             and not output.exists() and not output.is_symlink(), 'new workspace output required')
     identity = dict(core_commit=revision, weather_commit=WEATHER, run_id=run_id, run_attempt=attempt)
+    require(not admit_scoped or identity == SCOPED_IDENTITY, 'scoped admission original identity rejected')
     preview = dict(schema=1, kind='weather-demo-media-review-preview', identity=identity,
                    executed=False, publication_authorized=False, visual_review_required=True,
                    downloads='Only exact same-run weather-demo-review-' + revision,
@@ -727,13 +902,16 @@ def prepare(run_id, attempt, revision, output, execute=False, hold_image=None, *
             joined_media_acceptance=False, inspection_only=True,
             downloads='Only exact same-run weather-demo-capture-quarantine-' + revision,
             sampling=dict(start=sample_start, stop=sample_stop, fps=sample_fps, native_frames=native_frames))
+    if admit_scoped:
+        preview.update(scoped_demo_admission_requested=True, scoped_demo_admitted=False,
+            visual_review_required=True, original_failed_run_preserved=True)
     if not execute:
         return preview
     hosted()
     packaging = dict(core_commit=os.environ['GITHUB_SHA'], run_id=os.environ['GITHUB_RUN_ID'],
                      run_attempt=os.environ['GITHUB_RUN_ATTEMPT'])
     output.mkdir(mode=0o700)  # Exclusive: existing output is never repaired or overwritten.
-    artifact = None
+    artifact, inspection_complete = None, False
     try:
         artifact = (selected_artifact(run_id, attempt, revision, quarantine=True) if inspect_quarantine
                     else selected_artifact(run_id, attempt, revision))
@@ -775,11 +953,16 @@ def prepare(run_id, attempt, revision, output, execute=False, hold_image=None, *
                            for p in sorted(output.rglob('*')) if p.is_file()}
         (output / 'review.json').write_text(json.dumps(result, sort_keys=True, indent=2) + '\n')
         (output / 'review.json').chmod(0o600)
+        inspection_complete = inspect_quarantine
+        if admit_scoped:
+            admit_scoped_demo(output, identity, capture, media, artifact, rendered, visual_review, packaging)
         return result
     except BaseException as error:
         # Keep a closed source/run-bound failure record after removing partial downloads/frames.
+        keep_inspection = inspection_complete and admit_scoped
         for child in output.iterdir():
-            shutil.rmtree(child) if child.is_dir() else child.unlink()
+            if not keep_inspection or child.name in {'presentation', 'scoped-admission.json'}:
+                shutil.rmtree(child) if child.is_dir() else child.unlink()
         category = ('process' if isinstance(error, (ChildFailure, subprocess.SubprocessError)) else
             'io' if isinstance(error, OSError) else 'value' if isinstance(error, ValueError) else
             'key' if isinstance(error, KeyError) else 'type' if isinstance(error, TypeError) else 'unknown')
@@ -796,8 +979,17 @@ def prepare(run_id, attempt, revision, output, execute=False, hold_image=None, *
             failure['sampling_rejection'] = sampling_rejection(detail['rule'], detail['facts'])
         if isinstance(error, ChildFailure):
             failure['child_status'] = error.status if type(error.status) is int and -255 <= error.status <= 255 else None
-        (output / 'review-failure.json').write_text(json.dumps(failure, sort_keys=True, indent=2) + '\n')
-        (output / 'review-failure.json').chmod(0o600)
+        failure_name = 'review-failure.json'
+        if keep_inspection:
+            failure_name = 'scoped-admission-failure.json'
+            failure.update(kind='weather-demo-scoped-admission-failure', scoped_demo_admitted=False,
+                completed_inspection_preserved=True)
+            failure['stage'] = STATE['stage'] if STATE['stage'] in {
+                'scoped-visual-review', 'scoped-native-timing', 'scoped-presentation'} else 'unknown'
+            if isinstance(error, ValueError) and re.fullmatch(r'native_timing_[a-z0-9_]{1,80}', str(error)):
+                failure['native_timing_rejection'] = str(error)
+        (output / failure_name).write_text(json.dumps(failure, sort_keys=True, indent=2) + '\n')
+        (output / failure_name).chmod(0o600)
         raise
 
 
@@ -815,6 +1007,8 @@ def main(argv=None):
     parser.add_argument('--sample-stop', type=float)
     parser.add_argument('--sample-fps', type=float)
     parser.add_argument('--native-frames', action='store_true', help='inspect every selected native decoded frame')
+    parser.add_argument('--admit-scoped-demo', action='store_true', help='separate explicitly scoped demo admission')
+    parser.add_argument('--visual-review', type=Path, help='committed exact-source visual-review JSON')
     args = parser.parse_args(argv)
     previous = signal.getsignal(signal.SIGTERM)
     def interrupted(*_):
@@ -826,6 +1020,8 @@ def main(argv=None):
         if args.inspect_quarantine or args.sample_start != 0 or args.sample_stop is not None or args.sample_fps is not None or args.native_frames:
             options = dict(inspect_quarantine=args.inspect_quarantine, sample_start=args.sample_start,
                 sample_stop=args.sample_stop, sample_fps=args.sample_fps, native_frames=args.native_frames)
+        if args.admit_scoped_demo or args.visual_review is not None:
+            options.update(admit_scoped=args.admit_scoped_demo, visual_review=args.visual_review)
         value = prepare(args.run_id, args.attempt, args.core_revision, args.output, args.execute, args.hold_image, **options)
         print(json.dumps(value, sort_keys=True, indent=2))
         return 0

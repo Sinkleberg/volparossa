@@ -27,9 +27,9 @@ run `38717988016` remain immutable historical evidence.
 
 - [x] Recheck original source objects and original successful acceptance; preserve
   the five exact closed reports with their original archive provenance.
-- [ ] Implement explicitly enabled same-run rendered-pixel recording without
+- [x] Implement explicitly enabled same-run rendered-pixel recording without
   changing product contracts, required guards, deadlines or original acceptance.
-- [ ] Execute new real-product delivery, recording and joined cleanup in the
+- [x] Execute new real-product delivery, recording and joined cleanup in the
   approved disposable hosted environment; retain any failed trial unchanged.
 - [ ] Inspect actual media and assemble the approximately two-minute video,
   captions, source archives and provenance for user review.
@@ -69,12 +69,22 @@ delivery guard was relaxed. The run retained a quarantined capture plus the exac
 four original acceptance reports and KVM/VM cleanup evidence; the ledger keeps
 only closed JSON reports and the capture manifest in
 `trials/39998753810/`, while raw screenshots and MP4 remain outside Git. The
-quarantine is not admitted demo media. Astra's inspection found an inert read of
-490 monotonic-frame timestamps, which is diagnostic only and does not prove
-decoded frames or the MP4 sample table; host and guest wall clocks are not
-calibrated, and encoder startup is unproven. Hosted visual inspection, readable
-real weather and air-quality content, refresh/background-resume review and
-technical media admission remain pending.
+original quarantine manifest remains unaccepted. Subsequent hosted inspection
+[40008276524](https://github.com/VOLPAROSSA/volparossa/actions/runs/40008276524)
+on source `253d48d7` successfully decoded all 490 native frames with their source
+PTS and hashes; it grants no admission or new runtime claim. Independent Sol High
+and bounded Astra Ultra pixel review found readable temperature/PM2.5, native
+source/validity, first-refresh completion, HOME and the same app's return animation.
+Other columns and a settled post-resume display are not shown. The original
+reports, not pixels alone, prove two cache-backed refreshes and lifecycle behavior.
+
+The old host-wall duration proxy is not a calibrated guest-video coverage test.
+Its failure remains preserved. A separate narrowly scoped admission validates
+actual metadata-track samples, integer relative video timing and committed scene
+witnesses; it does not extend driver deadlines or relabel the failed original run.
+See [the contract](demos/weather-demo-0/media-admission.md). Final hosted admission,
+rendered-layout review and review-ready package remain pending at this source.
+
 
 [Demo runbook](demos/weather-demo-0/README.md) records exact baseline, boundaries
 and reproduction. Core runs externally to the Android emulator; this work does

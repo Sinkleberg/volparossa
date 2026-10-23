@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Synthetic inert ZIP/API tests only; these archives are never demo acceptance."""
 import hashlib
+import copy
 import importlib.util
 import io
 import json
@@ -797,6 +798,157 @@ class Review(unittest.TestCase):
         with patch.dict(os.environ, {key: 'SYNTHETIC_UNIT_TOKEN' for key in
                 ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN']}):
             self.test_quarantine_success_is_only_an_inspection_result_on_a_failed_original_run()
+
+    def scoped_fixture(self):
+        output = self.root / 'scoped-output'
+        (output / 'samples').mkdir(parents=True)
+        (output / 'original/source-capture').mkdir(parents=True)
+        (output / 'original/original-acceptance').mkdir()
+        raw_video = b'synthetic unit clip; never native runtime evidence'
+        source_hash = record(raw_video)['sha256']
+        (output / 'original/source-capture/screen.mp4').write_bytes(raw_video)
+        rows = [dict(file=f'samples/frame-{index:03d}.png', frame_index=index,
+            source_pts_seconds=index / 10, clip_relative_pts_seconds=index / 10) for index in range(490)]
+        timeline = dict(source_video_sha256=source_hash, video_duration_seconds=65.579,
+                        frames=[{key: value for key, value in row.items() if key != 'file'} for row in rows])
+        (output / 'frame-timeline.json').write_bytes(encoded(timeline))
+        for index in R.SCOPED_SCREENSHOTS:
+            (output / rows[index]['file']).write_bytes(b'synthetic unit PNG ' + str(index).encode())
+        rendered = dict(native_frames=True, sample_to_source_frame_mapping_verified=True,
+            sample_start_seconds=0, sample_stop_seconds=65.579, decoded_frames=rows)
+        review = dict(schema=1, kind='weather-demo-scoped-visual-review', identity=R.SCOPED_IDENTITY,
+            source_video_sha256=source_hash, scope='weather-demo-0-native-timing-v1', hold_frame_index=206,
+            witnesses=[dict(claim=claim, frame_index=index, source_pts_seconds=rows[index]['source_pts_seconds'],
+                png_sha256=R.digest(output / rows[index]['file'])) for claim, index in R.SCOPED_CLAIMS.items()])
+        acceptance = dict(identity=R.SCOPED_IDENTITY, passed=True, observations=dict(products={
+            'weather': dict(cold_peer_bytes=123), 'air_quality': dict(cold_peer_bytes=456)}))
+        acceptance_path = output / 'original/original-acceptance/weather-android-hosted-acceptance.json'
+        acceptance_path.write_bytes(encoded(acceptance))
+        capture = dict(original_core_acceptance_passed=True, media_accepted=False, joined_media_acceptance=False,
+                       original_acceptance_sha256=R.digest(acceptance_path))
+        media = dict(video=dict(codec='h264', width=720, height=1280, duration_seconds=65.579),
+                     files={'screen.mp4': record(raw_video)})
+        artifact = dict(original_run_conclusion='failure', digest=R.SCOPED_ZIP)
+        return output, source_hash, timeline, rendered, review, capture, media, artifact
+
+    def test_scoped_visual_witnesses_bind_claim_index_pts_hash_and_reject_malformed(self):
+        output, source_hash, timeline, rendered, review, *_ = self.scoped_fixture()
+        with patch.object(R, 'SCOPED_VIDEO', source_hash):
+            validated, frames = R.scoped_visual_witnesses(review, output, R.SCOPED_IDENTITY, rendered, timeline)
+            self.assertEqual(len(validated), 6)
+            self.assertEqual({row['claim'] for row in validated}, set(R.SCOPED_CLAIMS))
+            self.assertEqual(frames[206]['source_pts_seconds'], 20.6)
+            invalids = []
+            for key, value in [('scope', 'unknown'), ('hold_frame_index', 215), ('source_video_sha256', '0' * 64)]:
+                changed = copy.deepcopy(review)
+                changed[key] = value
+                invalids.append(changed)
+            changed = copy.deepcopy(review)
+            changed['witnesses'] = changed['witnesses'][:-1]
+            invalids.append(changed)
+            for key, value in [('frame_index', 900), ('source_pts_seconds', float('nan')),
+                               ('source_pts_seconds', 0), ('png_sha256', '0' * 64), ('claim', 'unknown')]:
+                changed = copy.deepcopy(review)
+                changed['witnesses'][0][key] = value
+                invalids.append(changed)
+            changed = copy.deepcopy(review)
+            changed['witnesses'][1] = changed['witnesses'][0]
+            invalids.append(changed)
+            for invalid in invalids:
+                with self.subTest(invalid=invalid.get('scope')), self.assertRaises(ValueError):
+                    R.scoped_visual_witnesses(invalid, output, R.SCOPED_IDENTITY, rendered, timeline)
+
+    def test_scoped_visual_review_must_match_committed_document_bytes(self):
+        path = self.root / 'visual-review.json'
+        raw = encoded({'schema': 1, 'synthetic': True})
+        path.write_bytes(raw)
+        with patch.object(R, 'ROOT', self.root), patch.object(R, 'tool', side_effect=str), \
+                patch.object(R, 'command', return_value=raw) as command:
+            self.assertEqual(R.committed_visual_review(path), (raw, json.loads(raw)))
+            self.assertIn('HEAD:visual-review.json', command.call_args.args[0])
+            self.assertTrue(command.call_args.kwargs['reject_stderr'])
+        with patch.object(R, 'ROOT', self.root), patch.object(R, 'tool', side_effect=str), \
+                patch.object(R, 'command', return_value=b'{}'), self.assertRaisesRegex(ValueError, 'committed source bytes'):
+            R.committed_visual_review(path)
+
+    def test_scoped_flag_requires_whole_native_inspection_fixed_identity_and_review(self):
+        common = dict(admit_scoped=True, visual_review=Path('visual-review.json'),
+                      inspect_quarantine=True, native_frames=True)
+        for change in [dict(inspect_quarantine=False), dict(native_frames=False), dict(sample_start=1),
+                       dict(sample_stop=65), dict(hold_image='screen-003.png'), dict(visual_review=None)]:
+            with patch.object(R, 'ROOT', self.root), self.assertRaises(ValueError):
+                R.prepare('39998753810', '1', R.SCOPED_IDENTITY['core_commit'], self.root / 'output', **(common | change))
+        with patch.object(R, 'ROOT', self.root), self.assertRaises(ValueError):
+            R.prepare('123', '2', CORE, self.root / 'output', **common)
+        with patch.object(R, 'ROOT', self.root), patch.object(R, 'api') as api:
+            preview = R.prepare('39998753810', '1', R.SCOPED_IDENTITY['core_commit'], self.root / 'output', **common)
+        self.assertFalse(preview['scoped_demo_admitted'])
+        self.assertTrue(preview['original_failed_run_preserved'])
+        api.assert_not_called()
+
+    def test_scoped_admission_writes_separate_bound_presentation_without_changing_inspection(self):
+        output, source_hash, timeline, rendered, review, capture, media, artifact = self.scoped_fixture()
+        (output / 'review.json').write_bytes(b'original inspection marker')
+        technical = dict(schema=1, kind='weather-demo-native-timing-coherence', technical_coherence_passed=True,
+            source_video_sha256=source_hash, media_accepted=False, visual_acceptance_claimed=False,
+            publication_authorized=False, production_authority=False)
+        def render(raw, stage, duration, raw_info, lines, *, hold_image):
+            self.assertEqual(raw, output / 'original/source-capture/screen.mp4')
+            self.assertEqual(hold_image, output / 'samples/frame-206.png')
+            self.assertEqual(duration, 120)
+            (stage / 'weather-demo-0.mp4').write_bytes(b'synthetic final movie')
+            return stage / 'weather-demo-0.mp4', dict(duration_seconds=120)
+        def preview(args, **kwargs):
+            self.assertTrue(kwargs['reject_stderr'])
+            Path(args[-1]).write_bytes(b'\x89PNG\r\n\x1a\n' + b'\0\0\0\rIHDR' +
+                (1920).to_bytes(4, 'big') + (1080).to_bytes(4, 'big'))
+        def module(path):
+            if str(path).endswith('weather-demo-native-timing.py'):
+                return {'validate': lambda video, frames: technical}
+            return dict(presentation_lines=lambda *args, **kwargs: [], render_video=render,
+                        scoped_captions=lambda *args: ('scoped captions', 'scoped transcript'))
+        with patch.object(R, 'SCOPED_VIDEO', source_hash), patch.object(R, 'hosted'), \
+                patch.object(R, 'committed_visual_review', return_value=(encoded(review), review)), \
+                patch.object(R.runpy, 'run_path', side_effect=module), patch.object(R, 'tool', side_effect=str), \
+                patch.object(R, 'command', side_effect=preview):
+            record = R.admit_scoped_demo(output, R.SCOPED_IDENTITY, capture, media, artifact, rendered,
+                                         Path('review.json'), dict(core_commit=REVIEW_CORE))
+        self.assertTrue(record['scoped_demo_admitted'])
+        self.assertEqual(record['original_run_conclusion'], 'failure')
+        self.assertFalse(record['original_duration_verify_called'])
+        self.assertFalse(record['publication_authorized'])
+        self.assertFalse(record['production_authority'])
+        self.assertEqual((output / 'review.json').read_bytes(), b'original inspection marker')
+        presentation = json.loads((output / 'presentation/presentation.json').read_text())
+        self.assertEqual(presentation['pixel_scope'], sorted(R.SCOPED_CLAIMS))
+        self.assertEqual(presentation['report_only_scope'], ['second-refresh-completion', 'background-resume-lifecycle-and-mounted-tables'])
+        self.assertIn('preview-090.png', presentation['files'])
+        self.assertEqual(presentation['hold_frame']['file'], 'screenshots/frame-206.png')
+        self.assertIn('30fps CFR', presentation['edits']['presentation_cadence'])
+        self.assertEqual((output / 'presentation/screen.mp4').read_bytes(), b'synthetic unit clip; never native runtime evidence')
+        self.assertEqual({p.name for p in (output / 'presentation/screenshots').iterdir()},
+                         {f'frame-{index:03d}.png' for index in R.SCOPED_SCREENSHOTS})
+
+    def test_scoped_rejection_retains_inspection_and_fixed_native_timing_reason(self):
+        output = self.root / 'inspection'
+        capture = dict(original_acceptance_sha256='e' * 64, capture={}, driver_window={})
+        media = dict(video={}, files={'screen.mp4': dict(sha256=R.SCOPED_VIDEO)})
+        def fail(*args):
+            R.STATE['stage'] = 'scoped-native-timing'
+            raise ValueError('native_timing_metadata_relative_disagreement')
+        with patch.object(R, 'ROOT', self.root), patch.object(R, 'hosted'), patch.dict(os.environ, ENV, clear=True), \
+                patch.object(R, 'selected_artifact', return_value={'original_run_conclusion': 'failure'}), \
+                patch.object(R, 'download', side_effect=lambda _, path: path.write_bytes(b'synthetic ZIP')), \
+                patch.object(R, 'quarantine_evidence', return_value=(capture, media, 'c' * 64)), \
+                patch.object(R, 'quarantine_samples', return_value={}), patch.object(R, 'admit_scoped_demo', side_effect=fail), \
+                self.assertRaises(ValueError):
+            R.prepare('39998753810', '1', R.SCOPED_IDENTITY['core_commit'], output, execute=True,
+                      inspect_quarantine=True, native_frames=True, admit_scoped=True, visual_review=Path('review.json'))
+        self.assertTrue((output / 'review.json').exists())
+        failure = json.loads((output / 'scoped-admission-failure.json').read_text())
+        self.assertEqual(failure['native_timing_rejection'], 'native_timing_metadata_relative_disagreement')
+        self.assertTrue(failure['completed_inspection_preserved'])
+        self.assertFalse(failure['scoped_demo_admitted'])
 
     def test_duplicate_json_keys_are_not_silently_accepted(self):
         with self.assertRaises(ValueError):

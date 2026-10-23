@@ -1,46 +1,24 @@
-# Weather Demo 0 — presentation plan
+# Weather Demo 0 — actual footage and presentation
 
-Target: approximately two minutes. Use the actual run recording at normal speed;
-identify edits and any held frame. Do not fabricate or animate application pixels.
-The separate topology/evidence panel is explanatory, not a packet animation or
-live performance instrument. Always label Core as external to the emulator.
+The approximately two-minute edit retains the full genuine 65.579-second source
+clip at normal speed, then holds authenticated native frame 206. The held picture
+is labelled; no continuing app or network activity is implied. Core is labelled
+**external to the Android emulator** throughout. The topology and counters are an
+explanatory completed-run summary, not animated packets or live instruments.
 
-| Segment | Actual image and narration |
+| Source video PTS | Actual picture and supported explanation |
 | --- | --- |
-| Opening | Real Overmorrow frame. “Real forecasts, shared through VOLPAROSSA.” State Android emulator + external Debian Core. |
-| Cold retrieval | Original app loading/receiving data. Explain authenticated peer retrieval; show counters from this run's accepted evidence, labelled as the completed-run summary. |
-| Product inspection | Readable native forecast times, temperature, wind and precipitation accumulation windows; separate PM2.5/PM10. Missing observations/AQI remain unavailable. |
-| Refresh | Actual tap and resulting display. Explain reuse of the same valid publication from cache; do not promise a new forecast or measured speedup. |
-| Lifecycle | Actual Android HOME/background and return to the same app. Explain still-fresh products and no extra product requests. |
-| Evidence and contribution | Actual retained frame plus source/run reference and cleanup status. Invite bounded reproduction, packaging and device-testing contributions without implying completion. |
+| 0–28 s | Real installed Overmorrow loading and receiving products. Cold retrieval is established by the same run's receipts and HTTP/app joins, not by loading animation. |
+| 28.537 s / frame 206 | Readable IFS temperature rows, native forecast times, model run, acquired/expiry metadata and ECMWF attribution. Public Berlin fixture, not a private device location. |
+| 29.068–30.552 s / frames 215, 240 | GEFS-Aerosols metadata and readable PM2.5 table with NOAA attribution. Forecasts, not current observations or a complete AQI. |
+| 30.971–45.760 s | Actual first refresh begins; frames 348 and 356 show the same table with an enabled blue button, without its spinner. Reports establish cache reuse of the same valid publication. |
+| 45.966–58.335 s | Second refresh starts. Its completion is checked in the original reports; do not describe its spinner as a visibly finished refresh. |
+| 58.800–65.339 s | Actual Android HOME/launcher. |
+| 65.391–65.527 s | Same app reappears in its return animation. No settled post-resume frame is present. The original acceptance verifies lifecycle and request counts. |
+| After complete source clip to 120 s | Clearly labelled hold of real weather frame 206; explain evidence, source attribution, limitations and reproduction. No synthetic app pixels. |
 
-The final edit adapts segment boundaries to actual recording duration. A held
-real frame can support explanation, but must be labelled “Held frame from this
-run”; it is not evidence of continuing app/network activity. Exact action times
-must come from inspected footage/observations, not assumed storyboard timestamps.
-
-## Accessible transcript draft
-
-“This is VOLPAROSSA Weather, based on Overmorrow. The installed Android application
-is running in an emulator. Its Core service runs outside the emulator, in an
-isolated Debian environment with cooperating peers.
-
-“The weather and particulate products are real forecasts. Their source run,
-validity and native time windows matter. Missing observations remain unavailable.
-The original acquisition from ECMWF and NOAA happens separately; this trial
-measures retrieval of authenticated publications through VOLPAROSSA peers.
-
-“The first request retrieves the products from peers. The following refreshes
-reuse the same valid publications from the cache. Refresh is not a claim that
-a new forecast was downloaded or that forecast accuracy improved.
-
-“Actual Android taps, backgrounding and resuming are checked against the same
-products. The final acceptance joins the original receipts, HTTP responses,
-application tables and cleanup, while this recording shows the actual pixels.
-
-“This is a reproducible developer demonstration. Standalone mobile Core,
-physical devices, production readiness and real expired-product recovery remain
-unfinished. The source and instructions identify concrete ways to contribute.”
-
-Use the final assembled video's timed captions, rather than treating this draft
-as an assertion that every planned scene has been recorded.
+The exported `captions.vtt` and `transcript.txt` describe the actual assembled edit.
+The release also includes genuine AQ, refresh, HOME and return screenshots.
+Wind, precipitation and PM10 columns are outside the reviewed viewport. Exact
+frame/PTS/PNG hashes are committed in the [visual review](visual-review-39998753810.json)
+and checked again by the separate [scoped admission](media-admission.md).

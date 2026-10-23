@@ -91,6 +91,28 @@ def captions(duration, raw_duration, hold_image=None):
     return "\n".join(lines), "\n\n".join(transcript) + "\n"
 
 
+
+def scoped_captions(duration, raw_duration, hold_image):
+    """Narration for the explicitly reviewed scope; cue times are not action timestamps."""
+    sections = [
+        (0, 18, "VOLPAROSSA Weather / Overmorrow in an Android emulator. Core runs externally in Debian 13. This is a scoped developer demonstration."),
+        (18, 38, "Reviewed pixels show temperature, PM2.5 and source validity. These are forecast products; missing observations remain unavailable."),
+        (38, 60, "Reviewed pixels show the first refresh completing, HOME and an app return animation. These summaries do not assert exact input timestamps."),
+        (60, 82, "The second refresh completing and successful background/resume lifecycle and retained mounted tables are supported by unchanged completed-run reports, not claimed from these pixels."),
+        (82, 103, "Network and cache counters summarize the completed run. Source acquisition is separate from peer retrieval; cache refresh may reuse the same valid forecast."),
+        (103, duration, "The original run remains failed at its encoded-duration admission gate. This separate scoped demo grants no publication, production or standalone-mobile authority."),
+        (raw_duration, duration, "Held app frame from this run; original clip has ended."),
+    ]
+    lines = ["WEBVTT", "", "NOTE Explanatory summaries; cue times do not assert exact action timestamps.", ""]
+    transcript = []
+    for start, stop, text in sorted(sections, key=lambda row: row[0]):
+        if start < duration and stop > start:
+            lines.extend([f"{timestamp(start)} --> {timestamp(min(stop, duration))}", text, ""])
+            transcript.append(text)
+    transcript.append(f"The full {raw_duration:.3f}-second original clip plays at normal speed, followed by genuine native frame {hold_image}. No continuing runtime activity is implied.")
+    return "\n".join(lines), "\n\n".join(transcript) + "\n"
+
+
 def render_video(raw_video, stage, duration, raw_info, lines, hold_image=None):
     """Render only; callers separately establish whether the input is real demo media."""
     require(FONT.is_file() and not FONT.is_symlink())
@@ -135,7 +157,7 @@ def render_video(raw_video, stage, duration, raw_info, lines, hold_image=None):
     return video, info
 
 
-def presentation_lines(identity, products):
+def presentation_lines(identity, products, scoped_demo=False):
     """Fixed completed-run summary; never live counters or new stage assertions."""
     return [
         ("VOLPAROSSA WEATHER", 50, "ffffff"),
@@ -146,9 +168,9 @@ def presentation_lines(identity, products):
         ("COMPLETED-RUN EVIDENCE / not live counters", 25, "7dd3fc"),
         (f"Cold peer bytes: weather {products['weather']['cold_peer_bytes']:,}", 29, "ffffff"),
         (f"Cold peer bytes: particulate {products['air_quality']['cold_peer_bytes']:,}", 29, "ffffff"),
-        ("Two cache-backed refreshes per product", 29, "ffffff"),
+        ("Reports: two cache-backed refreshes" if scoped_demo else "Two cache-backed refreshes per product", 29, "ffffff"),
         ("No origin body/range fallback during retrieval", 27, "ffffff"),
-        ("Real Android taps + background / resume", 29, "ffffff"),
+        ("Pixels: first refresh / HOME / return animation" if scoped_demo else "Real Android taps + background / resume", 25 if scoped_demo else 29, "ffffff"),
         ("Joined delivery and cleanup: passed", 29, "86efac"),
         (f"Run {identity['run_id']} / Core {identity['core_commit'][:12]}", 24, "cbd5e1"),
         (f"Weather {identity['weather_commit'][:12]}", 24, "cbd5e1"),

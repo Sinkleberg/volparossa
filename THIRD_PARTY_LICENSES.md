@@ -846,3 +846,40 @@ The package does not depend on or start the standalone Unbound daemon.
 This table is descriptive rather than a claim that every transitive Rust
 dependency has already been approved. Never replace the native provenance
 record with an unverified version tag or a downloaded executable.
+
+## Demo media analysis and presentation tools
+
+The hosted probe `40002878865` executed Ubuntu's signed FFmpeg/ffprobe package,
+reported as `6.1.1-3ubuntu5`. The exact [upstream FFmpeg `n6.1.1` tag](https://git.ffmpeg.org/gitweb/ffmpeg.git/tag/?h=n6.1.1)
+peels to commit `e38092ef9395d7049f871ef4d5411eb410e283e0`, verified from the
+official [FFmpeg Git origin](https://git.ffmpeg.org/ffmpeg.git). This source tag
+is an upstream reference, not proof that the Ubuntu executable was built from
+that exact tree or without distribution patches. FFmpeg documents its
+LGPL-2.1-or-later base and optional GPL components in its
+[license overview](https://ffmpeg.org/doxygen/6.1/md_LICENSE.html) and
+[legal notes](https://ffmpeg.org/legal.html), with the
+[LGPL-2.1 text](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt) and
+[GPL-2.0 text](https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt); the
+applicable license of a particular binary depends on its build and included
+components. The tools were runner dependencies only: no FFmpeg source or binary
+is vendored, no local FFmpeg patch is applied, and no FFmpeg binary or library
+is distributed by the product or demo release. The demo's original command-line
+wrappers and fixture helpers remain VOLPAROSSA GPL-3.0-only source.
+
+The recorded DejaVu font input came from the signed Ubuntu 24.04
+`fonts-dejavu-core` package. Its actual font-file SHA-256 is
+`ae7b7855e115a5966d8b1b3f80f254ccc117ec86f9965e202ee2940453837280`;
+the installed package version was not recorded and is intentionally not
+inferred. See the upstream [DejaVu license](https://dejavu-fonts.github.io/License.html).
+Font software was not embedded in or distributed with the media assets.
+
+The media-container analysis references AOSP Apache-2.0 sources only:
+[`screenrecord.cpp`](https://android.googlesource.com/platform/frameworks/av/+/1df77b62b5f5da43cba5ba951cc77f1aada3240a/cmds/screenrecord/screenrecord.cpp)
+at commit `1df77b62b5f5da43cba5ba951cc77f1aada3240a`, and
+[`MPEG4Writer.cpp`](https://android.googlesource.com/platform/frameworks/av/+/9ce151cc23792a799ca2e0ce66988b9f6e5b76e8/media/libstagefright/MPEG4Writer.cpp)
+at commit `9ce151cc23792a799ca2e0ce66988b9f6e5b76e8`, blob
+`8f7d4bf0d0658faa77d75bcd342e2e16c80fe0a4`. No AOSP source is copied,
+vendored or locally patched; see the upstream
+[Apache-2.0 license text](https://www.apache.org/licenses/LICENSE-2.0). These
+references do not attest to the source used to build the pinned Android SDK
+binary; its original Google SDK checksum and manifest are tracked separately.

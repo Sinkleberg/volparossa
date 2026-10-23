@@ -29,7 +29,11 @@ on:
         type: string
         default: ''
       review_quarantine:
-        description: Inspect retained quarantine only; never grant media acceptance or render a presentation
+        description: Inspect retained quarantine; admission requires separate explicit scoped-demo option
+        type: boolean
+        default: false
+      review_scoped_demo:
+        description: Apply committed scoped visual review and native timing validation; prepare unpublished Demo 0
         type: boolean
         default: false
       review_native_frames:
@@ -70,7 +74,7 @@ env:
 
 jobs:
   media-tool-probe:
-    if: inputs.media_probe_only && inputs.review_run_id == '' && !inputs.review_quarantine
+    if: inputs.media_probe_only && inputs.review_run_id == '' && !inputs.review_quarantine && !inputs.review_scoped_demo
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -97,7 +101,7 @@ jobs:
           include-hidden-files: true
           path: .cache/weather-media-tool-probe/probe.json
   retained-media-review:
-    if: inputs.review_run_id != '' || inputs.review_quarantine
+    if: inputs.review_run_id != '' || inputs.review_quarantine || inputs.review_scoped_demo
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -109,7 +113,11 @@ jobs:
           set -euo pipefail
           bash scripts/weather-demo-0-media-tools.sh
       - name: Check retained-media contracts without API credentials
-        run: python3 -B tests/integration/test-weather-demo-0-review.py
+        run: |
+          set -euo pipefail
+          python3 -B tests/integration/test-weather-demo-0-review.py
+          python3 -B tests/integration/test-weather-demo-native-timing.py
+          python3 -B tests/integration/test-weather-demo-0-presentation.py
       - name: Inspect retained source-bound recording without rerunning Android
         env:
           GH_TOKEN: ${{ github.token }}
@@ -118,6 +126,7 @@ jobs:
           REVIEW_CORE_REVISION: ${{ inputs.review_core_revision }}
           REVIEW_HOLD_IMAGE: ${{ inputs.review_hold_image }}
           REVIEW_QUARANTINE: ${{ inputs.review_quarantine }}
+          REVIEW_SCOPED_DEMO: ${{ inputs.review_scoped_demo }}
           REVIEW_NATIVE_FRAMES: ${{ inputs.review_native_frames }}
           REVIEW_SAMPLE_START: ${{ inputs.review_sample_start }}
           REVIEW_SAMPLE_STOP: ${{ inputs.review_sample_stop }}
@@ -141,11 +150,17 @@ jobs:
               review_args+=(--sample-fps "$REVIEW_SAMPLE_FPS")
             fi
           fi
+          if test "$REVIEW_SCOPED_DEMO" = true; then
+            test "$REVIEW_QUARANTINE" = true
+            test "$REVIEW_NATIVE_FRAMES" = true
+            review_args+=(--admit-scoped-demo
+              --visual-review docs/demos/weather-demo-0/visual-review-39998753810.json)
+          fi
           python3 -B scripts/weather-demo-0-review.py "${review_args[@]}"
       - name: Retain actual sampled frames and review provenance
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: weather-demo-${{ inputs.review_quarantine && 'quarantine-inspection' || 'visual-review' }}-${{ inputs.review_run_id }}-${{ inputs.review_attempt }}-${{ github.sha }}
+          name: weather-demo-${{ inputs.review_scoped_demo && 'scoped-demo' || inputs.review_quarantine && 'quarantine-inspection' || 'visual-review' }}-${{ inputs.review_run_id }}-${{ inputs.review_attempt }}-${{ github.sha }}
           retention-days: 14
           if-no-files-found: error
           include-hidden-files: true
@@ -158,9 +173,12 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
           include-hidden-files: true
-          path: .cache/weather-demo-visual-review/review-failure.json
+          path: |
+            .cache/weather-demo-visual-review/review-failure.json
+            .cache/weather-demo-visual-review/scoped-admission-failure.json
+            .cache/weather-demo-visual-review/review.json
   joined:
-    if: ${{ !inputs.media_probe_only && inputs.review_run_id == '' && !inputs.review_quarantine }}
+    if: ${{ !inputs.media_probe_only && inputs.review_run_id == '' && !inputs.review_quarantine && !inputs.review_scoped_demo }}
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     steps:

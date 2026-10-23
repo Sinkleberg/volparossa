@@ -31,7 +31,9 @@ The original run proved cold peer delivery, two cache-backed refreshes per
 product, actual Android taps and background/resume. It did **not** establish
 visible pixels, real-product expiry recovery, physical-device/iOS support,
 concurrent bulk use of multiple subflows, forecast accuracy or production authority.
-New media must be admitted against the new run's own final acceptance.
+New media must be bound to the new run's own final acceptance. The separate
+[scoped media contract](media-admission.md) preserves the failed original workflow
+conclusion while checking coherent source media and explicitly reviewed scenes.
 
 ## Reproduce on a disposable hosted runner
 
@@ -48,14 +50,16 @@ relax its resource checks, or replace KVM with unverified emulation.
 
    ```sh
    gh workflow run weather-android-delivery.yml \
-     --repo VOLPAROSSA/volparossa --ref demo/weather-0-media-review-20261023 \
+     --repo VOLPAROSSA/volparossa --ref demo/weather-0-video-20261023 \
      -f record_demo=true
    ```
 
 3. Record the returned run ID and candidate commit. Check its existing status
    occasionally; a terminated watcher is not grounds to rerun the trial.
-4. Require the original hosted acceptance plus the separate same-run media
-   acceptance. A recording alone is not a passed delivery trial.
+4. Require the unchanged original hosted application/delivery/cleanup acceptance.
+   A recording alone is not a passed delivery trial. Preserve any additional
+   media failure and quarantine unchanged; use the explicit scoped contract
+   below only after actual frame review of that exact new recording.
 5. Inspect the actual screenshots and recording. Reject blank, illegible,
    obscured or unrelated frames. Generic timed screenshots are not automatically
    initial/refresh/resume observations.
@@ -68,18 +72,48 @@ Source/data acquisition is separate from the overlay retrieval measurement.
 Refresh reuses a still-valid product; it does not imply a new forecast acquisition.
 
 The optional recorder has a 180-second ceiling and starts before the unchanged
-driver. Its conservative media-duration check can reject an otherwise valid
-near-deadline driver run. This stricter demo admission does not extend or relax
-the original driver budgets; its original report and failure evidence are retained.
-Readable initial, refresh and resume scenes still require inspection of actual pixels.
+driver. Its original duration check is retained for historical reproducibility;
+it compares unlike clock/process boundaries and rejected the retained trial.
+The original trial remains failed. No driver deadline, network test or cleanup
+requirement is relaxed. The separately reviewed contract below requires coherent
+native media and actual scene coverage instead of host-wall duration coverage.
 
-The dedicated `weather-demo-capture-quarantine-*` Actions artifact retains the
-original recording and its source/window/report hashes after the original
-delivery and cleanup pass, before strict media admission. It is **unreviewed
-capture evidence**, with no media acceptance or release authority. Its existence
-does not make a failed demo successful. Accepted media and presentation artifacts
-remain separate and require the strict checks. Do not publish quarantine files
-as release assets without the missing admission and visual review.
+### Reassemble and validate the retained genuine trial
+
+The retained runtime is Core `6bc0abdb524b79e5244f9381d2d8d45a9100b41d`, Weather
+`85e9eda9bb6105866db2510758e76c9930fdde91`, run `39998753810`, attempt 1.
+Its delivery, exact displayed-data joins and cleanup passed. The original extra
+media gate failed; see [the unchanged reports](trials/39998753810/) and
+[the separate scoped admission](media-admission.md). The public Berlin fixture
+uses ECMWF IFS and NOAA GEFS-Aerosols model run 23 October 2026 00:00 UTC.
+
+Inspect the pushed branch's commit and require it to match the final verifier
+revision in the release manifest before dispatching. The following command only
+reviews the retained capture; it does **not** rebuild Android or rerun Core:
+
+```sh
+gh workflow run weather-android-delivery.yml \
+  --repo VOLPAROSSA/volparossa --ref demo/weather-0-video-20261023 \
+  -f review_run_id=39998753810 -f review_attempt=1 \
+  -f review_core_revision=6bc0abdb524b79e5244f9381d2d8d45a9100b41d \
+  -f review_quarantine=true -f review_native_frames=true \
+  -f review_scoped_demo=true
+```
+
+Check the resulting run's `head_sha`; a mutable branch name alone is not a source
+pin. The reviewer checks the original artifact's digest, unchanged report chain,
+all native frame hashes/PTS, metadata-track timing and committed visual witnesses.
+It creates `scoped-admission.json` and an unpublished presentation separately;
+the quarantined manifest and inspection's false acceptance flags stay unchanged.
+
+Quarantine artifact `12522458881` is 7,747,546 bytes, SHA-256
+`307ebd6239de51d40b17c429658fe751b4201abcda8a0e4abd5688184121230c`.
+The original clip is 3,097,781 bytes, SHA-256
+`bca54a8f677238f26daff6921bb3af0c661e1b39d0aada5ce3f161fda380d5c8`.
+The artifact is retained for 14 days; a later missing download is a blocker,
+not permission to substitute another clip. The review-ready local bundle retains
+these admitted files independently of Actions expiry. Replaying retained evidence
+is distinct from a new live source-data acquisition/runtime reproduction.
 
 The AOSP recorder implementation writes one H.264 video track and two Winscope
 timing metadata tracks in MP4. This explains the observed count of three in the
@@ -107,7 +141,8 @@ decoding must remain a failed run; do not substitute synthetic products.
 
 The unchanged v6 input manifest identifies decoder artifact `11731895956`
 (Weather run `38214736539`) and ABI artifact `11732188075` (Core run `38216142236`).
-Their original archives expire on 26 October 2026. The original Android acceptance
+Their original archives expire on 26 October 2026. Exact digests and retained
+builder-source identities are in [native-inputs.json](native-inputs.json). The original Android acceptance
 artifact `11966068479` expires on 29 October. A missing archive is an explicit
 reproduction blocker, not permission to repin an arbitrary binary. Use reviewed
 source builds and a newly recorded admission if inputs must be renewed.
@@ -131,4 +166,4 @@ publication approval.** Include installable binaries only after their exact
 installation/runtime acceptance, outside this source-and-evidence demo scope.
 
 See [release notes](release-notes.md), [storyboard](storyboard.md), and
-[licenses and attribution](NOTICES.md). Pending execution or review remains pending.
+[licenses and attribution](NOTICES.md). The release draft identifies the exact recorded evidence and remaining publication gate.

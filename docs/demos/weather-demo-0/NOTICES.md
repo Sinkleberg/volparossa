@@ -10,7 +10,7 @@ replace them or establish final binary-distribution compliance.
 | Flutter and dependencies | Pinned Weather SDK/dependency manifests; retain upstream licenses and Flutter-generated application notices. Do not redistribute SDK or pub caches as demo assets. |
 | Native decoder | Exact admitted ecCodes/ecbuild/libaec source records and notices in the v6 decoder input; retain its licenses unchanged. |
 | MPQUIC | Core native source provenance, exact upstream revision, local patches and notices; do not substitute unchecked binaries. |
-| Presentation tools | FFmpeg/ffprobe and DejaVu fonts from signed disposable-runner package metadata. Record exact installed versions; presentation tools do not become product runtime dependencies. |
+| Presentation tools | Executed FFmpeg/ffprobe version and actual DejaVu font-file SHA-256 are recorded in the [development provenance](../../../THIRD_PARTY_LICENSES.md#demo-media-analysis-and-presentation-tools). The font package version was not captured. These signed Ubuntu runner tools are not product runtime dependencies or released binaries. |
 
 Data adapted from ECMWF IFS forecast data, licensed under
 [CC BY 4.0 and ECMWF Terms of Use](https://www.ecmwf.int/en/forecasts/datasets/open-data).

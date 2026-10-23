@@ -144,6 +144,25 @@ class Presentation(unittest.TestCase):
         self.assertIn("Run 123 / Core aaaaaaaaaaaa", text)
 
 
+    def test_scoped_captions_and_panel_separate_visible_and_report_only_scope(self):
+        vtt, text = P.scoped_captions(120, 65.579, '206')
+        self.assertIn("Reviewed pixels show temperature, PM2.5 and source validity", text)
+        self.assertIn("first refresh completing, HOME and an app return animation", text)
+        self.assertIn("successful background/resume lifecycle and retained mounted tables are supported by unchanged completed-run reports", text)
+        self.assertIn("not claimed from these pixels", text)
+        self.assertIn("original run remains failed", text)
+        self.assertIn("full 65.579-second original clip plays at normal speed", text)
+        self.assertIn("00:01:05.579 --> 00:02:00.000", vtt)
+        starts = [line.split(' -->')[0] for line in vtt.splitlines() if ' --> ' in line]
+        self.assertEqual(starts, sorted(starts))
+        identity = dict(core_commit='a' * 40, weather_commit='b' * 40, run_id='123')
+        products = dict(weather=dict(cold_peer_bytes=12), air_quality=dict(cold_peer_bytes=34))
+        panel = ' '.join(line[0] for line in P.presentation_lines(identity, products, scoped_demo=True))
+        self.assertIn('COMPLETED-RUN EVIDENCE / not live counters', panel)
+        self.assertIn('Reports: two cache-backed refreshes', panel)
+        self.assertIn('Pixels: first refresh / HOME / return animation', panel)
+
+
 class RecordedUsage(unittest.TestCase):
     def test_uses_deltas_and_excludes_previous_turn_and_duplicate_snapshot(self):
         selected = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"

@@ -1,0 +1,32 @@
+{
+  "after_expiry": "Rebuild from the retained builder sources and upstream provenance, repeat the original native/ABI admission, then update the exact input manifest in a separate reviewed source revision. Do not substitute an unverified binary.",
+  "inputs": [
+    {
+      "artifact_id": 11731895956,
+      "artifact_name": "hosted-decoder-unadmitted-7d61077aa415de8f46f79384a1dd08f403c4898c",
+      "bytes": 14057646,
+      "expires_at": "2026-10-26T06:56:05Z",
+      "included_as_release_binary": false,
+      "locally_retained_for_evidence": true,
+      "role": "decoder",
+      "run_id": "38214736539",
+      "sha256": "e9a8a6b3530ae5fadf19d4f9bf0271013f8d1fdcd4ac3745723644b5d9372197",
+      "source_commit": "7d61077aa415de8f46f79384a1dd08f403c4898c"
+    },
+    {
+      "artifact_id": 11732188075,
+      "artifact_name": "weather-decoder-debian13-be2977ac6d1d520caea29c96df759ea2d90c943c",
+      "bytes": 22790,
+      "expires_at": "2026-10-26T07:09:56Z",
+      "included_as_release_binary": false,
+      "locally_retained_for_evidence": true,
+      "role": "abi",
+      "run_id": "38216142236",
+      "sha256": "15622809d9aa7c46eb6b80ac76f9a6252966d25478dfeddd4262238846f1b586",
+      "source_commit": "be2977ac6d1d520caea29c96df759ea2d90c943c"
+    }
+  ],
+  "kind": "weather-demo-source-bound-native-inputs",
+  "offline_rebuild_claimed": false,
+  "schema": 1
+}

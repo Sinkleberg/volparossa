@@ -1,74 +1,97 @@
-# Weather Demo 0 — effort and recorded consumption
+# Weather Demo 0 — effort, consumption and uncertainty
 
-Model usage and hosted machine time are separate measurements. Neither is a
-subscription invoice, a quota conversion or a prediction of future cost.
+Model counters, CI elapsed time and human engineering effort are different
+measurements. None is a subscription invoice, quota conversion or bill estimate.
 
-## Scope of the measurement
+## Recorded usage projection
 
-`scripts/weather-demo-0-usage.py` projects recorded cumulative-counter deltas for
-implementation root turn `01a165a6-a9c8-7b03-9913-a9cadefe5401`. It excludes the
-earlier readiness-audit turns, counts repeated snapshots as zero and reports
-uncached input as total input minus cached input. Reasoning output is already a
-subset of output; adding it again would double-count tokens. Unlisted sessions,
-missing records and work after the snapshot are explicitly unmeasured.
+`scripts/weather-demo-0-usage.py` selects the implementation turn and both resumed
+implementation turns as a union, deduplicates thread/files and cumulative snapshots,
+and separates cached input, uncached input and output. The earlier readiness-audit
+turn is excluded. Reasoning is already a subset of output and is not added again.
 
-The selected thread responsibilities are:
+The retained `model-usage.json` is a **projection with incomplete counters**, not
+exact task consumption. Missing fields in a selected delta or its baseline use
+legacy zero defaults; derived uncached counts for those deltas are unconfirmed.
+Gaps without intermediate snapshots can include unselected work. Missing records
+can overcount or undercount; unlisted sessions and later work are unmeasured.
+No defensible exact billing total or error bar can be inferred from these logs.
 
-| Thread suffix | Actual work | Recorded model / effort |
+An intermediate six-thread projection, before final independent review and CI,
+was approximately **194 million cached input, 5.28 million uncached input and
+604 thousand output tokens**. The final retained snapshot supersedes it. The
+original planning range (5–25 million cached, 0.25–1.2 million uncached and
+30–120 thousand output) was substantially optimistic relative to this recorded
+projection. Repeated long-context coordination, diagnosis and review dominate
+much of the cached input. Rework is included, not hidden as successful development.
+
+| Thread suffix | Responsibility | Recorded routing |
 | --- | --- | --- |
 | `4131036e94d9` | Coordination, integration, evidence and presentation | Sol High |
-| `0f3e43fc2e9e` | Recording implementation and media correction | Sol High |
-| `84b14a5aa9bf` | Artifact inventory and CI monitoring | Luna Medium |
-| `794ca99cb7c2` | Deterministic source bundles and retained-media review wrapper | Sol Medium |
-| `f7b3f25f485d` | Independent technical review | Sol High |
+| `0f3e43fc2e9e` | Recording implementation, difficult media/timing correction | Sol High |
+| `84b14a5aa9bf` | Artifact inventory, provenance and CI support | Luna Medium |
+| `794ca99cb7c2` | Source bundles, retained-media wrapper and presentation integration | Sol Medium |
+| `f7b3f25f485d` | Independent technical and actual-pixel review | Sol High |
+| `cc284ee99256` | Consequential timing/scope architecture decision | Astra Ultra |
 
-The recording implementer's installed role is named `volparossa_reviewer`; that
-metadata label does not turn its implementation work into independent review.
-The separate reviewer thread supplies that independence. This implementation
-thread records Sol High as its coordinating model; it does not claim Astra
-execution. The separate active Astra goal and its worktrees remain untouched.
-No architectural redesign was required for this milestone.
+The recording implementer's installed role was named `volparossa_reviewer`;
+that label does not make its implementation independent review. The separate
+reviewer supplies independence. The coordinating thread actually records Sol
+High; it does not claim to be Astra. The separate active Astra project goal and
+worktrees were untouched. A bounded Astra Ultra review addressed the media-clock
+contract and visible scope without redesigning Core or the application.
 
-## Necessary correction and infrastructure retry
+## CI and necessary correction
 
-- Full run `39864237681` passed original delivery and cleanup, then failed the
-  additional media gate. Its exact closed reports are retained under `trials/`.
-- Synthetic tool probe `39869565948` demonstrated one concrete incompatibility:
-  Ubuntu ffprobe emits an empty `programs` list. The original parser rejected it.
-  That observation alone did not prove the absence of other media failures.
-- The narrow correction admits only the observed empty container. Negative
-  controls remain, and independent review reran all 22 focused media tests.
-- Synthetic probe `39870350875` then verified both corrected parsing and actual
-  120-second rendering with the distro tools. Its synthetic input was deleted;
-  it is not app, peer or cleanup evidence.
-- Run `39870500157`, attempt 1, timed out while downloading Ubuntu packages,
-  before building or executing Android. Attempt 2 uses the identical source
-  revision on a fresh disposable runner. No runtime limit or acceptance guard
-  was relaxed to accommodate that infrastructure failure.
+The three full new Android/Core trials each passed their original real product,
+installed-app, peer/cache and cleanup checks, then failed additional media gates:
 
-- The second full delivery trial also passed original delivery/cleanup but rejected
-  three MP4 streams. AOSP and FFmpeg source analysis identified the specific
-  video-plus-two-timing-tracks container profile to test before another trial.
-- Dedicated capture quarantine now preserves source/window/report hashes and
-  unreviewed media before strict admission, without changing a failed result.
-- Synthetic review probe `39874201029` exposed a font-data guard mismatch;
-  `39874591752` stopped on slow mirror downloads. Probe `39875572392` passed
-  parser, rendering and contact sheets after the documented corrections.
+| Run / attempt | Extra media outcome | Workflow elapsed |
+| --- | --- | --- |
+| `39864237681 / 1` | Opaque initial rejection; no media exported | 41m 55s |
+| `39870500157 / 2` | Three-stream profile rejected | 36m 35s |
+| `39998753810 / 1` | Host-wall duration proxy rejected; quarantine retained | 34m 53s |
 
-Completed CI wall time, final model-counter snapshots and the genuine-media
-review outcome must be added after the corresponding execution finishes.
-Building, downloading and waiting consume hosted machine time; the model tokens
-used to inspect those events belong to their actual thread counters.
+These are approximately 113 minutes of completed workflow elapsed time, not
+billed runner minutes. The first attempt of `39870500157` separately spent about
+10m 55s on package-download failure before Android. The quota interruption was
+elapsed calendar time, not engineering or CI work. `ci-wall-time.json` records
+individual later probes/reviews; do not sum parallel job times as billed usage.
 
-## Interpretation and uncertainty
+Necessary corrections included ffprobe's empty `programs` serialization,
+Android's two Winscope timing tracks, an incompatible font-data guard, slow Ubuntu
+mirror acquisition, a rejected synthetic metadata strategy, credential isolation
+in inert CI tests and PNG-encoder time-base handling. Failed probes are retained
+under `trials/`; synthetic probes establish tool behavior, never Android/Core
+acceptance. Two early full trials could not retain pixels; dedicated quarantine
+was then added so later failures preserved the original source-bound recording.
+The final scoped timing admission replaces the invalid host-wall coverage proxy
+without altering the original delivery deadlines or failed workflow conclusion.
 
-The readiness estimate was a planning range, not a token budget or commitment.
-Repeated long-context monitoring and review can make cached input much larger
-than the uncached implementation input. A failed expensive runtime trial also
-adds CI time even when the code correction is small. Report these effects rather
-than attributing every token to feature implementation or hiding rework.
+The retained-source review avoids another expensive Core/APK rebuild. Native
+frame inspection run `40008276524` completed in about a minute; final admission
+and video rendering are separate cheap hosted media operations.
 
-Further reproduction effort depends on archive retention, current source-data
-compatibility and runner availability. Existing runtime acceptance must not be
-replaced by cheap synthetic probes. Future mobile packaging, device support and
-an on-device Core remain separate engineering work.
+## Remaining effort and model allocation
+
+For this milestone, remaining work is only whatever the final manifest and release
+gate identify; publication remains the user's decision. No further Core rewrite
+or standalone packaging is implied. Before final rendering, the bounded remaining
+review/render/package work was estimated at roughly 1–4 engineering hours,
+0.5–5 million cached input, 30–200 thousand uncached input and 5–35 thousand output.
+These are planning ranges, with approximately factor-two uncertainty; they are
+not measured savings or a token commitment. New serializer or rendering failures
+can add a CI cycle and further diagnosis.
+
+Use Sol Medium for established wrappers and presentation glue; Sol High for native
+format/debugging and independent review; Luna Medium for bounded inventories,
+notices and evidence indexing; Astra Ultra for acceptance, architecture or trust
+boundary decisions. Actual routing metadata must verify the assignment.
+
+An installable technical preview still needs exact app/companion artifacts,
+compatible Core packaging, installation/update/security acceptance and a supported
+platform matrix. A standalone phone app additionally needs functioning Core on
+that target, contribution/privacy enforcement and device evidence. These are
+separate projects; this demonstration does not establish a reliable schedule or
+model-token estimate for them. Renewed native input admission after Actions
+artifact expiry is an explicit reproduction dependency, not a free cache hit.

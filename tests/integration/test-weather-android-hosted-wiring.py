@@ -40,7 +40,7 @@ class AndroidHostedWiring(unittest.TestCase):
     def test_only_explicit_or_exact_workflow_branch_bounded_hosted_execution(self):
         self.assertIn('name: Weather Android protected core delivery\n', SOURCE)
         self.assertEqual(SOURCE.split('on:\n', 1)[1].split('\npermissions:', 1)[0].strip(),
-            'workflow_dispatch:\n    inputs:\n      record_demo:\n        description: Record genuine Android pixels for Weather Demo 0 after full acceptance\n        type: boolean\n        default: false\n      media_probe_only:\n        description: Inspect distro media-tool serialization with synthetic input only\n        type: boolean\n        default: false\n      review_run_id:\n        description: Review retained accepted media from this exact completed run; no Android execution\n        type: string\n        default: \'\'\n      review_attempt:\n        description: Exact completed attempt whose accepted media is reviewed\n        type: string\n        default: \'1\'\n      review_core_revision:\n        description: Full original Core revision of the accepted recording\n        type: string\n        default: \'\'\n      review_hold_image:\n        description: Optional admitted screen-NNN.png chosen after visual review to hold after the full clip\n        type: string\n        default: \'\'\n      review_quarantine:\n        description: Inspect retained quarantine only; never grant media acceptance or render a presentation\n        type: boolean\n        default: false\n      review_native_frames:\n        description: Extract every native video frame during quarantine inspection\n        type: boolean\n        default: true\n      review_sample_start:\n        description: Inspection window start in clip PTS seconds\n        type: string\n        default: \'0\'\n      review_sample_stop:\n        description: Optional inspection window end in clip PTS seconds\n        type: string\n        default: \'\'\n      review_sample_fps:\n        description: Inspection sample rate when native frame extraction is disabled\n        type: string\n        default: \'5\'\n  push:\n    branches: [feature/weather-android-core]\n    paths:\n'
+            'workflow_dispatch:\n    inputs:\n      record_demo:\n        description: Record genuine Android pixels for Weather Demo 0 after full acceptance\n        type: boolean\n        default: false\n      media_probe_only:\n        description: Inspect distro media-tool serialization with synthetic input only\n        type: boolean\n        default: false\n      review_run_id:\n        description: Review retained accepted media from this exact completed run; no Android execution\n        type: string\n        default: \'\'\n      review_attempt:\n        description: Exact completed attempt whose accepted media is reviewed\n        type: string\n        default: \'1\'\n      review_core_revision:\n        description: Full original Core revision of the accepted recording\n        type: string\n        default: \'\'\n      review_hold_image:\n        description: Optional admitted screen-NNN.png chosen after visual review to hold after the full clip\n        type: string\n        default: \'\'\n      review_quarantine:\n        description: Inspect retained quarantine; admission requires separate explicit scoped-demo option\n        type: boolean\n        default: false\n      review_scoped_demo:\n        description: Apply committed scoped visual review and native timing validation; prepare unpublished Demo 0\n        type: boolean\n        default: false\n      review_native_frames:\n        description: Extract every native video frame during quarantine inspection\n        type: boolean\n        default: true\n      review_sample_start:\n        description: Inspection window start in clip PTS seconds\n        type: string\n        default: \'0\'\n      review_sample_stop:\n        description: Optional inspection window end in clip PTS seconds\n        type: string\n        default: \'\'\n      review_sample_fps:\n        description: Inspection sample rate when native frame extraction is disabled\n        type: string\n        default: \'5\'\n  push:\n    branches: [feature/weather-android-core]\n    paths:\n'
             '      - .github/workflows/weather-android-delivery.yml')
         for item in ('    runs-on: ubuntu-24.04', '    timeout-minutes: 150', '  cancel-in-progress: false',
                 '  contents: read', '  actions: read'):
@@ -78,9 +78,12 @@ class AndroidHostedWiring(unittest.TestCase):
 
     def test_nested_checkout_and_vm_output_are_ignored_and_socket_bound_is_checked(self):
         paths = re.findall(r'(?m)^          path: ([.a-zA-Z0-9_/-]+)$', SOURCE)
-        self.assertEqual(paths, ['.cache/weather-media-tool-probe/probe.json', '.cache/weather-demo-visual-review/', '.cache/weather-demo-visual-review/review-failure.json', '.cache/weather-android-source'])
+        self.assertEqual(paths, ['.cache/weather-media-tool-probe/probe.json', '.cache/weather-demo-visual-review/', '.cache/weather-android-source'])
         ignored = subprocess.run(['git', 'check-ignore', '--no-index', '--stdin'], cwd=ROOT,
-            input='\n'.join(paths + ['.cache/weather-android-delivery']) + '\n', text=True, capture_output=True, timeout=5)
+            input='\n'.join(paths + ['.cache/weather-android-delivery',
+                '.cache/weather-demo-visual-review/review-failure.json',
+                '.cache/weather-demo-visual-review/scoped-admission-failure.json',
+                '.cache/weather-demo-visual-review/review.json']) + '\n', text=True, capture_output=True, timeout=5)
         self.assertEqual(ignored.returncode, 0, ignored.stderr)
         self.assertIn('output="$GITHUB_WORKSPACE/.cache/weather-android-delivery"', SOURCE)
         self.assertIn("'weather-client-kvm.ABCDEF/android-api/core-api.sock'", embedded('COMBINED_RESOURCES'))
@@ -397,8 +400,8 @@ getfacl() { printf 'original inert ACL\\n'; }
             self.assertNotIn(forbidden, package + upload)
 
     def test_synthetic_media_probe_cannot_dispatch_the_android_trial(self):
-        self.assertIn('  media-tool-probe:\n    if: inputs.media_probe_only && inputs.review_run_id == \'\' && !inputs.review_quarantine\n', SOURCE)
-        self.assertIn('  joined:\n    if: ${{ !inputs.media_probe_only && inputs.review_run_id == \'\' && !inputs.review_quarantine }}\n', SOURCE)
+        self.assertIn('  media-tool-probe:\n    if: inputs.media_probe_only && inputs.review_run_id == \'\' && !inputs.review_quarantine && !inputs.review_scoped_demo\n', SOURCE)
+        self.assertIn('  joined:\n    if: ${{ !inputs.media_probe_only && inputs.review_run_id == \'\' && !inputs.review_quarantine && !inputs.review_scoped_demo }}\n', SOURCE)
         section = SOURCE.split('  media-tool-probe:\n', 1)[1].split('  retained-media-review:\n', 1)[0]
         self.assertIn('weather-demo-media-probe.py --output', section)
         self.assertIn('path: .cache/weather-media-tool-probe/probe.json', section)
@@ -407,7 +410,7 @@ getfacl() { printf 'original inert ACL\\n'; }
 
     def test_retained_media_review_is_disjoint_and_cannot_rerun_android(self):
         section = SOURCE.split('  retained-media-review:\n', 1)[1].split('  joined:\n', 1)[0]
-        self.assertIn("    if: inputs.review_run_id != '' || inputs.review_quarantine\n", section)
+        self.assertIn("    if: inputs.review_run_id != '' || inputs.review_quarantine || inputs.review_scoped_demo\n", section)
         self.assertIn('    timeout-minutes: 15\n', section)
         self.assertIn('review_args=(--run-id "$REVIEW_RUN_ID"', section)
         self.assertIn('--attempt "$REVIEW_ATTEMPT"', section)
@@ -423,6 +426,33 @@ getfacl() { printf 'original inert ACL\\n'; }
         for forbidden in ('run-alpha-topology', 'sdkmanager', 'avdmanager', 'prepare_hosted_android',
                           'record_demo: true', 'gh release', 'contents: write'):
             self.assertNotIn(forbidden, section)
+
+        self.assertIn('!inputs.review_scoped_demo', SOURCE.split('  joined:\n', 1)[1].split('steps:', 1)[0])
+        probe_guard = SOURCE.split('  media-tool-probe:\n', 1)[1].split('steps:', 1)[0]
+        self.assertIn('!inputs.review_scoped_demo', probe_guard)
+        self.assertIn('REVIEW_SCOPED_DEMO: ${{ inputs.review_scoped_demo }}', section)
+        body = textwrap.dedent(block('Inspect retained source-bound recording without rerunning Android').split('run: |\n', 1)[1])
+        for quarantine, native in [('false', 'false'), ('false', 'true'), ('true', 'false'), ('true', 'true')]:
+            with self.subTest(quarantine=quarantine, native=native), tempfile.TemporaryDirectory(prefix='wa-scoped-') as name:
+                workspace = Path(name)
+                environment = dict(PATH='/usr/bin:/bin', GITHUB_WORKSPACE=str(workspace), REVIEW_RUN_ID='39998753810',
+                    REVIEW_ATTEMPT='1', REVIEW_CORE_REVISION='6bc0abdb524b79e5244f9381d2d8d45a9100b41d',
+                    REVIEW_HOLD_IMAGE='', REVIEW_QUARANTINE=quarantine, REVIEW_SCOPED_DEMO='true',
+                    REVIEW_NATIVE_FRAMES=native, REVIEW_SAMPLE_START='0', REVIEW_SAMPLE_STOP='', REVIEW_SAMPLE_FPS='5')
+                stub = 'python3() { printf "%s\\n" "$@" > "$GITHUB_WORKSPACE/arguments.txt"; }\n'
+                result = subprocess.run(['/bin/bash', '-c', stub + body], env=environment,
+                    capture_output=True, timeout=5)
+                args = workspace / 'arguments.txt'
+                if quarantine == native == 'true':
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    arguments = args.read_text().splitlines()
+                    for flag in ['--inspect-quarantine', '--native-frames', '--admit-scoped-demo', '--visual-review']:
+                        self.assertIn(flag, arguments)
+                    self.assertEqual(arguments[arguments.index('--visual-review') + 1],
+                        'docs/demos/weather-demo-0/visual-review-39998753810.json')
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(args.exists())
 
     def test_quarantine_follows_original_acceptance_and_precedes_strict_admission(self):
         collect = block('Collect dedicated recording for inspection after original acceptance')
@@ -441,10 +471,15 @@ getfacl() { printf 'original inert ACL\\n'; }
     def test_review_unit_checks_have_no_api_token_and_failure_upload_is_closed(self):
         checks = block('Check retained-media contracts without API credentials')
         self.assertIn('tests/integration/test-weather-demo-0-review.py', checks)
+        self.assertIn('tests/integration/test-weather-demo-native-timing.py', checks)
+        self.assertIn('tests/integration/test-weather-demo-0-presentation.py', checks)
         self.assertNotIn('GH_TOKEN', checks)
-        failure = block('Retain only closed review failure observations')
+        failure = block('Retain only closed review failure observations').split('\n  joined:', 1)[0]
         self.assertIn('if: failure()', failure)
-        self.assertIn('path: .cache/weather-demo-visual-review/review-failure.json', failure)
+        self.assertEqual([line.strip() for line in failure.split('path: |\n', 1)[1].splitlines() if line.strip()],
+            ['.cache/weather-demo-visual-review/review-failure.json',
+             '.cache/weather-demo-visual-review/scoped-admission-failure.json',
+             '.cache/weather-demo-visual-review/review.json'])
         for forbidden in ('*.json', '*.png', '*.mp4', 'path: .cache/weather-demo-visual-review/\n'):
             self.assertNotIn(forbidden, failure)
 
