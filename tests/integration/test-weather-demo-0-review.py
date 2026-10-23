@@ -426,6 +426,13 @@ class Review(unittest.TestCase):
         self.assertFalse(hasattr(failure.exception, 'diagnostics'))
         self.assertNotIn('synthetic stderr', str(failure.exception))
 
+    def test_optional_zero_exit_stderr_rejection_does_not_export_raw_diagnostics(self):
+        args = [sys.executable, '-c', "import sys; print('inert output'); sys.stderr.write('synthetic private diagnostic')"]
+        self.assertEqual(R.command(args), b'inert output\n')
+        with self.assertRaisesRegex(ValueError, 'child emitted error diagnostics') as rejected:
+            R.command(args, reject_stderr=True)
+        self.assertNotIn('synthetic private diagnostic', str(rejected.exception))
+
     def test_non_api_children_do_not_receive_github_token(self):
         with patch.dict(os.environ, {'GH_TOKEN': 'private synthetic token'}):
             result = R.command([sys.executable, '-c', "import os; print(os.getenv('GH_TOKEN', 'absent'))"])
@@ -441,6 +448,255 @@ class Review(unittest.TestCase):
         with patch.object(R, 'prepare', side_effect=interrupted_prepare), patch.object(sys, 'stderr', io.StringIO()):
             self.assertEqual(R.main(argv), 1)
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
+
+    def quarantine_fixture(self, *, change_raw=None, change_capture=None, corrupt=False):
+        png = (b'\x89PNG\r\n\x1a\n' + b'\0\0\0\rIHDR' +
+               (1080).to_bytes(4, 'big') + (1920).to_bytes(4, 'big') + b'synthetic PNG fixture')
+        video_bytes = b'\0\0\0\x18ftypisom' + b'inert fixture; never decoded'
+        report_sha = 'e' * 64
+        acceptance = dict(identity=IDENTITY, passed=True, joined_core_acceptance=True,
+                          vm_cleanup_pending=False, production_authority=False)
+        raw = dict(schema=1, kind='weather-demo-android-recording', started_unix_ms=1000000,
+            completed_unix_ms=1069397, elapsed_ms=69397, source='android-screenrecord-and-screencap',
+            files={'screen.mp4': record(video_bytes), 'screen-001.png': record(png)},
+            screenshots=[dict(file='screen-001.png', started_elapsed_ms=218,
+                              completed_elapsed_ms=2578, stage='unclassified')],
+            recorder_joined=True, guest_file_removed=True, stage_labels_verified=False, ui_values_verified=False,
+            joined_core_acceptance=False, production_authority=False)
+        window = dict(schema=1, started_unix_ms=1000166, completed_unix_ms=1067695,
+                      installed_report_sha256=report_sha)
+        if change_raw:
+            change_raw(raw)
+        files = {'original-acceptance/' + name: encoded(acceptance if name == 'weather-android-hosted-acceptance.json'
+                    else {'synthetic': 'not actual runtime evidence'}) for name in R.REPORTS}
+        files.update({'source-capture/rawrecording.json': encoded(raw), 'source-capture/driver-window.json': encoded(window),
+                      'source-capture/screen.mp4': video_bytes, 'source-capture/screen-001.png': png})
+        capture = dict(schema=1, kind='weather-demo-quarantined-capture', identity=IDENTITY,
+            original_acceptance_sha256=record(encoded(acceptance))['sha256'], original_android_report_sha256=report_sha,
+            files={name: record(data) for name, data in files.items()},
+            capture={key: raw[key] for key in ['started_unix_ms', 'completed_unix_ms', 'elapsed_ms']},
+            driver_window={key: window[key] for key in ['started_unix_ms', 'completed_unix_ms']},
+            original_core_acceptance_passed=True, media_accepted=False, joined_media_acceptance=False,
+            production_authority=False, review_required=True)
+        if change_capture:
+            change_capture(capture)
+        if corrupt:
+            files['source-capture/screen.mp4'] += b'changed after manifest'
+        path = self.root / 'quarantine.zip'
+        with zipfile.ZipFile(path, 'w') as archive:
+            archive.writestr('capture.json', encoded(capture))
+            for name, data in files.items():
+                archive.writestr(name, data)
+        # Real unchanged inert helpers validate file hashes, PNG dimensions and wall-clock shape.
+        import runpy
+        module = runpy.run_path(str(ROOT / 'tests/integration/weather-demo-media.py'))
+        module['accepted'] = lambda _: (acceptance, {'original_android_report_sha256': report_sha})
+        module['verify'] = lambda _: self.fail('encoded-duration admission must never run for quarantine')
+        def profile(_):
+            self.assertTrue(all(key not in os.environ for key in ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN']))
+            return dict(codec='h264', width=720, height=1280, duration_seconds=65.579, has_audio=False)
+        module['probe_video'] = profile
+        return path, capture, module
+
+    def test_quarantine_rechecks_original_core_but_never_admits_failed_duration(self):
+        path, capture, module = self.quarantine_fixture()
+        with patch.dict(os.environ, {'GH_TOKEN': 'synthetic private token', 'GITHUB_TOKEN': 'synthetic second token'}), \
+                patch.object(R.runpy, 'run_path', return_value=module):
+            actual, media, _ = R.quarantine_evidence(path, self.root / 'original', IDENTITY)
+            self.assertEqual(os.environ['GH_TOKEN'], 'synthetic private token')
+            self.assertEqual(os.environ['GITHUB_TOKEN'], 'synthetic second token')
+        self.assertEqual(actual, capture)
+        self.assertFalse(actual['media_accepted'])
+        self.assertFalse(actual['joined_media_acceptance'])
+        self.assertTrue(actual['original_core_acceptance_passed'])
+        self.assertLess(media['video']['duration_seconds'] * 1000 + 250,
+                        capture['driver_window']['completed_unix_ms'] - capture['capture']['started_unix_ms'])
+        self.assertEqual({p.name for p in (self.root / 'original').iterdir()},
+                         {'capture.json', 'source-capture', 'original-acceptance'})
+
+    def test_quarantine_corrupt_hash_profile_and_window_reject(self):
+        cases = [dict(corrupt=True), dict(change_raw=lambda raw: raw.update(joined_core_acceptance=True)),
+                 dict(change_raw=lambda raw: raw.update(completed_unix_ms=1000001)),
+                 dict(change_capture=lambda capture: capture.update(media_accepted=True)),
+                 dict(change_capture=lambda capture: capture.update(identity=dict(IDENTITY, weather_commit='f' * 40)))]
+        for index, changes in enumerate(cases):
+            path, _, module = self.quarantine_fixture(**changes)
+            with self.subTest(index=index), patch.object(R.runpy, 'run_path', return_value=module), self.assertRaises(ValueError):
+                R.quarantine_evidence(path, self.root / f'bad-{index}', IDENTITY)
+
+    def test_quarantine_duplicate_manifest_keys_and_native_profile_rejection(self):
+        path, _, module = self.quarantine_fixture()
+        duplicate = self.root / 'duplicate-quarantine.zip'
+        with zipfile.ZipFile(path) as source, zipfile.ZipFile(duplicate, 'w') as target:
+            for name in source.namelist():
+                raw = source.read(name)
+                target.writestr(name, b'{"schema":1,' + raw[1:] if name == 'capture.json' else raw)
+        with self.assertRaisesRegex(ValueError, 'duplicate JSON key'):
+            R.quarantine_evidence(duplicate, self.root / 'duplicate-output', IDENTITY)
+        self.assertFalse((self.root / 'duplicate-output').exists())
+        def rejected_profile(_):
+            raise ValueError('synthetic invalid encoded stream profile')
+        module['probe_video'] = rejected_profile
+        with patch.object(R.runpy, 'run_path', return_value=module), self.assertRaisesRegex(ValueError, 'stream profile'):
+            R.quarantine_evidence(path, self.root / 'bad-profile', IDENTITY)
+
+    def test_quarantine_accepts_exact_completed_failure_only_in_inspection(self):
+        run, artifact, _ = self.metadata()
+        run['conclusion'] = 'failure'
+        artifact['name'] = 'weather-demo-capture-quarantine-' + CORE
+        listing = dict(total_count=1, artifacts=[artifact])
+        with patch.object(R, 'api', side_effect=[run, run, listing]):
+            selected = R.selected_artifact('123', '2', CORE, quarantine=True)
+            self.assertEqual(selected['original_run_conclusion'], 'failure')
+            self.assertEqual(selected['name'], artifact['name'])
+        with patch.object(R, 'api', side_effect=[run, run]), self.assertRaises(ValueError):
+            R.selected_artifact('123', '2', CORE)
+        for changes in [dict(status='in_progress'), dict(conclusion='cancelled'), dict(run_attempt=3)]:
+            invalid = dict(run, **changes)
+            with patch.object(R, 'api', side_effect=[invalid, run]), self.assertRaises(ValueError):
+                R.selected_artifact('123', '2', CORE, quarantine=True)
+
+    def test_sampling_bounds_and_quarantine_hold_exclusion(self):
+        for start, stop, fps, duration in [(-1, 1, 5, 3), (0, float('nan'), 5, 3), (0, 1, float('inf'), 3),
+                (0, 1, 0, 3), (0, 1, 31, 3), (1, 1, 5, 3), (0, 4, 5, 3), (0, 31, 30, 40), (180, None, 5, 180)]:
+            with self.subTest(values=(start, stop, fps, duration)), self.assertRaises(ValueError):
+                R.sample_window(start, stop, fps, duration)
+        self.assertEqual(R.sample_window(0, None, 5, 180), 180)
+        self.assertEqual(R.sample_window(0, 180, 30, 180, native=True), 180)
+        with patch.object(R, 'ROOT', self.root), patch.object(R, 'api') as api:
+            with self.assertRaisesRegex(ValueError, 'cannot render'):
+                R.prepare('123', '2', CORE, self.root / 'output', hold_image='screen-003.png', inspect_quarantine=True)
+            preview = R.prepare('123', '2', CORE, self.root / 'output', inspect_quarantine=True, native_frames=True)
+            self.assertEqual(preview['kind'], 'weather-demo-quarantine-inspection-preview')
+            self.assertFalse(preview['media_accepted'])
+            self.assertTrue(preview['sampling']['native_frames'])
+            self.assertEqual(preview['sampling']['fps'], 5)
+            self.assertFalse((self.root / 'output').exists())
+            api.assert_not_called()
+
+    def test_clean_source_pts_timeline_discards_side_data_and_never_infers_os_times(self):
+        video = self.root / 'source.mp4'
+        video.write_bytes(b'synthetic source hash input')
+        frames = dict(frames=[dict(pts_time='0.000000', best_effort_timestamp_time='0.000000',
+            pkt_duration_time='0.200000', side_data_list=[{'private_unused': 'must never persist'}]),
+            dict(pts_time='0.200000', best_effort_timestamp_time='0.200000', pkt_duration_time='0.200000')])
+        with patch.object(R, 'tool', side_effect=str), patch.object(R, 'command', return_value=encoded(frames)) as command:
+            timeline = R.source_frame_timeline(video, 1.0)
+        self.assertEqual([frame['clip_relative_pts_seconds'] for frame in timeline['frames']], [0, 0.2])
+        self.assertNotIn('must never persist', json.dumps(timeline))
+        self.assertFalse(timeline['os_input_timestamps_inferred'])
+        self.assertFalse(timeline['sample_to_source_frame_mapping_verified'])
+        self.assertIn('-select_streams', command.call_args.args[0])
+        self.assertIn('v:0', command.call_args.args[0])
+        self.assertTrue(command.call_args.kwargs['reject_stderr'])
+        for invalid in [dict(frames=[dict(pts_time='NaN')]),
+                        dict(frames=[dict(pts_time='1.0'), dict(pts_time='0.5')]), dict(frames=[]),
+                        dict(frames=[dict(pts_time='0.0', unexpected='private text')])]:
+            with patch.object(R, 'tool', side_effect=str), patch.object(R, 'command', return_value=encoded(invalid)), \
+                    self.assertRaises(ValueError):
+                R.source_frame_timeline(video, 1.0)
+
+    def test_native_and_resampled_inspection_use_bounded_original_video_only(self):
+        original = self.root / 'original'
+        (original / 'source-capture').mkdir(parents=True)
+        font = self.root / 'font.ttf'
+        font.write_bytes(b'inert font')
+        timeline = dict(frames=[dict(frame_index=i, source_pts_seconds=i / 5,
+            clip_relative_pts_seconds=i / 5, pts_time=i / 5) for i in range(4)])
+        png = b'\x89PNG\r\n\x1a\n' + b'\0\0\0\rIHDR' + (720).to_bytes(4, 'big') + (1280).to_bytes(4, 'big')
+        for native in [False, True]:
+            output = self.root / ('native' if native else 'resampled')
+            output.mkdir()
+            calls = []
+            def render(args, **kwargs):
+                calls.append(args)
+                if str(args[-1]).endswith('frame-%03d.png'):
+                    self.assertEqual(kwargs['reject_stderr'], native)
+                    count = int(args[args.index('-frames:v') + 1])
+                    for index in range(count):
+                        (output / 'samples' / f'frame-{index:03d}.png').write_bytes(png)
+                else:
+                    Path(args[-1]).write_bytes(b'synthetic sheet placeholder')
+            with patch.object(R, 'FONT', font), patch.object(R, 'tool', side_effect=str), \
+                    patch.object(R, 'source_frame_timeline', return_value=timeline), patch.object(R, 'command', side_effect=render):
+                result = R.quarantine_samples(original, output, dict(video=dict(duration_seconds=1)), 0, 1, 5, native=native)
+            self.assertEqual(result['sampled_frames'], 4 if native else 5)
+            self.assertFalse(result['media_accepted'])
+            self.assertFalse(result['os_input_timestamps_inferred'])
+            self.assertEqual(result['sample_to_source_frame_mapping_verified'], native)
+            self.assertEqual(json.loads((output / 'frame-timeline.json').read_text()), timeline)
+            self.assertEqual('-fps_mode' in calls[0], native)
+            graph = calls[0][calls[0].index('-vf') + 1]
+            self.assertEqual('drawtext' in graph, not native)
+            self.assertEqual('fps=' in graph, not native)
+            self.assertIn(str(original / 'source-capture/screen.mp4'), calls[0])
+            if native:
+                self.assertEqual([row['frame_index'] for row in result['decoded_frames']], [0, 1, 2, 3])
+                self.assertNotIn('nominal_sample_seconds', result)
+            else:
+                self.assertEqual(result['nominal_sample_seconds'], [0, 0.2, 0.4, 0.6, 0.8])
+
+    def test_native_frame_budget_and_decode_count_mismatch_fail_closed(self):
+        original = self.root / 'original'
+        font = self.root / 'font.ttf'
+        font.write_bytes(b'font')
+        output = self.root / 'too-many'
+        output.mkdir()
+        timeline = dict(frames=[dict(frame_index=i, clip_relative_pts_seconds=i / 1000) for i in range(901)])
+        with patch.object(R, 'FONT', font), patch.object(R, 'tool', side_effect=str), \
+                patch.object(R, 'source_frame_timeline', return_value=timeline), patch.object(R, 'command') as command:
+            with self.assertRaisesRegex(ValueError, 'native frame count'):
+                R.quarantine_samples(original, output, dict(video=dict(duration_seconds=1)), 0, 1, 5, native=True)
+            command.assert_not_called()
+        mismatch = self.root / 'mismatch'
+        mismatch.mkdir()
+        timeline['frames'] = timeline['frames'][:2]
+        with patch.object(R, 'FONT', font), patch.object(R, 'tool', side_effect=str), \
+                patch.object(R, 'source_frame_timeline', return_value=timeline), patch.object(R, 'command'):
+            with self.assertRaises(ValueError):
+                R.quarantine_samples(original, mismatch, dict(video=dict(duration_seconds=1)), 0, 1, 5, native=True)
+
+    def test_quarantine_failure_cleanup_retains_nonadmission_and_failed_original(self):
+        output = self.root / 'failed-inspection'
+        def failed_download(_, target):
+            target.write_bytes(b'inert partial download')
+            raise ValueError('synthetic boundary failure')
+        with patch.object(R, 'ROOT', self.root), patch.object(R, 'hosted'), patch.dict(os.environ, ENV, clear=True), \
+                patch.object(R, 'selected_artifact', return_value={'id': 7, 'original_run_conclusion': 'failure'}), \
+                patch.object(R, 'download', side_effect=failed_download), self.assertRaises(ValueError):
+            R.prepare('123', '2', CORE, output, execute=True, inspect_quarantine=True)
+        failure = json.loads((output / 'review-failure.json').read_text())
+        self.assertEqual(failure['kind'], 'weather-demo-quarantine-inspection-failure')
+        self.assertEqual(failure['original_run_conclusion'], 'failure')
+        self.assertEqual([path.name for path in output.iterdir()], ['review-failure.json'])
+        self.assertFalse(failure['media_accepted'])
+        self.assertFalse(failure['joined_media_acceptance'])
+        self.assertFalse(failure['new_runtime_executed'])
+        self.assertFalse(failure['production_authority'])
+        self.assertTrue(failure['partial_output_removed'])
+
+    def test_quarantine_success_is_only_an_inspection_result_on_a_failed_original_run(self):
+        path, capture, module = self.quarantine_fixture()
+        output = self.root / 'inspection'
+        video = module['probe_video'](None)
+        media = dict(video=video, files={'screen.mp4': capture['files']['source-capture/screen.mp4']})
+        with patch.object(R, 'ROOT', self.root), patch.object(R, 'hosted'), patch.dict(os.environ, ENV, clear=True), \
+                patch.object(R, 'selected_artifact', return_value={'id': 7, 'original_run_conclusion': 'failure'}) as selected, \
+                patch.object(R, 'download', side_effect=lambda _, target: target.write_bytes(path.read_bytes())), \
+                patch.object(R, 'quarantine_evidence', return_value=(capture, media, 'c' * 64)), \
+                patch.object(R, 'quarantine_samples', return_value={'native_frames': True}), \
+                patch.object(R, 'evidence') as accepted_mode, patch.object(R, 'render_held_image') as held:
+            result = R.prepare('123', '2', CORE, output, execute=True, inspect_quarantine=True, native_frames=True)
+        self.assertEqual(selected.call_args.kwargs, {'quarantine': True})
+        self.assertEqual(result['kind'], 'weather-demo-quarantine-inspection')
+        self.assertEqual(result['original_run_conclusion'], 'failure')
+        self.assertTrue(result['original_core_acceptance_passed'])
+        for key in ['media_accepted', 'joined_media_acceptance', 'encoded_duration_admission_performed',
+                    'visual_acceptance_claimed', 'new_runtime_executed', 'publication_authorized']:
+            self.assertFalse(result[key])
+        self.assertEqual(result['review_execution']['core_commit'], REVIEW_CORE)
+        accepted_mode.assert_not_called()
+        held.assert_not_called()
 
     def test_duplicate_json_keys_are_not_silently_accepted(self):
         with self.assertRaises(ValueError):

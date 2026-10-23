@@ -28,6 +28,26 @@ on:
         description: Optional admitted screen-NNN.png chosen after visual review to hold after the full clip
         type: string
         default: ''
+      review_quarantine:
+        description: Inspect retained quarantine only; never grant media acceptance or render a presentation
+        type: boolean
+        default: false
+      review_native_frames:
+        description: Extract every native video frame during quarantine inspection
+        type: boolean
+        default: true
+      review_sample_start:
+        description: Inspection window start in clip PTS seconds
+        type: string
+        default: '0'
+      review_sample_stop:
+        description: Optional inspection window end in clip PTS seconds
+        type: string
+        default: ''
+      review_sample_fps:
+        description: Inspection sample rate when native frame extraction is disabled
+        type: string
+        default: '5'
   push:
     branches: [feature/weather-android-core]
     paths:
@@ -50,7 +70,7 @@ env:
 
 jobs:
   media-tool-probe:
-    if: inputs.media_probe_only && inputs.review_run_id == ''
+    if: inputs.media_probe_only && inputs.review_run_id == '' && !inputs.review_quarantine
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -77,7 +97,7 @@ jobs:
           include-hidden-files: true
           path: .cache/weather-media-tool-probe/probe.json
   retained-media-review:
-    if: inputs.review_run_id != ''
+    if: inputs.review_run_id != '' || inputs.review_quarantine
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -88,32 +108,49 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/weather-demo-0-media-tools.sh
-      - name: Inspect existing accepted recording without rerunning Android
+      - name: Inspect retained source-bound recording without rerunning Android
         env:
           GH_TOKEN: ${{ github.token }}
           REVIEW_RUN_ID: ${{ inputs.review_run_id }}
           REVIEW_ATTEMPT: ${{ inputs.review_attempt }}
           REVIEW_CORE_REVISION: ${{ inputs.review_core_revision }}
           REVIEW_HOLD_IMAGE: ${{ inputs.review_hold_image }}
+          REVIEW_QUARANTINE: ${{ inputs.review_quarantine }}
+          REVIEW_NATIVE_FRAMES: ${{ inputs.review_native_frames }}
+          REVIEW_SAMPLE_START: ${{ inputs.review_sample_start }}
+          REVIEW_SAMPLE_STOP: ${{ inputs.review_sample_stop }}
+          REVIEW_SAMPLE_FPS: ${{ inputs.review_sample_fps }}
         run: |
           set -euo pipefail
           umask 077
           mkdir -p "$GITHUB_WORKSPACE/.cache"
           python3 -B tests/integration/test-weather-demo-0-review.py
-          python3 -B scripts/weather-demo-0-review.py --run-id "$REVIEW_RUN_ID" \
-            --attempt "$REVIEW_ATTEMPT" --core-revision "$REVIEW_CORE_REVISION" \
-            --output "$GITHUB_WORKSPACE/.cache/weather-demo-visual-review" \
-            --hold-image "$REVIEW_HOLD_IMAGE" --execute
+          review_args=(--run-id "$REVIEW_RUN_ID" --attempt "$REVIEW_ATTEMPT"
+            --core-revision "$REVIEW_CORE_REVISION"
+            --output "$GITHUB_WORKSPACE/.cache/weather-demo-visual-review"
+            --hold-image "$REVIEW_HOLD_IMAGE" --execute)
+          if test "$REVIEW_QUARANTINE" = true; then
+            review_args+=(--inspect-quarantine --sample-start "$REVIEW_SAMPLE_START")
+            if test -n "$REVIEW_SAMPLE_STOP"; then
+              review_args+=(--sample-stop "$REVIEW_SAMPLE_STOP")
+            fi
+            if test "$REVIEW_NATIVE_FRAMES" = true; then
+              review_args+=(--native-frames)
+            else
+              review_args+=(--sample-fps "$REVIEW_SAMPLE_FPS")
+            fi
+          fi
+          python3 -B scripts/weather-demo-0-review.py "${review_args[@]}"
       - name: Retain actual sampled frames and review provenance
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: weather-demo-visual-review-${{ inputs.review_run_id }}-${{ inputs.review_attempt }}-${{ github.sha }}
+          name: weather-demo-${{ inputs.review_quarantine && 'quarantine-inspection' || 'visual-review' }}-${{ inputs.review_run_id }}-${{ inputs.review_attempt }}-${{ github.sha }}
           retention-days: 14
           if-no-files-found: error
           include-hidden-files: true
           path: .cache/weather-demo-visual-review/
   joined:
-    if: ${{ !inputs.media_probe_only && inputs.review_run_id == '' }}
+    if: ${{ !inputs.media_probe_only && inputs.review_run_id == '' && !inputs.review_quarantine }}
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     steps:

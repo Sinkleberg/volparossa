@@ -59,6 +59,23 @@ granting acceptance. Attempt 1 of this run stopped earlier on slow Ubuntu packag
 downloads, before Android execution. No runtime deadline or original delivery
 guard has been relaxed.
 
+Third full trial [39998753810](https://github.com/VOLPAROSSA/volparossa/actions/runs/39998753810),
+attempt 1, on Core `6bc0abdb` / Weather `85e9eda9`, completed Android product
+delivery and original delivery, acceptance and cleanup checks, then failed media
+admission at `verify-duration`. The media profile accepted one H.264 video stream
+and two metadata streams, but its measured duration was 65,579 ms versus a
+required end of 67,695 ms; capture elapsed time was 69,397 ms. No deadline or
+delivery guard was relaxed. The run retained a quarantined capture plus the exact
+four original acceptance reports and KVM/VM cleanup evidence; the ledger keeps
+only closed JSON reports and the capture manifest in
+`trials/39998753810/`, while raw screenshots and MP4 remain outside Git. The
+quarantine is not admitted demo media. Astra's inspection found an inert read of
+490 monotonic-frame timestamps, which is diagnostic only and does not prove
+decoded frames or the MP4 sample table; host and guest wall clocks are not
+calibrated, and encoder startup is unproven. Hosted visual inspection, readable
+real weather and air-quality content, refresh/background-resume review and
+technical media admission remain pending.
+
 [Demo runbook](demos/weather-demo-0/README.md) records exact baseline, boundaries
 and reproduction. Core runs externally to the Android emulator; this work does
 not establish a standalone phone release, physical-device support, concurrent

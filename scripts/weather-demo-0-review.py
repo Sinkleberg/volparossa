@@ -71,7 +71,7 @@ def tool(path):
     return str(path)
 
 
-def command(args, *, maximum=2 * 1024**2, destination=None, seconds=30, budget=None):
+def command(args, *, maximum=2 * 1024**2, destination=None, seconds=30, budget=None, reject_stderr=False):
     """Bound both pipes, elapsed time and optional generated PNG storage."""
     env = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8', 'GH_HOST': 'github.com'}
     if args[0] == '/usr/bin/gh' and 'GH_TOKEN' in os.environ:
@@ -109,6 +109,7 @@ def command(args, *, maximum=2 * 1024**2, destination=None, seconds=30, budget=N
                     child.wait(timeout=max(0.001, deadline - time.monotonic()))
                     if child.returncode:
                         raise ChildFailure(child.returncode)
+                    require(not reject_stderr or not errors, 'child emitted error diagnostics')
             except BaseException:
                 child.kill()
                 child.wait()
@@ -132,7 +133,7 @@ def utc(value):
     return datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ')
 
 
-def selected_artifact(run_id, attempt, revision):
+def selected_artifact(run_id, attempt, revision, *, quarantine=False):
     STATE['stage'] = 'run-metadata'
     base = f'repos/{REPOSITORY}/actions/runs/{run_id}'
     latest = api(base)
@@ -141,10 +142,11 @@ def selected_artifact(run_id, attempt, revision):
         require(type(value.get('id')) is int and str(value['id']) == run_id
                 and type(value.get('run_attempt')) is int and str(value['run_attempt']) == attempt
                 and value.get('head_sha') == revision and value.get('status') == 'completed'
-                and value.get('conclusion') == 'success'
+                and value.get('conclusion') in ({'success', 'failure'} if quarantine else {'success'})
                 and value.get('repository', {}).get('full_name') == REPOSITORY
                 and value.get('head_repository', {}).get('full_name') == REPOSITORY,
                 'successful exact latest run attempt required')
+    require(latest['conclusion'] == run['conclusion'], 'run conclusion disagreement')
     started, finished = utc(run['run_started_at']), utc(run['updated_at'])
     require(started <= finished, 'run time window rejected')
     STATE['stage'] = 'artifact-metadata'
@@ -152,8 +154,9 @@ def selected_artifact(run_id, attempt, revision):
     require(type(listing.get('total_count')) is int and 1 <= listing['total_count'] <= 100
             and type(listing.get('artifacts')) is list
             and len(listing['artifacts']) == listing['total_count'], 'artifact listing incomplete')
+    artifact_prefix = 'weather-demo-capture-quarantine-' if quarantine else 'weather-demo-review-'
     matches = [item for item in listing['artifacts']
-               if item.get('name') == 'weather-demo-review-' + revision]
+               if item.get('name') == artifact_prefix + revision]
     require(len(matches) == 1, 'exact review artifact missing or ambiguous')
     artifact = matches[0]
     require(type(artifact.get('id')) is int and artifact['id'] > 0
@@ -166,7 +169,10 @@ def selected_artifact(run_id, attempt, revision):
             and started <= utc(artifact['created_at']) <= utc(artifact['updated_at']) <= finished,
             'artifact identity, lifetime or digest rejected')
     # The artifact API has no attempt field. Require latest attempt and its exact creation window.
-    return {key: artifact[key] for key in ['id', 'name', 'size_in_bytes', 'digest', 'created_at', 'updated_at']}
+    selected = {key: artifact[key] for key in ['id', 'name', 'size_in_bytes', 'digest', 'created_at', 'updated_at']}
+    if quarantine:
+        selected['original_run_conclusion'] = run['conclusion']
+    return selected
 
 
 def download(artifact, path):
@@ -178,21 +184,23 @@ def download(artifact, path):
             and 'sha256:' + digest(path) == artifact['digest'], 'artifact bytes or SHA-256 mismatch')
 
 
-def canonical_name(name):
+def canonical_name(name, *, quarantine=False):
     require(type(name) is str and re.fullmatch(r'[A-Za-z0-9_./-]+', name)
             and not name.startswith('/') and '\\' not in name, 'ZIP path rejected')
     parts = name.rstrip('/').split('/')
     require(all(p and p not in {'.', '..'} for p in parts)
             and '.git' not in parts, 'noncanonical ZIP path')
-    require(parts[0] in {'weather-demo-presentation', 'weather-demo-sources'}, 'unexpected archive root')
+    roots = {'capture.json', 'original-acceptance', 'source-capture'} if quarantine else {
+        'weather-demo-presentation', 'weather-demo-sources'}
+    require(parts[0] in roots, 'unexpected archive root')
     return name
 
 
-def zip_entries(archive):
+def zip_entries(archive, *, quarantine=False):
     entries, total = {}, 0
     require(len(archive.infolist()) <= 2048, 'ZIP entry limit exceeded')
     for info in archive.infolist():
-        name = canonical_name(info.filename)
+        name = canonical_name(info.filename, quarantine=quarantine)
         require(name.rstrip('/') not in entries and not info.flag_bits & 1, 'duplicate or encrypted ZIP entry')
         mode = info.external_attr >> 16
         require(stat.S_IFMT(mode) in {0, stat.S_IFREG, stat.S_IFDIR}
@@ -280,6 +288,213 @@ def evidence(archive_path, destination, identity):
             and presentation['original_video'] == {key: media['video'][key]
                 for key in ('codec', 'width', 'height', 'duration_seconds')}, 'cross-artifact binding rejected')
     return presentation, media, digest(verifier_path)
+
+
+
+def quarantine_evidence(archive_path, destination, identity):
+    """Recheck delivery and source capture for inspection, never admit encoded coverage."""
+    STATE['stage'] = 'quarantine-archive'
+    with zipfile.ZipFile(archive_path) as archive:
+        entries = zip_entries(archive, quarantine=True)
+        require('capture.json' in entries and entries['capture.json'].file_size <= 65536,
+                'quarantine capture manifest missing or oversized')
+        capture = decode(archive.read(entries['capture.json']), 65536)
+        require(type(capture) is dict and set(capture) == {'schema', 'kind', 'identity', 'files',
+                'original_acceptance_sha256', 'original_android_report_sha256', 'capture', 'driver_window',
+                'original_core_acceptance_passed', 'media_accepted', 'joined_media_acceptance',
+                'production_authority', 'review_required'}
+                and type(capture['schema']) is int and capture['schema'] == 1
+                and capture['kind'] == 'weather-demo-quarantined-capture' and capture['identity'] == identity
+                and capture['original_core_acceptance_passed'] is True and capture['review_required'] is True
+                and all(capture[key] is False for key in ['media_accepted', 'joined_media_acceptance',
+                    'production_authority']), 'quarantine identity or nonadmission flags rejected')
+        files = capture['files']
+        required = {'original-acceptance/' + name for name in REPORTS} | {
+            'source-capture/rawrecording.json', 'source-capture/driver-window.json', 'source-capture/screen.mp4'}
+        require(type(files) is dict and required <= set(files)
+                and all(name in required or re.fullmatch(r'source-capture/screen-[0-9]{3}\.png', name)
+                        for name in files)
+                and 1 <= len(set(files) - required) <= 36
+                and {name for name, info in entries.items() if not info.is_dir()} == set(files) | {'capture.json'}
+                and {name for name, info in entries.items() if info.is_dir()} <= {'original-acceptance', 'source-capture'},
+                'strict quarantine inventory rejected')
+        for name, expected in files.items():
+            require(type(expected) is dict and set(expected) == {'bytes', 'sha256'}
+                    and type(expected['bytes']) is int and expected['bytes'] > 0
+                    and type(expected['sha256']) is str and re.fullmatch('[a-f0-9]{64}', expected['sha256'])
+                    and zip_hash(archive, entries[name]) == expected, 'quarantine member hash mismatch')
+        destination.mkdir(mode=0o700)
+        for name in ['source-capture', 'original-acceptance']:
+            (destination / name).mkdir(mode=0o700)
+        for name in sorted(set(files) | {'capture.json'}):
+            info = entries[name]
+            maximum = 100 * 1024**2 if name.endswith('.mp4') else 4 * 1024**2 if name.endswith('.png') else 65536
+            require(0 < info.file_size <= maximum, 'quarantine member size rejected')
+            # Duplicate-key validation also applies to every original JSON report.
+            if name.endswith('.json'):
+                decode(archive.read(info), 65536)
+            with archive.open(info) as source, (destination / name).open('xb') as target:
+                shutil.copyfileobj(source, target, length=65536)
+            (destination / name).chmod(0o600)
+    STATE['stage'] = 'quarantine-original-delivery'
+    verifier_path = ROOT / 'tests/integration/weather-demo-media.py'
+    module = runpy.run_path(str(verifier_path))
+    saved_tokens = {key: os.environ.pop(key) for key in ['GH_TOKEN', 'GITHUB_TOKEN',
+        'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'] if key in os.environ}
+    try:
+        acceptance, joined = module['accepted'](destination / 'original-acceptance')
+        require(acceptance['identity'] == identity and acceptance['passed'] is True
+                and acceptance['joined_core_acceptance'] is True and acceptance['vm_cleanup_pending'] is False
+                and acceptance['production_authority'] is False
+                and capture['original_acceptance_sha256'] == digest(destination / 'original-acceptance/weather-android-hosted-acceptance.json')
+                and capture['original_android_report_sha256'] == joined['original_android_report_sha256'],
+                'quarantine original acceptance binding rejected')
+        pixels = destination / 'source-capture'
+        raw = decode((pixels / 'rawrecording.json').read_bytes(), 65536)
+        window = decode((pixels / 'driver-window.json').read_bytes(), 65536)
+        require(type(raw) is dict and set(raw) == {'schema', 'kind', 'started_unix_ms', 'completed_unix_ms',
+                'elapsed_ms', 'source', 'files', 'screenshots', 'recorder_joined', 'guest_file_removed',
+                'stage_labels_verified', 'ui_values_verified', 'joined_core_acceptance', 'production_authority'}
+                and type(raw['schema']) is int and raw['schema'] == 1
+                and raw['kind'] == 'weather-demo-android-recording'
+                and raw['source'] == 'android-screenrecord-and-screencap'
+                and raw['recorder_joined'] is True and raw['guest_file_removed'] is True
+                and all(raw[key] is False for key in ['stage_labels_verified', 'ui_values_verified',
+                    'joined_core_acceptance', 'production_authority'])
+                and type(window) is dict and set(window) == {'schema', 'started_unix_ms',
+                    'completed_unix_ms', 'installed_report_sha256'}
+                and type(window['schema']) is int and window['schema'] == 1
+                and window['installed_report_sha256'] == joined['original_android_report_sha256'],
+                'quarantine source recording profile rejected')
+        require(capture['capture'] == {key: raw[key] for key in ['started_unix_ms', 'completed_unix_ms', 'elapsed_ms']}
+                and capture['driver_window'] == {key: window[key] for key in ['started_unix_ms', 'completed_unix_ms']}
+                and {name: files['source-capture/' + name] for name in raw['files']} == raw['files']
+                and {name for name in files if name.startswith('source-capture/')} == {
+                    'source-capture/' + name for name in raw['files']} | {
+                    'source-capture/rawrecording.json', 'source-capture/driver-window.json'},
+                'quarantine capture/window/inventory mismatch')
+        module['window_bounds'](capture['capture'], capture['driver_window'])
+        STATE['stage'] = 'quarantine-source-media'
+        module['media_files'](pixels, raw['files'], raw['screenshots'])
+        video = module['probe_video'](pixels / 'screen.mp4')
+    finally:
+        os.environ.update(saved_tokens)
+    # probe_video checks the stream profile only. The failed encoded-duration gate is deliberately not called.
+    return capture, dict(video=video, files=raw['files']), digest(verifier_path)
+
+
+def sample_window(start, stop, fps, duration=None, *, native=False):
+    require(all(type(value) in {int, float} and math.isfinite(value) for value in [start, fps])
+            and 0 <= start < 180 and 1 <= fps <= 30, 'sampling start/FPS rejected')
+    if duration is not None:
+        require(type(duration) in {int, float} and math.isfinite(duration) and 0 < duration <= 180,
+                'source video duration rejected')
+    if stop is None:
+        stop = duration
+    if stop is not None:
+        require(type(stop) in {int, float} and math.isfinite(stop)
+                and start < stop <= (180 if duration is None else duration)
+                and (native or math.ceil((stop - start) * fps) <= 900), 'sampling window or frame budget rejected')
+    return stop
+
+
+def source_frame_timeline(video, duration):
+    STATE['stage'] = 'quarantine-source-frame-timeline'
+    value = decode(command([tool('/usr/bin/ffprobe'), '-v', 'error', '-protocol_whitelist', 'file,pipe',
+        '-select_streams', 'v:0', '-show_frames', '-show_entries',
+        'frame=pts_time,best_effort_timestamp_time,pkt_duration_time', '-of', 'json', str(video)],
+        maximum=8 * 1024**2, seconds=60, reject_stderr=True), 8 * 1024**2)
+    require(type(value) is dict and set(value) == {'frames'} and type(value['frames']) is list
+            and 1 <= len(value['frames']) <= 21600, 'source frame timeline shape or count rejected')
+    clean, previous = [], None
+    for index, frame in enumerate(value['frames']):
+        keys = {'pts_time', 'best_effort_timestamp_time', 'pkt_duration_time'}
+        require(type(frame) is dict and set(frame) <= keys | {'side_data_list'}
+                and ('pts_time' in frame or 'best_effort_timestamp_time' in frame), 'frame timing fields rejected')
+        record = dict(frame_index=index)
+        for key in keys & set(frame):
+            item = frame[key]
+            require(type(item) is str and re.fullmatch(r'-?[0-9]{1,7}(?:\.[0-9]{1,9})?', item),
+                    'nonnumeric source frame timing rejected')
+            number = float(item)
+            require(math.isfinite(number) and abs(number) <= 1000000
+                    and (key != 'pkt_duration_time' or 0 <= number <= 180), 'source frame timing out of range')
+            record[key] = number
+        timestamp = record.get('best_effort_timestamp_time', record.get('pts_time'))
+        require(previous is None or previous <= timestamp, 'nonmonotonic source frame timeline')
+        previous = timestamp
+        record['clip_relative_pts_seconds'] = timestamp - (clean[0]['source_pts_seconds'] if clean else timestamp)
+        record['source_pts_seconds'] = timestamp
+        clean.append(record)
+    return dict(schema=1, kind='weather-demo-source-video-frame-timeline', source_video_sha256=digest(video),
+        video_duration_seconds=duration, frames=clean, side_data_retained=False,
+        os_input_timestamps_inferred=False, sample_to_source_frame_mapping_verified=False,
+        timestamp_domain='source video PTS; clip-relative origin is first decoded video frame; not host UTC')
+
+
+def quarantine_samples(original, output, media, start, stop, fps, *, native=False):
+    duration = media['video']['duration_seconds']
+    stop = sample_window(start, stop, fps, duration, native=native)
+    timeline = source_frame_timeline(original / 'source-capture/screen.mp4', duration)
+    (output / 'frame-timeline.json').write_text(json.dumps(timeline, sort_keys=True, indent=2) + '\n')
+    (output / 'frame-timeline.json').chmod(0o600)
+    STATE['stage'] = 'quarantine-video-sampling'
+    ffmpeg = tool('/usr/bin/ffmpeg')
+    require(FONT.is_file() and not FONT.is_symlink(), 'fixed distro font required')
+    samples = output / 'samples'
+    samples.mkdir(mode=0o700)
+    selected = [frame for frame in timeline['frames'] if start <= frame['clip_relative_pts_seconds'] < stop]
+    require(not native or 1 <= len(selected) <= 900, 'native frame count exceeds inspection budget')
+    label = ("drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:"
+        "text='Clip PTS %{pts\\:hms}':fontsize=25:fontcolor=white:box=1:boxcolor=black@0.8:x=8:y=8")
+    if native:
+        limit = len(selected)
+        graph = f'setpts=PTS-STARTPTS,trim=start={start:.9f}:end={stop:.9f}'
+        timing = ['-fps_mode', 'passthrough']
+    else:
+        limit = math.ceil((stop - start) * fps)
+        graph = (f'setpts=PTS-STARTPTS,trim=start={start:.9f}:end={stop:.9f},setpts=PTS-STARTPTS,'
+            f'fps={fps:.9f}:start_time=0,setpts=PTS+{start:.9f}/TB,' + label.replace('Clip PTS', 'Nominal'))
+        timing = []
+    command([ffmpeg, '-nostdin', '-v', 'error', '-protocol_whitelist', 'file,pipe', '-i',
+        str(original / 'source-capture/screen.mp4'), '-vf', graph, '-an', *timing, '-frames:v', str(limit),
+        '-threads', '2', '-compression_level', '6', '-start_number', '0', str(samples / 'frame-%03d.png')],
+        maximum=65536, seconds=240, budget=samples, reject_stderr=native)
+    frames = sorted(samples.glob('frame-*.png'))
+    require(1 <= len(frames) <= limit and [p.name for p in frames] == [f'frame-{i:03d}.png' for i in range(len(frames))]
+            and sum(p.stat().st_size for p in frames) <= MAX_ZIP, 'quarantine sample inventory or budget rejected')
+    require(not native or len(frames) == len(selected), 'native decoded frame count differs from source PTS timeline')
+    for path in frames:
+        require(0 < path.stat().st_size <= 4 * 1024**2, 'quarantine sample PNG size rejected')
+        with path.open('rb') as stream:
+            prefix = stream.read(24)
+        require(len(prefix) == 24 and prefix[:8] == b'\x89PNG\r\n\x1a\n' and prefix[12:16] == b'IHDR'
+                and tuple(int.from_bytes(prefix[i:i + 4], 'big') for i in [16, 20]) == (720, 1280),
+                'quarantine sample PNG dimensions rejected')
+        path.chmod(0o600)
+    STATE['stage'] = 'quarantine-contact-sheets'
+    sheets = []
+    for start_frame in range(0, len(frames), 30):
+        sheet = output / f'contact-{start_frame // 30:02d}.png'
+        command([ffmpeg, '-nostdin', '-v', 'error', '-framerate', '1', '-start_number', str(start_frame),
+            '-i', str(samples / 'frame-%03d.png'), '-vf',
+            'scale=180:320,tile=6x5:padding=4:margin=4:color=0x101827',
+            '-frames:v', '1', '-threads', '2', str(sheet)], maximum=65536, seconds=60)
+        require(sheet.is_file() and 0 < sheet.stat().st_size <= 8 * 1024**2, 'inspection contact sheet rejected')
+        sheet.chmod(0o600)
+        sheets.append(sheet.name)
+    result = dict(sample_start_seconds=start, sample_stop_seconds=stop, sample_fps=None if native else fps,
+        native_frames=native, sampled_frames=len(frames), contact_sheets=sheets,
+        source_frame_timeline='frame-timeline.json', exact_action_timestamps_asserted=False,
+        os_input_timestamps_inferred=False, sample_to_source_frame_mapping_verified=native,
+        timestamp_domain='clip-relative video PTS; not host UTC or OS input timestamps',
+        inspection_only=True, media_accepted=False, font_sha256=digest(FONT))
+    if native:
+        result['mapping_basis'] = 'native decoder passthrough order; exact count match to ffprobe decoded-frame timeline'
+        result['decoded_frames'] = [dict(file='samples/' + path.name, **frame) for path, frame in zip(frames, selected)]
+    else:
+        result['nominal_sample_seconds'] = [start + index / fps for index in range(len(frames))]
+    return result
 
 
 def contact_sheets(evidence_root, output, media):
@@ -387,11 +602,19 @@ def hosted():
                     for k in ['GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT']), 'review execution identity missing')
 
 
-def prepare(run_id, attempt, revision, output, execute=False, hold_image=None):
+def prepare(run_id, attempt, revision, output, execute=False, hold_image=None, *,
+            inspect_quarantine=False, sample_start=0, sample_stop=None, sample_fps=None, native_frames=False):
     STATE['stage'] = 'arguments'
     hold_image = None if hold_image == '' else hold_image
     require(hold_image is None or type(hold_image) is str
             and re.fullmatch(r'screen-[0-9]{3}\.png', hold_image), 'strict held-image basename required')
+    require(not inspect_quarantine or hold_image is None, 'quarantine inspection cannot render a held image')
+    if inspect_quarantine:
+        sample_fps = 5 if sample_fps is None else sample_fps
+        sample_window(sample_start, sample_stop, sample_fps, native=native_frames)
+    else:
+        require(sample_start == 0 and sample_stop is None and sample_fps is None and not native_frames,
+                'sampling controls require quarantine inspection')
     require(all(type(v) is str and re.fullmatch('[1-9][0-9]{0,19}', v) for v in [run_id, attempt])
             and type(revision) is str and re.fullmatch('[a-f0-9]{40}', revision), 'strict run/attempt/SHA required')
     output = Path(output)
@@ -404,33 +627,57 @@ def prepare(run_id, attempt, revision, output, execute=False, hold_image=None):
                    executed=False, publication_authorized=False, visual_review_required=True,
                    downloads='Only exact same-run weather-demo-review-' + revision,
                    held_image_requested=hold_image)
+    if inspect_quarantine:
+        preview.update(kind='weather-demo-quarantine-inspection-preview', media_accepted=False,
+            joined_media_acceptance=False, inspection_only=True,
+            downloads='Only exact same-run weather-demo-capture-quarantine-' + revision,
+            sampling=dict(start=sample_start, stop=sample_stop, fps=sample_fps, native_frames=native_frames))
     if not execute:
         return preview
     hosted()
     packaging = dict(core_commit=os.environ['GITHUB_SHA'], run_id=os.environ['GITHUB_RUN_ID'],
                      run_attempt=os.environ['GITHUB_RUN_ATTEMPT'])
     output.mkdir(mode=0o700)  # Exclusive: existing output is never repaired or overwritten.
+    artifact = None
     try:
-        artifact = selected_artifact(run_id, attempt, revision)
+        artifact = (selected_artifact(run_id, attempt, revision, quarantine=True) if inspect_quarantine
+                    else selected_artifact(run_id, attempt, revision))
         archive = output / 'review.zip'
         download(artifact, archive)
         original = output / 'original'
-        presentation, media, verifier_sha = evidence(archive, original, identity)
-        archive.unlink()
-        rendered = contact_sheets(original, output, media)
-        revised = render_held_image(original, output, media, hold_image) if hold_image is not None else None
-        files = {p.relative_to(output).as_posix(): dict(bytes=p.stat().st_size, sha256=digest(p))
-                 for p in sorted(output.rglob('*')) if p.is_file()}
-        result = dict(schema=1, kind='weather-demo-retained-media-review', identity=identity,
-            review_execution=packaging, executed=True, artifact=artifact,
-            original_media_verifier_sha256=verifier_sha,
-            original_acceptance_sha256=presentation['acceptance_sha256'],
-            original_recording_sha256=presentation['recording_sha256'],
-            joined_core_acceptance_rechecked=True, new_runtime_executed=False,
-            publication_authorized=False, production_authority=False,
-            visual_review_required=True, visual_acceptance_claimed=False, rendered=rendered, files=files)
-        if revised is not None:
-            result['revised_presentation'] = revised
+        if inspect_quarantine:
+            capture, media, verifier_sha = quarantine_evidence(archive, original, identity)
+            archive.unlink()
+            rendered = quarantine_samples(original, output, media, sample_start, sample_stop, sample_fps,
+                                           native=native_frames)
+            result = dict(schema=1, kind='weather-demo-quarantine-inspection', identity=identity,
+                review_execution=packaging, executed=True, artifact=artifact,
+                original_run_conclusion=artifact['original_run_conclusion'],
+                original_media_verifier_sha256=verifier_sha,
+                original_acceptance_sha256=capture['original_acceptance_sha256'],
+                original_recording_sha256=media['files']['screen.mp4']['sha256'],
+                original_core_acceptance_passed=True, joined_core_acceptance_rechecked=True,
+                media_accepted=False, joined_media_acceptance=False, encoded_duration_admission_performed=False,
+                new_runtime_executed=False, publication_authorized=False, production_authority=False,
+                visual_review_required=True, visual_acceptance_claimed=False, inspection_only=True,
+                capture=capture['capture'], driver_window=capture['driver_window'], video=media['video'], rendered=rendered)
+        else:
+            presentation, media, verifier_sha = evidence(archive, original, identity)
+            archive.unlink()
+            rendered = contact_sheets(original, output, media)
+            revised = render_held_image(original, output, media, hold_image) if hold_image is not None else None
+            result = dict(schema=1, kind='weather-demo-retained-media-review', identity=identity,
+                review_execution=packaging, executed=True, artifact=artifact,
+                original_media_verifier_sha256=verifier_sha,
+                original_acceptance_sha256=presentation['acceptance_sha256'],
+                original_recording_sha256=presentation['recording_sha256'],
+                joined_core_acceptance_rechecked=True, new_runtime_executed=False,
+                publication_authorized=False, production_authority=False,
+                visual_review_required=True, visual_acceptance_claimed=False, rendered=rendered)
+            if revised is not None:
+                result['revised_presentation'] = revised
+        result['files'] = {p.relative_to(output).as_posix(): dict(bytes=p.stat().st_size, sha256=digest(p))
+                           for p in sorted(output.rglob('*')) if p.is_file()}
         (output / 'review.json').write_text(json.dumps(result, sort_keys=True, indent=2) + '\n')
         (output / 'review.json').chmod(0o600)
         return result
@@ -444,6 +691,11 @@ def prepare(run_id, attempt, revision, output, execute=False, hold_image=None):
         failure = dict(schema=1, kind='weather-demo-retained-media-review-failure', identity=identity,
             review_execution=packaging, stage=STATE['stage'], category=category,
             partial_output_removed=True, visual_acceptance_claimed=False, publication_authorized=False)
+        if inspect_quarantine:
+            failure.update(kind='weather-demo-quarantine-inspection-failure', media_accepted=False,
+                joined_media_acceptance=False, inspection_only=True, new_runtime_executed=False,
+                production_authority=False,
+                original_run_conclusion=artifact.get('original_run_conclusion') if artifact else None)
         if isinstance(error, ChildFailure):
             failure['child_status'] = error.status if type(error.status) is int and -255 <= error.status <= 255 else None
         (output / 'review-failure.json').write_text(json.dumps(failure, sort_keys=True, indent=2) + '\n')
@@ -460,6 +712,11 @@ def main(argv=None):
     parser.add_argument('--execute', action='store_true')
     parser.add_argument('--hold-image', default=None,
                         help='explicit admitted screen-NNN.png to hold after the full raw clip')
+    parser.add_argument('--inspect-quarantine', action='store_true', help='inspection only, never media admission')
+    parser.add_argument('--sample-start', type=float, default=0)
+    parser.add_argument('--sample-stop', type=float)
+    parser.add_argument('--sample-fps', type=float)
+    parser.add_argument('--native-frames', action='store_true', help='inspect every selected native decoded frame')
     args = parser.parse_args(argv)
     previous = signal.getsignal(signal.SIGTERM)
     def interrupted(*_):
@@ -467,7 +724,11 @@ def main(argv=None):
     try:
         if args.execute:
             signal.signal(signal.SIGTERM, interrupted)
-        value = prepare(args.run_id, args.attempt, args.core_revision, args.output, args.execute, args.hold_image)
+        options = {}
+        if args.inspect_quarantine or args.sample_start != 0 or args.sample_stop is not None or args.sample_fps is not None or args.native_frames:
+            options = dict(inspect_quarantine=args.inspect_quarantine, sample_start=args.sample_start,
+                sample_stop=args.sample_stop, sample_fps=args.sample_fps, native_frames=args.native_frames)
+        value = prepare(args.run_id, args.attempt, args.core_revision, args.output, args.execute, args.hold_image, **options)
         print(json.dumps(value, sort_keys=True, indent=2))
         return 0
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, zipfile.BadZipFile, KeyboardInterrupt):

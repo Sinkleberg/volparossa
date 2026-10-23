@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "run_id": "39998753810",
+  "run_attempt": 1,
+  "core_revision": "6bc0abdb524b79e5244f9381d2d8d45a9100b41d",
+  "weather_revision": "85e9eda9bb6105866db2510758e76c9930fdde91",
+  "workflow_conclusion": "failure",
+  "failed_step": "Admit same-run public Android pixels after full acceptance",
+  "started_at": "2026-10-23T17:53:14Z",
+  "completed_at": "2026-10-23T18:28:07Z",
+  "duration_seconds": 2093,
+  "artifacts": [
+    {
+      "id": 12522319189,
+      "name": "weather-android-delivery-6bc0abdb524b79e5244f9381d2d8d45a9100b41d",
+      "bytes": 10916,
+      "sha256": "4a80c5f743cee91365eaacad1c4205030273ab7b4e65afaa1e1e55ab8bfe139f",
+      "local_archive": "delivery.zip"
+    },
+    {
+      "id": 12522458881,
+      "name": "weather-demo-capture-quarantine-6bc0abdb524b79e5244f9381d2d8d45a9100b41d",
+      "bytes": 7747546,
+      "sha256": "307ebd6239de51d40b17c429658fe751b4201abcda8a0e4abd5688184121230c",
+      "local_archive": "quarantine.zip"
+    }
+  ],
+  "original_delivery_and_cleanup_passed": true,
+  "original_core_acceptance_passed": true,
+  "demo_media_admitted": false,
+  "media_gate": {
+    "stage": "verify-duration",
+    "duration_ms": 65579,
+    "required_end_ms": 67695,
+    "capture_elapsed_ms": 69397,
+    "profile": "one H.264 video stream plus two metadata streams accepted"
+  },
+  "retention": "Only the closed JSON reports and capture manifest are retained here. Raw screenshots, MP4, private keys, logs and full ZIP archives are excluded.",
+  "files": {
+    "weather-android-owner-join.json": {
+      "bytes": 2774,
+      "sha256": "6b29f29f332be3c257d892cfcb7f10c9a23e533f8fa694ad01daa7463fe2827c",
+      "archive_member": "volparossa/volparossa/.cache/weather-android-delivery/weather-android-owner-join.json"
+    },
+    "weather-android-delivery-evidence.json": {
+      "bytes": 4606,
+      "sha256": "fd14ea2c1dbb0c9214de9cb45dfbca1d0afba8a4c53bdbd07f7bbac99ddc3fa6",
+      "archive_member": "volparossa/volparossa/.cache/weather-android-delivery/weather-android-delivery-evidence.json"
+    },
+    "weather-android-hosted-acceptance.json": {
+      "bytes": 2829,
+      "sha256": "d7c4a62a32f917deb86c25ed0a941a22570da50e1505f19726f6044eec9719a5",
+      "archive_member": "volparossa/volparossa/.cache/weather-android-delivery/weather-android-hosted-acceptance.json"
+    },
+    "weather-android-vm-cleanup.json": {
+      "bytes": 446,
+      "sha256": "9f53fe5bccba5139a84470464508a23e0468bc3d30f1f332f504c84a8855cd34",
+      "archive_member": "volparossa/volparossa/.cache/weather-android-delivery/weather-android-vm-cleanup.json"
+    },
+    "kvm-cleanup.json": {
+      "bytes": 464,
+      "sha256": "7268b68b385e5bd3684219e994007cbd8cd4ba96cb83eb51dfde62c815229c38",
+      "archive_member": "_temp/weather-android-inputs/kvm-cleanup.json"
+    },
+    "weather-demo-media-failure.json": {
+      "bytes": 457,
+      "sha256": "1648a2ed4affefbd0adaa250412328d940a063bbac2460c125b26ae11cdb3627",
+      "archive_member": "volparossa/volparossa/.cache/weather-android-delivery/weather-demo-media-failure.json"
+    },
+    "capture.json": {
+      "bytes": 3474,
+      "sha256": "9e6cc9fee2fbeede7040d920fdaeb1874a1307d4499c0e0beb4062d939c369c5",
+      "archive_member": "quarantine/capture.json"
+    }
+  }
+}
