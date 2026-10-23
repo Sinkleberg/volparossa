@@ -84,12 +84,17 @@ def native_json(video, mode):
     """Fixed queries; bounded concurrent pipe reads; join on every exit/cancel."""
     hosted()
     require(mode in ('packets', 'frames', 'version'), 'query')
+    # ffprobe n6.1.1 opt_show_* recursively selects nested sections. A later
+    # scalar -show_entries only replaces its own section, leaving child tags /
+    # dispositions selected (mark_section_show_entries, lines3445-3454).
+    # -show_entries alone activates each requested section via SET_DO_SHOW
+    # (lines3858-3879), without enabling those unwanted child fields.
     queries = {
-        'packets': ['-show_streams', '-show_packets', '-show_format', '-show_entries',
+        'packets': ['-show_entries',
             'stream=' + STREAM_ENTRIES + ':packet=stream_index,pts,duration,pos,size:format=duration'],
-        'frames': ['-select_streams', 'v:0', '-show_frames', '-show_entries',
+        'frames': ['-select_streams', 'v:0', '-show_entries',
             'frame=stream_index,pts,best_effort_timestamp,pkt_duration,pkt_pos,pkt_size'],
-        'version': ['-show_program_version', '-show_entries', 'program_version=version'],
+        'version': ['-show_entries', 'program_version=version'],
     }
     args = [tool(), '-v', 'error', '-protocol_whitelist', 'file,pipe', *queries[mode], '-of', 'json']
     if mode != 'version':
@@ -254,6 +259,24 @@ def timeline_check(timeline, digest, pts, durations, tb):
     return maximum, bound
 
 
+def stream_fields(stream):
+    """Reject every extra field; disclose only a fixed field-class code."""
+    require(type(stream) is dict, 'stream_fields')
+    extra = set(stream) - set(STREAM_ENTRIES.split(','))
+    if not extra:
+        return
+    # These are section names from ffprobe.c's stream section table. Values,
+    # arbitrary keys, tags, paths and metadata bodies never enter diagnostics.
+    known = {'disposition': 'disposition', 'tags': 'tags', 'side_data_list': 'side_data'}
+    if not extra <= set(known):
+        code = 'unknown'
+    elif len(extra) == 1:
+        code = known[next(iter(extra))]
+    else:
+        code = 'nested'
+    raise ValueError('native_timing_stream_fields_' + code)
+
+
 def coherence(raw, packet_report, frame_report, timeline, version):
     """Pure bounded verification; synthetic fixtures do not supply native proof."""
     require(type(raw) is bytes and 0 < len(raw) <= MAX_VIDEO, 'video_size')
@@ -264,7 +287,7 @@ def coherence(raw, packet_report, frame_report, timeline, version):
     require(type(streams) is list and len(streams) == 3, 'streams')
     videos, metadata, indexed = [], [], {}
     for stream in streams:
-        require(type(stream) is dict and set(stream) <= set(STREAM_ENTRIES.split(',')), 'stream_fields')
+        stream_fields(stream)
         index = integer(stream.get('index'), 'stream_index', high=7)
         require(index not in indexed, 'stream_duplicate')
         indexed[index] = stream

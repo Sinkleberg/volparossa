@@ -156,6 +156,23 @@ class Timing(unittest.TestCase):
             self.rejected(lambda v, changes=changes: v[1]['streams'][0].update(changes), 'video_profile')
         self.rejected(lambda v: v[1].update(programs=[{}]), 'packet_report')
 
+    def test_extra_stream_fields_rejected_with_finite_private_diagnostics(self):
+        # Source-predicted FFmpeg shapes, not retained output from the failed
+        # hosted query: that failure report contains no actual extra key names.
+        cases = (({'disposition': {'default': 1}}, 'disposition'),
+            ({'tags': {'private path': 'secret'}}, 'tags'),
+            ({'side_data_list': [{'private': 'secret'}]}, 'side_data'),
+            ({'tags': {}, 'disposition': {}}, 'nested'),
+            ({'unexpected private path': 'secret'}, 'unknown'))
+        for extra, code in cases:
+            values = list(fixture())
+            values[1]['streams'][0].update(extra)
+            with self.subTest(code=code), self.assertRaises(ValueError) as caught:
+                self.check(values)
+            self.assertEqual(str(caught.exception), 'native_timing_stream_fields_' + code)
+            self.assertNotIn('private', str(caught.exception))
+            self.assertNotIn('secret', str(caught.exception))
+
     def test_packet_and_frame_count_mapping_and_order(self):
         self.rejected(lambda v: v[1]['packets'].pop(), 'packet_count')
         self.rejected(lambda v: v[1]['packets'][4].update(stream_index=1), 'metadata_packet_count')
@@ -287,6 +304,27 @@ class NativeBoundary(unittest.TestCase):
         self.assertEqual(kwargs['env'], {'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C'})
         self.assertTrue(child.joined)
         self.assertTrue(child.stdout.closed and child.stderr.closed)
+
+    def test_queries_select_only_required_entries_without_recursive_show_flags(self):
+        expected = {
+            'packets': 'stream=' + T.STREAM_ENTRIES + ':packet=stream_index,pts,duration,pos,size:format=duration',
+            'frames': 'frame=stream_index,pts,best_effort_timestamp,pkt_duration,pkt_pos,pkt_size',
+            'version': 'program_version=version',
+        }
+        for mode, entries in expected.items():
+            with self.subTest(mode=mode):
+                child = FakeChild()
+                _, spawn = self.invoke(child, mode)
+                args = spawn.call_args.args[0]
+                self.assertEqual([arg for arg in args if arg.startswith('-show_')], ['-show_entries'])
+                self.assertEqual(args[args.index('-show_entries') + 1], entries)
+                if mode == 'version':
+                    self.assertNotIn('/workspace/public.mp4', args)
+                else:
+                    self.assertEqual(args[-1], '/workspace/public.mp4')
+                if mode == 'frames':
+                    self.assertEqual(args[args.index('-select_streams') + 1], 'v:0')
+                self.assertTrue(child.joined and child.stdout.closed and child.stderr.closed)
 
     def test_stderr_nonzero_bounds_and_json_rejections_are_closed(self):
         for child in (FakeChild(errors=b'private path secret'), FakeChild(status=1),
