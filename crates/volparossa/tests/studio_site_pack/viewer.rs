@@ -74,7 +74,7 @@ fn failed_browser_stage(path: &Path) -> &'static str {
     let read = || -> Option<serde_json::Value> {
         let file = fs::OpenOptions::new()
             .read(true)
-            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(path)
             .ok()?;
         let metadata = file.metadata().ok()?;
