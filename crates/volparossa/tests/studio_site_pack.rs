@@ -17,6 +17,7 @@ use volparossa_content::site::{SITE_CONTENT_TYPE, SiteBundle};
 #[test]
 #[ignore = "requires the real pinned Silex browser/export hosted fixture"]
 fn actual_silex_export_packs_and_decodes_without_publication() {
+    viewer::diagnostic(viewer::Stage::Pack);
     let directory = PathBuf::from(
         std::env::var_os("VOLPAROSSA_STUDIO_EXPORT_DIRECTORY")
             .expect("explicit real DownloadConnector extraction directory"),
@@ -52,6 +53,7 @@ fn actual_silex_export_packs_and_decodes_without_publication() {
     assert_eq!(report["assets"].as_u64(), Some(assets.len() as u64));
     let bytes = fs::read(&output).expect("actual packed bytes");
     assert_eq!(report["bytes"].as_u64(), Some(bytes.len() as u64));
+    viewer::diagnostic(viewer::Stage::Decode);
     let bundle =
         SiteBundle::decode(bytes.clone()).expect("production canonical SiteBundle decoder");
     assert_eq!(bundle.asset_count(), assets.len());

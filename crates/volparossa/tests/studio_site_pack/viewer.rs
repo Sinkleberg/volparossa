@@ -28,6 +28,94 @@ use volparossa_local_control::{
 
 const NAME: &str = "studio-synthetic-local-viewer";
 
+// Closed progress records are the only diagnostic projected from the private
+// invocation log. Panic hooks and child output remain private and are deleted.
+#[derive(Clone, Copy)]
+pub(super) enum Stage {
+    Pack,
+    Decode,
+    ChildControls,
+    Sign,
+    Transfer,
+    Ready,
+    BrowserObservation,
+    Shutdown,
+    Complete,
+}
+impl Stage {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Pack => "pack",
+            Self::Decode => "decode",
+            Self::ChildControls => "child_controls",
+            Self::Sign => "sign",
+            Self::Transfer => "transfer",
+            Self::Ready => "ready",
+            Self::BrowserObservation => "browser_observation",
+            Self::Shutdown => "shutdown",
+            Self::Complete => "complete",
+        }
+    }
+}
+pub(super) fn diagnostic(stage: Stage) {
+    emit_diagnostic(stage, "not_observed");
+}
+fn emit_diagnostic(stage: Stage, browser_stage: &str) {
+    // Callers supply either a literal or the exact closed projection below.
+    println!(
+        "STUDIO_VIEWER_DIAGNOSTIC {}",
+        serde_json::json!({
+            "schema": 1, "core_stage": stage.name(), "browser_stage": browser_stage
+        })
+    );
+}
+fn failed_browser_stage(path: &Path) -> &'static str {
+    use std::io::Read as _;
+    let read = || -> Option<serde_json::Value> {
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
+            .open(path)
+            .ok()?;
+        let metadata = file.metadata().ok()?;
+        if !metadata.is_file() || metadata.len() > 4096 {
+            return None;
+        }
+        let mut bytes = Vec::new();
+        file.take(4097).read_to_end(&mut bytes).ok()?;
+        if bytes.len() > 4096 {
+            return None;
+        }
+        serde_json::from_slice(&bytes).ok()
+    };
+    let Some(value) = read() else {
+        return "invalid_receipt";
+    };
+    let Some(object) = value.as_object() else {
+        return "invalid_receipt";
+    };
+    if object.len() != 5
+        || value["schema"].as_u64() != Some(1)
+        || value["status"] != "failed"
+        || value["browser_closed"].as_bool().is_none()
+        || !value["rendered_http_requests"]
+            .as_u64()
+            .is_some_and(|n| n <= 1024)
+    {
+        return "invalid_receipt";
+    }
+    match value["stage"].as_str() {
+        Some("launch") => "launch",
+        Some("http") => "http",
+        Some("securityheaders") => "securityheaders",
+        Some("marker") => "marker",
+        Some("style") => "style",
+        Some("assets") => "assets",
+        Some("close") => "close",
+        _ => "invalid_receipt",
+    }
+}
+
 // The outer Python runner owns/drains the whole group on cancellation. This
 // guard additionally kills and reaps direct children on Rust assertion failure
 // or a dropped timeout future, before their private directories are removed.
@@ -156,6 +244,7 @@ pub(super) fn verify(bytes: &[u8], assets: &[serde_json::Value]) -> serde_json::
         .build()
         .unwrap()
         .block_on(async {
+            diagnostic(Stage::ChildControls);
             verify_owned_child_cleanup().await;
             timeout(Duration::from_secs(65), scenario(bytes, assets))
                 .await
@@ -165,6 +254,7 @@ pub(super) fn verify(bytes: &[u8], assets: &[serde_json::Value]) -> serde_json::
 
 async fn scenario(bytes: &[u8], assets: &[serde_json::Value]) -> serde_json::Value {
     use sha2::{Digest as _, Sha256};
+    diagnostic(Stage::Sign);
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();
     let limits = CacheLimits {
@@ -199,6 +289,7 @@ async fn scenario(bytes: &[u8], assets: &[serde_json::Value]) -> serde_json::Val
     )
     .unwrap();
     let verified = signed.verify(&key.verifying_key(), now).unwrap();
+    diagnostic(Stage::Transfer);
     let listener = UnixListener::bind(root.join("control.sock")).unwrap();
     let mut child = OwnedChild(
         Command::new(env!("CARGO_BIN_EXE_volparossa"))
@@ -292,6 +383,7 @@ async fn scenario(bytes: &[u8], assets: &[serde_json::Value]) -> serde_json::Val
     .unwrap();
     drop(listener);
     fs::remove_file(root.join("control.sock")).unwrap();
+    diagnostic(Stage::Ready);
     let ready: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(ready["operation"], "native_site_ready");
     assert_eq!(ready["native_publisher_authenticated"], true);
@@ -324,6 +416,7 @@ async fn scenario(bytes: &[u8], assets: &[serde_json::Value]) -> serde_json::Val
         serde_json::to_writer(&mut file, &handoff_value).unwrap();
         file.flush().unwrap();
     }
+    diagnostic(Stage::BrowserObservation);
     let mut browser = OwnedChild(
         Command::new(std::env::var_os("STUDIO_NODE").unwrap())
             .arg(std::env::var_os("STUDIO_VIEWER_OBSERVER").unwrap())
@@ -335,13 +428,14 @@ async fn scenario(bytes: &[u8], assets: &[serde_json::Value]) -> serde_json::Val
             .spawn()
             .unwrap(),
     );
-    assert!(
-        timeout(Duration::from_secs(35), browser.wait())
-            .await
-            .unwrap()
-            .unwrap()
-            .success()
-    );
+    let browser_status = timeout(Duration::from_secs(35), browser.wait()).await;
+    if !matches!(&browser_status, Ok(Ok(status)) if status.success()) {
+        emit_diagnostic(
+            Stage::BrowserObservation,
+            failed_browser_stage(&receipt_path),
+        );
+    }
+    assert!(browser_status.unwrap().unwrap().success());
     assert!(fs::metadata(&receipt_path).unwrap().len() <= 4096);
     let browser_receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(receipt_path).unwrap()).unwrap();
@@ -368,6 +462,7 @@ async fn scenario(bytes: &[u8], assets: &[serde_json::Value]) -> serde_json::Val
     }
     assert_eq!(browser_receipt["status"], "passed");
     assert!((1..=1024).contains(&browser_receipt["rendered_http_requests"].as_u64().unwrap()));
+    diagnostic(Stage::Shutdown);
     nix::sys::signal::kill(
         nix::unistd::Pid::from_raw(child.id().unwrap() as i32),
         nix::sys::signal::Signal::SIGTERM,
@@ -406,5 +501,6 @@ async fn scenario(bytes: &[u8], assets: &[serde_json::Value]) -> serde_json::Val
         "browser":browser_receipt,"private_spool_removed":true,"listener_closed":true,
         "network_published":false,"independent_peer_retrieval":false});
     directory.close().unwrap();
+    diagnostic(Stage::Complete);
     result
 }
