@@ -1,0 +1,51 @@
+{
+  "hold_frame_index": 206,
+  "identity": {
+    "core_commit": "6bc0abdb524b79e5244f9381d2d8d45a9100b41d",
+    "run_attempt": "1",
+    "run_id": "39998753810",
+    "weather_commit": "85e9eda9bb6105866db2510758e76c9930fdde91"
+  },
+  "kind": "weather-demo-scoped-visual-review",
+  "schema": 1,
+  "scope": "weather-demo-0-native-timing-v1",
+  "source_video_sha256": "bca54a8f677238f26daff6921bb3af0c661e1b39d0aada5ce3f161fda380d5c8",
+  "witnesses": [
+    {
+      "claim": "temperature-visible",
+      "frame_index": 206,
+      "png_sha256": "d168b03343caa9e5c9cdbfc684397686f7ec2f23369fe1b43de856d8d4892aca",
+      "source_pts_seconds": 28.536533
+    },
+    {
+      "claim": "pm25-visible",
+      "frame_index": 240,
+      "png_sha256": "1a62357922d22658baefbead5043f894b621e945b0d9d72ca8d6a8719af66975",
+      "source_pts_seconds": 30.551733
+    },
+    {
+      "claim": "source-validity-visible",
+      "frame_index": 206,
+      "png_sha256": "d168b03343caa9e5c9cdbfc684397686f7ec2f23369fe1b43de856d8d4892aca",
+      "source_pts_seconds": 28.536533
+    },
+    {
+      "claim": "first-refresh-completes",
+      "frame_index": 348,
+      "png_sha256": "08529dfdc9d8b005b4706081c48d8593ad9021d52aab13a183dcc331ae0855b3",
+      "source_pts_seconds": 45.391256
+    },
+    {
+      "claim": "home-visible",
+      "frame_index": 439,
+      "png_sha256": "7defaf4fedb72136dcb9349cb663354e938af959b751ef81e367d404538822e6",
+      "source_pts_seconds": 58.799733
+    },
+    {
+      "claim": "app-return-animation",
+      "frame_index": 489,
+      "png_sha256": "611fa92d54edded13e33283dd1a4da6afc23e61620a364c0b8b3bf7d8156cd30",
+      "source_pts_seconds": 65.5268
+    }
+  ]
+}
