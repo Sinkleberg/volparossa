@@ -90,7 +90,9 @@ def inert_host_observer():
     hashes = {name:'a'*64 for name in ('/proc/net/route','/proc/net/ipv6_route','/etc/resolv.conf')}
     return types.SimpleNamespace(capture=lambda:dict(synthetic=True),
         hashes=lambda _snapshot:dict(hashes),complete=lambda _snapshot:True,
-        compare=lambda *_:dict(diagnostic_only=True,acceptance_evidence=False,classification='UNCHANGED'))
+        compare=lambda *_:dict(diagnostic_only=True,acceptance_evidence=False,classification='UNCHANGED'),
+        configuration_checkpoint=lambda *_:dict(version=1,mode='supported_ipv6_reference_metadata_v1',
+            eligible=True,classification='UNCHANGED',raw_equal=True))
 
 
 class Inert(unittest.TestCase):
@@ -229,7 +231,7 @@ class ScopeCleanup(Inert):
         join.assert_called_once()
         self.assertEqual(scope.group, Path('/synthetic/original'))
 
-    def test_cancellation_does_not_disable_cleanup_and_is_restored(self):
+    def test_cancellation_does_not_disable_bounded_cleanup_and_remains_sticky(self):
         scope = self.scope()
         observed = []
         R.CANCELLED = True
@@ -240,8 +242,27 @@ class ScopeCleanup(Inert):
                 mock.patch.object(R, 'run', side_effect=stop_command), \
                 mock.patch.object(R, 'joined'):
             self.assertTrue(scope.stop()['scope_empty'])
-        self.assertEqual(observed, [False])
+        self.assertEqual(observed, [True])
         self.assertTrue(R.CANCELLED)
+
+
+    def test_cancellation_arriving_during_successful_or_failed_stop_is_never_lost(self):
+        for failed in (False,True):
+            R.CANCELLED=False
+            scope=self.scope()
+            def stop():
+                self.assertTrue(R.CLEANUP_ACTIVE.get())
+                R.CANCELLED=True
+                self.assertEqual(R.remaining(200),100)
+                with mock.patch.object(R.time,'monotonic',return_value=201):
+                    with self.assertRaisesRegex(ValueError,'controller_deadline'):R.remaining(200)
+                if failed:raise R.CleanupUnconfirmed('original_cleanup_error')
+                return {'closed':True}
+            with mock.patch.object(scope,'_stop',side_effect=stop):
+                if failed:
+                    with self.assertRaisesRegex(R.CleanupUnconfirmed,'original_cleanup_error'):scope.stop()
+                else:self.assertEqual(scope.stop(),{'closed':True})
+            self.assertTrue(R.CANCELLED);self.assertFalse(R.CLEANUP_ACTIVE.get())
 
 
 class ModelChannelCleanup(Inert):
@@ -468,6 +489,8 @@ class CorruptionTransition(Inert):
                 result = R.execute(args)
             self.assertEqual((root / 'evidence/result.json').read_bytes(), R.encoded(result))
             self.assertEqual(work.exists(), not result['scratch_removed'])
+            self.assertEqual(result['host_configuration_checkpoint_accepted'],result['state']=='passed')
+            self.assertEqual(result['model_execution'],result['state']=='passed')
             self.assertNotIn(b'private-cleanup-canary', R.encoded(result))
             evidence = {path.name for path in (root / 'evidence').iterdir()}
         R.subprocess.Popen.assert_not_called()
@@ -480,6 +503,7 @@ class CorruptionTransition(Inert):
                 self.assertEqual((result['state'], result['phase']), ('passed', 'complete'))
                 self.assertTrue(result['vm_cleanup_confirmed'])
                 self.assertTrue(result['scratch_removed'])
+                self.assertTrue(result['host_configuration_checkpoint_accepted'])
                 self.assertIn('corrupt-boot.json', evidence)
                 self.assertTrue(all(scope.cleanup_confirmed and scope.process is None for scope in scopes))
                 start = events.index('model_joined')
@@ -2483,11 +2507,11 @@ class ReceiptAndBindings(Inert):
             self.assertEqual(sum(groups.values()), 137)
             for stale in (dict(grant=22, guest=38, resident=41, local=30, startup=2), dict(grant=22, guest=42, resident=41, local=30)):
                 with self.assertRaises(AssertionError): exec(rust_gate, dict(namespace, groups=stale))
-            for count in (237, 236, 226, 225):
+            for count in (243, 242, 241, 240):
                 current = dict(os=namespace['os'], root=Logs(count), re=re, counts={})
-                if count == 237:
+                if count == 243:
                     exec(controller_gate, current)
-                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=237))
+                    self.assertEqual(current['counts'], dict(install=58, assemble=29, run=243))
                 else:
                     with self.assertRaises(AssertionError): exec(controller_gate, current)
             for event, scenario in (('push', 'source-contracts'), ('workflow_dispatch', 'source-contracts'), ('workflow_dispatch', 'public-model')):
@@ -2513,9 +2537,9 @@ class ReceiptAndBindings(Inert):
                     if isinstance(node, ast.If) and repr(branch) in ast.unparse(node.test))
         compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-main-integration-gate', 'exec')
         main = '157908ad1e4a3dc9050179be30a970beff1ef061'
-        feature = '3a96ad7f110bdf338cd527d21f212be06dd3e437'
+        feature = '81c6b6a5522b0f1cadf98345a7180974f46a2344'
         feature_base = '7d0f9f0b492c5e692cc9d26f23d95f55f2c1e651'
-        feature_tree = '7a169c73a412368007f702fbae016b783db14709'
+        feature_tree = '411c728475a8adf77a5a7273a86084c597775c44'
         reconciled = {'Cargo.lock','THIRD_PARTY_LICENSES.md','.github/workflows/protected-resident-model.yml',
             'tests/integration/test-protected-resident-model-run.py',
             'crates/volparossa/src/compute/resident_guest/public_trial.rs',
@@ -2586,14 +2610,74 @@ class ReceiptAndBindings(Inert):
                         inputs=types.SimpleNamespace(scenario=scenario))
                     self.assertEqual(eval(expression,context),job=='contracts' and event=='workflow_dispatch' and scenario=='source-contracts')
 
-    def test_host_after_evidence_precedes_the_unchanged_strict_raw_gate(self):
+
+    def test_main_configuration_source_gate_is_exact_and_only_authorizes_dispatched_source_contracts(self):
+        import textwrap
+        workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
+        code = textwrap.dedent(workflow.split("python3 -B - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
+        branch = 'refs/heads/integration/resident-model-main-20261022'
+        gate = next(node for node in ast.parse(code).body
+                    if isinstance(node, ast.If) and 'main_integration_scope' in ast.unparse(node.test))
+        compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-connect-gate', 'exec')
+        approved = {'.github/workflows/protected-resident-model.yml',
+            'THIRD_PARTY_LICENSES.md',
+            'tests/integration/protected-resident-model-host-observation.py',
+            'tests/integration/test-protected-resident-model-host-observation.py',
+            'tests/integration/protected-resident-model-run.py',
+            'tests/integration/test-protected-resident-model-run.py'}
+        base = 'af9ecc3ca4000b9883db2b38c819b1a18d221d40'
+        for change in ('valid', 'missing', 'extra', 'duplicate', 'dependency', 'ancestry', 'actual_job', 'job_hash'):
+            changed = sorted(approved)
+            if change == 'missing': changed.pop()
+            if change == 'extra': changed.append('crates/volparossa/src/main.rs')
+            if change == 'duplicate': changed.append(changed[0])
+            def git(*args):
+                if args[0] == 'diff': return '\n'.join(changed)
+                if change == 'dependency' and args == ('rev-parse', base + ':Cargo.lock'): return 'b' * 40
+                return 'a' * 40
+            candidate = workflow.encode() + (b'\n' if change in ('actual_job', 'job_hash') else b'')
+            original = candidate if change == 'job_hash' else workflow.encode()
+            command = mock.Mock(side_effect=AssertionError('ancestry') if change == 'ancestry' else None)
+            read = mock.Mock(return_value=original)
+            namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}), main_integration_scope={}, git=git,
+                subprocess=types.SimpleNamespace(run=command, check_output=read), hashlib=hashlib,
+                pathlib=types.SimpleNamespace(Path=lambda _: types.SimpleNamespace(read_bytes=lambda: candidate)))
+            if change == 'valid':
+                exec(compiled, namespace)
+                receipt = namespace['main_configuration_scope']
+                self.assertEqual(set(receipt['source_blobs']), approved)
+                self.assertEqual(len(receipt['dependency_blobs']), 17)
+                self.assertTrue(receipt['source_contracts_only'])
+                self.assertEqual(receipt['checkpoint_mode'],'supported_ipv6_reference_metadata_v1')
+                self.assertNotIn('diagnostic_only',receipt)
+                for key in ('actual_model_execution', 'guest_boot', 'historical_cause_proven'):
+                    self.assertFalse(receipt[key])
+                self.assertEqual(receipt['actual_job_sha256'],
+                                 'e44d67525c0d12f1711064c8f674f35fce559e85b679c6f30fd715fbdf4c90f2')
+            else:
+                with self.assertRaises(AssertionError): exec(compiled, namespace)
+            command.assert_called_once_with(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
+        for job in ('contracts', 'public-model'):
+            condition = workflow.split('\n  ' + job + ':\n', 1)[1].split('    if: >-\n', 1)[1].split('\n    runs-on:', 1)[0]
+            expression = ' '.join(condition.splitlines()).replace('&&', ' and ').replace('||', ' or ').strip()
+            for repository in ('VOLPAROSSA/volparossa', 'unapproved/repository'):
+                for event in ('push', 'workflow_dispatch'):
+                    for scenario in ('source-contracts', 'public-model'):
+                        context = dict(github=types.SimpleNamespace(repository=repository, ref=branch, event_name=event),
+                                       inputs=types.SimpleNamespace(scenario=scenario))
+                        self.assertEqual(eval(compile(expression, 'inert-connect-authority', 'eval'), context),
+                            job == 'contracts' and repository == 'VOLPAROSSA/volparossa' and
+                            event == 'workflow_dispatch' and scenario == 'source-contracts')
+
+
+    def test_host_after_evidence_keeps_raw_truth_and_separate_configuration_eligibility(self):
         tree = ast.parse(SOURCE.read_text())
         function = next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='execute_owned')
         owned = next(node for node in function.body if isinstance(node,ast.Try))
         start = next(i for i,node in enumerate(owned.body) if isinstance(node,ast.Assign)
                      and isinstance(node.targets[0],ast.Name) and node.targets[0].id=='host_after')
-        gate = owned.body[start:start+6]
-        self.assertEqual(ast.unparse(gate[-1]), "require(after == report['host_before'], 'host_network_observation_changed')")
+        gate = owned.body[start:start+9]
+        self.assertEqual(ast.unparse(gate[-1]), "workload_complete = True")
         compiled = compile(ast.Module(body=gate,type_ignores=[]),'inert-host-after-gate','exec')
         before = {name:'a'*64 for name in ('/proc/net/route','/proc/net/ipv6_route','/etc/resolv.conf')}
         for changed in (None,'/proc/net/route','/proc/net/ipv6_route','/etc/resolv.conf'):
@@ -2601,11 +2685,12 @@ class ReceiptAndBindings(Inert):
             if changed: after[changed] = 'b'*64
             observation = dict(classification='REFERENCE_METADATA_ONLY',diagnostic_only=True,acceptance_evidence=False)
             observer = types.SimpleNamespace(capture=mock.Mock(return_value=after),
-                hashes=lambda value:value,compare=lambda *_:observation)
+                hashes=lambda value:value,compare=lambda *_:observation,
+                configuration_checkpoint=lambda *_:dict(eligible=changed in (None,'/proc/net/ipv6_route')))
             report = dict(host_before=before,host_observation=dict(before=before,after=None,comparison=None),
                 state='failed',model_execution=False)
             namespace = dict(host_observer=observer,host_before=before,report=report,require=R.require)
-            if changed:
+            if changed not in (None,'/proc/net/ipv6_route'):
                 with self.assertRaisesRegex(ValueError,'^host_network_observation_changed$'): exec(compiled,namespace)
             else:
                 exec(compiled,namespace)
@@ -2613,6 +2698,7 @@ class ReceiptAndBindings(Inert):
             self.assertEqual(report['host_after'],after)
             self.assertEqual(report['host_observation']['after'],after)
             self.assertEqual(report['host_observation']['comparison'],observation)
+            self.assertEqual(report['host_observed_routes_dns_unchanged'],changed is None)
             self.assertEqual((report['state'],report['model_execution']),('failed',False))
 
     def test_inventory_diagnostic_branch_only_adds_exact_source_contract_authority(self):
@@ -2850,16 +2936,16 @@ class ReceiptAndBindings(Inert):
         import textwrap
         workflow = (R.ROOT / '.github/workflows/protected-resident-model.yml').read_text()
         code = textwrap.dedent(workflow.split("python3 -B - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
-        branch = 'refs/heads/integration/resident-model-main-20261022'
+        branch = 'refs/heads/fix/resident-connect-observation-20261023'
         gate = next(node for node in ast.parse(code).body
-                    if isinstance(node, ast.If) and 'main_integration_scope' in ast.unparse(node.test))
+                    if isinstance(node, ast.If) and repr(branch) in ast.unparse(node.test))
         compiled = compile(ast.Module(body=[gate], type_ignores=[]), 'inert-connect-gate', 'exec')
         approved = {'.github/workflows/protected-resident-model.yml',
             'crates/volparossa/src/compute/resident_guest/public_trial.rs',
             'crates/volparossa/src/compute/resident_guest/public_trial/tests.rs',
             'tests/integration/protected-resident-model-run.py',
             'tests/integration/test-protected-resident-model-run.py'}
-        base = '84be249dd014666f8a9fc98a3f511e51b9238047'
+        base = '291e94938ebefb828fa05f30515205424ccec925'
         for change in ('valid', 'missing', 'extra', 'duplicate', 'dependency', 'ancestry', 'actual_job', 'job_hash'):
             changed = sorted(approved)
             if change == 'missing': changed.pop()
@@ -2873,7 +2959,7 @@ class ReceiptAndBindings(Inert):
             original = candidate if change == 'job_hash' else workflow.encode()
             command = mock.Mock(side_effect=AssertionError('ancestry') if change == 'ancestry' else None)
             read = mock.Mock(return_value=original)
-            namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}), main_integration_scope={}, git=git,
+            namespace = dict(os=types.SimpleNamespace(environ={'GITHUB_REF': branch}), git=git,
                 subprocess=types.SimpleNamespace(run=command, check_output=read), hashlib=hashlib,
                 pathlib=types.SimpleNamespace(Path=lambda _: types.SimpleNamespace(read_bytes=lambda: candidate)))
             if change == 'valid':
@@ -3338,6 +3424,85 @@ class ExecutionScratchCleanup(Inert):
             self.assertEqual(seen[1], {})
         finally:
             R.TOOL_PROCESSES.reset(token)
+
+
+class TerminalCheckpoint(Inert):
+    def finalization(self,*,eligible=True,complete=True,pending=False,scope_failed=False,
+                     removal_error=False,cancel_at=None,expired=False,primary=None,raw_equal=True):
+        function=next(n for n in ast.parse(SOURCE.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='execute_owned')
+        owned=next(n for n in function.body if isinstance(n,ast.Try))
+        compiled=compile(ast.Module(body=owned.finalbody,type_ignores=[]),'inert-real-finalization','exec')
+        report=dict(state='failed',phase='corruption_negative',model_execution=False,scratch_removed=False,
+            scratch_cleanup_failure=None,host_observed_routes_dns_unchanged=raw_equal,
+            host_configuration_checkpoint=dict(eligible=eligible),host_configuration_checkpoint_accepted=False)
+        if primary:report['failure']=primary
+        def stop():
+            if cancel_at=='stop':R.CANCELLED=True
+            if scope_failed:raise R.CleanupUnconfirmed('PRIVATE_CLEANUP_ERROR')
+            scope.process=None;scope.cleanup_confirmed=True
+        scope=types.SimpleNamespace(process=object(),cleanup_confirmed=False,started=True,group=None,stop=stop)
+        def remove(*_args):
+            self.assertEqual(report['state'],'failed')
+            self.assertFalse(report['model_execution'] or report['host_configuration_checkpoint_accepted'])
+            if cancel_at=='scratch':R.CANCELLED=True
+            if removal_error:raise OSError('PRIVATE_REMOVE_ERROR')
+        if cancel_at=='capture':
+            # Execute the actual final host-capture path with a synthetic reader
+            # that receives cancellation during capture, before eligibility returns.
+            start=next(i for i,n in enumerate(owned.body) if isinstance(n,ast.Assign)
+                       and isinstance(n.targets[0],ast.Name) and n.targets[0].id=='host_after')
+            def capture():
+                R.CANCELLED=True
+                return {'synthetic':'after'}
+            observer=types.SimpleNamespace(capture=capture,hashes=lambda _:dict(raw='same'),
+                compare=lambda *_:dict(diagnostic_only=True,acceptance_evidence=False),
+                configuration_checkpoint=lambda *_:dict(eligible=True))
+            report['host_before']={'raw':'same'}
+            report['host_observation']={}
+            host_namespace=dict(host_observer=observer,host_before={'synthetic':'before'},
+                                report=report,require=R.require)
+            exec(compile(ast.Module(body=owned.body[start:start+9],type_ignores=[]),
+                         'inert-cancel-during-real-host-capture','exec'),host_namespace)
+            self.assertTrue(R.CANCELLED)
+        if expired:R.time.monotonic.return_value=201
+        namespace=dict(R.__dict__,report=report,scopes=[scope],build_scope=None,
+            pending={1:object()} if pending else {},workload_complete=complete,
+            work=Path('/synthetic'),parent_identity=None,payload_identity=None,deadline=200,
+            remove_payload=mock.Mock(side_effect=remove),evidence=Path('/synthetic/evidence'),write_new=mock.Mock())
+        exec(compiled,namespace)
+        namespace['write_new'].assert_called_once()
+        self.assertNotIn(b'PRIVATE_',R.encoded(report))
+        return report
+
+    def test_success_waits_for_cleanup_preserves_reference_only_raw_false(self):
+        for raw_equal in (False,True):
+            result=self.finalization(raw_equal=raw_equal)
+            self.assertEqual(result['state'],'passed')
+            self.assertTrue(result['model_execution'] and result['host_configuration_checkpoint_accepted'])
+            self.assertTrue(result['vm_cleanup_confirmed'] and result['tool_cleanup_confirmed'] and result['scratch_removed'])
+            self.assertEqual(result['host_observed_routes_dns_unchanged'],raw_equal)
+
+    def test_incomplete_workload_corruption_source_or_cleanup_never_accepts(self):
+        for kwargs in (dict(complete=False),dict(eligible=False),dict(primary='source_changed',complete=False),
+            dict(primary='negative_guest_exit_timeout',complete=False),dict(primary='command_failed',complete=False),
+            dict(pending=True),dict(scope_failed=True),dict(removal_error=True)):
+            result=self.finalization(**kwargs)
+            self.assertEqual(result['state'],'failed')
+            self.assertFalse(result['model_execution'] or result['host_configuration_checkpoint_accepted'])
+
+    def test_late_cancellation_or_deadline_at_every_finalization_boundary_withholds_acceptance(self):
+        for kwargs in (dict(cancel_at='stop'),dict(cancel_at='capture'),dict(cancel_at='scratch'),dict(expired=True)):
+            R.CANCELLED=False;R.time.monotonic.return_value=100
+            result=self.finalization(**kwargs)
+            self.assertEqual(result['state'],'failed')
+            self.assertFalse(result['model_execution'] or result['host_configuration_checkpoint_accepted'])
+            self.assertEqual(result['failure'],'controller_deadline' if kwargs.get('expired') else 'controller_cancelled')
+
+    def test_primary_failure_survives_cancellation_and_failed_cleanup(self):
+        result=self.finalization(complete=False,primary='source_changed',scope_failed=True,cancel_at='stop')
+        self.assertEqual(result['failure'],'source_changed')
+        self.assertFalse(result['model_execution'] or result['host_configuration_checkpoint_accepted'])
+        self.assertEqual(result['state'],'failed');self.assertTrue(R.CANCELLED)
 
 
 class PayloadRemoval(Inert):

@@ -1055,8 +1055,8 @@ VOLPAROSSA Map code from `https://github.com/VOLPAROSSA/volparossa-map`, commit
 blob `d7e8015f8a0aa26e946e97890adb1259c43167fa`, file SHA-256
 `6cc55f6d28ebe56e7b097e58c4cd0eb9737c46d04e69ce4c53ccb84875ea8b96`.
 The Map repository's unchanged GPLv3 license remains authoritative. The reused
-function bodies are unchanged; only the snapshot docstring describes this
-controller's strict diagnostic scope. New surrounding code is GPL-3.0-only.
+function bodies are unchanged; only the snapshot docstring describes the
+non-accepting fingerprints and separate configuration policy. New surrounding code is GPL-3.0-only.
 No Map configuration-acceptance exception or upstream Linux code is imported.
 
 Primary renderer evidence is `net/ipv6/ip6_fib.c` at these exact upstream commits:
@@ -1075,5 +1075,14 @@ The selected column reads `fib6_ref` through `refcount_read`; retained Map sourc
 review also binds its `refcount_t` declaration and atomic-read helper. This
 supports the three narrow renderer profiles, with strict observed-layout checks.
 It does not verify Ubuntu Azure's downstream patch lineage, attest the running
-kernel's source, identify a historical changed field/actor, or permit a model
-trial to pass after any raw route/resolver fingerprint mismatch.
+kernel's source or identify a historical changed field/actor. The legacy diagnostic
+projection remains diagnostic-only, including its truthful raw-equality result.
+A separate versioned configuration checkpoint now derives eligibility from complete,
+validated captures with identical supported full renderer descriptors, exact IPv4/DNS
+fingerprints and exact ordered IPv6 non-reference bytes and row count. It permits
+only unchanged configuration or reference-metadata-only differences; raw-only
+inconsistency and all other or unavailable observations fail closed. Trial acceptance
+also requires normal workload, corruption and source checks, joined VM/tool/scratch
+cleanup, and a terminal cancellation/deadline guard. Historical failed trials remain
+failed. This bounded checkpoint makes no firewall, leak, transient-state, route-lineage,
+Ubuntu vendor verification or running-kernel attestation claim.
