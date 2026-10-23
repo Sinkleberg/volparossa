@@ -678,7 +678,8 @@ class Review(unittest.TestCase):
     def test_quarantine_success_is_only_an_inspection_result_on_a_failed_original_run(self):
         path, capture, module = self.quarantine_fixture()
         output = self.root / 'inspection'
-        video = module['probe_video'](None)
+        # Expected metadata is inert data; only quarantine_evidence invokes the token-checking probe stub.
+        video = dict(codec='h264', width=720, height=1280, duration_seconds=65.579, has_audio=False)
         media = dict(video=video, files={'screen.mp4': capture['files']['source-capture/screen.mp4']})
         with patch.object(R, 'ROOT', self.root), patch.object(R, 'hosted'), patch.dict(os.environ, ENV, clear=True), \
                 patch.object(R, 'selected_artifact', return_value={'id': 7, 'original_run_conclusion': 'failure'}) as selected, \
@@ -697,6 +698,11 @@ class Review(unittest.TestCase):
         self.assertEqual(result['review_execution']['core_commit'], REVIEW_CORE)
         accepted_mode.assert_not_called()
         held.assert_not_called()
+
+    def test_quarantine_success_fixture_tolerates_synthetic_job_token_environment(self):
+        with patch.dict(os.environ, {key: 'SYNTHETIC_UNIT_TOKEN' for key in
+                ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN']}):
+            self.test_quarantine_success_is_only_an_inspection_result_on_a_failed_original_run()
 
     def test_duplicate_json_keys_are_not_silently_accepted(self):
         with self.assertRaises(ValueError):

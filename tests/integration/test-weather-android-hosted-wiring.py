@@ -50,7 +50,7 @@ class AndroidHostedWiring(unittest.TestCase):
 
     def test_all_actions_and_weather_source_are_exact(self):
         actions = re.findall(r'uses: ([^\s]+)', SOURCE)
-        self.assertEqual(len(actions), 10)
+        self.assertEqual(len(actions), 11)
         self.assertTrue(all(re.fullmatch(r'actions/(?:checkout|upload-artifact)@[a-f0-9]{40}', item) for item in actions))
         self.assertEqual(SOURCE.count('persist-credentials: false'), 4)
         self.assertIn('  VOLPAROSSA_WEATHER_SOURCE_SHA: ' + WEATHER, SOURCE)
@@ -78,7 +78,7 @@ class AndroidHostedWiring(unittest.TestCase):
 
     def test_nested_checkout_and_vm_output_are_ignored_and_socket_bound_is_checked(self):
         paths = re.findall(r'(?m)^          path: ([.a-zA-Z0-9_/-]+)$', SOURCE)
-        self.assertEqual(paths, ['.cache/weather-media-tool-probe/probe.json', '.cache/weather-demo-visual-review/', '.cache/weather-android-source'])
+        self.assertEqual(paths, ['.cache/weather-media-tool-probe/probe.json', '.cache/weather-demo-visual-review/', '.cache/weather-demo-visual-review/review-failure.json', '.cache/weather-android-source'])
         ignored = subprocess.run(['git', 'check-ignore', '--no-index', '--stdin'], cwd=ROOT,
             input='\n'.join(paths + ['.cache/weather-android-delivery']) + '\n', text=True, capture_output=True, timeout=5)
         self.assertEqual(ignored.returncode, 0, ignored.stderr)
@@ -348,7 +348,7 @@ getfacl() { printf 'original inert ACL\\n'; }
     def test_artifact_upload_is_closed_not_a_directory_or_glob(self):
         section = block('Upload only closed evidence and pinned-input provenance')
         self.assertIn('          include-hidden-files: true\n', section)
-        self.assertEqual(SOURCE.count('include-hidden-files:'), 6)
+        self.assertEqual(SOURCE.count('include-hidden-files:'), 7)
         paths = section.split('          path: |\n', 1)[1].splitlines()
         self.assertEqual([path.strip() for path in paths if path.strip()], [
             '${{ env.WEATHER_OUTPUT }}/weather-android-delivery-evidence.json',
@@ -437,6 +437,16 @@ getfacl() { printf 'original inert ACL\\n'; }
                         SOURCE.index('- name: Admit same-run public Android pixels after full acceptance'))
         for forbidden in ('always()', 'continue-on-error', 'gh release', '/build/', '*.mp4'):
             self.assertNotIn(forbidden, collect + upload)
+
+    def test_review_unit_checks_have_no_api_token_and_failure_upload_is_closed(self):
+        checks = block('Check retained-media contracts without API credentials')
+        self.assertIn('tests/integration/test-weather-demo-0-review.py', checks)
+        self.assertNotIn('GH_TOKEN', checks)
+        failure = block('Retain only closed review failure observations')
+        self.assertIn('if: failure()', failure)
+        self.assertIn('path: .cache/weather-demo-visual-review/review-failure.json', failure)
+        for forbidden in ('*.json', '*.png', '*.mp4', 'path: .cache/weather-demo-visual-review/\n'):
+            self.assertNotIn(forbidden, failure)
 
     def test_inner_diagnostic_is_optional_host_output_not_input_or_acceptance(self):
         parser_test = 'python3 -B tests/integration/test-weather-android-inner-diagnostic.py'

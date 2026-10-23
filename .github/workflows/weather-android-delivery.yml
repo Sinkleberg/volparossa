@@ -108,6 +108,8 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/weather-demo-0-media-tools.sh
+      - name: Check retained-media contracts without API credentials
+        run: python3 -B tests/integration/test-weather-demo-0-review.py
       - name: Inspect retained source-bound recording without rerunning Android
         env:
           GH_TOKEN: ${{ github.token }}
@@ -124,7 +126,6 @@ jobs:
           set -euo pipefail
           umask 077
           mkdir -p "$GITHUB_WORKSPACE/.cache"
-          python3 -B tests/integration/test-weather-demo-0-review.py
           review_args=(--run-id "$REVIEW_RUN_ID" --attempt "$REVIEW_ATTEMPT"
             --core-revision "$REVIEW_CORE_REVISION"
             --output "$GITHUB_WORKSPACE/.cache/weather-demo-visual-review"
@@ -149,6 +150,15 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           path: .cache/weather-demo-visual-review/
+      - name: Retain only closed review failure observations
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: weather-demo-review-failure-${{ inputs.review_run_id }}-${{ inputs.review_attempt }}-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: ignore
+          include-hidden-files: true
+          path: .cache/weather-demo-visual-review/review-failure.json
   joined:
     if: ${{ !inputs.media_probe_only && inputs.review_run_id == '' && !inputs.review_quarantine }}
     runs-on: ubuntu-24.04

@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "run_id": "40006021627",
+  "source_revision": "3bb03969fcb4bac61de0d1b3413409b1a50f484d",
+  "purpose": "inspection-only of retained run39998753810",
+  "original_runtime_core": "6bc0abdb524b79e5244f9381d2d8d45a9100b41d",
+  "failed_stage": "credential-environment-dependent inert unit fixture",
+  "native_decode_executed": false,
+  "original_capture_modified": false,
+  "original_media_admission": false
+}
