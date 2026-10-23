@@ -19,7 +19,7 @@ The selected thread responsibilities are:
 | `4131036e94d9` | Coordination, integration, evidence and presentation | Sol High |
 | `0f3e43fc2e9e` | Recording implementation and media correction | Sol High |
 | `84b14a5aa9bf` | Artifact inventory and CI monitoring | Luna Medium |
-| `794ca99cb7c2` | Deterministic source bundles | Sol Medium |
+| `794ca99cb7c2` | Deterministic source bundles and retained-media review wrapper | Sol Medium |
 | `f7b3f25f485d` | Independent technical review | Sol High |
 
 The recording implementer's installed role is named `volparossa_reviewer`; that
@@ -45,6 +45,15 @@ No architectural redesign was required for this milestone.
   before building or executing Android. Attempt 2 uses the identical source
   revision on a fresh disposable runner. No runtime limit or acceptance guard
   was relaxed to accommodate that infrastructure failure.
+
+- The second full delivery trial also passed original delivery/cleanup but rejected
+  three MP4 streams. AOSP and FFmpeg source analysis identified the specific
+  video-plus-two-timing-tracks container profile to test before another trial.
+- Dedicated capture quarantine now preserves source/window/report hashes and
+  unreviewed media before strict admission, without changing a failed result.
+- Synthetic review probe `39874201029` exposed a font-data guard mismatch;
+  `39874591752` stopped on slow mirror downloads. Probe `39875572392` passed
+  parser, rendering and contact sheets after the documented corrections.
 
 Completed CI wall time, final model-counter snapshots and the genuine-media
 review outcome must be added after the corresponding execution finishes.

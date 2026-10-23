@@ -48,7 +48,7 @@ relax its resource checks, or replace KVM with unverified emulation.
 
    ```sh
    gh workflow run weather-android-delivery.yml \
-     --repo VOLPAROSSA/volparossa --ref demo/weather-0-20261023 \
+     --repo VOLPAROSSA/volparossa --ref demo/weather-0-media-review-20261023 \
      -f record_demo=true
    ```
 
